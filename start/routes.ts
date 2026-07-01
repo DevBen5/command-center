@@ -11,6 +11,7 @@ import router from '@adonisjs/core/services/router'
 
 const ServicesController = () => import('#controllers/modules/services_controller')
 const AgentsController = () => import('#controllers/modules/agents_controller')
+const VeilleController = () => import('#controllers/modules/veille_controller')
 
 router.on('/').renderInertia('home')
 
@@ -30,3 +31,11 @@ router
     router.post('/:id/stop', [AgentsController, 'stop'])
   })
   .prefix('/agents')
+
+router
+  .group(() => {
+    router.get('/', [VeilleController, 'index'])
+    router.post('/', [VeilleController, 'store'])
+    router.post('/:id/queue', [VeilleController, 'toggleQueue'])
+  })
+  .prefix('/veille')
