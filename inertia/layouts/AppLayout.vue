@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Link, usePage } from '@inertiajs/vue3'
 
 const page = usePage()
@@ -15,6 +15,8 @@ const navItems = [
 function isActive(href: string): boolean {
   return href === '/' ? page.url === '/' : page.url.startsWith(href)
 }
+
+const pageTitle = computed(() => navItems.find((item) => isActive(item.href))?.label ?? 'Accueil')
 
 const paletteOpen = ref(false)
 const paletteQuery = ref('')
@@ -107,7 +109,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <div class="flex min-w-0 flex-1 flex-col">
       <header class="flex h-[66px] shrink-0 items-center gap-3.5 border-b border-line px-[30px]">
         <span class="text-[13px] text-txt-3">Pilotage /</span>
-        <h1 class="m-0 text-[18px] font-bold tracking-tight"><slot name="title">Accueil</slot></h1>
+        <h1 class="m-0 text-[18px] font-bold tracking-tight">{{ pageTitle }}</h1>
       </header>
       <div class="flex-1 overflow-x-hidden overflow-y-auto p-[30px]">
         <slot />
