@@ -2,21 +2,68 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Link, usePage } from '@inertiajs/vue3'
 
-const page = usePage()
+interface NavStats {
+  services: { total: number; down: number }
+  agents: { total: number; failed: number }
+  veille: { queue: number }
+  leitner: { due: number }
+  host: string
+}
 
-const navItems = [
+const page = usePage()
+const nav = computed(() => page.props.nav as NavStats | undefined)
+
+interface NavItem {
+  label: string
+  href: string
+  shortcut: string
+  badge?: number
+  alert?: boolean
+}
+
+const navItems = computed<NavItem[]>(() => [
   { label: 'Accueil', href: '/', shortcut: 'g a' },
-  { label: 'Services', href: '/services', shortcut: 'g s' },
-  { label: 'Agents', href: '/agents', shortcut: 'g g' },
-  { label: 'Veille', href: '/veille', shortcut: 'g v' },
-  { label: 'Révision', href: '/revision', shortcut: 'g r' },
+  {
+    label: 'Services',
+    href: '/services',
+    shortcut: 'g s',
+    badge: nav.value?.services.down || undefined,
+    alert: (nav.value?.services.down ?? 0) > 0,
+  },
+  {
+    label: 'Agents',
+    href: '/agents',
+    shortcut: 'g g',
+    badge: nav.value?.agents.failed || undefined,
+    alert: (nav.value?.agents.failed ?? 0) > 0,
+  },
+  {
+    label: 'Veille',
+    href: '/veille',
+    shortcut: 'g v',
+    badge: nav.value?.veille.queue || undefined,
+  },
+  {
+    label: 'Révision',
+    href: '/revision',
+    shortcut: 'g r',
+    badge: nav.value?.leitner.due || undefined,
+    alert: (nav.value?.leitner.due ?? 0) > 0,
+  },
+])
+
+const systemItems = [
+  { label: 'Journaux', href: '/', shortcut: '' },
+  { label: 'Réglages', href: '/', shortcut: 'g ,' },
 ]
 
 function isActive(href: string): boolean {
   return href === '/' ? page.url === '/' : page.url.startsWith(href)
 }
 
-const pageTitle = computed(() => navItems.find((item) => isActive(item.href))?.label ?? 'Accueil')
+const pageTitle = computed(
+  () => navItems.value.find((item) => isActive(item.href))?.label ?? 'Accueil'
+)
 
 const paletteOpen = ref(false)
 const paletteQuery = ref('')
@@ -48,16 +95,16 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <div class="flex h-screen w-screen bg-bg text-txt font-sans">
-    <aside class="w-[252px] shrink-0 bg-side border-r border-line flex flex-col">
+    <aside class="flex w-[252px] shrink-0 flex-col border-r border-line bg-side">
       <div class="flex items-center gap-3 px-[22px] pt-6 pb-[18px]">
         <div
-          class="w-8 h-8 rounded-[9px] bg-linear-to-br from-accent to-[#8a1a8a] grid place-items-center text-white font-bold text-sm"
+          class="grid h-8 w-8 place-items-center rounded-[9px] bg-linear-to-br from-accent to-[#8a1a8a] text-sm font-bold text-white shadow-[0_0_18px_var(--color-accent-soft)]"
         >
           C
         </div>
         <div>
           <b class="block text-sm tracking-tight">Centre de commande</b>
-          <small class="block text-[11px] text-txt-3 font-medium">poste de pilotage</small>
+          <small class="block text-[11px] font-medium text-txt-3">poste de pilotage</small>
         </div>
       </div>
 
@@ -72,37 +119,72 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         >
       </button>
 
-      <div class="px-[26px] pb-2 text-[10px] tracking-[.14em] text-txt-3 uppercase">Pilotage</div>
+      <div class="px-[26px] pt-2 pb-2 text-[10px] tracking-[.14em] text-txt-3 uppercase">
+        Pilotage
+      </div>
       <nav class="flex flex-col gap-[3px] px-4">
         <Link
           v-for="item in navItems"
-          :key="item.href"
+          :key="item.label"
           :href="item.href"
           class="relative flex items-center gap-3 rounded-[10px] px-[13px] py-[10px] text-[13.5px] font-medium transition"
           :class="
             isActive(item.href)
-              ? 'bg-accent-soft text-txt'
+              ? 'bg-accent-soft text-txt before:absolute before:left-0 before:top-[9px] before:bottom-[9px] before:w-[3px] before:rounded-r-[3px] before:bg-accent before:shadow-[0_0_10px_var(--color-accent)]'
               : 'text-txt-2 hover:bg-panel hover:text-txt'
           "
         >
           <span
             class="h-[18px] w-[18px] rounded-[5px] border-[1.5px] border-current opacity-70"
+            :class="isActive(item.href) ? 'text-accent opacity-100' : ''"
           ></span>
           {{ item.label }}
-          <span class="ml-auto font-mono text-[11px] text-txt-3">{{ item.shortcut }}</span>
+          <span
+            v-if="item.badge"
+            class="ml-auto grid h-[19px] min-w-[22px] place-items-center rounded-full px-1.5 font-mono text-[11px]"
+            :class="item.alert ? 'bg-accent text-white' : 'bg-panel-2 text-txt-2 border border-line'"
+          >
+            {{ item.badge }}
+          </span>
+          <span v-else class="ml-auto font-mono text-[11px] text-txt-3">{{ item.shortcut }}</span>
+        </Link>
+      </nav>
+
+      <div class="px-[26px] pt-[18px] pb-2 text-[10px] tracking-[.14em] text-txt-3 uppercase">
+        Système
+      </div>
+      <nav class="flex flex-col gap-[3px] px-4">
+        <Link
+          v-for="item in systemItems"
+          :key="item.label"
+          :href="item.href"
+          class="flex items-center gap-3 rounded-[10px] px-[13px] py-[10px] text-[13.5px] font-medium text-txt-2 opacity-55 transition hover:bg-panel hover:text-txt"
+        >
+          <span class="h-[18px] w-[18px] rounded-[5px] border-[1.5px] border-current opacity-70"></span>
+          {{ item.label }}
+          <span v-if="item.shortcut" class="ml-auto font-mono text-[11px] text-txt-3">{{
+            item.shortcut
+          }}</span>
         </Link>
       </nav>
 
       <div
         class="mt-auto flex items-center gap-[11px] border-t border-line px-[22px] py-[18px] text-xs text-txt-2"
       >
-        <div
-          class="h-[30px] w-[30px] shrink-0 rounded-full bg-linear-to-br from-aqua to-accent"
-        ></div>
-        <div>
-          <div class="font-semibold text-txt">Hôte : —</div>
-          <div class="text-[11px]">Services · Agents</div>
+        <div class="h-[30px] w-[30px] shrink-0 rounded-full bg-linear-to-br from-aqua to-accent"></div>
+        <div class="min-w-0">
+          <div class="truncate font-semibold text-txt">Hôte : {{ nav?.host ?? '—' }}</div>
+          <div class="text-[11px]">
+            {{ nav?.services.total ?? 0 }} services · {{ nav?.agents.total ?? 0 }} agents
+          </div>
         </div>
+        <a
+          href="/"
+          class="ml-auto shrink-0 rounded-lg border border-line-2 px-2.5 py-[7px] text-[11px] text-txt-3 transition hover:border-accent hover:text-txt"
+          title="Revenir au site public"
+        >
+          Site →
+        </a>
       </div>
     </aside>
 
@@ -139,7 +221,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           </div>
           <Link
             v-for="item in navItems"
-            :key="item.href"
+            :key="item.label"
             :href="item.href"
             class="flex items-center gap-3 px-[19px] py-[10px] text-[13px] text-txt hover:bg-accent-soft"
             @click="closePalette"

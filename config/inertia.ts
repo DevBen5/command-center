@@ -1,5 +1,6 @@
 import { defineConfig } from '@adonisjs/inertia'
 import type { InferSharedProps } from '@adonisjs/inertia/types'
+import NavStatsService from '#services/nav_stats_service'
 
 const inertiaConfig = defineConfig({
   /**
@@ -11,7 +12,8 @@ const inertiaConfig = defineConfig({
    * Data that should be shared with all rendered pages
    */
   sharedData: {
-    // user: (ctx) => ctx.inertia.always(() => ctx.auth.user),
+    // Compteurs de la barre latérale, recalculés à chaque navigation Inertia.
+    nav: () => new NavStatsService().collect(),
   },
 
   /**
