@@ -146,7 +146,9 @@ function logout(): void {
           <span
             v-if="item.badge"
             class="ml-auto grid h-[19px] min-w-[22px] place-items-center rounded-full px-1.5 font-mono text-[11px]"
-            :class="item.alert ? 'bg-accent text-white' : 'bg-panel-2 text-txt-2 border border-line'"
+            :class="
+              item.alert ? 'bg-accent text-white' : 'bg-panel-2 text-txt-2 border border-line'
+            "
           >
             {{ item.badge }}
           </span>
@@ -164,7 +166,9 @@ function logout(): void {
           :href="item.href"
           class="flex items-center gap-3 rounded-[10px] px-[13px] py-[10px] text-[13.5px] font-medium text-txt-2 opacity-55 transition hover:bg-panel hover:text-txt"
         >
-          <span class="h-[18px] w-[18px] rounded-[5px] border-[1.5px] border-current opacity-70"></span>
+          <span
+            class="h-[18px] w-[18px] rounded-[5px] border-[1.5px] border-current opacity-70"
+          ></span>
           {{ item.label }}
           <span v-if="item.shortcut" class="ml-auto font-mono text-[11px] text-txt-3">{{
             item.shortcut
@@ -175,7 +179,9 @@ function logout(): void {
       <div
         class="mt-auto flex items-center gap-[11px] border-t border-line px-[22px] py-[18px] text-xs text-txt-2"
       >
-        <div class="h-[30px] w-[30px] shrink-0 rounded-full bg-linear-to-br from-aqua to-accent"></div>
+        <div
+          class="h-[30px] w-[30px] shrink-0 rounded-full bg-linear-to-br from-aqua to-accent"
+        ></div>
         <div class="min-w-0">
           <div class="truncate font-semibold text-txt">Hôte : {{ nav?.host ?? '—' }}</div>
           <div class="text-[11px]">

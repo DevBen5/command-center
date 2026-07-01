@@ -25,12 +25,15 @@ function submit(): void {
     "
   >
     <form
+      novalidate
       class="w-[380px] max-w-[88vw] rounded-[14px] border border-[rgba(255,20,147,.3)] bg-[rgba(18,19,46,.85)] p-9 shadow-[0_24px_70px_rgba(0,0,0,.5)]"
       @submit.prevent="submit"
     >
       <div class="text-[11px] tracking-[.18em] text-aqua uppercase">Centre de commande</div>
       <h2 class="mt-2 mb-1 text-[30px] font-bold text-accent">Espace privé</h2>
-      <p class="mb-7 text-[13px] text-txt-2">Connectez-vous pour accéder à votre tableau de bord.</p>
+      <p class="mb-7 text-[13px] text-txt-2">
+        Connectez-vous pour accéder à votre tableau de bord.
+      </p>
 
       <div class="mb-[18px]">
         <label class="mb-[7px] block text-[12px] text-txt-2">Adresse e-mail</label>
@@ -40,7 +43,10 @@ function submit(): void {
           autocomplete="username"
           class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[14px] text-txt outline-none focus:border-aqua"
           :class="form.errors.email ? 'border-bad' : ''"
-        >
+        />
+        <p v-if="form.errors.email" class="mt-1.5 text-[12.5px] text-bad">
+          {{ form.errors.email }}
+        </p>
       </div>
 
       <div class="mb-[18px]">
@@ -50,11 +56,12 @@ function submit(): void {
           type="password"
           autocomplete="current-password"
           class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[14px] text-txt outline-none focus:border-aqua"
-          :class="form.errors.email ? 'border-bad' : ''"
-        >
+          :class="form.errors.password ? 'border-bad' : ''"
+        />
+        <p v-if="form.errors.password" class="mt-1.5 text-[12.5px] text-bad">
+          {{ form.errors.password }}
+        </p>
       </div>
-
-      <p v-if="form.errors.email" class="mb-4 text-[12.5px] text-bad">{{ form.errors.email }}</p>
 
       <button
         type="submit"

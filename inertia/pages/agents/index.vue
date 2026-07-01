@@ -65,8 +65,13 @@ function stop(agent: Agent): void {
       Filtrer les agents…
     </div>
     <div class="flex-1"></div>
-    <span class="rounded-[9px] border border-line-2 bg-panel-2 px-3.5 py-2 text-[12.5px] text-txt-2">Framework : Hermes ▾</span>
-    <button type="button" class="rounded-[9px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white">
+    <span class="rounded-[9px] border border-line-2 bg-panel-2 px-3.5 py-2 text-[12.5px] text-txt-2"
+      >Framework : Hermes ▾</span
+    >
+    <button
+      type="button"
+      class="rounded-[9px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white"
+    >
       + Nouvel agent
     </button>
   </div>

@@ -27,7 +27,11 @@ const props = defineProps<{ services: Service[]; stats: Stats }>()
 
 function restartAll(): void {
   for (const service of props.services.filter((s) => s.status === 'up')) {
-    router.post(`/services/${service.id}/restart`, {}, { preserveScroll: true, preserveState: true })
+    router.post(
+      `/services/${service.id}/restart`,
+      {},
+      { preserveScroll: true, preserveState: true }
+    )
   }
 }
 
@@ -68,19 +72,27 @@ function act(service: Service, action: 'start' | 'stop' | 'restart'): void {
       <span class="h-[15px] w-[15px] shrink-0 rounded-full border-[1.5px] border-current"></span>
       Filtrer les services…
     </div>
-    <span class="rounded-full border border-line-2 bg-panel-2 px-3 py-1.5 text-[11px] text-txt-2">Catégorie ▾</span>
-    <span class="rounded-full border border-line-2 bg-panel-2 px-3 py-1.5 text-[11px] text-txt-2">Statut ▾</span>
+    <span class="rounded-full border border-line-2 bg-panel-2 px-3 py-1.5 text-[11px] text-txt-2"
+      >Catégorie ▾</span
+    >
+    <span class="rounded-full border border-line-2 bg-panel-2 px-3 py-1.5 text-[11px] text-txt-2"
+      >Statut ▾</span
+    >
     <div class="flex-1"></div>
     <div class="inline-flex overflow-hidden rounded-[9px] border border-line-2 bg-panel">
       <button type="button" class="bg-accent px-3.5 py-2 text-[12.5px] text-white">Grille</button>
-      <button type="button" class="border-l border-line px-3.5 py-2 text-[12.5px] text-txt-2">Liste</button>
+      <button type="button" class="border-l border-line px-3.5 py-2 text-[12.5px] text-txt-2">
+        Liste
+      </button>
     </div>
     <button
       type="button"
       class="flex items-center gap-2 rounded-[9px] border border-line-2 bg-panel-2 px-3.5 py-2 text-[12.5px] transition hover:border-txt-3"
       @click="restartAll"
     >
-      <span class="rounded-md border border-line-2 bg-panel px-1.5 py-0.5 font-mono text-[11px]">R</span>
+      <span class="rounded-md border border-line-2 bg-panel px-1.5 py-0.5 font-mono text-[11px]"
+        >R</span
+      >
       Tout redémarrer
     </button>
   </div>
@@ -98,11 +110,15 @@ function act(service: Service, action: 'start' | 'stop' | 'restart'): void {
       <div class="text-[11px] text-txt-3">arrêté{{ stats.down > 1 ? 's' : '' }}</div>
     </div>
     <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
-      <div class="font-mono text-[24px] font-bold">{{ stats.cpuAvg }}<span class="text-[13px]"> %</span></div>
+      <div class="font-mono text-[24px] font-bold">
+        {{ stats.cpuAvg }}<span class="text-[13px]"> %</span>
+      </div>
       <div class="text-[11px] text-txt-3">CPU moyen (actifs)</div>
     </div>
     <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
-      <div class="font-mono text-[24px] font-bold">{{ stats.ramAvg }}<span class="text-[13px]"> %</span></div>
+      <div class="font-mono text-[24px] font-bold">
+        {{ stats.ramAvg }}<span class="text-[13px]"> %</span>
+      </div>
       <div class="text-[11px] text-txt-3">RAM moyenne (actifs)</div>
     </div>
   </div>
