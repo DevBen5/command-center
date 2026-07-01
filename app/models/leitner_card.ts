@@ -1,5 +1,7 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
+import type { HasMany } from '@adonisjs/lucid/types/relations'
+import LeitnerReview from '#models/leitner_review'
 
 export default class LeitnerCard extends BaseModel {
   @column({ isPrimary: true })
@@ -19,6 +21,9 @@ export default class LeitnerCard extends BaseModel {
 
   @column()
   declare tags: string[]
+
+  @hasMany(() => LeitnerReview)
+  declare reviews: HasMany<typeof LeitnerReview>
 
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
