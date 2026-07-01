@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { Link, usePage } from '@inertiajs/vue3'
+import { Link, router, usePage } from '@inertiajs/vue3'
 
 interface NavStats {
   services: { total: number; down: number }
@@ -91,6 +91,10 @@ function onKeydown(event: KeyboardEvent): void {
 
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+
+function logout(): void {
+  router.post('/logout')
+}
 </script>
 
 <template>
@@ -178,13 +182,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             {{ nav?.services.total ?? 0 }} services · {{ nav?.agents.total ?? 0 }} agents
           </div>
         </div>
-        <a
-          href="/"
+        <button
+          type="button"
           class="ml-auto shrink-0 rounded-lg border border-line-2 px-2.5 py-[7px] text-[11px] text-txt-3 transition hover:border-accent hover:text-txt"
-          title="Revenir au site public"
+          title="Se déconnecter"
+          @click="logout"
         >
-          Site →
-        </a>
+          Quitter →
+        </button>
       </div>
     </aside>
 

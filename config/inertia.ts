@@ -12,8 +12,13 @@ const inertiaConfig = defineConfig({
    * Data that should be shared with all rendered pages
    */
   sharedData: {
-    // Compteurs de la barre latérale, recalculés à chaque navigation Inertia.
-    nav: () => new NavStatsService().collect(),
+    // Utilisateur connecté (ou null sur les pages publiques comme /login).
+    user: (ctx) => {
+      const user = ctx.auth?.user
+      return user ? { fullName: user.fullName, email: user.email } : null
+    },
+    // Compteurs de la barre latérale, uniquement quand on est authentifié.
+    nav: (ctx) => (ctx.auth?.user ? new NavStatsService().collect() : null),
   },
 
   /**
