@@ -27,8 +27,18 @@ export default class VeilleController {
 
     const items = await query
 
+    // Stats globales (indépendantes des filtres courants) pour la bande d'indicateurs.
+    const all = await VeilleItem.all()
+    const stats = {
+      total: all.length,
+      rss: all.filter((i) => i.type === 'rss').length,
+      queue: all.filter((i) => i.readingQueue).length,
+      tags: new Set(all.flatMap((i) => i.tags)).size,
+    }
+
     return inertia.render('veille/index', {
       items,
+      stats,
       filters: { type, tag, readingQueue: !!readingQueue, search },
     })
   }

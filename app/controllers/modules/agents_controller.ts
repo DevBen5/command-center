@@ -8,9 +8,17 @@ export default class AgentsController {
     const selectedId = request.input('id', agents[0]?.id)
     const selected = agents.find((agent) => agent.id === Number(selectedId)) ?? null
 
+    const stats = {
+      active: agents.filter((a) => a.status === 'active').length,
+      running: agents.filter((a) => a.status === 'running').length,
+      failed: agents.filter((a) => a.status === 'failed').length,
+      total: agents.length,
+    }
+
     return inertia.render('agents/index', {
       agents,
       selected,
+      stats,
       recentLogs: selected ? new AgentRunnerService().recentLogs(selected) : [],
     })
   }

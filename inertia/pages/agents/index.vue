@@ -12,9 +12,17 @@ interface Agent {
   config: Record<string, unknown>
 }
 
+interface Stats {
+  active: number
+  running: number
+  failed: number
+  total: number
+}
+
 const props = defineProps<{
   agents: Agent[]
   selected: Agent | null
+  stats: Stats
   recentLogs: string[]
 }>()
 
@@ -47,6 +55,41 @@ function stop(agent: Agent): void {
 
 <template>
   <Head title="Agents" />
+
+  <!-- Barre d'outils -->
+  <div class="mb-4 flex items-center gap-3">
+    <div
+      class="flex w-[280px] items-center gap-2.5 rounded-[9px] border border-line-2 bg-panel px-3.5 py-2.5 text-[13px] text-txt-3"
+    >
+      <span class="h-[15px] w-[15px] shrink-0 rounded-full border-[1.5px] border-current"></span>
+      Filtrer les agents…
+    </div>
+    <div class="flex-1"></div>
+    <span class="rounded-[9px] border border-line-2 bg-panel-2 px-3.5 py-2 text-[12.5px] text-txt-2">Framework : Hermes ▾</span>
+    <button type="button" class="rounded-[9px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white">
+      + Nouvel agent
+    </button>
+  </div>
+
+  <!-- Bande d'indicateurs -->
+  <div class="mb-[18px] grid grid-cols-4 gap-3.5">
+    <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
+      <div class="font-mono text-[24px] font-bold text-ok">{{ stats.active }}</div>
+      <div class="text-[11px] text-txt-3">agents actifs</div>
+    </div>
+    <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
+      <div class="font-mono text-[24px] font-bold text-warn">{{ stats.running }}</div>
+      <div class="text-[11px] text-txt-3">en cours d'exécution</div>
+    </div>
+    <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
+      <div class="font-mono text-[24px] font-bold text-accent">{{ stats.failed }}</div>
+      <div class="text-[11px] text-txt-3">en échec</div>
+    </div>
+    <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
+      <div class="font-mono text-[24px] font-bold">{{ stats.total }}</div>
+      <div class="text-[11px] text-txt-3">agents au total</div>
+    </div>
+  </div>
 
   <div
     class="grid min-h-[560px] grid-cols-[minmax(280px,360px)_1fr] overflow-hidden rounded-[14px] border border-line bg-panel"

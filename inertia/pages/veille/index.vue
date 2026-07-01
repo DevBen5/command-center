@@ -23,7 +23,14 @@ interface Filters {
   search: string | null
 }
 
-const props = defineProps<{ items: VeilleItem[]; filters: Filters }>()
+interface Stats {
+  total: number
+  rss: number
+  queue: number
+  tags: number
+}
+
+const props = defineProps<{ items: VeilleItem[]; stats: Stats; filters: Filters }>()
 
 const allTags = computed(() => {
   const tags = new Set<string>()
@@ -95,6 +102,26 @@ function submitCapture(): void {
     >
       Rechercher
     </button>
+  </div>
+
+  <!-- Bande d'indicateurs -->
+  <div class="mb-[18px] grid grid-cols-4 gap-3.5">
+    <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
+      <div class="font-mono text-[24px] font-bold text-accent">{{ stats.total }}</div>
+      <div class="text-[11px] text-txt-3">éléments au total</div>
+    </div>
+    <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
+      <div class="font-mono text-[24px] font-bold">{{ stats.rss }}</div>
+      <div class="text-[11px] text-txt-3">flux RSS</div>
+    </div>
+    <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
+      <div class="font-mono text-[24px] font-bold">{{ stats.queue }}</div>
+      <div class="text-[11px] text-txt-3">en file de lecture</div>
+    </div>
+    <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
+      <div class="font-mono text-[24px] font-bold">{{ stats.tags }}</div>
+      <div class="text-[11px] text-txt-3">tags distincts</div>
+    </div>
   </div>
 
   <div
