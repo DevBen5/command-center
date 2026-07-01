@@ -58,7 +58,11 @@ function act(service: Service, action: 'start' | 'stop' | 'restart'): void {
         v-for="service in services"
         :key="service.id"
         class="flex flex-col gap-3 rounded-[13px] border p-4"
-        :class="service.status === 'down' ? 'border-bad/40 bg-linear-to-b from-bad/10 to-panel' : 'border-line bg-panel'"
+        :class="
+          service.status === 'down'
+            ? 'border-bad/40 bg-linear-to-b from-bad/10 to-panel'
+            : 'border-line bg-panel'
+        "
       >
         <div class="flex items-center gap-3">
           <div class="h-8 w-8 shrink-0 rounded-[9px] border border-line-2 bg-panel-2"></div>

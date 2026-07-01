@@ -48,7 +48,9 @@ function stop(agent: Agent): void {
 <template>
   <Head title="Agents" />
 
-  <div class="grid min-h-[560px] grid-cols-[minmax(280px,360px)_1fr] overflow-hidden rounded-[14px] border border-line bg-panel">
+  <div
+    class="grid min-h-[560px] grid-cols-[minmax(280px,360px)_1fr] overflow-hidden rounded-[14px] border border-line bg-panel"
+  >
     <div class="border-r border-line bg-bg-2">
       <div class="flex items-center gap-2.5 border-b border-line p-4 text-[12px] font-semibold">
         {{ agents.length }} agents
@@ -58,7 +60,11 @@ function stop(agent: Agent): void {
         :key="agent.id"
         type="button"
         class="flex w-full items-center gap-3 border-b border-line px-4 py-3.5 text-left transition"
-        :class="selected?.id === agent.id ? 'bg-accent-soft shadow-[inset_3px_0_0_var(--color-accent)]' : 'hover:bg-panel-2'"
+        :class="
+          selected?.id === agent.id
+            ? 'bg-accent-soft shadow-[inset_3px_0_0_var(--color-accent)]'
+            : 'hover:bg-panel-2'
+        "
         @click="select(agent)"
       >
         <div class="min-w-0 flex-1">
@@ -66,7 +72,9 @@ function stop(agent: Agent): void {
             <span class="h-2 w-2 rounded-full" :class="dotClass[agent.status]"></span>
             {{ agent.name }}
           </div>
-          <div class="mt-0.5 text-[11.5px] text-txt-2">{{ statusLabel[agent.status] }} · {{ agent.framework }}</div>
+          <div class="mt-0.5 text-[11.5px] text-txt-2">
+            {{ statusLabel[agent.status] }} · {{ agent.framework }}
+          </div>
         </div>
       </button>
     </div>
@@ -75,7 +83,9 @@ function stop(agent: Agent): void {
       <div class="flex items-center gap-3 border-b border-line p-4">
         <span class="h-2 w-2 rounded-full" :class="dotClass[selected.status]"></span>
         <span class="font-semibold">{{ selected.name }}</span>
-        <span class="rounded-full border border-line-2 bg-panel-2 px-2.5 py-0.5 text-[11px] text-txt-2">
+        <span
+          class="rounded-full border border-line-2 bg-panel-2 px-2.5 py-0.5 text-[11px] text-txt-2"
+        >
           {{ statusLabel[selected.status] }}
         </span>
         <div class="ml-auto flex gap-2">
@@ -100,12 +110,17 @@ function stop(agent: Agent): void {
 
       <div class="border-b border-line p-4 text-[13px] text-txt-2">
         <div class="text-[10px] tracking-[.06em] text-txt-3 uppercase">Config</div>
-        <pre class="mt-2 font-mono text-[11.5px] whitespace-pre-wrap text-txt-2">{{ JSON.stringify(selected.config, null, 2) }}</pre>
+        <pre class="mt-2 font-mono text-[11.5px] whitespace-pre-wrap text-txt-2">{{
+          JSON.stringify(selected.config, null, 2)
+        }}</pre>
       </div>
 
       <div class="p-4">
         <div class="mb-2 flex items-center gap-2 text-[11px] text-txt-3">
-          <span class="rounded-md border border-line-2 bg-panel-2 px-1.5 py-0.5 font-mono text-[10px]">LOGS</span>
+          <span
+            class="rounded-md border border-line-2 bg-panel-2 px-1.5 py-0.5 font-mono text-[10px]"
+            >LOGS</span
+          >
           {{ recentLogs.length }} dernières lignes
         </div>
         <div class="rounded-[10px] bg-bg-2 p-4 font-mono text-[11.5px] leading-[1.85] text-txt-2">

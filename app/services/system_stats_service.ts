@@ -6,7 +6,8 @@ const execAsync = promisify(exec)
 
 export default class SystemStatsService {
   async control(service: Service, action: 'start' | 'stop' | 'restart') {
-    const containerName = (service.config.containerName as string | undefined) ?? service.name.toLowerCase()
+    const containerName =
+      (service.config.containerName as string | undefined) ?? service.name.toLowerCase()
 
     try {
       await execAsync(`docker ${action} ${containerName}`)
