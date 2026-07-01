@@ -9,12 +9,13 @@
 
 import router from '@adonisjs/core/services/router'
 
+const HomeController = () => import('#controllers/home_controller')
 const ServicesController = () => import('#controllers/modules/services_controller')
 const AgentsController = () => import('#controllers/modules/agents_controller')
 const VeilleController = () => import('#controllers/modules/veille_controller')
 const LeitnerController = () => import('#controllers/modules/leitner_controller')
 
-router.on('/').renderInertia('home')
+router.get('/', [HomeController, 'index'])
 
 router
   .group(() => {
