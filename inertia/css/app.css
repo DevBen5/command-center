@@ -33,3 +33,24 @@ body {
   background: var(--color-bg);
   color: var(--color-txt);
 }
+
+/*
+ * TailwindCSS v4 ne met plus `cursor: pointer` sur les <button> (le curseur par
+ * défaut d'un bouton HTML est la flèche). On rétablit le pointeur sur tous les
+ * éléments interactifs. Placé dans @layer base pour qu'une classe `cursor-*`
+ * puisse toujours le surcharger au cas par cas.
+ */
+@layer base {
+  button:not(:disabled),
+  [role='button']:not(:disabled),
+  label[for],
+  select,
+  summary {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [role='button']:disabled {
+    cursor: not-allowed;
+  }
+}
