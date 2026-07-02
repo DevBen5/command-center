@@ -1,0 +1,29 @@
+{
+  "shared": {
+    "fields": {
+      "email": "e-mail",
+      "password": "mot de passe",
+      "title": "titre",
+      "url": "URL",
+      "content": "contenu",
+      "type": "type",
+      "front": "recto",
+      "back": "verso",
+      "tags": "tags",
+      "grade": "note"
+    },
+    "messages": {
+      "required": "Le champ {field} est obligatoire.",
+      "string": "Le champ {field} doit être une chaîne de caractères.",
+      "email": "L'adresse e-mail est invalide.",
+      "url": "L'URL est invalide.",
+      "enum": "La valeur du champ {field} est invalide.",
+      "minLength": "Le champ {field} doit contenir au moins {min} caractères.",
+      "maxLength": "Le champ {field} ne doit pas dépasser {max} caractères.",
+      "password.minLength": "Le mot de passe est obligatoire.",
+      "title.minLength": "Le titre est obligatoire.",
+      "front.minLength": "Le recto est obligatoire.",
+      "back.minLength": "Le verso est obligatoire."
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "shared": {
+    "fields": {
+      "email": "email",
+      "password": "password",
+      "title": "title",
+      "url": "URL",
+      "content": "content",
+      "type": "type",
+      "front": "front",
+      "back": "back",
+      "tags": "tags",
+      "grade": "grade"
+    },
+    "messages": {
+      "required": "The {field} field is required.",
+      "string": "The {field} field must be a string.",
+      "email": "The email address is invalid.",
+      "url": "The URL is invalid.",
+      "enum": "The value of the {field} field is invalid.",
+      "minLength": "The {field} field must have at least {min} characters.",
+      "maxLength": "The {field} field must not exceed {max} characters.",
+      "password.minLength": "The password is required.",
+      "title.minLength": "The title is required.",
+      "front.minLength": "The front is required.",
+      "back.minLength": "The back is required."
+    }
+  }
+}

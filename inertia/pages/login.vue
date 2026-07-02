@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { Head, useForm } from '@inertiajs/vue3'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const form = useForm({
   email: '',
@@ -14,7 +17,7 @@ function submit(): void {
 </script>
 
 <template>
-  <Head title="Connexion" />
+  <Head :title="t('login.title')" />
 
   <div
     class="flex min-h-screen items-center justify-center bg-bg font-sans"
@@ -29,14 +32,12 @@ function submit(): void {
       class="w-[380px] max-w-[88vw] rounded-[14px] border border-[rgba(255,20,147,.3)] bg-[rgba(18,19,46,.85)] p-9 shadow-[0_24px_70px_rgba(0,0,0,.5)]"
       @submit.prevent="submit"
     >
-      <div class="text-[11px] tracking-[.18em] text-aqua uppercase">Centre de commande</div>
-      <h2 class="mt-2 mb-1 text-[30px] font-bold text-accent">Espace privé</h2>
-      <p class="mb-7 text-[13px] text-txt-2">
-        Connectez-vous pour accéder à votre tableau de bord.
-      </p>
+      <div class="text-[11px] tracking-[.18em] text-aqua uppercase">{{ t('login.eyebrow') }}</div>
+      <h2 class="mt-2 mb-1 text-[30px] font-bold text-accent">{{ t('login.title') }}</h2>
+      <p class="mb-7 text-[13px] text-txt-2">{{ t('login.lead') }}</p>
 
       <div class="mb-[18px]">
-        <label class="mb-[7px] block text-[12px] text-txt-2">Adresse e-mail</label>
+        <label class="mb-[7px] block text-[12px] text-txt-2">{{ t('login.email') }}</label>
         <input
           v-model="form.email"
           type="email"
@@ -50,7 +51,7 @@ function submit(): void {
       </div>
 
       <div class="mb-[18px]">
-        <label class="mb-[7px] block text-[12px] text-txt-2">Mot de passe</label>
+        <label class="mb-[7px] block text-[12px] text-txt-2">{{ t('login.password') }}</label>
         <input
           v-model="form.password"
           type="password"
@@ -68,7 +69,7 @@ function submit(): void {
         :disabled="form.processing"
         class="w-full rounded-[7px] bg-linear-to-r from-accent to-[#8a1a8a] py-[13px] text-[14px] font-semibold text-white shadow-[0_0_22px_var(--color-accent-soft)] disabled:opacity-60"
       >
-        Accéder au tableau de bord
+        {{ t('login.submit') }}
       </button>
     </form>
   </div>

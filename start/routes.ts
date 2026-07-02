@@ -11,6 +11,7 @@ import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 
 const AuthController = () => import('#controllers/auth_controller')
+const LocaleController = () => import('#controllers/locale_controller')
 const HomeController = () => import('#controllers/home_controller')
 const ServicesController = () => import('#controllers/modules/services_controller')
 const AgentsController = () => import('#controllers/modules/agents_controller')
@@ -30,6 +31,9 @@ router
   .use(middleware.guest())
 
 router.post('/logout', [AuthController, 'destroy']).use(middleware.auth())
+
+// Changement de langue — accessible connecté ou non (page login incluse).
+router.post('/locale', [LocaleController, 'switch'])
 
 /*
 |--------------------------------------------------------------------------

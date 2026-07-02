@@ -1,0 +1,47 @@
+{
+  "brand": {
+    "title": "Centre de commande",
+    "subtitle": "poste de pilotage"
+  },
+  "search": {
+    "placeholder": "Rechercher / commande…"
+  },
+  "nav": {
+    "sectionPilotage": "Pilotage",
+    "sectionSysteme": "Système",
+    "accueil": "Accueil",
+    "services": "Services",
+    "agents": "Agents",
+    "veille": "Veille",
+    "revision": "Révision",
+    "journaux": "Journaux",
+    "reglages": "Réglages"
+  },
+  "sidebar": {
+    "host": "Hôte : {host}",
+    "counts": "{services} services · {agents} agents",
+    "logout": "Quitter →",
+    "logoutTitle": "Se déconnecter",
+    "language": "Langue"
+  },
+  "topbar": {
+    "crumb": "Pilotage /"
+  },
+  "palette": {
+    "placeholder": "Tapez une commande, un service, un agent…",
+    "navigation": "Navigation",
+    "goTo": "Aller à — {label}",
+    "navigate": "naviguer",
+    "open": "ouvrir",
+    "close": "fermer"
+  },
+  "login": {
+    "eyebrow": "Centre de commande",
+    "title": "Espace privé",
+    "lead": "Connectez-vous pour accéder à votre tableau de bord.",
+    "email": "Adresse e-mail",
+    "password": "Mot de passe",
+    "submit": "Accéder au tableau de bord",
+    "invalid": "Identifiants invalides."
+  }
+}

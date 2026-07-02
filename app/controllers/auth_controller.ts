@@ -16,7 +16,7 @@ export default class AuthController {
     return inertia.render('login')
   }
 
-  async store({ request, auth, response, session }: HttpContext) {
+  async store({ request, auth, response, session, i18n }: HttpContext) {
     const { email, password } = await request.validateUsing(loginValidator)
 
     try {
@@ -24,8 +24,8 @@ export default class AuthController {
       await auth.use('web').login(user)
     } catch {
       // L'adaptateur Inertia expose les erreurs depuis le flash `errorsBag`,
-      // qui alimente `form.errors` côté Vue.
-      session.flash('errorsBag', { email: 'Identifiants invalides.' })
+      // qui alimente `form.errors` côté Vue. Message traduit selon la langue active.
+      session.flash('errorsBag', { email: i18n.t('auth.invalidCredentials') })
       return response.redirect().back()
     }
 

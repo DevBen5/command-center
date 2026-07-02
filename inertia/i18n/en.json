@@ -1,0 +1,47 @@
+{
+  "brand": {
+    "title": "Command Center",
+    "subtitle": "control station"
+  },
+  "search": {
+    "placeholder": "Search / command…"
+  },
+  "nav": {
+    "sectionPilotage": "Control",
+    "sectionSysteme": "System",
+    "accueil": "Home",
+    "services": "Services",
+    "agents": "Agents",
+    "veille": "Watch",
+    "revision": "Review",
+    "journaux": "Logs",
+    "reglages": "Settings"
+  },
+  "sidebar": {
+    "host": "Host: {host}",
+    "counts": "{services} services · {agents} agents",
+    "logout": "Sign out →",
+    "logoutTitle": "Sign out",
+    "language": "Language"
+  },
+  "topbar": {
+    "crumb": "Control /"
+  },
+  "palette": {
+    "placeholder": "Type a command, a service, an agent…",
+    "navigation": "Navigation",
+    "goTo": "Go to — {label}",
+    "navigate": "navigate",
+    "open": "open",
+    "close": "close"
+  },
+  "login": {
+    "eyebrow": "Command Center",
+    "title": "Private area",
+    "lead": "Sign in to access your dashboard.",
+    "email": "Email address",
+    "password": "Password",
+    "submit": "Access the dashboard",
+    "invalid": "Invalid credentials."
+  }
+}

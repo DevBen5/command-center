@@ -1,5 +1,6 @@
 import { defineConfig } from '@adonisjs/inertia'
 import type { InferSharedProps } from '@adonisjs/inertia/types'
+import i18nManager from '@adonisjs/i18n/services/main'
 import NavStatsService from '#services/nav_stats_service'
 
 const inertiaConfig = defineConfig({
@@ -19,6 +20,9 @@ const inertiaConfig = defineConfig({
     },
     // Compteurs de la barre latérale, uniquement quand on est authentifié.
     nav: (ctx) => (ctx.auth?.user ? new NavStatsService().collect() : null),
+    // Langue courante + langues disponibles, pour le sélecteur côté Vue.
+    locale: (ctx) => ctx.i18n?.locale ?? 'fr',
+    supportedLocales: () => i18nManager.supportedLocales(),
   },
 
   /**
