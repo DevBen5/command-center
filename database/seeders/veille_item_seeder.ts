@@ -3,7 +3,7 @@ import VeilleItem from '#models/veille_item'
 
 export default class extends BaseSeeder {
   async run() {
-    await VeilleItem.createMany([
+    await VeilleItem.updateOrCreateMany('title', [
       {
         type: 'rss',
         title: 'Construire un pipeline RAG local sans cloud',

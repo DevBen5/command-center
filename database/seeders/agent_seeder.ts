@@ -3,7 +3,7 @@ import Agent from '#models/agent'
 
 export default class extends BaseSeeder {
   async run() {
-    await Agent.createMany([
+    await Agent.updateOrCreateMany('name', [
       {
         name: 'Veille-quotidienne',
         framework: 'Hermes',

@@ -6,7 +6,7 @@ export default class extends BaseSeeder {
   async run() {
     const today = DateTime.now().startOf('day')
 
-    await LeitnerCard.createMany([
+    await LeitnerCard.updateOrCreateMany('front', [
       // Boîte 1 — dues aujourd'hui ou en retard
       {
         front: "Qu'est-ce qu'une route Inertia dans AdonisJS ?",

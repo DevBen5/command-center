@@ -3,7 +3,7 @@ import Service from '#models/service'
 
 export default class extends BaseSeeder {
   async run() {
-    await Service.createMany([
+    await Service.updateOrCreateMany('name', [
       { name: 'Jellyfin', category: 'Média', status: 'down', cpuPercent: 0, ramPercent: 0 },
       { name: 'Navidrome', category: 'Média', status: 'up', cpuPercent: 12, ramPercent: 28 },
       { name: 'Immich', category: 'Média', status: 'up', cpuPercent: 34, ramPercent: 52 },
