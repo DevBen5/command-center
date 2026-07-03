@@ -1,0 +1,30 @@
+import { test } from '@japa/runner'
+import testUtils from '@adonisjs/core/services/test_utils'
+import User from '#models/user'
+
+const PAGES: Array<{ route: string; component: string }> = [
+  { route: '/', component: 'home' },
+  { route: '/services', component: 'services/index' },
+  { route: '/agents', component: 'agents/index' },
+  { route: '/veille', component: 'veille/index' },
+  { route: '/revision', component: 'leitner/index' },
+]
+
+test.group('Modules / accès authentifié', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+
+  for (const { route, component } of PAGES) {
+    test(`GET ${route} rend le composant ${component}`, async ({ client }) => {
+      const user = await User.create({
+        fullName: 'Utilisateur Test',
+        email: 'test@example.com',
+        password: 'secret123',
+      })
+
+      const response = await client.get(route).loginAs(user).withInertia()
+
+      response.assertStatus(200)
+      response.assertInertiaComponent(component)
+    })
+  }
+})

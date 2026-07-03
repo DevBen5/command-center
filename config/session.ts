@@ -40,6 +40,8 @@ const sessionConfig = defineConfig({
    * List of configured stores. Refer documentation to see
    * list of available stores and their config.
    */
+  // Le store « memory » (utilisé par les tests via .env.test) est intégré
+  // d'office au package : seul « cookie » doit être déclaré ici.
   stores: {
     cookie: stores.cookie(),
   },
