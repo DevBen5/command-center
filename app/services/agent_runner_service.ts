@@ -6,6 +6,13 @@ const execAsync = promisify(exec)
 
 export default class AgentRunnerService {
   async run(agent: Agent) {
+    /*
+     * FRONTIÈRE DE CONFIANCE : `config.command` est une commande shell complète,
+     * par conception (comme une entrée cron). Elle n'est modifiable par AUCUN
+     * formulaire de l'application — seuls les seeders / un accès direct à la
+     * base peuvent l'écrire. Si un jour un écran d'édition de la config est
+     * ajouté, ce champ ne devra JAMAIS y être exposé tel quel.
+     */
     const command = agent.config.command as string | undefined
 
     try {
