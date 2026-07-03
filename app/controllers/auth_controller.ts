@@ -1,5 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import vine from '@vinejs/vine'
+import { errors as authErrors } from '@adonisjs/auth'
 import User from '#models/user'
 
 const loginValidator = vine.compile(
@@ -22,7 +23,14 @@ export default class AuthController {
     try {
       const user = await User.verifyCredentials(email, password)
       await auth.use('web').login(user)
-    } catch {
+    } catch (error) {
+      // Seule l'erreur « identifiants invalides » est traitée ici ; toute autre
+      // exception (ex. base de données injoignable) doit remonter au handler
+      // global plutôt que d'être maquillée en erreur de saisie.
+      if (!(error instanceof authErrors.E_INVALID_CREDENTIALS)) {
+        throw error
+      }
+
       // L'adaptateur Inertia expose les erreurs depuis le flash `errorsBag`,
       // qui alimente `form.errors` côté Vue. Message traduit selon la langue active.
       session.flash('errorsBag', { email: i18n.t('auth.invalidCredentials') })
