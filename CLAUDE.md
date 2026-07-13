@@ -1,0 +1,58 @@
+# Command Center
+
+Tableau de bord auto-hébergé. AdonisJS 6 (ESM, TS strict) + Inertia 2 + Vue 3 + Tailwind v4 + PostgreSQL (Lucid).
+
+Commandes : `npm run dev` · `npm test` · `npm run typecheck` · `npm run lint`
+
+## Architecture — feature-based
+
+Chaque feature est une tranche verticale complète. Les dossiers AdonisJS par défaut
+(`app/models/`, `app/controllers/`, `database/migrations/`, `inertia/pages/`) **n'existent plus**.
+
+```
+app/core/     auth · dashboard · i18n · shared      → import via #core/*
+app/modules/  services · agents · veille · leitner  → import via #modules/*
+  └── controllers/ models/ migrations/ seeders/ services/ validators/ pages/
+```
+
+- **Seuls `#core/*` et `#modules/*` sont valides.** `package.json` conserve des alias morts
+  (`#models/*`, `#controllers/*`, `#services/*`, `#middleware/*`, `#validators/*`, `#database/*`)
+  qui pointent vers des dossiers supprimés : un import `#models/foo` *paraît* correct mais est faux.
+- **N'utilise pas `node ace make:*` tel quel** : ces commandes génèrent aux chemins par défaut et
+  recréent l'ancienne arborescence. Crée les fichiers directement dans le module.
+
+## Trois choses qui cassent sans lever d'erreur
+
+1. **Nouveau module → l'enregistrer dans `config/database.ts`**, dans `migrations.paths` *et*
+   `seeders.paths`. Rien n'est auto-découvert : un path oublié = migration jamais jouée, en silence.
+   L'ordre des tableaux est l'ordre d'exécution (contraintes FK).
+
+2. **Pages Inertia : le nom dérive du chemin du fichier**, résolu à la main dans `inertia/app/app.ts`
+   (on retire `/app/` et `/pages/`). `inertia.render('modules/veille/index')` ⇄
+   `app/modules/veille/pages/index.vue`. Un écart échoue au runtime, pas au build.
+
+3. **Couleurs : uniquement les tokens `@theme` de `inertia/css/app.css`**
+   (`bg`, `panel`, `panel-2`, `line`, `txt`/`txt-2`/`txt-3`, `accent`, `aqua`, `ok`/`bad`/`warn`).
+   Aucune couleur en dur. Tout le style est utility-first dans les `.vue`.
+
+## Sécurité — ne pas régresser
+
+- **`agent.config.command` est une commande shell exécutée telle quelle** (`AgentRunnerService`).
+  C'est assumé (modèle « cron »), sur la seule garantie que **ce champ n'est écrivable par aucun
+  formulaire**. Ne l'expose jamais dans une UI d'édition : ce serait une RCE.
+- **Docker : `execFile` + whitelist regex sur le nom de conteneur** (`SystemStatsService`).
+  Jamais `exec()` avec interpolation de chaîne.
+- **`whereRaw` toujours paramétré** (bindings `?`), jamais concaténé.
+- Toute entrée utilisateur passe par un validateur VineJS. CSRF actif (Shield) : les POST de test
+  exigent `.withCsrfToken()`.
+
+## Conventions
+
+- Contrôleurs fins ; la logique va dans les `services/` du module.
+- Code et commentaires **en français**. Messages de commit en **anglais**, Conventional Commits.
+- Les `catch {}` de `SystemStatsService` et `AgentRunnerService` avalent l'échec Docker/script et
+  simulent le succès en base : **c'est volontaire** (poste de dev sans conteneurs réels), ne le
+  « corrige » pas.
+- **Ne ré-épingle pas `@swc/core` en version exacte.** Le pin `1.11.24` hérité du scaffold
+  `create-adonisjs` segfaulte à la terminaison du process de test dès que le graphe de modules
+  dépasse un certain volume : `npm test` affiche `PASSED` mais sort en **code 1**. Range `^1.15.43`.
