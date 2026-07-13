@@ -1,12 +1,21 @@
+import { readFile } from 'node:fs/promises'
+import type { MultipartFile } from '@adonisjs/core/bodyparser'
 import type { HttpContext } from '@adonisjs/core/http'
+import { errors as vineErrors } from '@vinejs/vine'
 import { DateTime } from 'luxon'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
-import LeitnerBackupService from '#modules/leitner/services/leitner_backup_service'
+import LeitnerBackupService, {
+  BACKUP_VERSION,
+  BackupImportError,
+} from '#modules/leitner/services/leitner_backup_service'
+import type { ImportMode } from '#modules/leitner/services/leitner_backup_service'
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
 import LeitnerService from '#modules/leitner/services/leitner_service'
 import {
+  backupImportValidator,
+  backupValidator,
   boxIntervalsValidator,
   cardIdsValidator,
   cardValidator,
@@ -14,6 +23,9 @@ import {
   categoryValidator,
   themeValidator,
 } from '#modules/leitner/validators/leitner'
+
+/** Au-delà, la liste d'erreurs devient illisible : on dit ce qui est masqué. */
+const MAX_REPORTED_ERRORS = 10
 
 /** `null` dès que la valeur est absente ou non numérique (query string). */
 function toId(value: unknown): number | undefined {
@@ -26,7 +38,7 @@ export default class LeitnerSettingsController {
   private leitner = new LeitnerService()
   private backup = new LeitnerBackupService()
 
-  async index({ inertia, request }: HttpContext) {
+  async index({ inertia, request, session }: HttpContext) {
     const filters = {
       search: (request.input('search') as string | undefined)?.trim() || undefined,
       categoryId: toId(request.input('categoryId')),
@@ -46,6 +58,9 @@ export default class LeitnerSettingsController {
       unclassifiedCount,
       totalCards: Number(total[0].$extras.total),
       boxIntervals,
+      // Retour du dernier import, flashé par `importBackup` juste avant sa redirection.
+      importReport: session.flashMessages.get('importReport') ?? null,
+      importErrors: session.flashMessages.get('importErrors') ?? null,
       filters: {
         search: filters.search ?? '',
         categoryId: filters.categoryId ?? null,
@@ -77,6 +92,83 @@ export default class LeitnerSettingsController {
     )
     // Indenté : le fichier se relit et se retouche à la main (saisie en masse).
     return response.send(JSON.stringify(backup, null, 2))
+  }
+
+  /*
+  |----------------------------------------------------------------------------
+  | Sauvegarde — import JSON
+  |----------------------------------------------------------------------------
+  */
+
+  /**
+   * Le fichier vient de l'utilisateur : rien n'y est fiable. Il passe donc par
+   * `backupValidator` (contenu, pas extension) avant d'atteindre la base, et
+   * l'écriture est transactionnelle — un fichier invalide n'écrit **rien**.
+   *
+   * Le retour part en flash et revient en props sur `index` : ni le rapport ni
+   * les erreurs ne se perdent dans la redirection.
+   */
+  async importBackup({ request, response, session }: HttpContext) {
+    const fail = (messages: string[]) => {
+      const shown = messages.slice(0, MAX_REPORTED_ERRORS)
+      if (messages.length > MAX_REPORTED_ERRORS) {
+        shown.push(`… et ${messages.length - MAX_REPORTED_ERRORS} autre(s) erreur(s).`)
+      }
+      session.flash('importErrors', shown)
+      return response.redirect().back()
+    }
+
+    let upload: { file: MultipartFile; mode?: ImportMode }
+    try {
+      upload = await request.validateUsing(backupImportValidator)
+    } catch (error) {
+      if (error instanceof vineErrors.E_VALIDATION_ERROR) {
+        return fail(error.messages.map((message: { message: string }) => message.message))
+      }
+      throw error
+    }
+
+    const mode = upload.mode ?? 'merge'
+
+    let content: unknown
+    try {
+      content = JSON.parse(await readFile(upload.file.tmpPath!, 'utf-8'))
+    } catch {
+      return fail(["Fichier illisible : ce n'est pas du JSON valide."])
+    }
+
+    let backup
+    try {
+      backup = await backupValidator.validate(content)
+    } catch (error) {
+      if (error instanceof vineErrors.E_VALIDATION_ERROR) {
+        return fail(
+          error.messages.map(
+            (message: { field: string; message: string }) => `${message.field} : ${message.message}`
+          )
+        )
+      }
+      throw error
+    }
+
+    // Une version inconnue est refusée, jamais importée « au mieux » : on ne comprend
+    // pas le format, donc on ne devine pas. Un fichier sans version est un fichier
+    // écrit à la main, lu comme la version courante.
+    if (backup.version !== undefined && backup.version !== BACKUP_VERSION) {
+      return fail([
+        `Version de fichier inconnue (${backup.version}). Cette application lit la version ${BACKUP_VERSION}.`,
+      ])
+    }
+
+    try {
+      session.flash('importReport', await this.backup.import(backup, mode))
+    } catch (error) {
+      // Rien n'a été écrit : l'import vit dans une transaction.
+      if (error instanceof BackupImportError) return fail([error.message])
+      throw error
+    }
+
+    return response.redirect().back()
   }
 
   /*

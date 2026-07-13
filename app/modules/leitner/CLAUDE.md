@@ -7,15 +7,17 @@ Route `/revision` (⚠️ **pas** `/leitner`) · pages Inertia `modules/leitner/
 ```
 controllers/leitner_controller.ts          révision seule : index · review
 controllers/leitner_settings_controller.ts écran de gestion : CRUD cartes + taxonomie + intervalles
+                                           + export/import JSON
 services/leitner_service.ts                règle métier (boîtes, intervalles, stats) ← source de vérité
 services/leitner_catalog_service.ts        catalogue : filtres, CRUD cartes, catégories/thèmes
+services/leitner_backup_service.ts         export/import JSON — le filet de sécurité du module
 models/leitner_card.ts                     hasMany reviews · belongsTo theme (nullable)
 models/leitner_review.ts                   belongsTo card
 models/leitner_category.ts                 hasMany themes
 models/leitner_theme.ts                    belongsTo category · hasMany cards
 models/leitner_settings.ts                 réglages du module — UNE seule ligne (id = 1)
 validators/leitner.ts                      card · review · cardIds · cardsTheme · category · theme
-                                           · boxIntervals
+                                           · boxIntervals · backup · backupImport
 pages/index.vue                            session de révision · grille des 5 boîtes
 pages/settings.vue                         tableau des cartes · création/édition · sélection
                                            multiple · taxonomie · intervalles des boîtes
@@ -34,8 +36,9 @@ Le filet de sécurité n'est donc pas un seeder mais **l'export JSON** (`/revisi
 cartes n'existent que dans le volume Postgres local, et un `docker compose down -v` les emporte.
 Voir « Sauvegarde » plus bas.
 
-⚠️ La route `PUT /revision/settings/intervals` vit dans `start/routes.ts`, hors du module —
-seul fichier du projet que ce module touche en dehors de son dossier.
+⚠️ Les routes vivent dans `start/routes.ts`, hors du module — **seul fichier du projet que ce module
+touche en dehors de son dossier** (`PUT /revision/settings/intervals`, `GET /revision/export`,
+`POST /revision/import`).
 
 ## Un seul point de saisie : `/revision/settings`
 
@@ -176,6 +179,52 @@ un `inertia.render` ou un `redirect().back()` ; l'export est une **réponse HTTP
 brut. Le bug ne se voit qu'au clic dans un vrai navigateur : au `curl` comme en test fonctionnel,
 la réponse paraît parfaite.
 
+## L'import : le même format, deux usages
+
+`POST /revision/import` lit exactement ce que l'export écrit. **Seuls `front` et `back` sont
+obligatoires** : le reste prend les valeurs d'une carte créée depuis l'UI (boîte 1, due
+aujourd'hui). Un fichier de saisie en masse se réduit donc à :
+
+```json
+{ "cards": [{ "front": "…", "back": "…", "category": "DevOps", "theme": "Docker" }] }
+```
+
+**Deux modes**, et un seul est destructif :
+
+| mode | effet |
+| --- | --- |
+| `merge` (défaut) | ajoute au contenu existant, **ne supprime rien** — c'est la saisie en masse |
+| `replace` | vide cartes **et** taxonomie, puis charge — c'est la restauration, derrière une confirmation explicite |
+
+- **La taxonomie est fusionnée par nom, jamais dupliquée** : une catégorie « DevOps » déjà présente
+  est réutilisée (`leitner_categories.name` est unique, `leitner_themes` unique sur (catégorie,
+  nom)). Elle est créée à la volée si une carte la mentionne sans que le bloc `categories` l'ait
+  déclarée. `category` et `theme` vont **toujours ensemble** : l'un sans l'autre est une erreur, pas
+  une carte non classée.
+- **Déduplication : en fusion seulement**, sur le couple **(recto, thème)** — contre la base *et*
+  contre le fichier lui-même, donc rejouer deux fois le même fichier n'ajoute rien. Le même recto
+  sous deux thèmes reste deux cartes. En **remplacement**, aucune déduplication : c'est une
+  restauration, elle recharge le fichier tel quel — sinon une base contenant deux cartes identiques
+  n'en retrouverait qu'une, et la promesse de l'aller-retour tomberait.
+- **`version` inconnue → refus**, avec un message. Un import « au mieux » sur un format qu'on ne
+  comprend pas écrit des données fausses en silence. Un fichier **sans** `version` est un fichier
+  écrit à la main : il est lu comme la version courante.
+- **Tout ou rien** : `db.transaction()` + `{ client: trx }` sur chaque écriture. Sans ça, un fichier
+  qui casse à la 300ᵉ carte laisserait 299 cartes derrière lui.
+- Le retour d'import (rapport ou erreurs) passe par un **flash** relu dans `index` et renvoyé en
+  props (`importReport`, `importErrors`) : Inertia ne partage automatiquement que `errorsBag`, et
+  `config/inertia.ts` est hors du module.
+
+⚠️ **`box` est validée entre 1 et 5, et c'est le seul rempart.** La colonne n'a **aucune contrainte
+en base**. Une carte importée en boîte 12 puis notée `hard` y resterait : `boxIntervals()[12]` vaut
+`undefined`, Luxon fait `plus({ days: undefined })` = +0 jour et rend une date **valide** —
+`next_review` = aujourd'hui, indéfiniment. Aucune exception, aucun log. Ne relâche jamais cette
+borne dans `backupValidator`.
+
+⚠️ **Ne réinjecte jamais les ids.** Les séquences Postgres (`leitner_cards_id_seq`) ne suivent pas
+un insert à id explicite : le prochain ajout depuis l'UI planterait sur un doublon de clé primaire.
+C'est toute la raison de la taxonomie par nom.
+
 ## Pièges techniques
 
 - **`next_review` est une colonne `date`, `reviewed_at` un `timestamp`.** Les requêtes ne se
@@ -191,7 +240,12 @@ la réponse paraît parfaite.
 
 `npm test` — `tests/unit/leitner_service.spec.ts` couvre la règle des boîtes (une note = une
 assertion sur la boîte **et** sur `next_review`), `tests/functional/modules/leitner_review.spec.ts`
-couvre la file de révision (une carte ratée reste due le jour même et repart en fin de file), et
+couvre la file de révision (une carte ratée reste due le jour même et repart en fin de file),
 `tests/unit/leitner_catalog_service.spec.ts` couvre les filtres, la suppression multiple, le
-reclassement et les cascades de la taxonomie. Toute modification doit les laisser vertes, ou les
-mettre à jour explicitement.
+reclassement et les cascades de la taxonomie, et `tests/functional/modules/leitner_backup.spec.ts`
+couvre la sauvegarde — dont **l'aller-retour** (export → base vidée → import en remplacement → base
+identique), le seul test qui valide la promesse de l'export. Toute modification doit les laisser
+vertes, ou les mettre à jour explicitement.
+
+Le test fonctionnel ne voit **pas** le piège Inertia de l'export : il faut un vrai clic dans un
+navigateur pour ça (au `curl`, la réponse paraît parfaite dans les deux cas).

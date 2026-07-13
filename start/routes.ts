@@ -83,6 +83,7 @@ router
 
         // Téléchargement JSON : réponse HTTP nue, hors Inertia (voir le contrôleur).
         router.get('/export', [LeitnerSettingsController, 'exportBackup'])
+        router.post('/import', [LeitnerSettingsController, 'importBackup'])
         router.post('/cards', [LeitnerSettingsController, 'store'])
         router.put('/cards/:id', [LeitnerSettingsController, 'update'])
         router.delete('/cards/:id', [LeitnerSettingsController, 'destroy'])
