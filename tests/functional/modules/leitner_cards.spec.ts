@@ -109,6 +109,33 @@ test.group('Leitner / cartes saisies par l’utilisateur', (group) => {
     assert.equal(card.box, 3)
   })
 
+  test('la page de révision ne transporte plus la taxonomie, mais garde le thème de la carte', async ({
+    client,
+    assert,
+  }) => {
+    const user = await login()
+    const category = await LeitnerCategory.create({ name: 'Réseau' })
+    const theme = await LeitnerTheme.create({ leitnerCategoryId: category.id, name: 'TLS' })
+    await LeitnerCard.create({
+      front: 'Rôle du handshake ?',
+      back: 'Négocier clés et algorithmes.',
+      box: 1,
+      leitnerThemeId: theme.id,
+      nextReview: DateTime.now(),
+    })
+
+    const response = await client.get('/revision').loginAs(user).withInertia()
+
+    response.assertStatus(200)
+    const props = response.inertiaProps as Record<string, any>
+
+    // La taxonomie n'alimentait que le formulaire d'ajout : la saisie vit sur /revision/settings.
+    assert.notProperty(props, 'categories')
+    // Le badge thème de la carte en cours vient du preload, pas de cette taxonomie.
+    assert.equal(props.dueCards[0].theme.name, 'TLS')
+    assert.equal(props.dueCards[0].theme.category.name, 'Réseau')
+  })
+
   test('supprime une carte de la base', async ({ client, assert }) => {
     const user = await login()
     const card = await LeitnerCard.create({

@@ -3,13 +3,11 @@ import type { HttpContext } from '@adonisjs/core/http'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerService from '#modules/leitner/services/leitner_service'
-import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
 import { reviewValidator } from '#modules/leitner/validators/leitner'
 
 export default class LeitnerController {
   async index({ inertia }: HttpContext) {
     const service = new LeitnerService()
-    const catalog = new LeitnerCatalogService()
     const today = DateTime.now().startOf('day')
 
     const dueCards = await LeitnerCard.query()
@@ -19,9 +17,6 @@ export default class LeitnerController {
     const boxCounts = await service.boxCounts()
     const reviewedToday = await service.reviewedToday()
     const streak = await service.streakDays()
-
-    // Taxonomie : alimente le sélecteur de thème du formulaire d'ajout.
-    const { categories } = await catalog.categoryTree()
 
     const totalCards = await LeitnerCard.query().count('* as total')
     const recentReviews = await LeitnerReview.query().where(
@@ -39,7 +34,6 @@ export default class LeitnerController {
     return inertia.render('modules/leitner/index', {
       dueCards,
       boxCounts,
-      categories,
       stats: {
         reviewedToday,
         streak,
