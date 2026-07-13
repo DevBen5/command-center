@@ -74,10 +74,11 @@ router
     router
       .group(() => {
         router.get('/', [LeitnerController, 'index'])
-        router.post('/cards', [LeitnerController, 'store'])
 
         // Écran de gestion : catalogue des cartes + taxonomie catégorie → thème.
+        // Toute la saisie de cartes passe par là ; /revision ne fait que réviser.
         router.get('/settings', [LeitnerSettingsController, 'index'])
+        router.post('/cards', [LeitnerSettingsController, 'store'])
         router.put('/cards/:id', [LeitnerSettingsController, 'update'])
         router.delete('/cards/:id', [LeitnerSettingsController, 'destroy'])
         router.post('/cards/delete', [LeitnerSettingsController, 'destroyMany'])

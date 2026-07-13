@@ -4,7 +4,7 @@ import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerService from '#modules/leitner/services/leitner_service'
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
-import { cardValidator, reviewValidator } from '#modules/leitner/validators/leitner'
+import { reviewValidator } from '#modules/leitner/validators/leitner'
 
 export default class LeitnerController {
   async index({ inertia }: HttpContext) {
@@ -48,12 +48,6 @@ export default class LeitnerController {
         retention,
       },
     })
-  }
-
-  async store({ request, response }: HttpContext) {
-    const payload = await request.validateUsing(cardValidator)
-    await new LeitnerCatalogService().createCard(payload)
-    return response.redirect().back()
   }
 
   async review({ params, request, response }: HttpContext) {

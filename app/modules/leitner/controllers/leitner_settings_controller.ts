@@ -54,6 +54,12 @@ export default class LeitnerSettingsController {
   |----------------------------------------------------------------------------
   */
 
+  async store({ request, response }: HttpContext) {
+    const payload = await request.validateUsing(cardValidator)
+    await this.service.createCard(payload)
+    return response.redirect().back()
+  }
+
   async update({ params, request, response }: HttpContext) {
     const payload = await request.validateUsing(cardValidator)
     const card = await LeitnerCard.findOrFail(params.id)
