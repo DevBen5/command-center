@@ -3,6 +3,9 @@ node_modules
 build
 tmp
 
+# Dumps de la base (npm run db:backup) — des données, pas du code
+backups
+
 # Secrets
 .env
 .env.local

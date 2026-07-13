@@ -11,7 +11,9 @@
     "test": "node ace test",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:backup": "node --env-file-if-exists=.env scripts/db-backup.js",
+    "db:restore": "node --env-file-if-exists=.env scripts/db-restore.js"
   },
   "imports": {
     "#modules/*": "./app/modules/*.js",

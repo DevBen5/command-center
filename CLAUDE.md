@@ -4,6 +4,21 @@ Tableau de bord auto-hébergé. AdonisJS 6 (ESM, TS strict) + Inertia 2 + Vue 3 
 
 Commandes : `npm run dev` · `npm test` · `npm run typecheck` · `npm run lint`
 
+## Les données ne vivent que dans le volume Docker
+
+La base est saisie à la main, sans seeder pour le contenu réel : **le volume `postgres_data` en est
+la seule copie**, et un `docker compose down -v` l'emporte en entier.
+
+- `npm run db:backup` → dump SQL horodaté dans `backups/` (ignoré par git), **hors** du volume : la
+  seule copie qui survit à un `down -v`. Il emporte tout — contenu, réglages, comptes.
+- `npm run db:restore` → recharge le dump le plus récent (ou `-- backups/<fichier>.sql`). Le dump est
+  fait avec `--clean --if-exists` : il **remplace** la base, il ne fusionne pas.
+- Les scripts (`scripts/db-*.js`) appellent `docker compose exec` via `spawn` **avec un tableau
+  d'arguments**, jamais une chaîne interpolée dans un shell.
+
+Le module Leitner a en plus son propre export/import JSON (`/revision/settings`), qui ne couvre que
+son contenu et n'ajoute que ce qui manque — voir `app/modules/leitner/CLAUDE.md`.
+
 ## Architecture — feature-based
 
 Chaque feature est une tranche verticale complète. Les dossiers AdonisJS par défaut
