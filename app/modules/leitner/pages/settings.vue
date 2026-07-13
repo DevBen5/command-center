@@ -698,6 +698,27 @@ function deleteTheme(theme: ThemeNode): void {
           </button>
         </form>
       </div>
+
+      <!-- Sauvegarde -->
+      <div class="rounded-[12px] border border-line bg-panel p-4">
+        <h2 class="text-[12px] font-bold tracking-[.12em] text-txt-2 uppercase">Sauvegarde</h2>
+        <p class="mt-1 mb-3 text-[11.5px] text-txt-3">
+          Vos cartes ne vivent que dans cette base. L'export en donne une copie autonome —
+          taxonomie, boîtes, échéances et historique — relisible et modifiable à la main.
+        </p>
+
+        <!--
+          Lien <a> natif, et surtout pas <Link> ni router.get : le téléchargement est une
+          réponse HTTP nue (JSON + content-disposition), qu'Inertia ne sait pas interpréter.
+        -->
+        <a
+          href="/revision/export"
+          download
+          class="block rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-center text-[12.5px] text-txt-2 transition hover:border-accent hover:text-txt"
+        >
+          Exporter en JSON
+        </a>
+      </div>
     </div>
   </div>
 

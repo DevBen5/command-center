@@ -1,7 +1,9 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import { DateTime } from 'luxon'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
+import LeitnerBackupService from '#modules/leitner/services/leitner_backup_service'
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
 import LeitnerService from '#modules/leitner/services/leitner_service'
 import {
@@ -22,6 +24,7 @@ function toId(value: unknown): number | undefined {
 export default class LeitnerSettingsController {
   private service = new LeitnerCatalogService()
   private leitner = new LeitnerService()
+  private backup = new LeitnerBackupService()
 
   async index({ inertia, request }: HttpContext) {
     const filters = {
@@ -51,6 +54,29 @@ export default class LeitnerSettingsController {
         unclassified: filters.unclassified,
       },
     })
+  }
+
+  /*
+  |----------------------------------------------------------------------------
+  | Sauvegarde — export JSON
+  |----------------------------------------------------------------------------
+  */
+
+  /**
+   * Réponse HTTP **nue**, hors Inertia : c'est un téléchargement de fichier.
+   * Côté Vue, le lien doit être un `<a href>` natif — un `<Link>` ou un
+   * `router.get()` attendrait une réponse Inertia et casserait sur ce JSON.
+   */
+  async exportBackup({ response }: HttpContext) {
+    const backup = await this.backup.export()
+
+    response.header('content-type', 'application/json; charset=utf-8')
+    response.header(
+      'content-disposition',
+      `attachment; filename="leitner-${DateTime.now().toFormat('yyyy-LL-dd')}.json"`
+    )
+    // Indenté : le fichier se relit et se retouche à la main (saisie en masse).
+    return response.send(JSON.stringify(backup, null, 2))
   }
 
   /*

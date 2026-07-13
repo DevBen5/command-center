@@ -80,6 +80,9 @@ router
         // Toute la saisie de cartes passe par là ; /revision ne fait que réviser.
         router.get('/settings', [LeitnerSettingsController, 'index'])
         router.put('/settings/intervals', [LeitnerSettingsController, 'updateIntervals'])
+
+        // Téléchargement JSON : réponse HTTP nue, hors Inertia (voir le contrôleur).
+        router.get('/export', [LeitnerSettingsController, 'exportBackup'])
         router.post('/cards', [LeitnerSettingsController, 'store'])
         router.put('/cards/:id', [LeitnerSettingsController, 'update'])
         router.delete('/cards/:id', [LeitnerSettingsController, 'destroy'])

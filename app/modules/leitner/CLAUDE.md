@@ -30,6 +30,10 @@ données de démo : elles écraseraient le contenu réel de l'utilisateur au pro
 La ligne de `leitner_settings` insérée par la migration n'est pas une donnée de démo mais la
 configuration du module : ne la supprime pas.
 
+Le filet de sécurité n'est donc pas un seeder mais **l'export JSON** (`/revision/settings`) : les
+cartes n'existent que dans le volume Postgres local, et un `docker compose down -v` les emporte.
+Voir « Sauvegarde » plus bas.
+
 ⚠️ La route `PUT /revision/settings/intervals` vit dans `start/routes.ts`, hors du module —
 seul fichier du projet que ce module touche en dehors de son dossier.
 
@@ -123,6 +127,54 @@ elle se supprime depuis `/revision/settings`.
   carte détruit des données (et emporte ses révisions, en CASCADE).
 - `LeitnerCatalogService` renvoie **`null`** quand un nom de catégorie/thème est déjà pris : le
   contrôleur en fait une erreur de formulaire (`session.flash('errors')`), il ne lève pas.
+
+## Sauvegarde : l'export JSON
+
+`GET /revision/export` (`LeitnerSettingsController::exportBackup` → `LeitnerBackupService`) rend un
+instantané complet : taxonomie, cartes (boîte, échéance, horodatage) et **historique des
+révisions**. Sans l'historique, une restauration remettrait la série à zéro, viderait la rétention
+30 j — et surtout **réarmerait la règle du « 2ᵉ `hard` d'affilée »**, qui lit la dernière révision
+enregistrée (`lastGrade`).
+
+```json
+{
+  "version": 1,
+  "exportedAt": "2026-07-13T14:12:03.000Z",
+  "categories": [{ "name": "DevOps", "themes": ["Docker", "Kubernetes"] }],
+  "cards": [
+    {
+      "front": "Rôle du handshake TLS ?",
+      "back": "Négocier clés et algorithmes.",
+      "category": "DevOps", "theme": "Docker",
+      "box": 3, "nextReview": "2026-07-20",
+      "createdAt": "2026-07-01T08:00:00.000Z", "updatedAt": "2026-07-13T09:02:00.000Z",
+      "reviews": [{ "grade": "good", "reviewedAt": "2026-07-13T09:02:00.000Z" }]
+    }
+  ]
+}
+```
+
+- **La taxonomie est désignée par son nom, jamais par un id — et le fichier n'en contient aucun.**
+  Réinjecter un id casserait les séquences Postgres (`leitner_cards_id_seq` ne suit pas un insert à
+  id explicite) : le prochain ajout depuis l'UI planterait sur un doublon de clé primaire.
+- Une carte non classée **omet** `category` et `theme` (plutôt que `null`) : le fichier se relit et
+  se retouche à la main.
+- `nextReview` est un jour calendaire (`YYYY-MM-DD`, colonne `date`) ; `reviewedAt`, `createdAt` et
+  `updatedAt` sont des horodatages ISO complets (`timestamp`). Ne pas les intervertir.
+- `createdAt` / `updatedAt` sont exportés **parce que l'ordre de la file de révision en dépend**
+  (`next_review` asc → `updated_at` asc → `id` asc) : sans eux, toutes les cartes restaurées
+  prendraient l'instant de l'import et la carte ratée hier ne repasserait plus en fin de file.
+- Les **intervalles** (`leitner_settings`) ne sont **pas** dans le fichier : c'est la configuration
+  du module, pas du contenu. Une base restaurée repart sur `DEFAULT_BOX_INTERVAL_DAYS` et se
+  re-règle depuis l'UI ; les échéances importées, elles, sont intactes — `next_review` est stocké,
+  jamais recalculé.
+
+⚠️ **Le téléchargement ne peut pas passer par Inertia.** Toutes les autres routes du module rendent
+un `inertia.render` ou un `redirect().back()` ; l'export est une **réponse HTTP nue**
+(`application/json` + `content-disposition: attachment`). Côté Vue, le lien est un `<a href>` natif
+— **jamais** `<Link>` ni `router.get()`, qui attendent une réponse Inertia et cassent sur du JSON
+brut. Le bug ne se voit qu'au clic dans un vrai navigateur : au `curl` comme en test fonctionnel,
+la réponse paraît parfaite.
 
 ## Pièges techniques
 
