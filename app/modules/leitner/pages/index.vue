@@ -45,6 +45,8 @@ const boxIntervalLabel: Record<number, string> = {
 const currentCard = computed(() => props.dueCards[0] ?? null)
 const revealed = ref(false)
 
+const hasThemes = computed(() => props.categories.some((category) => category.themes.length > 0))
+
 watch(
   () => currentCard.value?.id,
   () => {
@@ -187,10 +189,25 @@ function submitNewCard(): void {
         v-else
         class="flex min-h-[230px] flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed border-line-2 bg-bg-2 p-9 text-center"
       >
-        <div class="text-[16px] font-semibold">Tout est à jour — aucune carte due</div>
-        <div class="max-w-[380px] text-[12.5px] text-txt-2">
-          Ajoutez une carte pour continuer à enrichir votre base de révision.
-        </div>
+        <template v-if="stats.totalCards">
+          <div class="text-[16px] font-semibold">Tout est à jour — aucune carte due</div>
+          <div class="max-w-[380px] text-[12.5px] text-txt-2">
+            Ajoutez une carte pour continuer à enrichir votre base de révision.
+          </div>
+        </template>
+        <template v-else>
+          <div class="text-[16px] font-semibold">Votre base de révision est vide</div>
+          <div class="max-w-[380px] text-[12.5px] text-txt-2">
+            Ajoutez votre première carte avec le formulaire ci-contre, ou créez d'abord vos
+            catégories et thèmes depuis la gestion des cartes.
+          </div>
+          <Link
+            href="/revision/settings"
+            class="mt-2 rounded-[10px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white transition hover:opacity-90"
+          >
+            Gérer les cartes
+          </Link>
+        </template>
       </div>
 
       <div class="mt-6 mb-3 flex items-center gap-3">
@@ -249,6 +266,11 @@ function submitNewCard(): void {
             </option>
           </optgroup>
         </select>
+        <p v-if="!hasThemes" class="text-[11.5px] text-txt-3 italic">
+          Créez catégories et thèmes depuis
+          <Link href="/revision/settings" class="text-accent underline">la gestion des cartes</Link>
+          pour pouvoir classer vos cartes.
+        </p>
         <button
           type="submit"
           class="rounded-md border border-accent bg-accent px-2.5 py-2 text-[12.5px] text-white disabled:opacity-50"

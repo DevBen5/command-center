@@ -151,27 +151,49 @@ function deleteCard(card: Card): void {
 }
 
 /*
-| Édition d'une carte (modale)
+| Création / édition d'une carte — même modale, `editing` à null = création.
 */
+const modalOpen = ref(false)
 const editing = ref<Card | null>(null)
-const editForm = reactive({ front: '', back: '', leitnerThemeId: null as number | null })
+const cardForm = reactive({ front: '', back: '', leitnerThemeId: null as number | null })
 const saving = ref(false)
+
+const hasThemes = computed(() => props.categories.some((category) => category.themes.length > 0))
+
+function openCreate(): void {
+  editing.value = null
+  cardForm.front = ''
+  cardForm.back = ''
+  // Le thème filtré pré-remplit la carte : on saisit en général plusieurs
+  // cartes de suite sur le même sujet.
+  cardForm.leitnerThemeId = filters.themeId
+  modalOpen.value = true
+}
 
 function openEdit(card: Card): void {
   editing.value = card
-  editForm.front = card.front
-  editForm.back = card.back
-  editForm.leitnerThemeId = card.theme?.id ?? null
+  cardForm.front = card.front
+  cardForm.back = card.back
+  cardForm.leitnerThemeId = card.theme?.id ?? null
+  modalOpen.value = true
 }
 
-function saveEdit(): void {
-  if (!editing.value || !editForm.front.trim() || !editForm.back.trim()) return
+function submitCard(): void {
+  if (!cardForm.front.trim() || !cardForm.back.trim()) return
   saving.value = true
-  router.put(`/revision/cards/${editing.value.id}`, { ...editForm }, {
+
+  const options = {
     preserveScroll: true,
-    onSuccess: () => (editing.value = null),
+    onSuccess: () => (modalOpen.value = false),
     onFinish: () => (saving.value = false),
-  })
+  }
+
+  // La carte créée part en boîte 1, due immédiatement (LeitnerCatalogService).
+  if (editing.value) {
+    router.put(`/revision/cards/${editing.value.id}`, { ...cardForm }, options)
+  } else {
+    router.post('/revision/cards', { ...cardForm }, options)
+  }
 }
 
 /*
@@ -259,9 +281,16 @@ function deleteTheme(theme: ThemeNode): void {
         {{ unclassifiedCount }} non classée{{ unclassifiedCount > 1 ? 's' : '' }}
       </div>
     </div>
+    <button
+      type="button"
+      class="ml-auto rounded-[10px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white transition hover:opacity-90"
+      @click="openCreate"
+    >
+      + Nouvelle carte
+    </button>
     <Link
       href="/revision"
-      class="ml-auto rounded-[10px] border border-line-2 bg-panel px-3.5 py-2 text-[12.5px] text-txt-2 transition hover:border-accent hover:text-txt"
+      class="rounded-[10px] border border-line-2 bg-panel px-3.5 py-2 text-[12.5px] text-txt-2 transition hover:border-accent hover:text-txt"
     >
       ← Retour à la révision
     </Link>
@@ -422,7 +451,20 @@ function deleteTheme(theme: ThemeNode): void {
             </tr>
             <tr v-if="!cards.length">
               <td colspan="5" class="py-8 text-center text-[12.5px] text-txt-3">
-                Aucune carte ne correspond à ces filtres.
+                <template v-if="totalCards">Aucune carte ne correspond à ces filtres.</template>
+                <template v-else>
+                  <div class="text-[13px] font-semibold text-txt-2">Votre base est vide</div>
+                  <div class="mt-1">
+                    Créez d'abord une catégorie et un thème ci-contre, puis ajoutez vos cartes.
+                  </div>
+                  <button
+                    type="button"
+                    class="mt-3 rounded-md border border-accent bg-accent px-3 py-2 text-[12.5px] text-white transition hover:opacity-90"
+                    @click="openCreate"
+                  >
+                    + Créer ma première carte
+                  </button>
+                </template>
               </td>
             </tr>
           </tbody>
@@ -566,35 +608,38 @@ function deleteTheme(theme: ThemeNode): void {
     </div>
   </div>
 
-  <!-- Modale d'édition -->
+  <!-- Modale de création / édition -->
   <div
-    v-if="editing"
+    v-if="modalOpen"
     class="fixed inset-0 z-50 flex items-start justify-center bg-[rgba(4,5,14,.6)] pt-[120px]"
-    @click.self="editing = null"
+    @click.self="modalOpen = false"
   >
     <form
       class="w-[560px] max-w-[90%] overflow-hidden rounded-[14px] border border-line-2 bg-panel shadow-2xl"
-      @submit.prevent="saveEdit"
+      @submit.prevent="submitCard"
     >
-      <div class="border-b border-line px-5 py-4 text-[13.5px] font-bold">Éditer la carte</div>
+      <div class="border-b border-line px-5 py-4 text-[13.5px] font-bold">
+        {{ editing ? 'Éditer la carte' : 'Nouvelle carte' }}
+      </div>
       <div class="flex flex-col gap-2 p-5">
         <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase">Recto</label>
         <textarea
-          v-model="editForm.front"
+          v-model="cardForm.front"
           rows="2"
+          autofocus
           class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
         ></textarea>
 
         <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">Verso</label>
         <textarea
-          v-model="editForm.back"
+          v-model="cardForm.back"
           rows="3"
           class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
         ></textarea>
 
         <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">Thème</label>
         <select
-          v-model="editForm.leitnerThemeId"
+          v-model="cardForm.leitnerThemeId"
           class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
         >
           <option :value="null">— Non classée —</option>
@@ -604,21 +649,25 @@ function deleteTheme(theme: ThemeNode): void {
             </option>
           </optgroup>
         </select>
+        <p v-if="!hasThemes" class="text-[11.5px] text-txt-3 italic">
+          Aucun thème pour l'instant : la carte sera « non classée ». Vous pourrez la classer plus
+          tard depuis cet écran.
+        </p>
       </div>
       <div class="flex justify-end gap-2 border-t border-line px-5 py-4">
         <button
           type="button"
           class="rounded-md border border-line-2 bg-panel-2 px-3 py-2 text-[12.5px] text-txt-2"
-          @click="editing = null"
+          @click="modalOpen = false"
         >
           Annuler
         </button>
         <button
           type="submit"
           class="rounded-md border border-accent bg-accent px-3 py-2 text-[12.5px] text-white disabled:opacity-50"
-          :disabled="saving || !editForm.front.trim() || !editForm.back.trim()"
+          :disabled="saving || !cardForm.front.trim() || !cardForm.back.trim()"
         >
-          Enregistrer
+          {{ editing ? 'Enregistrer' : 'Créer la carte' }}
         </button>
       </div>
     </form>
