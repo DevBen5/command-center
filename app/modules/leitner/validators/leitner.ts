@@ -33,6 +33,23 @@ export const cardsThemeValidator = vine.compile(
   })
 )
 
+/**
+ * Intervalles des cinq boîtes, en jours. Minimum **1** : un intervalle à 0
+ * laisserait la carte due le jour de sa réussite, donc éternellement en session
+ * — le comportement réservé à la note `again`.
+ */
+const boxInterval = () => vine.number().withoutDecimals().min(1).max(365)
+
+export const boxIntervalsValidator = vine.compile(
+  vine.object({
+    box1Days: boxInterval(),
+    box2Days: boxInterval(),
+    box3Days: boxInterval(),
+    box4Days: boxInterval(),
+    box5Days: boxInterval(),
+  })
+)
+
 export const categoryValidator = vine.compile(
   vine.object({
     name: vine.string().trim().minLength(1).maxLength(60),

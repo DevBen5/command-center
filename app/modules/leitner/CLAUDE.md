@@ -2,29 +2,36 @@
 
 Route `/revision` (⚠️ **pas** `/leitner`) · pages Inertia `modules/leitner/index` et
 `modules/leitner/settings` · tables `leitner_cards`, `leitner_reviews`, `leitner_categories`,
-`leitner_themes`.
+`leitner_themes`, `leitner_settings`.
 
 ```
 controllers/leitner_controller.ts          révision seule : index · review
-controllers/leitner_settings_controller.ts écran de gestion : CRUD cartes + taxonomie
-services/leitner_service.ts                règle métier (boîtes, stats)  ← source de vérité
+controllers/leitner_settings_controller.ts écran de gestion : CRUD cartes + taxonomie + intervalles
+services/leitner_service.ts                règle métier (boîtes, intervalles, stats) ← source de vérité
 services/leitner_catalog_service.ts        catalogue : filtres, CRUD cartes, catégories/thèmes
 models/leitner_card.ts                     hasMany reviews · belongsTo theme (nullable)
 models/leitner_review.ts                   belongsTo card
 models/leitner_category.ts                 hasMany themes
 models/leitner_theme.ts                    belongsTo category · hasMany cards
+models/leitner_settings.ts                 réglages du module — UNE seule ligne (id = 1)
 validators/leitner.ts                      card · review · cardIds · cardsTheme · category · theme
+                                           · boxIntervals
 pages/index.vue                            session de révision · grille des 5 boîtes
 pages/settings.vue                         tableau des cartes · création/édition · sélection
-                                           multiple · taxonomie
-migrations/                                cards PUIS reviews PUIS categories/themes (FK :
-                                           l'ordre du nom de fichier compte)
+                                           multiple · taxonomie · intervalles des boîtes
+migrations/                                cards PUIS reviews PUIS categories/themes PUIS settings
+                                           (FK : l'ordre du nom de fichier compte)
 ```
 
 **Aucun seeder, et c'est voulu** : tout le contenu (cartes, catégories, thèmes) est saisi depuis
 l'UI. Le module n'a plus de dossier `seeders/` ; `config/database.ts` en garde le path, ce qui est
 sans effet (Lucid lit les dossiers de seeders avec `ignoreMissingRoot`). Ne réintroduis pas de
 données de démo : elles écraseraient le contenu réel de l'utilisateur au prochain `db:seed`.
+La ligne de `leitner_settings` insérée par la migration n'est pas une donnée de démo mais la
+configuration du module : ne la supprime pas.
+
+⚠️ La route `PUT /revision/settings/intervals` vit dans `start/routes.ts`, hors du module —
+seul fichier du projet que ce module touche en dehors de son dossier.
 
 ## Un seul point de saisie : `/revision/settings`
 
@@ -41,7 +48,12 @@ parenthèses** — sans elles, Vue passe l'événement en `keepOpen` et la modal
 
 ## La règle métier
 
-`BOX_INTERVAL_DAYS = { 1: 1, 2: 2, 3: 4, 4: 7, 5: 30 }` dans `leitner_service.ts`.
+Les intervalles (jours avant la prochaine révision, boîte par boîte) **vivent en base**, dans la
+ligne unique de `leitner_settings`, et se règlent depuis `/revision/settings`. Lis-les avec
+`LeitnerService.boxIntervals()`. `DEFAULT_BOX_INTERVAL_DAYS = { 1: 1, 2: 2, 3: 4, 4: 7, 5: 30 }`
+n'est **que** la valeur de départ (posée par la migration, et filet de sécurité si la ligne
+disparaît) : ne t'en sers jamais pour calculer une échéance, elle peut ne plus refléter le réglage.
+
 Chaque note a un effet distinct :
 
 | note    | boîte atteinte                            | `next_review`              |
@@ -51,8 +63,9 @@ Chaque note a un effet distinct :
 | `good`  | +1                                        | intervalle de cette boîte  |
 | `easy`  | +2                                        | intervalle de cette boîte  |
 
-- La boîte est plafonnée à 5. `next_review` = aujourd'hui + l'intervalle de la boîte **atteinte**
-  (après mouvement) — `again` est la **seule** note qui laisse la carte due le jour même.
+- La boîte est plafonnée à 5. `next_review` = aujourd'hui + l'intervalle **réglé** pour la boîte
+  **atteinte** (après mouvement) — `again` est la **seule** note qui laisse la carte due le jour
+  même, et le seul cas où l'intervalle de la boîte 1 ne s'applique pas.
 - Conséquence : **une carte ratée reste due et revient dans la session en cours**, en fin de file,
   jusqu'à ce qu'elle passe. C'est le geste du Leitner physique. Toute autre note repousse
   l'échéance d'au moins un jour, donc vide la carte de la session du jour.
@@ -70,14 +83,30 @@ cartes dues, et écriture la plus récente), donc en fin de file.
 **réussite** — la réponse a été rappelée, péniblement ; ce n'est pas un échec de rappel, même
 depuis qu'il ne fait plus progresser la carte.
 
-**Les boutons annoncent leur effet.** `pages/index.vue` reçoit `boxIntervals` (la table du serveur)
-et le `lastGrade` de chaque carte due : chaque bouton affiche la boîte atteinte et l'échéance —
-y compris « 2ᵉ d'affilée · boîte 1 » quand la note précédente était `hard`. Ne réintroduis pas de
-libellés muets : quatre boutons opaques valent l'ancien bug de quatre boutons identiques.
+**Les boutons annoncent leur effet.** `pages/index.vue` reçoit `boxIntervals` (les intervalles
+réglés, envoyés par le serveur — la page ne les redéclare jamais) et le `lastGrade` de chaque carte
+due : chaque bouton affiche la boîte atteinte et l'échéance — y compris « 2ᵉ d'affilée · boîte 1 »
+quand la note précédente était `hard`. Ne réintroduis pas de libellés muets : quatre boutons opaques
+valent l'ancien bug de quatre boutons identiques.
 
-Les intervalles restent **dupliqués à deux endroits** — la page ne les redéclare plus, mais changer
-`BOX_INTERVAL_DAYS` exige de changer les assertions de `tests/unit/leitner_service.spec.ts`
-(un test qui importerait la constante n'asserterait plus rien).
+## Les intervalles se règlent : `leitner_settings`
+
+Une **seule** ligne, `id = 1`, protégée par un `check` en base — n'en crée jamais une seconde,
+`LeitnerService.settings()` lit celle-là (`firstOrCreate`). Les colonnes sont `box_1_days` …
+`box_5_days` ; le modèle les mappe **explicitement** (`columnName`), sans se fier à la conversion
+automatique d'un identifiant qui mêle lettres et chiffres.
+
+- Bornes : **1 à 365 jours** (`boxIntervalsValidator`). Un intervalle à **0 est refusé** — il
+  laisserait la carte due le jour de sa réussite, donc éternellement en session : c'est le
+  privilège de `again`, et de lui seul.
+- `updateBoxIntervals()` **ne recalcule aucune échéance** : les cartes déjà notées gardent le
+  `next_review` posé avec l'ancien intervalle, le nouveau réglage ne vaut que pour les révisions
+  suivantes. C'est volontaire — rejouer les échéances déplacerait des cartes que l'utilisateur
+  n'a pas revues.
+- La valeur par défaut est dupliquée à deux endroits, et c'est assumé : `DEFAULT_BOX_INTERVAL_DAYS`
+  et les assertions de `tests/unit/leitner_service.spec.ts` (un test qui importerait la constante
+  n'asserterait plus rien). Le `defaultTo()` de la migration en est un troisième — mais lui ne vaut
+  que pour une base neuve.
 
 ## Le classement : catégorie → thème
 

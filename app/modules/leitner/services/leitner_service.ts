@@ -1,15 +1,63 @@
 import { DateTime } from 'luxon'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
+import LeitnerSettings from '#modules/leitner/models/leitner_settings'
 
 // Intervalle (en jours) avant la prochaine révision, selon la boîte **atteinte**
-// (donc après mouvement). Source de vérité unique : le contrôleur envoie cette
-// table à la page, qui ne la redéclare pas.
-export const BOX_INTERVAL_DAYS: Record<number, number> = { 1: 1, 2: 2, 3: 4, 4: 7, 5: 30 }
+// (donc après mouvement). Ce ne sont que les valeurs de départ : les intervalles
+// réellement appliqués vivent en base (table `leitner_settings`, une seule ligne)
+// et se règlent depuis /revision/settings. Lire `boxIntervals()`, jamais ceci.
+export const DEFAULT_BOX_INTERVAL_DAYS: Record<number, number> = { 1: 1, 2: 2, 3: 4, 4: 7, 5: 30 }
 
 export type Grade = 'again' | 'hard' | 'good' | 'easy'
+export type BoxIntervals = Record<number, number>
 
 export default class LeitnerService {
+  /** Ligne unique de réglages (`id = 1`), recréée aux valeurs par défaut si absente. */
+  async settings(): Promise<LeitnerSettings> {
+    return LeitnerSettings.firstOrCreate(
+      { id: 1 },
+      {
+        box1Days: DEFAULT_BOX_INTERVAL_DAYS[1],
+        box2Days: DEFAULT_BOX_INTERVAL_DAYS[2],
+        box3Days: DEFAULT_BOX_INTERVAL_DAYS[3],
+        box4Days: DEFAULT_BOX_INTERVAL_DAYS[4],
+        box5Days: DEFAULT_BOX_INTERVAL_DAYS[5],
+      }
+    )
+  }
+
+  /** Intervalles en vigueur, boîte par boîte. */
+  async boxIntervals(): Promise<BoxIntervals> {
+    const settings = await this.settings()
+    return {
+      1: settings.box1Days,
+      2: settings.box2Days,
+      3: settings.box3Days,
+      4: settings.box4Days,
+      5: settings.box5Days,
+    }
+  }
+
+  /**
+   * Ne touche pas aux cartes : les échéances déjà posées gardent l'ancien
+   * intervalle, le nouveau ne s'applique qu'aux révisions suivantes.
+   */
+  async updateBoxIntervals(intervals: BoxIntervals): Promise<BoxIntervals> {
+    const settings = await this.settings()
+    await settings
+      .merge({
+        box1Days: intervals[1],
+        box2Days: intervals[2],
+        box3Days: intervals[3],
+        box4Days: intervals[4],
+        box5Days: intervals[5],
+      })
+      .save()
+
+    return this.boxIntervals()
+  }
+
   /**
    * Applique une note à une carte. Chaque note a un effet distinct :
    *
@@ -25,11 +73,11 @@ export default class LeitnerService {
    * La boîte est plafonnée à 5.
    */
   async review(card: LeitnerCard, grade: Grade): Promise<LeitnerCard> {
+    const intervals = await this.boxIntervals()
+
     card.box = await this.nextBox(card, grade)
     card.nextReview =
-      grade === 'again'
-        ? DateTime.now()
-        : DateTime.now().plus({ days: BOX_INTERVAL_DAYS[card.box] })
+      grade === 'again' ? DateTime.now() : DateTime.now().plus({ days: intervals[card.box] })
     await card.save()
 
     await LeitnerReview.create({

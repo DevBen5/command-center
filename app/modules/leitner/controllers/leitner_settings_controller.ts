@@ -3,7 +3,9 @@ import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
+import LeitnerService from '#modules/leitner/services/leitner_service'
 import {
+  boxIntervalsValidator,
   cardIdsValidator,
   cardValidator,
   cardsThemeValidator,
@@ -19,6 +21,7 @@ function toId(value: unknown): number | undefined {
 
 export default class LeitnerSettingsController {
   private service = new LeitnerCatalogService()
+  private leitner = new LeitnerService()
 
   async index({ inertia, request }: HttpContext) {
     const filters = {
@@ -32,12 +35,14 @@ export default class LeitnerSettingsController {
     const cards = await this.service.cards(filters)
     const { categories, unclassifiedCount } = await this.service.categoryTree()
     const total = await LeitnerCard.query().count('* as total')
+    const boxIntervals = await this.leitner.boxIntervals()
 
     return inertia.render('modules/leitner/settings', {
       cards,
       categories,
       unclassifiedCount,
       totalCards: Number(total[0].$extras.total),
+      boxIntervals,
       filters: {
         search: filters.search ?? '',
         categoryId: filters.categoryId ?? null,
@@ -46,6 +51,28 @@ export default class LeitnerSettingsController {
         unclassified: filters.unclassified,
       },
     })
+  }
+
+  /*
+  |----------------------------------------------------------------------------
+  | Intervalles des boîtes
+  |----------------------------------------------------------------------------
+  */
+
+  /**
+   * Les cartes déjà notées gardent l'échéance calculée avec l'ancien intervalle :
+   * le nouveau réglage ne vaut que pour les révisions à venir.
+   */
+  async updateIntervals({ request, response }: HttpContext) {
+    const payload = await request.validateUsing(boxIntervalsValidator)
+    await this.leitner.updateBoxIntervals({
+      1: payload.box1Days,
+      2: payload.box2Days,
+      3: payload.box3Days,
+      4: payload.box4Days,
+      5: payload.box5Days,
+    })
+    return response.redirect().back()
   }
 
   /*

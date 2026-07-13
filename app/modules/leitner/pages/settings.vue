@@ -39,8 +39,45 @@ const props = defineProps<{
   categories: CategoryNode[]
   unclassifiedCount: number
   totalCards: number
+  boxIntervals: Record<number, number>
   filters: Filters
 }>()
+
+const BOXES = [1, 2, 3, 4, 5]
+
+/*
+| Intervalles des boîtes — jours avant la prochaine révision, selon la boîte
+| atteinte. Ne s'appliquent qu'aux révisions suivantes : les échéances déjà
+| posées ne sont pas recalculées.
+*/
+const intervals = reactive<Record<number, number>>({ ...props.boxIntervals })
+const savingIntervals = ref(false)
+
+// Après enregistrement, Inertia renvoie la page : on resynchronise le formulaire
+// sur ce que la base a réellement retenu.
+watch(
+  () => props.boxIntervals,
+  (saved) => Object.assign(intervals, saved)
+)
+
+const intervalsDirty = computed(() =>
+  BOXES.some((box) => intervals[box] !== props.boxIntervals[box])
+)
+
+function submitIntervals(): void {
+  savingIntervals.value = true
+  router.put(
+    '/revision/settings/intervals',
+    {
+      box1Days: intervals[1],
+      box2Days: intervals[2],
+      box3Days: intervals[3],
+      box4Days: intervals[4],
+      box5Days: intervals[5],
+    },
+    { preserveScroll: true, onFinish: () => (savingIntervals.value = false) }
+  )
+}
 
 /*
 | Filtres — rechargent la page en conservant l'état local (Inertia partial visit).
@@ -317,7 +354,9 @@ function deleteTheme(theme: ThemeNode): void {
   <div class="grid grid-cols-[1fr_320px] items-start gap-4">
     <div>
       <!-- Filtres -->
-      <div class="mb-3 flex flex-wrap items-center gap-2 rounded-[12px] border border-line bg-panel p-3">
+      <div
+        class="mb-3 flex flex-wrap items-center gap-2 rounded-[12px] border border-line bg-panel p-3"
+      >
         <input
           v-model="filters.search"
           type="search"
@@ -490,76 +529,36 @@ function deleteTheme(theme: ThemeNode): void {
       </div>
     </div>
 
-    <!-- Taxonomie -->
-    <div class="rounded-[12px] border border-line bg-panel p-4">
-      <h2 class="mb-3 text-[12px] font-bold tracking-[.12em] text-txt-2 uppercase">
-        Catégories & thèmes
-      </h2>
+    <div class="flex flex-col gap-4">
+      <!-- Taxonomie -->
+      <div class="rounded-[12px] border border-line bg-panel p-4">
+        <h2 class="mb-3 text-[12px] font-bold tracking-[.12em] text-txt-2 uppercase">
+          Catégories & thèmes
+        </h2>
 
-      <div v-for="category in categories" :key="category.id" class="mb-3">
-        <div class="flex items-center gap-1.5">
-          <form
-            v-if="renamingCategory === category.id"
-            class="flex flex-1 gap-1"
-            @submit.prevent="submitRenameCategory(category)"
-          >
-            <input
-              v-model="draftName"
-              autofocus
-              class="min-w-0 flex-1 rounded-md border border-accent bg-panel-2 px-2 py-1 text-[12.5px]"
-              @keyup.esc="renamingCategory = null"
-            />
-            <button type="submit" class="text-[11.5px] text-accent">OK</button>
-          </form>
-          <template v-else>
-            <span class="flex-1 truncate text-[13px] font-semibold">{{ category.name }}</span>
-            <span class="font-mono text-[11px] text-txt-3">{{ category.cardCount }}</span>
-            <button
-              type="button"
-              class="text-[11px] text-txt-3 transition hover:text-txt"
-              title="Renommer"
-              @click="startRenameCategory(category)"
-            >
-              ✎
-            </button>
-            <button
-              type="button"
-              class="text-[11px] text-txt-3 transition hover:text-bad"
-              title="Supprimer"
-              @click="deleteCategory(category)"
-            >
-              ✕
-            </button>
-          </template>
-        </div>
-
-        <div class="mt-1 flex flex-col gap-1 border-l border-line pl-2.5">
-          <div
-            v-for="theme in category.themes"
-            :key="theme.id"
-            class="flex items-center gap-1.5 text-[12px] text-txt-2"
-          >
+        <div v-for="category in categories" :key="category.id" class="mb-3">
+          <div class="flex items-center gap-1.5">
             <form
-              v-if="renamingTheme === theme.id"
+              v-if="renamingCategory === category.id"
               class="flex flex-1 gap-1"
-              @submit.prevent="submitRenameTheme(theme, category.id)"
+              @submit.prevent="submitRenameCategory(category)"
             >
               <input
                 v-model="draftName"
                 autofocus
-                class="min-w-0 flex-1 rounded-md border border-accent bg-panel-2 px-2 py-1 text-[12px]"
-                @keyup.esc="renamingTheme = null"
+                class="min-w-0 flex-1 rounded-md border border-accent bg-panel-2 px-2 py-1 text-[12.5px]"
+                @keyup.esc="renamingCategory = null"
               />
               <button type="submit" class="text-[11.5px] text-accent">OK</button>
             </form>
             <template v-else>
-              <span class="flex-1 truncate">{{ theme.name }}</span>
-              <span class="font-mono text-[11px] text-txt-3">{{ theme.cardCount }}</span>
+              <span class="flex-1 truncate text-[13px] font-semibold">{{ category.name }}</span>
+              <span class="font-mono text-[11px] text-txt-3">{{ category.cardCount }}</span>
               <button
                 type="button"
                 class="text-[11px] text-txt-3 transition hover:text-txt"
                 title="Renommer"
-                @click="startRenameTheme(theme)"
+                @click="startRenameCategory(category)"
               >
                 ✎
               </button>
@@ -567,62 +566,138 @@ function deleteTheme(theme: ThemeNode): void {
                 type="button"
                 class="text-[11px] text-txt-3 transition hover:text-bad"
                 title="Supprimer"
-                @click="deleteTheme(theme)"
+                @click="deleteCategory(category)"
               >
                 ✕
               </button>
             </template>
           </div>
-          <span v-if="!category.themes.length" class="text-[11.5px] text-txt-3 italic">
-            aucun thème
-          </span>
+
+          <div class="mt-1 flex flex-col gap-1 border-l border-line pl-2.5">
+            <div
+              v-for="theme in category.themes"
+              :key="theme.id"
+              class="flex items-center gap-1.5 text-[12px] text-txt-2"
+            >
+              <form
+                v-if="renamingTheme === theme.id"
+                class="flex flex-1 gap-1"
+                @submit.prevent="submitRenameTheme(theme, category.id)"
+              >
+                <input
+                  v-model="draftName"
+                  autofocus
+                  class="min-w-0 flex-1 rounded-md border border-accent bg-panel-2 px-2 py-1 text-[12px]"
+                  @keyup.esc="renamingTheme = null"
+                />
+                <button type="submit" class="text-[11.5px] text-accent">OK</button>
+              </form>
+              <template v-else>
+                <span class="flex-1 truncate">{{ theme.name }}</span>
+                <span class="font-mono text-[11px] text-txt-3">{{ theme.cardCount }}</span>
+                <button
+                  type="button"
+                  class="text-[11px] text-txt-3 transition hover:text-txt"
+                  title="Renommer"
+                  @click="startRenameTheme(theme)"
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
+                  class="text-[11px] text-txt-3 transition hover:text-bad"
+                  title="Supprimer"
+                  @click="deleteTheme(theme)"
+                >
+                  ✕
+                </button>
+              </template>
+            </div>
+            <span v-if="!category.themes.length" class="text-[11.5px] text-txt-3 italic">
+              aucun thème
+            </span>
+          </div>
         </div>
-      </div>
 
-      <p v-if="!categories.length" class="mb-3 text-[12px] text-txt-3 italic">
-        Aucune catégorie. Créez-en une pour commencer à classer vos cartes.
-      </p>
+        <p v-if="!categories.length" class="mb-3 text-[12px] text-txt-3 italic">
+          Aucune catégorie. Créez-en une pour commencer à classer vos cartes.
+        </p>
 
-      <form class="mt-4 flex gap-1.5 border-t border-line pt-4" @submit.prevent="addCategory">
-        <input
-          v-model="newCategory"
-          placeholder="Nouvelle catégorie"
-          class="min-w-0 flex-1 rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] placeholder:text-txt-3"
-        />
-        <button
-          type="submit"
-          class="rounded-md border border-accent bg-accent px-2.5 py-2 text-[12.5px] text-white disabled:opacity-50"
-          :disabled="!newCategory.trim()"
-        >
-          +
-        </button>
-      </form>
-
-      <form class="mt-2 flex flex-col gap-1.5" @submit.prevent="addTheme">
-        <select
-          v-model="newTheme.leitnerCategoryId"
-          class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
-        >
-          <option :value="null">Catégorie du thème…</option>
-          <option v-for="category in categories" :key="category.id" :value="category.id">
-            {{ category.name }}
-          </option>
-        </select>
-        <div class="flex gap-1.5">
+        <form class="mt-4 flex gap-1.5 border-t border-line pt-4" @submit.prevent="addCategory">
           <input
-            v-model="newTheme.name"
-            placeholder="Nouveau thème"
+            v-model="newCategory"
+            placeholder="Nouvelle catégorie"
             class="min-w-0 flex-1 rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] placeholder:text-txt-3"
           />
           <button
             type="submit"
-            class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] disabled:opacity-50"
-            :disabled="!newTheme.name.trim() || !newTheme.leitnerCategoryId"
+            class="rounded-md border border-accent bg-accent px-2.5 py-2 text-[12.5px] text-white disabled:opacity-50"
+            :disabled="!newCategory.trim()"
           >
             +
           </button>
-        </div>
-      </form>
+        </form>
+
+        <form class="mt-2 flex flex-col gap-1.5" @submit.prevent="addTheme">
+          <select
+            v-model="newTheme.leitnerCategoryId"
+            class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
+          >
+            <option :value="null">Catégorie du thème…</option>
+            <option v-for="category in categories" :key="category.id" :value="category.id">
+              {{ category.name }}
+            </option>
+          </select>
+          <div class="flex gap-1.5">
+            <input
+              v-model="newTheme.name"
+              placeholder="Nouveau thème"
+              class="min-w-0 flex-1 rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] placeholder:text-txt-3"
+            />
+            <button
+              type="submit"
+              class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] disabled:opacity-50"
+              :disabled="!newTheme.name.trim() || !newTheme.leitnerCategoryId"
+            >
+              +
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Intervalles des boîtes -->
+      <div class="rounded-[12px] border border-line bg-panel p-4">
+        <h2 class="text-[12px] font-bold tracking-[.12em] text-txt-2 uppercase">
+          Intervalles des boîtes
+        </h2>
+        <p class="mt-1 mb-3 text-[11.5px] text-txt-3">
+          Jours avant la prochaine révision, selon la boîte atteinte. Les échéances déjà posées ne
+          bougent pas : le réglage vaut pour les révisions à venir.
+        </p>
+
+        <form class="flex flex-col gap-1.5" @submit.prevent="submitIntervals">
+          <div v-for="box in BOXES" :key="box" class="flex items-center gap-2">
+            <span class="flex-1 text-[12.5px] text-txt-2">Boîte {{ box }}</span>
+            <input
+              v-model.number="intervals[box]"
+              type="number"
+              min="1"
+              max="365"
+              class="w-[70px] rounded-md border border-line-2 bg-panel-2 px-2 py-1 text-right font-mono text-[12.5px]"
+            />
+            <span class="w-[38px] text-[11.5px] text-txt-3">
+              jour{{ intervals[box] > 1 ? 's' : '' }}
+            </span>
+          </div>
+          <button
+            type="submit"
+            class="mt-2 rounded-md border border-accent bg-accent px-2.5 py-2 text-[12.5px] text-white transition hover:opacity-90 disabled:opacity-50"
+            :disabled="!intervalsDirty || savingIntervals"
+          >
+            Enregistrer les intervalles
+          </button>
+        </form>
+      </div>
     </div>
   </div>
 

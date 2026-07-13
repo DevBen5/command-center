@@ -5,8 +5,9 @@ import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerService from '#modules/leitner/services/leitner_service'
 
-// Intervalles attendus, boîte par boîte — duplique volontairement BOX_INTERVAL_DAYS :
-// un test qui importerait la constante n'asserterait plus rien.
+// Les intervalles par défaut (1 · 2 · 4 · 7 · 30) sont posés par la migration et
+// dupliqués ici à dessein : un test qui importerait DEFAULT_BOX_INTERVAL_DAYS
+// n'asserterait plus rien.
 const TODAY = () => DateTime.now().toISODate()
 const IN = (days: number) => DateTime.now().plus({ days }).toISODate()
 
@@ -122,5 +123,54 @@ test.group('LeitnerService / révision', (group) => {
 
     assert.equal(await service.reviewedToday(), 1)
     assert.equal(await service.streakDays(), 1)
+  })
+})
+
+test.group('LeitnerService / intervalles des boîtes', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+
+  test('les intervalles par défaut sont ceux posés par la migration', async ({ assert }) => {
+    assert.deepEqual(await new LeitnerService().boxIntervals(), { 1: 1, 2: 2, 3: 4, 4: 7, 5: 30 })
+  })
+
+  test('la révision applique les intervalles réglés, pas les valeurs par défaut', async ({
+    assert,
+  }) => {
+    const service = new LeitnerService()
+    await service.updateBoxIntervals({ 1: 1, 2: 3, 3: 10, 4: 21, 5: 90 })
+
+    const card = await makeCard(2)
+    await service.review(card, 'good')
+
+    assert.equal(card.box, 3)
+    // Boîte 3 réglée à 10 jours (4 par défaut).
+    assert.equal(card.nextReview.toISODate(), IN(10))
+  })
+
+  test('`again` reste due le jour même quel que soit l’intervalle de la boîte 1', async ({
+    assert,
+  }) => {
+    const service = new LeitnerService()
+    await service.updateBoxIntervals({ 1: 5, 2: 3, 3: 10, 4: 21, 5: 90 })
+
+    const card = await makeCard(4)
+    await service.review(card, 'again')
+
+    assert.equal(card.box, 1)
+    // L'intervalle de la boîte 1 ne s'applique pas à un échec : la carte revient
+    // dans la session en cours.
+    assert.equal(card.nextReview.toISODate(), TODAY())
+  })
+
+  test('le réglage ne recalcule pas les échéances déjà posées', async ({ assert }) => {
+    const service = new LeitnerService()
+    const card = await makeCard(2)
+    await service.review(card, 'good')
+    const scheduled = card.nextReview.toISODate()
+
+    await service.updateBoxIntervals({ 1: 1, 2: 2, 3: 60, 4: 7, 5: 30 })
+
+    await card.refresh()
+    assert.equal(card.nextReview.toISODate(), scheduled)
   })
 })

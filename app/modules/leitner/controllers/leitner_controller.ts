@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 import type { HttpContext } from '@adonisjs/core/http'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
-import LeitnerService, { BOX_INTERVAL_DAYS } from '#modules/leitner/services/leitner_service'
+import LeitnerService from '#modules/leitner/services/leitner_service'
 import { reviewValidator } from '#modules/leitner/validators/leitner'
 
 export default class LeitnerController {
@@ -26,6 +26,7 @@ export default class LeitnerController {
     // la page en a besoin pour annoncer honnêtement ce que fait le bouton.
     const lastGrades = await service.lastGrades(dueCards.map((card) => card.id))
 
+    const boxIntervals = await service.boxIntervals()
     const boxCounts = await service.boxCounts()
     const reviewedToday = await service.reviewedToday()
     const streak = await service.streakDays()
@@ -51,7 +52,7 @@ export default class LeitnerController {
         lastGrade: lastGrades.get(card.id) ?? null,
       })),
       boxCounts,
-      boxIntervals: BOX_INTERVAL_DAYS,
+      boxIntervals,
       stats: {
         reviewedToday,
         streak,
