@@ -5,11 +5,15 @@ import AppLayout from '~/layouts/AppLayout.vue'
 
 defineOptions({ layout: AppLayout })
 
+type Grade = 'again' | 'hard' | 'good' | 'easy'
+
 interface LeitnerCard {
   id: number
   front: string
   back: string
   box: number
+  // Note de la révision précédente : deux `hard` d'affilée ramènent en boîte 1.
+  lastGrade: Grade | null
   theme: { id: number; name: string; category: { id: number; name: string } } | null
 }
 
@@ -24,19 +28,48 @@ interface Stats {
 const props = defineProps<{
   dueCards: LeitnerCard[]
   boxCounts: Record<number, number>
+  // Intervalles envoyés par le serveur (BOX_INTERVAL_DAYS) : ne pas les redéclarer ici.
+  boxIntervals: Record<number, number>
   stats: Stats
 }>()
 
-const boxIntervalLabel: Record<number, string> = {
-  1: 'tous les jours',
-  2: 'tous les 2 j',
-  3: 'tous les 4 j',
-  4: 'hebdo',
-  5: 'mensuel',
+/** « tous les jours » / « tous les 4 j » — libellé de la grille des boîtes. */
+function boxIntervalLabel(box: number): string {
+  const days = props.boxIntervals[box] ?? 0
+  return days === 1 ? 'tous les jours' : `tous les ${days} j`
+}
+
+/** « demain » / « dans 4 j » — échéance annoncée par un bouton de note. */
+function dueLabel(box: number): string {
+  const days = props.boxIntervals[box] ?? 0
+  return days === 1 ? 'demain' : `dans ${days} j`
 }
 
 const currentCard = computed(() => props.dueCards[0] ?? null)
 const revealed = ref(false)
+
+// Chaque bouton annonce la boîte atteinte et l'échéance : quatre notes, quatre effets.
+const gradeActions = computed(() => {
+  const card = currentCard.value
+  if (!card) return []
+
+  const good = Math.min(5, card.box + 1)
+  const easy = Math.min(5, card.box + 2)
+  const hardDemotes = card.lastGrade === 'hard'
+
+  return [
+    { grade: 'again' as Grade, label: 'À revoir', hint: 'boîte 1 · revient dans la session' },
+    {
+      grade: 'hard' as Grade,
+      label: 'Difficile',
+      hint: hardDemotes
+        ? `2ᵉ d'affilée · boîte 1 · ${dueLabel(1)}`
+        : `reste boîte ${card.box} · ${dueLabel(card.box)}`,
+    },
+    { grade: 'good' as Grade, label: 'Correct', hint: `boîte ${good} · ${dueLabel(good)}` },
+    { grade: 'easy' as Grade, label: 'Facile', hint: `boîte ${easy} · ${dueLabel(easy)}` },
+  ]
+})
 
 watch(
   () => currentCard.value?.id,
@@ -45,7 +78,7 @@ watch(
   }
 )
 
-function grade(g: 'again' | 'hard' | 'good' | 'easy'): void {
+function grade(g: Grade): void {
   if (!currentCard.value) return
   router.post(`/revision/${currentCard.value.id}/review`, { grade: g }, { preserveScroll: true })
 }
@@ -121,34 +154,26 @@ function grade(g: 'again' | 'hard' | 'good' | 'easy'): void {
         {{ currentCard.back }}
       </div>
 
-      <div v-if="revealed" class="flex gap-2">
+      <div v-if="revealed" class="flex flex-wrap justify-center gap-2">
         <button
+          v-for="action in gradeActions"
+          :key="action.grade"
           type="button"
-          class="rounded-[9px] border border-line-2 bg-panel-2 px-3.5 py-2 text-[12.5px]"
-          @click="grade('again')"
+          class="min-w-[140px] rounded-[9px] border px-3.5 py-2 transition"
+          :class="
+            action.grade === 'easy'
+              ? 'border-accent bg-accent text-white hover:opacity-90'
+              : 'border-line-2 bg-panel-2 hover:border-accent'
+          "
+          @click="grade(action.grade)"
         >
-          À revoir
-        </button>
-        <button
-          type="button"
-          class="rounded-[9px] border border-line-2 bg-panel-2 px-3.5 py-2 text-[12.5px]"
-          @click="grade('hard')"
-        >
-          Difficile
-        </button>
-        <button
-          type="button"
-          class="rounded-[9px] border border-line-2 bg-panel-2 px-3.5 py-2 text-[12.5px]"
-          @click="grade('good')"
-        >
-          Correct
-        </button>
-        <button
-          type="button"
-          class="rounded-[9px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white"
-          @click="grade('easy')"
-        >
-          Facile
+          <span class="block text-[12.5px] font-semibold">{{ action.label }}</span>
+          <span
+            class="mt-0.5 block text-[10.5px]"
+            :class="action.grade === 'easy' ? 'text-white opacity-75' : 'text-txt-3'"
+          >
+            {{ action.hint }}
+          </span>
         </button>
       </div>
     </div>
@@ -195,7 +220,7 @@ function grade(g: 'again' | 'hard' | 'good' | 'easy'): void {
         >
           {{ boxCounts[box] ?? 0 }}
         </div>
-        <div class="text-[10.5px] text-txt-2">{{ boxIntervalLabel[box] }}</div>
+        <div class="text-[10.5px] text-txt-2">{{ boxIntervalLabel(box) }}</div>
       </div>
     </div>
   </div>

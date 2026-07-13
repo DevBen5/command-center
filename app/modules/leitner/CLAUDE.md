@@ -42,17 +42,42 @@ parenthèses** — sans elles, Vue passe l'événement en `keepOpen` et la modal
 ## La règle métier
 
 `BOX_INTERVAL_DAYS = { 1: 1, 2: 2, 3: 4, 4: 7, 5: 30 }` dans `leitner_service.ts`.
+Chaque note a un effet distinct :
 
-- `again` → retour boîte 1. **Toute autre note** (`hard`, `good`, `easy`) → +1 boîte, plafonnée à 5.
-- `hard`, `good` et `easy` ont donc aujourd'hui un comportement **strictement identique**.
-  C'est une simplification assumée, pas un bug : les différencier est une décision produit,
-  pas une correction à faire au passage.
-- `next_review` = maintenant + l'intervalle de la boîte **atteinte** (après mouvement).
-- Conséquence : une carte ratée revient demain, jamais dans la même session.
+| note    | boîte atteinte                            | `next_review`              |
+| ------- | ----------------------------------------- | -------------------------- |
+| `again` | 1                                         | **aujourd'hui**            |
+| `hard`  | inchangée — sauf **2ᵉ `hard` d'affilée** → 1 | intervalle de cette boîte |
+| `good`  | +1                                        | intervalle de cette boîte  |
+| `easy`  | +2                                        | intervalle de cette boîte  |
 
-Les intervalles sont **dupliqués en trois endroits** — changer l'un exige de changer les trois :
-`BOX_INTERVAL_DAYS`, les libellés `boxIntervalLabel` de `pages/index.vue`, et les assertions de
-`tests/unit/leitner_service.spec.ts`.
+- La boîte est plafonnée à 5. `next_review` = aujourd'hui + l'intervalle de la boîte **atteinte**
+  (après mouvement) — `again` est la **seule** note qui laisse la carte due le jour même.
+- Conséquence : **une carte ratée reste due et revient dans la session en cours**, en fin de file,
+  jusqu'à ce qu'elle passe. C'est le geste du Leitner physique. Toute autre note repousse
+  l'échéance d'au moins un jour, donc vide la carte de la session du jour.
+- « Deux `hard` d'affilée » = la **dernière révision enregistrée** pour cette carte était déjà
+  `hard`, quel que soit le délai entre les deux (`LeitnerService.lastGrade`). Stagner deux fois
+  n'est pas savoir. Un `hard` séparé du précédent par une autre note ne rétrograde pas.
+
+**L'ordre de la file dépend de cette règle.** `leitner_controller.ts::index` trie
+`next_review` asc → `updated_at` asc → `id` asc. **Ne trie jamais par `box`** : une carte ratée
+retombe en boîte 1 et repasserait devant toutes les cartes de boîte ≥ 2 — elle se re-présenterait
+en boucle. Avec ce tri elle est dernière aux deux critères (échéance la plus tardive parmi les
+cartes dues, et écriture la plus récente), donc en fin de file.
+
+**Rétention** (`leitner_controller.ts::index`) : `grade !== 'again'`. `hard` compte comme une
+**réussite** — la réponse a été rappelée, péniblement ; ce n'est pas un échec de rappel, même
+depuis qu'il ne fait plus progresser la carte.
+
+**Les boutons annoncent leur effet.** `pages/index.vue` reçoit `boxIntervals` (la table du serveur)
+et le `lastGrade` de chaque carte due : chaque bouton affiche la boîte atteinte et l'échéance —
+y compris « 2ᵉ d'affilée · boîte 1 » quand la note précédente était `hard`. Ne réintroduis pas de
+libellés muets : quatre boutons opaques valent l'ancien bug de quatre boutons identiques.
+
+Les intervalles restent **dupliqués à deux endroits** — la page ne les redéclare plus, mais changer
+`BOX_INTERVAL_DAYS` exige de changer les assertions de `tests/unit/leitner_service.spec.ts`
+(un test qui importerait la constante n'asserterait plus rien).
 
 ## Le classement : catégorie → thème
 
@@ -83,7 +108,9 @@ elle se supprime depuis `/revision/settings`.
 
 ## Avant de rendre la main
 
-`npm test` — `tests/unit/leitner_service.spec.ts` couvre la règle des boîtes,
+`npm test` — `tests/unit/leitner_service.spec.ts` couvre la règle des boîtes (une note = une
+assertion sur la boîte **et** sur `next_review`), `tests/functional/modules/leitner_review.spec.ts`
+couvre la file de révision (une carte ratée reste due le jour même et repart en fin de file), et
 `tests/unit/leitner_catalog_service.spec.ts` couvre les filtres, la suppression multiple, le
 reclassement et les cascades de la taxonomie. Toute modification doit les laisser vertes, ou les
 mettre à jour explicitement.
