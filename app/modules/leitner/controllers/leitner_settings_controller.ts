@@ -10,7 +10,6 @@ import LeitnerBackupService, {
   BACKUP_VERSION,
   BackupImportError,
 } from '#modules/leitner/services/leitner_backup_service'
-import type { ImportMode } from '#modules/leitner/services/leitner_backup_service'
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
 import LeitnerService from '#modules/leitner/services/leitner_service'
 import {
@@ -101,6 +100,8 @@ export default class LeitnerSettingsController {
   */
 
   /**
+   * L'import **n'ajoute que ce qui manque** : il ne supprime ni n'écrase jamais rien.
+   *
    * Le fichier vient de l'utilisateur : rien n'y est fiable. Il passe donc par
    * `backupValidator` (contenu, pas extension) avant d'atteindre la base, et
    * l'écriture est transactionnelle — un fichier invalide n'écrit **rien**.
@@ -118,7 +119,7 @@ export default class LeitnerSettingsController {
       return response.redirect().back()
     }
 
-    let upload: { file: MultipartFile; mode?: ImportMode }
+    let upload: { file: MultipartFile }
     try {
       upload = await request.validateUsing(backupImportValidator)
     } catch (error) {
@@ -127,8 +128,6 @@ export default class LeitnerSettingsController {
       }
       throw error
     }
-
-    const mode = upload.mode ?? 'merge'
 
     let content: unknown
     try {
@@ -161,7 +160,7 @@ export default class LeitnerSettingsController {
     }
 
     try {
-      session.flash('importReport', await this.backup.import(backup, mode))
+      session.flash('importReport', await this.backup.import(backup))
     } catch (error) {
       // Rien n'a été écrit : l'import vit dans une transaction.
       if (error instanceof BackupImportError) return fail([error.message])

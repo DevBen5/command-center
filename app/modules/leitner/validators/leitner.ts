@@ -147,7 +147,6 @@ export const backupValidator = vine.compile(
 /** Le fichier lui-même. Aucune contrainte d'extension : c'est le contenu qui fait foi. */
 export const backupImportValidator = vine.compile(
   vine.object({
-    mode: vine.enum(['merge', 'replace'] as const).optional(),
     file: vine.file({ size: '20mb' }),
   })
 )

@@ -135,18 +135,12 @@ test.group('Leitner / import JSON', (group) => {
   }
 
   /** Poste un fichier JSON comme le ferait le formulaire de `/revision/settings`. */
-  function upload(
-    client: ApiClient,
-    user: User,
-    content: string | object,
-    mode: 'merge' | 'replace' = 'merge'
-  ) {
+  function upload(client: ApiClient, user: User, content: string | object) {
     const body = typeof content === 'string' ? content : JSON.stringify(content)
 
     return client
       .post('/revision/import')
       .file('file', Buffer.from(body, 'utf-8'), { filename: 'sauvegarde.json' })
-      .field('mode', mode)
       .loginAs(user)
       .withCsrfToken()
       .redirects(0)
@@ -185,7 +179,7 @@ test.group('Leitner / import JSON', (group) => {
 
   /**
    * LE test : c'est lui qui valide la promesse d'assurance. Tout le reste est du détail.
-   * Export → base vidée → import en remplacement → la base est identique.
+   * Export → base vidée (`docker compose down -v`) → import → la base est identique.
    */
   test('aller-retour : une base vidée puis restaurée est identique à elle-même', async ({
     client,
@@ -234,7 +228,7 @@ test.group('Leitner / import JSON', (group) => {
     await LeitnerCategory.query().delete()
     assert.lengthOf(await LeitnerCard.all(), 0)
 
-    const response = await upload(client, user, backup, 'replace')
+    const response = await upload(client, user, backup)
     response.assertStatus(302)
 
     assert.deepEqual(await snapshot(), avant)
@@ -270,7 +264,7 @@ test.group('Leitner / import JSON', (group) => {
     assert.equal(card.theme.category.name, 'DevOps')
   })
 
-  test('fusion : le contenu existant survit et la catégorie déjà présente est réutilisée', async ({
+  test('le contenu existant survit et la catégorie déjà présente est réutilisée', async ({
     client,
     assert,
   }) => {
@@ -301,7 +295,7 @@ test.group('Leitner / import JSON', (group) => {
     assert.lengthOf(await LeitnerCard.all(), 2)
   })
 
-  test('fusion : un recto déjà présent sous le même thème est ignoré, ici comme dans le fichier', async ({
+  test('un recto déjà présent sous le même thème est ignoré, en base comme dans le fichier', async ({
     client,
     assert,
   }) => {
@@ -348,26 +342,52 @@ test.group('Leitner / import JSON', (group) => {
     assert.lengthOf(await LeitnerCard.all(), 3)
   })
 
-  test('remplacement : le fichier est rechargé fidèlement, doublons compris', async ({
+  test('rejouer le même fichier n’ajoute rien : l’import est idempotent', async ({
+    client,
+    assert,
+  }) => {
+    const user = await login()
+    const fichier = {
+      cards: [
+        { front: 'Une', back: 'A.', category: 'DevOps', theme: 'Docker' },
+        { front: 'Deux', back: 'B.', category: 'DevOps', theme: 'Docker' },
+      ],
+    }
+
+    await upload(client, user, fichier)
+    const response = await upload(client, user, fichier)
+
+    const report = response.flashMessages().importReport as ImportReport
+    assert.equal(report.cardsCreated, 0)
+    assert.equal(report.cardsSkipped, 2)
+    assert.lengthOf(await LeitnerCard.all(), 2)
+    // La taxonomie n'est pas dupliquée non plus.
+    assert.lengthOf(await LeitnerCategory.all(), 1)
+    assert.lengthOf(await LeitnerTheme.all(), 1)
+  })
+
+  /**
+   * Le revers assumé de « je n'importe que ce qui manque » : le couple (recto, thème)
+   * fait l'identité d'une carte, donc deux cartes réellement identiques n'en font
+   * qu'une après un aller-retour. C'est le prix de l'idempotence, pas un bug.
+   */
+  test('deux cartes au même recto sous le même thème fusionnent en une seule', async ({
     client,
     assert,
   }) => {
     const user = await login()
 
-    // Deux cartes réellement identiques : l'UI le permet, la restauration doit les rendre.
-    await upload(
-      client,
-      user,
-      {
-        cards: [
-          { front: 'Même recto', back: 'Un.', category: 'DevOps', theme: 'Docker' },
-          { front: 'Même recto', back: 'Deux.', category: 'DevOps', theme: 'Docker' },
-        ],
-      },
-      'replace'
-    )
+    const response = await upload(client, user, {
+      cards: [
+        { front: 'Même recto', back: 'Un.', category: 'DevOps', theme: 'Docker' },
+        { front: 'Même recto', back: 'Deux.', category: 'DevOps', theme: 'Docker' },
+      ],
+    })
 
-    assert.lengthOf(await LeitnerCard.all(), 2)
+    const report = response.flashMessages().importReport as ImportReport
+    assert.equal(report.cardsCreated, 1)
+    assert.equal(report.cardsSkipped, 1)
+    assert.lengthOf(await LeitnerCard.all(), 1)
   })
 
   test('une boîte hors de 1..5 est refusée : sans ce garde-fou, la carte serait éternellement due', async ({

@@ -69,17 +69,9 @@ export interface BackupInput {
   cards: BackupCardInput[]
 }
 
-/**
- * `merge` (défaut) ajoute au contenu existant et ne supprime rien : c'est la saisie
- * en masse. `replace` vide cartes et taxonomie avant de charger : c'est la
- * restauration, elle est destructive et passe par une confirmation explicite.
- */
-export type ImportMode = 'merge' | 'replace'
-
 export interface ImportReport {
-  mode: ImportMode
   cardsCreated: number
-  /** Cartes ignorées en fusion (recto déjà présent sous ce thème). Jamais en remplacement. */
+  /** Cartes ignorées : leur recto existait déjà sous ce thème. */
   cardsSkipped: number
   categoriesCreated: number
   themesCreated: number
@@ -104,7 +96,7 @@ function themeKey(category: string, theme: string): string {
   return JSON.stringify([category, theme])
 }
 
-/** Identité d'une carte pour la déduplication en fusion : son recto, *dans son thème*. */
+/** Identité d'une carte pour la déduplication : son recto, *dans son thème*. */
 function cardKey(front: string, themeId: number | null): string {
   return JSON.stringify([themeId, front])
 }
@@ -159,14 +151,18 @@ export default class LeitnerBackupService {
   }
 
   /**
-   * Charge un fichier validé. **Tout ou rien** : une seule transaction, donc un
-   * fichier qui casse à la 300ᵉ carte ne laisse pas 299 cartes derrière lui. Le
-   * cas le plus probable est la violation d'unicité de la taxonomie
-   * (`leitner_categories.name`, et (catégorie, nom) sur `leitner_themes`).
+   * Charge un fichier validé. L'import **n'ajoute que ce qui manque** et ne
+   * supprime jamais rien : une carte dont le recto existe déjà sous le même thème
+   * est ignorée. Il n'y a pas d'autre mode — restaurer, c'est importer dans une
+   * base vide (`docker compose down -v`), et une fusion la recharge à l'identique.
+   *
+   * **Tout ou rien** : une seule transaction, donc un fichier qui casse à la 300ᵉ
+   * carte ne laisse pas 299 cartes derrière lui. Le cas le plus probable est la
+   * violation d'unicité de la taxonomie (`leitner_categories.name`, et
+   * (catégorie, nom) sur `leitner_themes`).
    */
-  async import(backup: BackupInput, mode: ImportMode): Promise<ImportReport> {
+  async import(backup: BackupInput): Promise<ImportReport> {
     const report: ImportReport = {
-      mode,
       cardsCreated: 0,
       cardsSkipped: 0,
       categoriesCreated: 0,
@@ -175,12 +171,6 @@ export default class LeitnerBackupService {
     }
 
     return db.transaction(async (trx) => {
-      if (mode === 'replace') {
-        // Les révisions partent avec leurs cartes, les thèmes avec leurs catégories (FK CASCADE).
-        await LeitnerCard.query({ client: trx }).delete()
-        await LeitnerCategory.query({ client: trx }).delete()
-      }
-
       const taxonomy = await this.loadTaxonomy(trx, report)
 
       // La taxonomie déclarée en tête de fichier est créée même si aucune carte ne
@@ -192,29 +182,24 @@ export default class LeitnerBackupService {
         }
       }
 
-      // Déduplication : en FUSION seulement. Le remplacement est une restauration,
-      // il recharge le fichier fidèlement — doublons compris, sinon une base qui
-      // contenait deux cartes identiques n'en retrouverait qu'une.
+      // Ce qui est déjà là ne sera pas ré-ajouté.
       const seen = new Set<string>()
-      if (mode === 'merge') {
-        for (const card of await LeitnerCard.query({ client: trx })) {
-          seen.add(cardKey(card.front, card.leitnerThemeId))
-        }
+      for (const card of await LeitnerCard.query({ client: trx })) {
+        seen.add(cardKey(card.front, card.leitnerThemeId))
       }
 
       for (const card of backup.cards) {
         const themeId = await this.resolveTheme(card, taxonomy)
 
-        if (mode === 'merge') {
-          const key = cardKey(card.front, themeId)
-          // Le doublon peut venir de la base comme du fichier lui-même : rejouer
-          // deux fois le même fichier ne duplique rien.
-          if (seen.has(key)) {
-            report.cardsSkipped++
-            continue
-          }
-          seen.add(key)
+        const key = cardKey(card.front, themeId)
+        // Le doublon peut venir de la base comme du fichier lui-même : rejouer deux
+        // fois le même fichier ne duplique rien. Revers assumé : deux cartes au même
+        // recto sous le même thème n'en font qu'une après un aller-retour.
+        if (seen.has(key)) {
+          report.cardsSkipped++
+          continue
         }
+        seen.add(key)
 
         const created = await LeitnerCard.create(
           {

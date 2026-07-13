@@ -35,7 +35,6 @@ interface Filters {
 }
 
 interface ImportReport {
-  mode: 'merge' | 'replace'
   cardsCreated: number
   cardsSkipped: number
   categoriesCreated: number
@@ -269,7 +268,6 @@ function submitCard(keepOpen = false): void {
 | (JSON + content-disposition) qu'Inertia ne sait pas transporter.
 */
 const importFile = ref<File | null>(null)
-const importMode = ref<'merge' | 'replace'>('merge')
 const importing = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 
@@ -277,24 +275,15 @@ function pickFile(event: Event): void {
   importFile.value = (event.target as HTMLInputElement).files?.[0] ?? null
 }
 
+// L'import n'ajoute que ce qui manque : rien n'est supprimé ni écrasé, donc aucune
+// confirmation à demander.
 function submitImport(): void {
   if (!importFile.value) return
-
-  // Le remplacement détruit tout le contenu existant : il ne s'atteint jamais sans
-  // un « oui » explicite.
-  if (
-    importMode.value === 'replace' &&
-    !confirm(
-      `Remplacer TOUT le contenu ?\n\nVos ${props.totalCards} carte(s), leur historique et votre taxonomie seront supprimés, puis remplacés par le fichier. Cette action est définitive.`
-    )
-  ) {
-    return
-  }
 
   importing.value = true
   router.post(
     '/revision/import',
-    { file: importFile.value, mode: importMode.value },
+    { file: importFile.value },
     {
       preserveScroll: true,
       onFinish: () => {
@@ -774,7 +763,10 @@ function deleteTheme(theme: ThemeNode): void {
           Exporter en JSON
         </a>
 
-        <form class="mt-4 flex flex-col gap-2 border-t border-line pt-4" @submit.prevent="submitImport">
+        <form
+          class="mt-4 flex flex-col gap-2 border-t border-line pt-4"
+          @submit.prevent="submitImport"
+        >
           <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase">Importer un fichier</label>
           <input
             ref="fileInput"
@@ -784,26 +776,15 @@ function deleteTheme(theme: ThemeNode): void {
             @change="pickFile"
           />
 
-          <select
-            v-model="importMode"
-            class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
-          >
-            <option value="merge">Fusionner — ajoute, ne supprime rien</option>
-            <option value="replace">Remplacer — efface tout, puis charge</option>
-          </select>
-
-          <p v-if="importMode === 'replace'" class="text-[11.5px] text-bad">
-            Vos cartes, leur historique et votre taxonomie seront supprimés avant le chargement.
-          </p>
-          <p v-else class="text-[11.5px] text-txt-3">
-            Une carte dont le recto existe déjà sous le même thème est ignorée ; les catégories
-            existantes sont réutilisées.
+          <p class="text-[11.5px] text-txt-3">
+            L'import n'ajoute que ce qui manque : rien n'est supprimé ni écrasé. Une carte dont le
+            recto existe déjà sous le même thème est ignorée, les catégories existantes sont
+            réutilisées.
           </p>
 
           <button
             type="submit"
             class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] transition hover:border-accent disabled:opacity-50"
-            :class="importMode === 'replace' ? 'border-bad text-bad hover:border-bad' : ''"
             :disabled="!importFile || importing"
           >
             {{ importing ? 'Import en cours…' : 'Importer' }}
@@ -825,9 +806,7 @@ function deleteTheme(theme: ThemeNode): void {
           v-else-if="importReport"
           class="mt-3 rounded-md border border-ok bg-panel-2 p-2.5 text-[11.5px] text-txt-2"
         >
-          <div class="font-semibold text-ok">
-            {{ importReport.mode === 'replace' ? 'Contenu remplacé' : 'Import fusionné' }}
-          </div>
+          <div class="font-semibold text-ok">Import terminé</div>
           <div class="mt-1">
             {{ importReport.cardsCreated }} carte(s) ajoutée(s), {{ importReport.reviewsCreated }}
             révision(s) restaurée(s).

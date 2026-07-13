@@ -189,23 +189,21 @@ aujourd'hui). Un fichier de saisie en masse se réduit donc à :
 { "cards": [{ "front": "…", "back": "…", "category": "DevOps", "theme": "Docker" }] }
 ```
 
-**Deux modes**, et un seul est destructif :
+**L'import n'ajoute que ce qui manque. Il n'y a pas de mode « remplacer », et c'est voulu** :
+aucune route de ce module ne détruit du contenu en masse. Restaurer, c'est importer dans une base
+vide — après un `docker compose down -v`, il n'y a plus rien à écraser.
 
-| mode | effet |
-| --- | --- |
-| `merge` (défaut) | ajoute au contenu existant, **ne supprime rien** — c'est la saisie en masse |
-| `replace` | vide cartes **et** taxonomie, puis charge — c'est la restauration, derrière une confirmation explicite |
-
+- **Déduplication sur le couple (recto, thème)** — contre la base *et* contre le fichier lui-même,
+  donc rejouer deux fois le même fichier n'ajoute rien. Le même recto sous **deux thèmes** reste
+  deux cartes. Revers assumé : deux cartes réellement identiques (même recto, même thème) n'en font
+  **qu'une** après un aller-retour — c'est le prix de l'idempotence, et c'est un choix explicite.
 - **La taxonomie est fusionnée par nom, jamais dupliquée** : une catégorie « DevOps » déjà présente
   est réutilisée (`leitner_categories.name` est unique, `leitner_themes` unique sur (catégorie,
   nom)). Elle est créée à la volée si une carte la mentionne sans que le bloc `categories` l'ait
   déclarée. `category` et `theme` vont **toujours ensemble** : l'un sans l'autre est une erreur, pas
   une carte non classée.
-- **Déduplication : en fusion seulement**, sur le couple **(recto, thème)** — contre la base *et*
-  contre le fichier lui-même, donc rejouer deux fois le même fichier n'ajoute rien. Le même recto
-  sous deux thèmes reste deux cartes. En **remplacement**, aucune déduplication : c'est une
-  restauration, elle recharge le fichier tel quel — sinon une base contenant deux cartes identiques
-  n'en retrouverait qu'une, et la promesse de l'aller-retour tomberait.
+- Une carte existante n'est **jamais écrasée** : son verso, sa boîte et son échéance survivent à un
+  import qui contiendrait le même recto.
 - **`version` inconnue → refus**, avec un message. Un import « au mieux » sur un format qu'on ne
   comprend pas écrit des données fausses en silence. Un fichier **sans** `version` est un fichier
   écrit à la main : il est lu comme la version courante.
