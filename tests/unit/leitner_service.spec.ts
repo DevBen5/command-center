@@ -11,7 +11,6 @@ function makeCard(box: number) {
     back: 'Réponse de test',
     box,
     nextReview: DateTime.now(),
-    tags: [],
   })
 }
 

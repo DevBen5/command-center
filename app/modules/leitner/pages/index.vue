@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Head, router } from '@inertiajs/vue3'
+import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 
 defineOptions({ layout: AppLayout })
@@ -10,7 +10,13 @@ interface LeitnerCard {
   front: string
   back: string
   box: number
-  tags: string[]
+  theme: { id: number; name: string; category: { id: number; name: string } } | null
+}
+
+interface CategoryNode {
+  id: number
+  name: string
+  themes: { id: number; name: string }[]
 }
 
 interface Stats {
@@ -24,6 +30,7 @@ interface Stats {
 const props = defineProps<{
   dueCards: LeitnerCard[]
   boxCounts: Record<number, number>
+  categories: CategoryNode[]
   stats: Stats
 }>()
 
@@ -50,23 +57,22 @@ function grade(g: 'again' | 'hard' | 'good' | 'easy'): void {
   router.post(`/revision/${currentCard.value.id}/review`, { grade: g }, { preserveScroll: true })
 }
 
-const newCard = ref({ front: '', back: '' })
+const newCard = ref({ front: '', back: '', leitnerThemeId: null as number | null })
 const adding = ref(false)
 
 function submitNewCard(): void {
   if (!newCard.value.front.trim() || !newCard.value.back.trim()) return
   adding.value = true
-  router.post(
-    '/revision/cards',
-    { front: newCard.value.front, back: newCard.value.back },
-    {
-      preserveScroll: true,
-      onFinish: () => {
-        adding.value = false
-        newCard.value = { front: '', back: '' }
-      },
-    }
-  )
+  router.post('/revision/cards', { ...newCard.value }, {
+    preserveScroll: true,
+    onFinish: () => {
+      adding.value = false
+      // Le thème reste sélectionné : on saisit en général plusieurs cartes de suite
+      // sur le même sujet.
+      newCard.value.front = ''
+      newCard.value.back = ''
+    },
+  })
 }
 </script>
 
@@ -101,6 +107,12 @@ function submitNewCard(): void {
         <div class="font-mono text-[20px] font-bold">{{ stats.totalCards }}</div>
         <div class="text-[10.5px] text-txt-3">total cartes</div>
       </div>
+      <Link
+        href="/revision/settings"
+        class="flex items-center rounded-[12px] border border-line-2 bg-panel px-4 text-[12.5px] text-txt-2 transition hover:border-accent hover:text-txt"
+      >
+        Gérer les cartes
+      </Link>
     </div>
   </div>
 
@@ -110,11 +122,19 @@ function submitNewCard(): void {
         v-if="currentCard"
         class="flex min-h-[230px] flex-col items-center justify-center gap-4 rounded-[14px] border border-line-2 bg-panel p-9 text-center"
       >
-        <span
-          class="rounded-full border border-line-2 bg-panel-2 px-2.5 py-1 text-[11px] text-txt-2"
-        >
-          Boîte {{ currentCard.box }} · {{ dueCards.length }} restantes
-        </span>
+        <div class="flex flex-wrap items-center justify-center gap-1.5">
+          <span
+            class="rounded-full border border-line-2 bg-panel-2 px-2.5 py-1 text-[11px] text-txt-2"
+          >
+            Boîte {{ currentCard.box }} · {{ dueCards.length }} restantes
+          </span>
+          <span
+            v-if="currentCard.theme"
+            class="rounded-full border border-accent bg-accent-soft px-2.5 py-1 text-[11px] text-txt-2"
+          >
+            {{ currentCard.theme.category.name }} · {{ currentCard.theme.name }}
+          </span>
+        </div>
         <div class="max-w-[420px] text-[19px] font-semibold">{{ currentCard.front }}</div>
 
         <button
@@ -218,6 +238,17 @@ function submitNewCard(): void {
           rows="2"
           class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] placeholder:text-txt-3"
         ></textarea>
+        <select
+          v-model="newCard.leitnerThemeId"
+          class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
+        >
+          <option :value="null">— Non classée —</option>
+          <optgroup v-for="category in categories" :key="category.id" :label="category.name">
+            <option v-for="theme in category.themes" :key="theme.id" :value="theme.id">
+              {{ theme.name }}
+            </option>
+          </optgroup>
+        </select>
         <button
           type="submit"
           class="rounded-md border border-accent bg-accent px-2.5 py-2 text-[12.5px] text-white disabled:opacity-50"

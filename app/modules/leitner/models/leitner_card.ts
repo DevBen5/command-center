@@ -1,7 +1,8 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
-import type { HasMany } from '@adonisjs/lucid/types/relations'
+import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
+import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
+import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 
 export default class LeitnerCard extends BaseModel {
   @column({ isPrimary: true })
@@ -19,8 +20,13 @@ export default class LeitnerCard extends BaseModel {
   @column.date()
   declare nextReview: DateTime
 
+  // Classement de la carte : un thème, lui-même rattaché à une catégorie.
+  // `null` = carte non classée.
   @column()
-  declare tags: string[]
+  declare leitnerThemeId: number | null
+
+  @belongsTo(() => LeitnerTheme)
+  declare theme: BelongsTo<typeof LeitnerTheme>
 
   @hasMany(() => LeitnerReview)
   declare reviews: HasMany<typeof LeitnerReview>

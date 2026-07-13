@@ -17,6 +17,8 @@ const ServicesController = () => import('#modules/services/controllers/services_
 const AgentsController = () => import('#modules/agents/controllers/agents_controller')
 const VeilleController = () => import('#modules/veille/controllers/veille_controller')
 const LeitnerController = () => import('#modules/leitner/controllers/leitner_controller')
+const LeitnerSettingsController = () =>
+  import('#modules/leitner/controllers/leitner_settings_controller')
 
 /*
 |--------------------------------------------------------------------------
@@ -73,6 +75,22 @@ router
       .group(() => {
         router.get('/', [LeitnerController, 'index'])
         router.post('/cards', [LeitnerController, 'store'])
+
+        // Écran de gestion : catalogue des cartes + taxonomie catégorie → thème.
+        router.get('/settings', [LeitnerSettingsController, 'index'])
+        router.put('/cards/:id', [LeitnerSettingsController, 'update'])
+        router.delete('/cards/:id', [LeitnerSettingsController, 'destroy'])
+        router.post('/cards/delete', [LeitnerSettingsController, 'destroyMany'])
+        router.post('/cards/theme', [LeitnerSettingsController, 'assignTheme'])
+
+        router.post('/categories', [LeitnerSettingsController, 'storeCategory'])
+        router.put('/categories/:id', [LeitnerSettingsController, 'updateCategory'])
+        router.delete('/categories/:id', [LeitnerSettingsController, 'destroyCategory'])
+
+        router.post('/themes', [LeitnerSettingsController, 'storeTheme'])
+        router.put('/themes/:id', [LeitnerSettingsController, 'updateTheme'])
+        router.delete('/themes/:id', [LeitnerSettingsController, 'destroyTheme'])
+
         router.post('/:id/review', [LeitnerController, 'review'])
       })
       .prefix('/revision')

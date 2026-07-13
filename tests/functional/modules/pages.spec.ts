@@ -8,6 +8,7 @@ const PAGES: Array<{ route: string; component: string }> = [
   { route: '/agents', component: 'modules/agents/index' },
   { route: '/veille', component: 'modules/veille/index' },
   { route: '/revision', component: 'modules/leitner/index' },
+  { route: '/revision/settings', component: 'modules/leitner/settings' },
 ]
 
 test.group('Modules / accès authentifié', (group) => {
