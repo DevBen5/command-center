@@ -13,9 +13,29 @@ const dbConfig = defineConfig({
         password: env.get('DB_PASSWORD'),
         database: env.get('DB_DATABASE'),
       },
+      // Migrations et seeders sont co-localisés dans chaque module (organisation
+      // feature-based). Lucid lit les fichiers dossier par dossier, dans l'ordre
+      // de ce tableau, puis trie chaque dossier (naturalSort). L'ordre ci-dessous
+      // garantit un ordre d'exécution global cohérent ; à l'intérieur du module
+      // leitner, cards passe avant reviews grâce au tri numérique.
       migrations: {
         naturalSort: true,
-        paths: ['database/migrations'],
+        paths: [
+          'app/core/auth/migrations',
+          'app/modules/services/migrations',
+          'app/modules/agents/migrations',
+          'app/modules/veille/migrations',
+          'app/modules/leitner/migrations',
+        ],
+      },
+      seeders: {
+        paths: [
+          'app/core/auth/seeders',
+          'app/modules/services/seeders',
+          'app/modules/agents/seeders',
+          'app/modules/veille/seeders',
+          'app/modules/leitner/seeders',
+        ],
       },
     },
   },

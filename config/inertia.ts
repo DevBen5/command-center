@@ -1,7 +1,7 @@
 import { defineConfig } from '@adonisjs/inertia'
 import type { InferSharedProps } from '@adonisjs/inertia/types'
 import i18nManager from '@adonisjs/i18n/services/main'
-import NavStatsService from '#services/nav_stats_service'
+import NavStatsService from '#core/shared/services/nav_stats_service'
 
 const inertiaConfig = defineConfig({
   /**

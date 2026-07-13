@@ -23,10 +23,23 @@ createInertiaApp({
   title: (title) => `${title} - ${appName}`,
 
   resolve: (name) => {
-    return resolvePageComponent(
-      `../pages/${name}.vue`,
-      import.meta.glob<DefineComponent>('../pages/**/*.vue')
+    // Les pages Vue sont co-localisées dans chaque feature, sous app/**/pages/.
+    // Le nom de composant Inertia est dérivé du chemin du fichier : on retire le
+    // préfixe « /app/ » et le segment « /pages/ »
+    // (ex. /app/modules/services/pages/index.vue → modules/services/index).
+    // On retrouve donc le bon fichier par correspondance sur ce nom normalisé.
+    const pages = import.meta.glob<DefineComponent>('/app/**/pages/**/*.vue')
+    const path = Object.keys(pages).find(
+      (file) =>
+        file
+          .replace('/app/', '')
+          .replace('/pages/', '/')
+          .replace(/\.vue$/, '') === name
     )
+    if (!path) {
+      throw new Error(`Page Inertia introuvable : "${name}"`)
+    }
+    return resolvePageComponent(path, pages)
   },
 
   setup({ el, App, props, plugin }) {

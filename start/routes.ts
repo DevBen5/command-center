@@ -10,13 +10,13 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 
-const AuthController = () => import('#controllers/auth_controller')
-const LocaleController = () => import('#controllers/locale_controller')
-const HomeController = () => import('#controllers/home_controller')
-const ServicesController = () => import('#controllers/modules/services_controller')
-const AgentsController = () => import('#controllers/modules/agents_controller')
-const VeilleController = () => import('#controllers/modules/veille_controller')
-const LeitnerController = () => import('#controllers/modules/leitner_controller')
+const AuthController = () => import('#core/auth/controllers/auth_controller')
+const LocaleController = () => import('#core/i18n/controllers/locale_controller')
+const HomeController = () => import('#core/dashboard/controllers/home_controller')
+const ServicesController = () => import('#modules/services/controllers/services_controller')
+const AgentsController = () => import('#modules/agents/controllers/agents_controller')
+const VeilleController = () => import('#modules/veille/controllers/veille_controller')
+const LeitnerController = () => import('#modules/leitner/controllers/leitner_controller')
 
 /*
 |--------------------------------------------------------------------------

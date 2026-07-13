@@ -1,9 +1,9 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import testUtils from '@adonisjs/core/services/test_utils'
-import LeitnerCard from '#models/leitner_card'
-import LeitnerReview from '#models/leitner_review'
-import LeitnerService from '#services/leitner_service'
+import LeitnerCard from '#modules/leitner/models/leitner_card'
+import LeitnerReview from '#modules/leitner/models/leitner_review'
+import LeitnerService from '#modules/leitner/services/leitner_service'
 
 function makeCard(box: number) {
   return LeitnerCard.create({

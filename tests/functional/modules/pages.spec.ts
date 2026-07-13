@@ -1,13 +1,13 @@
 import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
-import User from '#models/user'
+import User from '#core/auth/models/user'
 
 const PAGES: Array<{ route: string; component: string }> = [
-  { route: '/', component: 'home' },
-  { route: '/services', component: 'services/index' },
-  { route: '/agents', component: 'agents/index' },
-  { route: '/veille', component: 'veille/index' },
-  { route: '/revision', component: 'leitner/index' },
+  { route: '/', component: 'core/dashboard/home' },
+  { route: '/services', component: 'modules/services/index' },
+  { route: '/agents', component: 'modules/agents/index' },
+  { route: '/veille', component: 'modules/veille/index' },
+  { route: '/revision', component: 'modules/leitner/index' },
 ]
 
 test.group('Modules / accès authentifié', (group) => {

@@ -1,6 +1,6 @@
 import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
-import User from '#models/user'
+import User from '#core/auth/models/user'
 
 // Chaque test tourne dans une transaction globale, rollbackée à la fin :
 // les utilisateurs créés ici ne polluent jamais les autres tests.
