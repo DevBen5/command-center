@@ -5,8 +5,8 @@ Route `/revision` (⚠️ **pas** `/leitner`) · pages Inertia `modules/leitner/
 `leitner_themes`.
 
 ```
-controllers/leitner_controller.ts          index · store · review
-controllers/leitner_settings_controller.ts écran de gestion : cartes + taxonomie
+controllers/leitner_controller.ts          révision seule : index · review
+controllers/leitner_settings_controller.ts écran de gestion : CRUD cartes + taxonomie
 services/leitner_service.ts                règle métier (boîtes, stats)  ← source de vérité
 services/leitner_catalog_service.ts        catalogue : filtres, CRUD cartes, catégories/thèmes
 models/leitner_card.ts                     hasMany reviews · belongsTo theme (nullable)
@@ -14,7 +14,7 @@ models/leitner_review.ts                   belongsTo card
 models/leitner_category.ts                 hasMany themes
 models/leitner_theme.ts                    belongsTo category · hasMany cards
 validators/leitner.ts                      card · review · cardIds · cardsTheme · category · theme
-pages/index.vue                            session de révision · grille des 5 boîtes · ajout
+pages/index.vue                            session de révision · grille des 5 boîtes
 pages/settings.vue                         tableau des cartes · création/édition · sélection
                                            multiple · taxonomie
 migrations/                                cards PUIS reviews PUIS categories/themes (FK :
@@ -26,9 +26,18 @@ l'UI. Le module n'a plus de dossier `seeders/` ; `config/database.ts` en garde l
 sans effet (Lucid lit les dossiers de seeders avec `ignoreMissingRoot`). Ne réintroduis pas de
 données de démo : elles écraseraient le contenu réel de l'utilisateur au prochain `db:seed`.
 
-La création de carte est exposée à **deux endroits pour une seule route** (`POST /revision/cards`,
-`LeitnerController.store`) : le formulaire latéral de `index.vue` et la modale de `settings.vue`,
-qui sert à la fois à créer (`editing === null`) et à éditer.
+## Un seul point de saisie : `/revision/settings`
+
+`/revision` **ne fait que réviser** : aucune création, aucune édition. Toute écriture sur une carte
+(créer, éditer, supprimer, classer) passe par `settings.vue` et `LeitnerSettingsController` —
+`POST /revision/cards` y compris, alors que l'URL vit sous le préfixe `/revision`. Ne réintroduis pas
+de formulaire dans `index.vue` : la page renvoie vers la gestion (lien du header, bouton de l'état
+vide), et son contrôleur n'a plus besoin de `LeitnerCatalogService`.
+
+La modale de `settings.vue` sert à la fois à créer (`editing === null`) et à éditer. En création,
+« Créer et enchaîner » (`submitCard(true)`) la laisse ouverte en conservant le thème : la saisie se
+fait en général par séries sur un même sujet. `@submit.prevent="submitCard()"` s'écrit **avec les
+parenthèses** — sans elles, Vue passe l'événement en `keepOpen` et la modale ne se ferme jamais.
 
 ## La règle métier
 
