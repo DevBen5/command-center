@@ -4,17 +4,28 @@ Tableau de bord auto-hébergé. AdonisJS 6 (ESM, TS strict) + Inertia 2 + Vue 3 
 
 Commandes : `npm run dev` · `npm test` · `npm run typecheck` · `npm run lint`
 
-## Les données ne vivent que dans le volume Docker
+## Les données : où elles vivent, comment on les sauve
 
-La base est saisie à la main, sans seeder pour le contenu réel : **le volume `postgres_data` en est
-la seule copie**, et un `docker compose down -v` l'emporte en entier.
+Le contenu réel est saisi à la main, sans seeder : **la base est la seule copie**. D'où deux
+protections, qui ne se remplacent pas.
 
-- `npm run db:backup` → dump SQL horodaté dans `backups/` (ignoré par git), **hors** du volume : la
-  seule copie qui survit à un `down -v`. Il emporte tout — contenu, réglages, comptes.
-- `npm run db:restore` → recharge le dump le plus récent (ou `-- backups/<fichier>.sql`). Le dump est
-  fait avec `--clean --if-exists` : il **remplace** la base, il ne fusionne pas.
-- Les scripts (`scripts/db-*.js`) appellent `docker compose exec` via `spawn` **avec un tableau
-  d'arguments**, jamais une chaîne interpolée dans un shell.
+**1. `./pgdata` — un bind mount, pas un volume nommé.** Postgres écrit dans un dossier du dépôt
+(ignoré par git), sur le disque de la machine. Un `docker compose down -v` **ne le touche pas** :
+le `-v` ne supprime que les volumes gérés par Docker. C'est l'unique raison de ce choix.
+
+- Contrepartie mesurée : ~20 % de transactions/s en moins qu'un volume natif, écritures massives
+  nettement plus lentes (système de fichiers partagé Windows ↔ WSL2). Sans importance à cette
+  volumétrie.
+- Ce n'est **pas** une sauvegarde : c'est le fichier vivant de Postgres, binaire, lié à la version
+  majeure (PG 16). Une corruption ou un `rm -rf` l'emporte.
+
+**2. `npm run db:backup` — le vrai filet.** Dump SQL horodaté dans `backups/` (ignoré par git),
+restaurable par `npm run db:restore` (le plus récent, ou `-- backups/<fichier>.sql`). Il emporte
+**tout** : contenu, réglages, comptes. Le dump est fait avec `--clean --if-exists` : il **remplace**
+la base, il ne fusionne pas.
+
+Les scripts (`scripts/db-*.js`) appellent `docker compose exec` via `spawn` **avec un tableau
+d'arguments**, jamais une chaîne interpolée dans un shell.
 
 Le module Leitner a en plus son propre export/import JSON (`/revision/settings`), qui ne couvre que
 son contenu et n'ajoute que ce qui manque — voir `app/modules/leitner/CLAUDE.md`.

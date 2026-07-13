@@ -8,7 +8,16 @@ services:
     ports:
       - '${DB_PORT}:5432'
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # Bind mount, et non un volume nommé : les données vivent dans ./pgdata, sur le
+      # disque de la machine. Un `docker compose down -v` n'y touche pas — le `-v` ne
+      # supprime que les volumes gérés par Docker. C'est la seule raison de ce choix.
+      #
+      # Ce n'est PAS une sauvegarde pour autant : c'est le fichier vivant de Postgres,
+      # binaire et lié à la version majeure. Le filet, c'est `npm run db:backup`.
+      - ./pgdata:/var/lib/postgresql/data
+      # Crée la base `app_test` au premier démarrage (cluster vide) : sans elle,
+      # `npm test` ne peut pas se connecter. Ignoré si ./pgdata est déjà initialisé.
+      - ./docker/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U ${DB_USER} -d ${DB_DATABASE}']
       interval: 5s
@@ -20,6 +29,3 @@ services:
 networks:
   command-center-network:
     driver: bridge
-
-volumes:
-  postgres_data:

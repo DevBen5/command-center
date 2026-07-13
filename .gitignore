@@ -3,7 +3,8 @@ node_modules
 build
 tmp
 
-# Dumps de la base (npm run db:backup) — des données, pas du code
+# Données Postgres (bind mount de docker-compose) et dumps (npm run db:backup)
+pgdata
 backups
 
 # Secrets
