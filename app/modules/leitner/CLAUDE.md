@@ -15,11 +15,20 @@ models/leitner_category.ts                 hasMany themes
 models/leitner_theme.ts                    belongsTo category · hasMany cards
 validators/leitner.ts                      card · review · cardIds · cardsTheme · category · theme
 pages/index.vue                            session de révision · grille des 5 boîtes · ajout
-pages/settings.vue                         tableau des cartes · sélection multiple · taxonomie
+pages/settings.vue                         tableau des cartes · création/édition · sélection
+                                           multiple · taxonomie
 migrations/                                cards PUIS reviews PUIS categories/themes (FK :
                                            l'ordre du nom de fichier compte)
-seeders/leitner_card_seeder.ts             taxonomie + cartes, idempotent (updateOrCreate)
 ```
+
+**Aucun seeder, et c'est voulu** : tout le contenu (cartes, catégories, thèmes) est saisi depuis
+l'UI. Le module n'a plus de dossier `seeders/` ; `config/database.ts` en garde le path, ce qui est
+sans effet (Lucid lit les dossiers de seeders avec `ignoreMissingRoot`). Ne réintroduis pas de
+données de démo : elles écraseraient le contenu réel de l'utilisateur au prochain `db:seed`.
+
+La création de carte est exposée à **deux endroits pour une seule route** (`POST /revision/cards`,
+`LeitnerController.store`) : le formulaire latéral de `index.vue` et la modale de `settings.vue`,
+qui sert à la fois à créer (`editing === null`) et à éditer.
 
 ## La règle métier
 
