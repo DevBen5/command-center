@@ -13,7 +13,8 @@ interface NavStats {
 
 const { t } = useI18n()
 const page = usePage()
-const nav = computed(() => page.props.nav as NavStats | undefined)
+// `nav` vaut null sur les pages non authentifiées (login, erreur) : aucune stat n'y est chargée.
+const nav = computed(() => page.props.nav as NavStats | null)
 const locale = computed(() => (page.props.locale as string | undefined) ?? 'fr')
 const supportedLocales = computed(
   () => (page.props.supportedLocales as string[] | undefined) ?? ['fr']
@@ -22,45 +23,41 @@ const supportedLocales = computed(
 interface NavItem {
   key: string
   href: string
-  shortcut: string
+  // `undefined` = stat non chargée (pas de pastille) ; 0 = stat chargée et nulle (pastille neutre).
   badge?: number
   alert?: boolean
 }
 
 const navItems = computed<NavItem[]>(() => [
-  { key: 'accueil', href: '/', shortcut: 'g a' },
+  { key: 'accueil', href: '/' },
   {
     key: 'services',
     href: '/services',
-    shortcut: 'g s',
-    badge: nav.value?.services.down || undefined,
+    badge: nav.value?.services.down,
     alert: (nav.value?.services.down ?? 0) > 0,
   },
   {
     key: 'agents',
     href: '/agents',
-    shortcut: 'g g',
-    badge: nav.value?.agents.failed || undefined,
+    badge: nav.value?.agents.failed,
     alert: (nav.value?.agents.failed ?? 0) > 0,
   },
   {
     key: 'veille',
     href: '/veille',
-    shortcut: 'g v',
-    badge: nav.value?.veille.queue || undefined,
+    badge: nav.value?.veille.queue,
   },
   {
     key: 'revision',
     href: '/revision',
-    shortcut: 'g r',
-    badge: nav.value?.leitner.due || undefined,
+    badge: nav.value?.leitner.due,
     alert: (nav.value?.leitner.due ?? 0) > 0,
   },
 ])
 
 const systemItems = [
-  { key: 'journaux', href: '/', shortcut: '' },
-  { key: 'reglages', href: '/', shortcut: 'g ,' },
+  { key: 'journaux', href: '/' },
+  { key: 'reglages', href: '/' },
 ]
 
 function isActive(href: string): boolean {
@@ -156,7 +153,7 @@ function switchLocale(next: string): void {
           ></span>
           {{ t(`nav.${item.key}`) }}
           <span
-            v-if="item.badge"
+            v-if="item.badge !== undefined"
             class="ml-auto grid h-[19px] min-w-[22px] place-items-center rounded-full px-1.5 font-mono text-[11px]"
             :class="
               item.alert ? 'bg-accent text-white' : 'border border-line bg-panel-2 text-txt-2'
@@ -164,7 +161,6 @@ function switchLocale(next: string): void {
           >
             {{ item.badge }}
           </span>
-          <span v-else class="ml-auto font-mono text-[11px] text-txt-3">{{ item.shortcut }}</span>
         </Link>
       </nav>
 
@@ -182,9 +178,6 @@ function switchLocale(next: string): void {
             class="h-[18px] w-[18px] rounded-[5px] border-[1.5px] border-current opacity-70"
           ></span>
           {{ t(`nav.${item.key}`) }}
-          <span v-if="item.shortcut" class="ml-auto font-mono text-[11px] text-txt-3">{{
-            item.shortcut
-          }}</span>
         </Link>
       </nav>
 
