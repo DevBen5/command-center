@@ -157,6 +157,7 @@ const modalOpen = ref(false)
 const editing = ref<Card | null>(null)
 const cardForm = reactive({ front: '', back: '', leitnerThemeId: null as number | null })
 const saving = ref(false)
+const frontInput = ref<HTMLTextAreaElement | null>(null)
 
 const hasThemes = computed(() => props.categories.some((category) => category.themes.length > 0))
 
@@ -178,7 +179,11 @@ function openEdit(card: Card): void {
   modalOpen.value = true
 }
 
-function submitCard(): void {
+/**
+ * `keepOpen` : création en série. La modale reste ouverte, le thème est conservé —
+ * on saisit en général plusieurs cartes de suite sur le même sujet.
+ */
+function submitCard(keepOpen = false): void {
   if (!cardForm.front.trim() || !cardForm.back.trim()) return
   saving.value = true
 
@@ -191,6 +196,19 @@ function submitCard(): void {
   // La carte créée part en boîte 1, due immédiatement (LeitnerCatalogService).
   if (editing.value) {
     router.put(`/revision/cards/${editing.value.id}`, { ...cardForm }, options)
+  } else if (keepOpen) {
+    router.post(
+      '/revision/cards',
+      { ...cardForm },
+      {
+        ...options,
+        onSuccess: () => {
+          cardForm.front = ''
+          cardForm.back = ''
+          frontInput.value?.focus()
+        },
+      }
+    )
   } else {
     router.post('/revision/cards', { ...cardForm }, options)
   }
@@ -616,7 +634,7 @@ function deleteTheme(theme: ThemeNode): void {
   >
     <form
       class="w-[560px] max-w-[90%] overflow-hidden rounded-[14px] border border-line-2 bg-panel shadow-2xl"
-      @submit.prevent="submitCard"
+      @submit.prevent="submitCard()"
     >
       <div class="border-b border-line px-5 py-4 text-[13.5px] font-bold">
         {{ editing ? 'Éditer la carte' : 'Nouvelle carte' }}
@@ -624,6 +642,7 @@ function deleteTheme(theme: ThemeNode): void {
       <div class="flex flex-col gap-2 p-5">
         <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase">Recto</label>
         <textarea
+          ref="frontInput"
           v-model="cardForm.front"
           rows="2"
           autofocus
@@ -661,6 +680,15 @@ function deleteTheme(theme: ThemeNode): void {
           @click="modalOpen = false"
         >
           Annuler
+        </button>
+        <button
+          v-if="!editing"
+          type="button"
+          class="rounded-md border border-line-2 bg-panel-2 px-3 py-2 text-[12.5px] text-txt-2 transition hover:border-accent hover:text-txt disabled:opacity-50"
+          :disabled="saving || !cardForm.front.trim() || !cardForm.back.trim()"
+          @click="submitCard(true)"
+        >
+          Créer et enchaîner
         </button>
         <button
           type="submit"
