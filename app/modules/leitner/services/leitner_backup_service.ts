@@ -154,7 +154,7 @@ export default class LeitnerBackupService {
    * Charge un fichier validé. L'import **n'ajoute que ce qui manque** et ne
    * supprime jamais rien : une carte dont le recto existe déjà sous le même thème
    * est ignorée. Il n'y a pas d'autre mode — restaurer, c'est importer dans une
-   * base vide (`docker compose down -v`), et une fusion la recharge à l'identique.
+   * base vide (nouvelle machine, base perdue), et une fusion la recharge à l'identique.
    *
    * **Tout ou rien** : une seule transaction, donc un fichier qui casse à la 300ᵉ
    * carte ne laisse pas 299 cartes derrière lui. Le cas le plus probable est la

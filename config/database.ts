@@ -28,13 +28,14 @@ const dbConfig = defineConfig({
           'app/modules/leitner/migrations',
         ],
       },
+      // Le module leitner n'a volontairement pas de seeder : son contenu est saisi
+      // depuis l'UI, et une donnée de démo écraserait le contenu réel.
       seeders: {
         paths: [
           'app/core/auth/seeders',
           'app/modules/services/seeders',
           'app/modules/agents/seeders',
           'app/modules/veille/seeders',
-          'app/modules/leitner/seeders',
         ],
       },
     },

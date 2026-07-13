@@ -33,8 +33,11 @@ La ligne de `leitner_settings` insérée par la migration n'est pas une donnée 
 configuration du module : ne la supprime pas.
 
 Le filet de sécurité n'est donc pas un seeder mais **l'export JSON** (`/revision/settings`) : les
-cartes n'existent que dans le volume Postgres local, et un `docker compose down -v` les emporte.
-Voir « Sauvegarde » plus bas.
+cartes n'existent qu'en base, saisies à la main, sans autre copie. Voir « Sauvegarde » plus bas.
+
+La base, elle, vit dans `./pgdata` (bind mount, voir le `CLAUDE.md` racine) : un
+`docker compose down -v` ne l'emporte **plus** — mais une corruption, un `rm -rf` ou un changement
+de machine, si. L'export reste donc le filet, et `npm run db:backup` le complète.
 
 ⚠️ Les routes vivent dans `start/routes.ts`, hors du module — **seul fichier du projet que ce module
 touche en dehors de son dossier** (`PUT /revision/settings/intervals`, `GET /revision/export`,
@@ -191,7 +194,7 @@ aujourd'hui). Un fichier de saisie en masse se réduit donc à :
 
 **L'import n'ajoute que ce qui manque. Il n'y a pas de mode « remplacer », et c'est voulu** :
 aucune route de ce module ne détruit du contenu en masse. Restaurer, c'est importer dans une base
-vide — après un `docker compose down -v`, il n'y a plus rien à écraser.
+vide — nouvelle machine, base perdue — et il n'y a alors rien à écraser.
 
 - **Déduplication sur le couple (recto, thème)** — contre la base *et* contre le fichier lui-même,
   donc rejouer deux fois le même fichier n'ajoute rien. Le même recto sous **deux thèmes** reste
@@ -241,9 +244,9 @@ assertion sur la boîte **et** sur `next_review`), `tests/functional/modules/lei
 couvre la file de révision (une carte ratée reste due le jour même et repart en fin de file),
 `tests/unit/leitner_catalog_service.spec.ts` couvre les filtres, la suppression multiple, le
 reclassement et les cascades de la taxonomie, et `tests/functional/modules/leitner_backup.spec.ts`
-couvre la sauvegarde — dont **l'aller-retour** (export → base vidée → import en remplacement → base
-identique), le seul test qui valide la promesse de l'export. Toute modification doit les laisser
-vertes, ou les mettre à jour explicitement.
+couvre la sauvegarde — dont **l'aller-retour** (export → base vidée → import → base identique), le
+seul test qui valide la promesse de l'export. Toute modification doit les laisser vertes, ou les
+mettre à jour explicitement.
 
 Le test fonctionnel ne voit **pas** le piège Inertia de l'export : il faut un vrai clic dans un
 navigateur pour ça (au `curl`, la réponse paraît parfaite dans les deux cas).
