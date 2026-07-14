@@ -150,3 +150,50 @@ export const backupImportValidator = vine.compile(
     file: vine.file({ size: '20mb' }),
   })
 )
+
+/*
+|------------------------------------------------------------------------------
+| Ingestion d'un cours par un LLM local
+|------------------------------------------------------------------------------
+| Le cours est du **contenu non fiable** : il peut contenir des instructions
+| adressées au modèle. C'est acceptable — le dégât maximal est une carte absurde,
+| arrêtée par la relecture humaine — parce que rien de ce que sort le modèle n'est
+| jamais exécuté, interprété comme du SQL, ni utilisé comme identifiant.
+|
+| ⚠️ L'URL du serveur LLM, elle, n'est PAS saisissable : elle vient de
+| l'environnement (`start/env.ts` → `config/llm.ts`). Un champ « URL du serveur »
+| dans un formulaire serait une SSRF. Ne l'y remets jamais.
+*/
+
+/**
+ * Le cours à ingérer : du texte collé **ou** un fichier `.txt` / `.md`. Le contrôleur
+ * exige l'un des deux (un formulaire vide n'est pas une erreur de type).
+ *
+ * Le plafond de caractères est appliqué au contenu final — collé ou lu du fichier —
+ * dans le contrôleur : c'est la contrepartie de l'exécution synchrone.
+ */
+export const courseIngestionValidator = vine.compile(
+  vine.object({
+    text: vine.string().trim().optional(),
+    file: vine.file({ size: '2mb', extnames: ['txt', 'md'] }).optional(),
+  })
+)
+
+/** Édition d'un brouillon avant validation : c'est la relecture humaine qui fait foi. */
+export const draftCardValidator = vine.compile(
+  vine.object({
+    front: vine.string().trim().minLength(1),
+    back: vine.string().trim().minLength(1),
+    // Un thème appartient toujours à une catégorie : les deux vont ensemble, ou aucun
+    // (vérifié à la promotion, où ils atteignent la vraie taxonomie).
+    category: taxonomyName().nullable().optional(),
+    theme: taxonomyName().nullable().optional(),
+  })
+)
+
+/** Validation / rejet en lot des brouillons d'une ingestion. */
+export const draftIdsValidator = vine.compile(
+  vine.object({
+    ids: vine.array(vine.number().positive()).minLength(1),
+  })
+)

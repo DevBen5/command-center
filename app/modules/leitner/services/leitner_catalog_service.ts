@@ -107,6 +107,37 @@ export default class LeitnerCatalogService {
     })
   }
 
+  /**
+   * Identité d'une carte dans ce module : **son recto, dans son thème**. Le même recto
+   * sous deux thèmes reste deux cartes ; sous le même thème, c'est la même.
+   */
+  async findDuplicate(front: string, themeId: number | null): Promise<LeitnerCard | null> {
+    const query = LeitnerCard.query().where('front', front)
+
+    if (themeId === null) query.whereNull('leitner_theme_id')
+    else query.where('leitner_theme_id', themeId)
+
+    return query.first()
+  }
+
+  /**
+   * Crée la carte **sauf si** son recto existe déjà sous ce thème : la carte existante
+   * est alors renvoyée telle quelle, jamais écrasée (son verso, sa boîte et son
+   * échéance survivent). Même règle que l'import JSON — c'est le catalogue qui porte
+   * la déduplication, et toute nouvelle source de cartes (import, ingestion LLM) passe
+   * par ici plutôt que d'écrire sur `LeitnerCard`.
+   */
+  async createCardUnlessDuplicate(payload: {
+    front: string
+    back: string
+    leitnerThemeId?: number | null
+  }): Promise<{ card: LeitnerCard; created: boolean }> {
+    const existing = await this.findDuplicate(payload.front, payload.leitnerThemeId ?? null)
+    if (existing) return { card: existing, created: false }
+
+    return { card: await this.createCard(payload), created: true }
+  }
+
   async updateCard(
     card: LeitnerCard,
     payload: { front: string; back: string; leitnerThemeId?: number | null }
@@ -168,6 +199,17 @@ export default class LeitnerCatalogService {
     if (clash) return null
 
     return LeitnerTheme.create({ leitnerCategoryId: categoryId, name })
+  }
+
+  /**
+   * Taxonomie désignée **par son nom**, créée à la volée si elle manque. C'est la voie
+   * d'entrée de tout ce qui vient de l'extérieur (fichier importé, sortie d'un LLM) :
+   * un id venu du dehors n'est jamais fiable, un nom l'est toujours. Une catégorie
+   * « DevOps » déjà présente est réutilisée, jamais dupliquée.
+   */
+  async ensureTheme(categoryName: string, themeName: string): Promise<LeitnerTheme> {
+    const category = await LeitnerCategory.firstOrCreate({ name: categoryName })
+    return LeitnerTheme.firstOrCreate({ leitnerCategoryId: category.id, name: themeName })
   }
 
   /** Renommer et/ou déplacer un thème dans une autre catégorie. */

@@ -19,6 +19,8 @@ const VeilleController = () => import('#modules/veille/controllers/veille_contro
 const LeitnerController = () => import('#modules/leitner/controllers/leitner_controller')
 const LeitnerSettingsController = () =>
   import('#modules/leitner/controllers/leitner_settings_controller')
+const LeitnerIngestionController = () =>
+  import('#modules/leitner/controllers/leitner_ingestion_controller')
 
 /*
 |--------------------------------------------------------------------------
@@ -97,6 +99,16 @@ router
         router.post('/themes', [LeitnerSettingsController, 'storeTheme'])
         router.put('/themes/:id', [LeitnerSettingsController, 'updateTheme'])
         router.delete('/themes/:id', [LeitnerSettingsController, 'destroyTheme'])
+
+        // Ingestion d'un cours par un LLM local : le modèle **propose** des cartes,
+        // l'utilisateur relit et valide. Rien n'entre en base sans relecture.
+        // (Déclaré avant `/:id/review` : « ingest » n'est pas un id de carte.)
+        router.get('/ingest', [LeitnerIngestionController, 'index'])
+        router.post('/ingest', [LeitnerIngestionController, 'store'])
+        router.put('/ingest/drafts/:id', [LeitnerIngestionController, 'updateDraft'])
+        router.post('/ingest/drafts/accept', [LeitnerIngestionController, 'accept'])
+        router.post('/ingest/drafts/reject', [LeitnerIngestionController, 'reject'])
+        router.delete('/ingest/:id', [LeitnerIngestionController, 'destroy'])
 
         router.post('/:id/review', [LeitnerController, 'review'])
       })

@@ -388,6 +388,12 @@ function deleteTheme(theme: ThemeNode): void {
       + Nouvelle carte
     </button>
     <Link
+      href="/revision/ingest"
+      class="rounded-[10px] border border-line-2 bg-panel px-3.5 py-2 text-[12.5px] text-txt-2 transition hover:border-accent hover:text-txt"
+    >
+      Ingérer un cours
+    </Link>
+    <Link
       href="/revision"
       class="rounded-[10px] border border-line-2 bg-panel px-3.5 py-2 text-[12.5px] text-txt-2 transition hover:border-accent hover:text-txt"
     >
@@ -767,7 +773,9 @@ function deleteTheme(theme: ThemeNode): void {
           class="mt-4 flex flex-col gap-2 border-t border-line pt-4"
           @submit.prevent="submitImport"
         >
-          <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase">Importer un fichier</label>
+          <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase"
+            >Importer un fichier</label
+          >
           <input
             ref="fileInput"
             type="file"
