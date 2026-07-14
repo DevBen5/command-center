@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Head, router } from '@inertiajs/vue3'
+import { Box, Search } from 'lucide-vue-next'
 import AppLayout from '~/layouts/AppLayout.vue'
 
 defineOptions({ layout: AppLayout })
@@ -69,7 +70,7 @@ function act(service: Service, action: 'start' | 'stop' | 'restart'): void {
     <div
       class="flex w-[300px] items-center gap-2.5 rounded-[9px] border border-line-2 bg-panel px-3.5 py-2.5 text-[13px] text-txt-3"
     >
-      <span class="h-[15px] w-[15px] shrink-0 rounded-full border-[1.5px] border-current"></span>
+      <Search :size="15" :stroke-width="1.5" aria-hidden="true" class="shrink-0" />
       Filtrer les services…
     </div>
     <span class="rounded-full border border-line-2 bg-panel-2 px-3 py-1.5 text-[11px] text-txt-2"
@@ -142,7 +143,11 @@ function act(service: Service, action: 'start' | 'stop' | 'restart'): void {
         "
       >
         <div class="flex items-center gap-3">
-          <div class="h-8 w-8 shrink-0 rounded-[9px] border border-line-2 bg-panel-2"></div>
+          <div
+            class="grid h-8 w-8 shrink-0 place-items-center rounded-[9px] border border-line-2 bg-panel-2 text-txt-3"
+          >
+            <Box :size="16" :stroke-width="1.5" aria-hidden="true" />
+          </div>
           <div class="text-[14px] font-semibold">{{ service.name }}</div>
           <div class="ml-auto flex items-center gap-1.5 font-mono text-[10px] tracking-[.06em]">
             <span class="h-2 w-2 rounded-full" :class="dotClass[service.status]"></span>

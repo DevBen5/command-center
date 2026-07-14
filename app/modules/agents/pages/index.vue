@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Head, router } from '@inertiajs/vue3'
+import { Search } from 'lucide-vue-next'
 import AppLayout from '~/layouts/AppLayout.vue'
 
 defineOptions({ layout: AppLayout })
@@ -61,7 +62,7 @@ function stop(agent: Agent): void {
     <div
       class="flex w-[280px] items-center gap-2.5 rounded-[9px] border border-line-2 bg-panel px-3.5 py-2.5 text-[13px] text-txt-3"
     >
-      <span class="h-[15px] w-[15px] shrink-0 rounded-full border-[1.5px] border-current"></span>
+      <Search :size="15" :stroke-width="1.5" aria-hidden="true" class="shrink-0" />
       Filtrer les agents…
     </div>
     <div class="flex-1"></div>

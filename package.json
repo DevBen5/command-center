@@ -72,6 +72,7 @@
     "@inertiajs/vue3": "2.3.27",
     "@vinejs/vine": "^3.0.1",
     "edge.js": "^6.2.1",
+    "lucide-vue-next": "^1.0.0",
     "luxon": "^3.7.2",
     "pg": "^8.22.0",
     "reflect-metadata": "^0.2.2",

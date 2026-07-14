@@ -1,7 +1,19 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import type { Component } from 'vue'
 import { Link, router, usePage } from '@inertiajs/vue3'
 import { useI18n } from 'vue-i18n'
+// Icônes importées nommément : le barrel entier casserait le tree-shaking.
+import {
+  Bot,
+  Layers,
+  LayoutDashboard,
+  Rss,
+  ScrollText,
+  Search,
+  Server,
+  Settings,
+} from 'lucide-vue-next'
 
 interface NavStats {
   services: { total: number; down: number }
@@ -23,41 +35,47 @@ const supportedLocales = computed(
 interface NavItem {
   key: string
   href: string
+  // L'icône se déclare avec l'entrée : le template n'a pas à connaître les clés.
+  icon: Component
   // `undefined` = stat non chargée (pas de pastille) ; 0 = stat chargée et nulle (pastille neutre).
   badge?: number
   alert?: boolean
 }
 
 const navItems = computed<NavItem[]>(() => [
-  { key: 'accueil', href: '/' },
+  { key: 'accueil', href: '/', icon: LayoutDashboard },
   {
     key: 'services',
     href: '/services',
+    icon: Server,
     badge: nav.value?.services.down,
     alert: (nav.value?.services.down ?? 0) > 0,
   },
   {
     key: 'agents',
     href: '/agents',
+    icon: Bot,
     badge: nav.value?.agents.failed,
     alert: (nav.value?.agents.failed ?? 0) > 0,
   },
   {
     key: 'veille',
     href: '/veille',
+    icon: Rss,
     badge: nav.value?.veille.queue,
   },
   {
     key: 'revision',
     href: '/revision',
+    icon: Layers,
     badge: nav.value?.leitner.due,
     alert: (nav.value?.leitner.due ?? 0) > 0,
   },
 ])
 
-const systemItems = [
-  { key: 'journaux', href: '/' },
-  { key: 'reglages', href: '/' },
+const systemItems: NavItem[] = [
+  { key: 'journaux', href: '/', icon: ScrollText },
+  { key: 'reglages', href: '/', icon: Settings },
 ]
 
 function isActive(href: string): boolean {
@@ -147,10 +165,14 @@ function switchLocale(next: string): void {
               : 'text-txt-2 hover:bg-panel hover:text-txt'
           "
         >
-          <span
-            class="h-[18px] w-[18px] rounded-[5px] border-[1.5px] border-current opacity-70"
+          <component
+            :is="item.icon"
+            :size="18"
+            :stroke-width="1.5"
+            aria-hidden="true"
+            class="shrink-0 opacity-70"
             :class="isActive(item.href) ? 'text-accent opacity-100' : ''"
-          ></span>
+          />
           {{ t(`nav.${item.key}`) }}
           <span
             v-if="item.badge !== undefined"
@@ -174,9 +196,13 @@ function switchLocale(next: string): void {
           :href="item.href"
           class="flex items-center gap-3 rounded-[10px] px-[13px] py-[10px] text-[13.5px] font-medium text-txt-2 opacity-55 transition hover:bg-panel hover:text-txt"
         >
-          <span
-            class="h-[18px] w-[18px] rounded-[5px] border-[1.5px] border-current opacity-70"
-          ></span>
+          <component
+            :is="item.icon"
+            :size="18"
+            :stroke-width="1.5"
+            aria-hidden="true"
+            class="shrink-0 opacity-70"
+          />
           {{ t(`nav.${item.key}`) }}
         </Link>
       </nav>
@@ -249,7 +275,7 @@ function switchLocale(next: string): void {
         class="w-[640px] max-w-[90%] overflow-hidden rounded-[14px] border border-line-2 bg-panel shadow-2xl"
       >
         <div class="flex items-center gap-3 border-b border-line px-[19px] py-[17px]">
-          <span class="h-[17px] w-[17px] rounded-full border-[1.5px] border-txt-3"></span>
+          <Search :size="17" :stroke-width="1.5" aria-hidden="true" class="shrink-0 text-txt-3" />
           <input
             v-model="paletteQuery"
             autofocus
