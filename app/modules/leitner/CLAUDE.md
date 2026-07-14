@@ -8,27 +8,37 @@ Route `/revision` (⚠️ **pas** `/leitner`) · pages Inertia `modules/leitner/
 controllers/leitner_controller.ts          révision seule : index · review
 controllers/leitner_settings_controller.ts écran de gestion : CRUD cartes + taxonomie + intervalles
                                            + export/import JSON
+controllers/leitner_ingestion_controller.ts ingestion d'un cours par un LLM local : brouillons,
+                                           relecture, promotion
 services/leitner_service.ts                règle métier (boîtes, intervalles, stats) ← source de vérité
 services/leitner_catalog_service.ts        catalogue : filtres, CRUD cartes, catégories/thèmes
+                                           ← seul point d'écriture d'une carte, porte la dédup
 services/leitner_backup_service.ts         export/import JSON — le filet de sécurité du module
+services/leitner_ingestion_service.ts      découpage du cours, appels LLM, fusion, brouillons
+services/llm_client.ts                     client /v1/chat/completions — INJECTÉ (jamais en dur)
 models/leitner_card.ts                     hasMany reviews · belongsTo theme (nullable)
 models/leitner_review.ts                   belongsTo card
 models/leitner_category.ts                 hasMany themes
 models/leitner_theme.ts                    belongsTo category · hasMany cards
 models/leitner_settings.ts                 réglages du module — UNE seule ligne (id = 1)
+models/leitner_ingestion.ts                le travail : statut, source, compteurs, erreur
+models/leitner_draft_card.ts               une carte PROPOSÉE, rattachée à son ingestion
 validators/leitner.ts                      card · review · cardIds · cardsTheme · category · theme
                                            · boxIntervals · backup · backupImport
+                                           · courseIngestion · draftCard · draftIds
 pages/index.vue                            session de révision · grille des 5 boîtes
 pages/settings.vue                         tableau des cartes · création/édition · sélection
                                            multiple · taxonomie · intervalles des boîtes
+pages/ingest.vue                           soumission d'un cours · brouillons · relecture
 migrations/                                cards PUIS reviews PUIS categories/themes PUIS settings
+                                           PUIS ingestions PUIS draft_cards
                                            (FK : l'ordre du nom de fichier compte)
 ```
 
 **Aucun seeder, et c'est voulu** : tout le contenu (cartes, catégories, thèmes) est saisi depuis
-l'UI. Le module n'a plus de dossier `seeders/` ; `config/database.ts` en garde le path, ce qui est
-sans effet (Lucid lit les dossiers de seeders avec `ignoreMissingRoot`). Ne réintroduis pas de
-données de démo : elles écraseraient le contenu réel de l'utilisateur au prochain `db:seed`.
+l'UI. Le module n'a pas de dossier `seeders/`, et `config/database.ts` ne déclare aucun path de
+seeder pour lui — c'est le seul module dans ce cas. Ne réintroduis pas de données de démo : elles
+écraseraient le contenu réel de l'utilisateur au prochain `db:seed`.
 La ligne de `leitner_settings` insérée par la migration n'est pas une donnée de démo mais la
 configuration du module : ne la supprime pas.
 
@@ -39,9 +49,14 @@ La base, elle, vit dans `./pgdata` (bind mount, voir le `CLAUDE.md` racine) : un
 `docker compose down -v` ne l'emporte **plus** — mais une corruption, un `rm -rf` ou un changement
 de machine, si. L'export reste donc le filet, et `npm run db:backup` le complète.
 
-⚠️ Les routes vivent dans `start/routes.ts`, hors du module — **seul fichier du projet que ce module
-touche en dehors de son dossier** (`PUT /revision/settings/intervals`, `GET /revision/export`,
-`POST /revision/import`).
+⚠️ Ce module touche **quatre** fichiers hors de son dossier, et pas un seul :
+
+- `start/routes.ts` — toutes ses routes (`PUT /revision/settings/intervals`, `GET /revision/export`,
+  `POST /revision/import`, `GET|POST /revision/ingest`…).
+- `start/env.ts` — les variables du serveur LLM (`LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`,
+  `LLM_TIMEOUT_MS`).
+- `.env.example` — leur documentation.
+- `config/llm.ts` — la configuration typée du client LLM, et ses valeurs par défaut.
 
 ## Un seul point de saisie : `/revision/settings`
 
@@ -50,6 +65,10 @@ touche en dehors de son dossier** (`PUT /revision/settings/intervals`, `GET /rev
 `POST /revision/cards` y compris, alors que l'URL vit sous le préfixe `/revision`. Ne réintroduis pas
 de formulaire dans `index.vue` : la page renvoie vers la gestion (lien du header, bouton de l'état
 vide), et son contrôleur n'a plus besoin de `LeitnerCatalogService`.
+
+Deux autres voies **ajoutent** des cartes — l'import JSON et l'ingestion d'un cours par un LLM
+(`/revision/ingest`) — mais aucune n'écrit sur `LeitnerCard` : toutes passent par
+`LeitnerCatalogService`, qui reste le seul point d'écriture d'une carte et porte la déduplication.
 
 La modale de `settings.vue` sert à la fois à créer (`editing === null`) et à éditer. En création,
 « Créer et enchaîner » (`submitCard(true)`) la laisse ouverte en conservant le thème : la saisie se
@@ -226,6 +245,86 @@ borne dans `backupValidator`.
 un insert à id explicite : le prochain ajout depuis l'UI planterait sur un doublon de clé primaire.
 C'est toute la raison de la taxonomie par nom.
 
+## L'ingestion d'un cours par un LLM local
+
+> Côté usage — quel modèle charger, comment brancher LM Studio / llama.cpp / vLLM / Ollama, et quoi
+> faire quand ça casse : voir **`LLM.md`**, dans ce dossier.
+
+`/revision/ingest` : on colle un cours (ou on téléverse un `.txt` / `.md`), un LLM **local** en
+extrait les grands principes, et rend des **cartes proposées**. Le modèle propose, l'utilisateur
+relit, corrige, valide — et c'est seulement là que les cartes entrent en base. Une carte issue d'un
+cours est ensuite une carte comme une autre : boîte 1, due aujourd'hui.
+
+Deux tables : `leitner_ingestions` (le travail : statut, source, compteurs, erreur) et
+`leitner_draft_cards` (les cartes **proposées** — ni boîte, ni échéance : ce ne sont pas des cartes).
+
+### La frontière de confiance — le point à ne pas régresser
+
+⚠️ **L'URL du serveur LLM vient de l'environnement, jamais d'un formulaire.** `LLM_BASE_URL`,
+`LLM_MODEL`, `LLM_API_KEY`, `LLM_TIMEOUT_MS` (`start/env.ts` → `config/llm.ts`). Un champ « URL du
+serveur » dans un écran de réglages serait une **SSRF** : le serveur émettrait des requêtes vers
+l'hôte du choix de celui qui écrit dans ce champ. C'est le raisonnement du module `agents` sur
+`config.command`, appliqué ici. Ne l'expose jamais dans une UI.
+
+⚠️ **Le texte du cours est du contenu non fiable** : il peut contenir des instructions adressées au
+modèle. C'est acceptable — le dégât maximal est une carte absurde, arrêtée par la relecture humaine —
+**à condition** que rien de ce que sort le modèle ne soit jamais exécuté, interprété comme du SQL, ni
+utilisé comme identifiant. D'où :
+
+- la taxonomie proposée est **du texte, un nom** (colonnes `category` / `theme` de
+  `leitner_draft_cards`), jamais un id : les séquences Postgres ne suivent pas un insert à id
+  explicite, et un id venu du modèle n'a de toute façon aucun sens ;
+- **la boîte est imposée à 1** ; ce que le modèle dirait d'une boîte, d'une échéance ou d'un id est
+  **jeté avant validation** (`parseLlmCards`). La borne 1..5 reste le seul rempart — la colonne n'a
+  aucune contrainte en base.
+
+### Le contrat avec le LLM : le format d'import, tel quel
+
+La sortie attendue du modèle est **exactement** le format d'import JSON du module :
+
+```json
+{ "cards": [{ "front": "…", "back": "…", "category": "DevOps", "theme": "Docker" }] }
+```
+
+Ce n'est pas cosmétique : la sortie du modèle est validée par **`backupValidator`** (bornes,
+taxonomie par nom, jamais d'ids), et la promotion passe par `LeitnerCatalogService` — qui sait déjà
+créer une catégorie et un thème à la volée à partir de leurs noms (`ensureTheme`) et déduplique sur
+le couple **(recto, thème)** (`createCardUnlessDuplicate`). L'ingestion **branche une nouvelle source
+sur un pipeline qui existe** ; elle n'en écrit pas un second. Une carte existante n'est jamais
+écrasée : le brouillon est compté « ignoré ».
+
+### Les deux difficultés réelles
+
+**Le découpage** (`chunkCourse`). Un cours dépasse la fenêtre de contexte d'un modèle local : il est
+coupé par titres Markdown, à défaut par paragraphes, en dernier recours à la hache — puis les petites
+sections sont regroupées (dix titres de trois lignes ne valent pas dix appels). Chaque morceau reprend
+la fin du précédent (`CHUNK_OVERLAP_CHARS`) pour qu'un principe à cheval sur une coupure reste
+énonçable. `mergeDrafts` fusionne ensuite les morceaux et **déduplique** (casse, accents, ponctuation
+finale ignorés) : un principe énoncé en introduction et rappelé en conclusion ne donne pas deux cartes.
+
+**Le JSON qui n'en est pas** (`extractJson` / `parseLlmCards`). Un petit modèle rend volontiers du
+JSON entouré de prose, ou dans un bloc ` ```json ` — c'est le régime normal, pas une panne : le
+parsing absorbe les trois formes. Ce qu'il ne peut pas lire, il le fait **réparer une seule fois**
+(on renvoie au modèle sa sortie et l'erreur) : pas de boucle, un modèle qui n'a pas compris au
+deuxième tour ne comprendra pas au dixième. `response_format: json_object` est demandé quand le
+serveur le connaît, jamais présumé (un 400 fait réessayer sans lui).
+
+### Exécution : synchrone, donc plafonnée
+
+La requête HTTP **attend** le LLM, morceau par morceau : d'où `MAX_COURSE_CHARS` (plafond d'entrée) et
+`LLM_TIMEOUT_MS` (plafond d'attente par appel). Un échec (serveur injoignable, JSON irréparable) n'est
+pas une 500 : l'ingestion passe `failed` avec son message, affiché sur la page, et **aucun brouillon
+n'est écrit** — ils ne le sont qu'une fois tous les morceaux traités. Pas de moitié de cours en base.
+
+`leitner_ingestions.status` porte déjà `pending` et `running`, inutilisés en synchrone. C'est
+délibéré : passer en asynchrone (lot 2) sera un changement de **mode d'exécution**, pas une reprise du
+modèle de données.
+
+⚠️ **`LlmClient` est injecté** (conteneur AdonisJS, `@inject()` sur le service et le contrôleur), et
+jamais instancié en dur. C'est ce qui permet à la suite de tests de tourner contre un faux client
+(`tests/fakes/fake_llm_client.ts`), sans réseau et de façon déterministe : **aucun test n'appelle un
+vrai LLM**. En fonctionnel, on le remplace par `app.container.swap(LlmClient, …)`.
+
 ## Pièges techniques
 
 - **`next_review` est une colonne `date`, `reviewed_at` un `timestamp`.** Les requêtes ne se
@@ -245,8 +344,10 @@ couvre la file de révision (une carte ratée reste due le jour même et repart 
 `tests/unit/leitner_catalog_service.spec.ts` couvre les filtres, la suppression multiple, le
 reclassement et les cascades de la taxonomie, et `tests/functional/modules/leitner_backup.spec.ts`
 couvre la sauvegarde — dont **l'aller-retour** (export → base vidée → import → base identique), le
-seul test qui valide la promesse de l'export. Toute modification doit les laisser vertes, ou les
-mettre à jour explicitement.
+seul test qui valide la promesse de l'export. `tests/unit/leitner_ingestion_service.spec.ts` et
+`tests/functional/modules/leitner_ingest.spec.ts` couvrent l'ingestion (parsing, découpage, fusion,
+promotion, échecs du LLM) **contre un faux client** — jamais contre un vrai modèle. Toute
+modification doit les laisser vertes, ou les mettre à jour explicitement.
 
 Le test fonctionnel ne voit **pas** le piège Inertia de l'export : il faut un vrai clic dans un
 navigateur pour ça (au `curl`, la réponse paraît parfaite dans les deux cas).
