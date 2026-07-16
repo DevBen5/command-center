@@ -1,7 +1,10 @@
 import { DateTime } from 'luxon'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
+import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerSettings from '#modules/leitner/models/leitner_settings'
+import LeitnerTheme from '#modules/leitner/models/leitner_theme'
+import { ALL_CARDS, applyScope, type CardScope } from '#modules/leitner/services/leitner_scope'
 
 // Intervalle (en jours) avant la prochaine révision, selon la boîte **atteinte**
 // (donc après mouvement). Ce ne sont que les valeurs de départ : les intervalles
@@ -11,6 +14,43 @@ export const DEFAULT_BOX_INTERVAL_DAYS: Record<number, number> = { 1: 1, 2: 2, 3
 
 export type Grade = 'again' | 'hard' | 'good' | 'easy'
 export type BoxIntervals = Record<number, number>
+
+/** La portée telle qu'elle arrive de la query string, une fois validée. */
+export interface ScopeInput {
+  scope?: 'all' | 'unclassified'
+  category?: number
+  theme?: number
+}
+
+/** Pourquoi une portée est refusée. Chaque raison doit avoir son message côté contrôleur. */
+export type ScopeRefusal = 'combined' | 'unknown-theme' | 'unknown-category'
+
+/**
+ * Une portée résolue, ou le refus qui l'a remplacée. **Il n'y a pas de troisième
+ * cas** : c'est ce type qui interdit structurellement le repli muet sur « tout ».
+ */
+export type ScopeResolution =
+  { ok: true; scope: CardScope; label: string } | { ok: false; reason: ScopeRefusal }
+
+export interface ScopeThemeChoice {
+  id: number
+  name: string
+  dueCount: number
+}
+
+export interface ScopeCategoryChoice {
+  id: number
+  name: string
+  dueCount: number
+  themes: ScopeThemeChoice[]
+}
+
+/** L'écran de choix : ce qu'on peut réviser, et **combien y est dû**. */
+export interface ScopeChoices {
+  categories: ScopeCategoryChoice[]
+  unclassifiedDueCount: number
+  totalDueCount: number
+}
 
 export default class LeitnerService {
   /** Ligne unique de réglages (`id = 1`), recréée aux valeurs par défaut si absente. */
@@ -56,6 +96,155 @@ export default class LeitnerService {
       .save()
 
     return this.boxIntervals()
+  }
+
+  /*
+  |----------------------------------------------------------------------------
+  | La portée d'une session
+  |----------------------------------------------------------------------------
+  | Elle vit **dans l'URL** (`/revision?theme=3`) et nulle part ailleurs : ni en
+  | base, ni en session. Ces méthodes ne la stockent donc jamais — elles la
+  | reçoivent à chaque requête, et la file se reconstruit entièrement.
+  */
+
+  /**
+   * Les cartes à réviser dans une portée, dans **l'ordre de la file**.
+   *
+   * Ordre : la plus en retard d'abord ; à égalité, la moins récemment touchée. Une
+   * carte notée `again` reste due aujourd'hui (donc dernière au premier critère) et
+   * vient d'être écrite (donc dernière au second) : elle repart en fin de file au
+   * lieu de se re-présenter aussitôt. **Ne trie jamais par `box`** : un échec la
+   * ramène en boîte 1, elle repasserait devant toutes les cartes de boîte ≥ 2 et
+   * se re-présenterait en boucle. La portée n'y change rien.
+   *
+   * ⚠️ `next_review` est une colonne `date` : `toSQLDate()`, jamais `toSQL()` —
+   * l'intervertir passe le typecheck et casse le filtre en silence.
+   */
+  async dueCards(scope: CardScope = ALL_CARDS): Promise<LeitnerCard[]> {
+    const today = DateTime.now().startOf('day')
+
+    const query = LeitnerCard.query()
+      .preload('theme', (theme) => theme.preload('category'))
+      .where('next_review', '<=', today.toSQLDate()!)
+      .orderBy('next_review', 'asc')
+      .orderBy('updated_at', 'asc')
+      .orderBy('id', 'asc')
+
+    applyScope(query, scope)
+    return query
+  }
+
+  /**
+   * Traduit la query string en portée — ou la **refuse**.
+   *
+   * ⚠️ Un id inexistant ne retombe **jamais** sur « tout » : un thème supprimé depuis
+   * un autre onglet, et l'utilisateur réviserait l'intégralité de ses cartes en
+   * croyant travailler Docker. `category` et `theme` ensemble sont un refus, pas une
+   * devinette : ni « le dernier gagne », ni « le plus précis gagne ».
+   */
+  async resolveScope(input: ScopeInput): Promise<ScopeResolution> {
+    const asked = [input.scope, input.category, input.theme].filter((value) => value !== undefined)
+    if (asked.length > 1) return { ok: false, reason: 'combined' }
+
+    if (input.theme !== undefined) {
+      const theme = await LeitnerTheme.query().where('id', input.theme).preload('category').first()
+      if (!theme) return { ok: false, reason: 'unknown-theme' }
+      return {
+        ok: true,
+        scope: { kind: 'theme', id: theme.id },
+        label: `${theme.category.name} · ${theme.name}`,
+      }
+    }
+
+    if (input.category !== undefined) {
+      const category = await LeitnerCategory.find(input.category)
+      if (!category) return { ok: false, reason: 'unknown-category' }
+      return { ok: true, scope: { kind: 'category', id: category.id }, label: category.name }
+    }
+
+    if (input.scope === 'unclassified') {
+      return { ok: true, scope: { kind: 'unclassified' }, label: 'Cartes non classées' }
+    }
+
+    return { ok: true, scope: ALL_CARDS, label: 'Toutes les cartes' }
+  }
+
+  /**
+   * L'arbre de l'écran de choix, avec le nombre de cartes **dues** de chaque nœud —
+   * jamais son nombre total : un thème de 200 cartes dont 0 est due n'a aucun intérêt
+   * ce soir. (`LeitnerCatalogService.categoryTree()` compte les totales : il ne
+   * convient pas ici.)
+   *
+   * **Une requête pour les comptes**, agrégée en JS : une requête par thème serait un
+   * N+1 gratuit.
+   */
+  async dueScopeChoices(): Promise<ScopeChoices> {
+    const today = DateTime.now().startOf('day')
+
+    const rows = await LeitnerCard.query()
+      .where('next_review', '<=', today.toSQLDate()!)
+      .select('leitner_theme_id')
+      .count('* as total')
+      .groupBy('leitner_theme_id')
+
+    const dueByTheme = new Map<number, number>()
+    let unclassifiedDueCount = 0
+    let totalDueCount = 0
+
+    for (const row of rows) {
+      // Postgres rend `count(*)` en `bigint`, donc en **chaîne** : sans `Number`, les
+      // sommes de catégorie plus bas concatèneraient au lieu d'additionner.
+      const total = Number(row.$extras.total)
+      totalDueCount += total
+      if (row.leitnerThemeId === null) unclassifiedDueCount = total
+      else dueByTheme.set(row.leitnerThemeId, total)
+    }
+
+    const categories = await LeitnerCategory.query()
+      .preload('themes', (themes) => themes.orderBy('name'))
+      .orderBy('name')
+
+    return {
+      categories: categories.map((category) => {
+        const themes = category.themes.map((theme) => ({
+          id: theme.id,
+          name: theme.name,
+          dueCount: dueByTheme.get(theme.id) ?? 0,
+        }))
+
+        return {
+          id: category.id,
+          name: category.name,
+          dueCount: themes.reduce((total, theme) => total + theme.dueCount, 0),
+          themes,
+        }
+      }),
+      unclassifiedDueCount,
+      totalDueCount,
+    }
+  }
+
+  /**
+   * A-t-on révisé une carte de cette portée aujourd'hui ? C'est ce qui distingue
+   * « portée terminée » de « portée vide dès le départ » — deux écrans que rien
+   * d'autre ne sépare, puisque les deux sont une file vide.
+   *
+   * **Un booléen, jamais un compteur** : le nombre de cartes revues dans la portée
+   * n'est pas affiché, et `reviewedToday()` ne pourrait de toute façon pas le donner
+   * (il est global — il annoncerait les cartes revues dans *tous* les thèmes).
+   *
+   * ⚠️ `reviewed_at` est un `timestamp` — `toSQL()`, là où `dueCards` filtre une
+   * colonne `date` avec `toSQLDate()`. Les intervertir passe le typecheck.
+   */
+  async hasReviewedTodayInScope(scope: CardScope): Promise<boolean> {
+    const startOfDay = DateTime.now().startOf('day')
+
+    const query = LeitnerCard.query()
+      .select('id')
+      .whereHas('reviews', (reviews) => reviews.where('reviewed_at', '>=', startOfDay.toSQL()!))
+
+    applyScope(query, scope)
+    return (await query.first()) !== null
   }
 
   /**
@@ -128,13 +317,24 @@ export default class LeitnerService {
     return grades
   }
 
-  async boxCounts(): Promise<Record<number, number>> {
-    const cards = await LeitnerCard.query().select('box')
+  /**
+   * La grille des 5 boîtes — **elle suit la portée** : elle décrit ce qu'on est en
+   * train de réviser. À l'inverse de `reviewedToday`, `streakDays` et de la rétention,
+   * qui restent globales : ce sont des mesures d'**habitude**, pas de thème. Une série
+   * de 40 jours qui retomberait à zéro parce qu'on a ouvert un autre thème serait
+   * absurde.
+   */
+  async boxCounts(scope: CardScope = ALL_CARDS): Promise<Record<number, number>> {
+    const query = LeitnerCard.query().select('box')
+    applyScope(query, scope)
+
+    const cards = await query
     const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
     for (const card of cards) counts[card.box] = (counts[card.box] ?? 0) + 1
     return counts
   }
 
+  /** Global — mesure d'habitude, jamais restreinte à une portée (voir `boxCounts`). */
   async reviewedToday(): Promise<number> {
     const startOfDay = DateTime.now().startOf('day')
     const reviews = await LeitnerReview.query().where('reviewed_at', '>=', startOfDay.toSQL()!)

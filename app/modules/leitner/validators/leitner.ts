@@ -20,6 +20,27 @@ export const reviewValidator = vine.compile(
   })
 )
 
+/**
+ * La **portée** d'une session de révision, lue dans la query string de `GET /revision`
+ * (`?scope=all` · `?scope=unclassified` · `?category=<id>` · `?theme=<id>`). Elle vient
+ * de l'utilisateur — d'un signet, d'une URL partagée, d'une barre d'adresse : elle se
+ * valide comme toute entrée de ce dépôt.
+ *
+ * Ce validateur ne garantit que la **forme**. Les deux règles qui comptent vraiment ne
+ * sont pas exprimables ici et vivent dans `LeitnerService.resolveScope` : **un seul**
+ * paramètre à la fois (`category` **et** `theme` = refus), et l'**existence** de l'id —
+ * un thème supprimé ne doit jamais retomber silencieusement sur « tout ».
+ *
+ * Aucun paramètre est valide : c'est l'écran de choix.
+ */
+export const reviewScopeValidator = vine.compile(
+  vine.object({
+    scope: vine.enum(['all', 'unclassified'] as const).optional(),
+    category: vine.number().positive().optional(),
+    theme: vine.number().positive().optional(),
+  })
+)
+
 /** Suppression multiple depuis l'écran de gestion. */
 export const cardIdsValidator = vine.compile(
   vine.object({

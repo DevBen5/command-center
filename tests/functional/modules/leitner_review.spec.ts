@@ -7,6 +7,10 @@ import LeitnerCard from '#modules/leitner/models/leitner_card'
 // La file de révision est reconstruite à chaque chargement de /revision : il n'y a
 // aucun état de session. Ces tests vérifient qu'une carte ratée revient bien dans la
 // session en cours — et qu'elle y revient en FIN de file, sans se re-présenter en boucle.
+//
+// ⚠️ Ils visent `?scope=all` : `/revision` **nu** est désormais l'écran de choix d'une
+// portée. Leurs assertions n'ont pas bougé d'une ligne, et c'est le but — `?scope=all`
+// se comporte exactement comme `/revision` d'avant le ciblage par thème.
 test.group('Leitner / file de révision', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
@@ -23,7 +27,7 @@ test.group('Leitner / file de révision', (group) => {
   }
 
   async function dueCards(client: any, user: User) {
-    const response = await client.get('/revision').loginAs(user).withInertia()
+    const response = await client.get('/revision?scope=all').loginAs(user).withInertia()
     response.assertStatus(200)
     return (response.inertiaProps as Record<string, any>).dueCards as any[]
   }
@@ -94,7 +98,7 @@ test.group('Leitner / file de révision', (group) => {
     await review(client, user, card, 'hard')
     await card.merge({ nextReview: DateTime.now() }).save()
 
-    const response = await client.get('/revision').loginAs(user).withInertia()
+    const response = await client.get('/revision?scope=all').loginAs(user).withInertia()
     const props = response.inertiaProps as Record<string, any>
 
     // Sans ces deux props, les boutons ne peuvent pas annoncer leur effet réel :

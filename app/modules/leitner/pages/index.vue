@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
+import LeitnerScopePicker from '../components/LeitnerScopePicker.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
 
 defineOptions({ layout: AppLayout })
@@ -19,15 +20,40 @@ interface LeitnerCard {
 }
 
 interface Stats {
+  // Suit la portée : c'est ce qu'on est en train de réviser.
+  dueCount: number
+  // Globaux — mesures d'habitude et inventaire, jamais restreints à la portée.
   reviewedToday: number
   streak: number
-  dueCount: number
   totalCards: number
   retention: number | null
 }
 
+interface ScopeChoices {
+  categories: Array<{
+    id: number
+    name: string
+    dueCount: number
+    themes: Array<{ id: number; name: string; dueCount: number }>
+  }>
+  unclassifiedDueCount: number
+  totalDueCount: number
+}
+
+/**
+ * Deux visages, une seule page — c'est la query string qui tranche (`view`) :
+ * `/revision` propose de **choisir** une portée, `/revision?theme=3` la révise.
+ *
+ * La portée ne vit que dans l'URL : la page n'en garde aucun état, et `dueCards` est
+ * re-requêtée après chaque note. La fin d'une portée est donc une **file vide**, jamais
+ * un compteur de cartes vues — une carte notée « À revoir » reste due et y revient.
+ */
 const props = defineProps<{
-  dueCards: LeitnerCard[]
+  view: 'choice' | 'session'
+  scope: { label: string; finished: boolean } | null
+  choices?: ScopeChoices
+  scopeError?: string | null
+  dueCards?: LeitnerCard[]
   boxCounts: Record<number, number>
   // Intervalles envoyés par le serveur (BOX_INTERVAL_DAYS) : ne pas les redéclarer ici.
   boxIntervals: Record<number, number>
@@ -46,7 +72,7 @@ function dueLabel(box: number): string {
   return days === 1 ? 'demain' : `dans ${days} j`
 }
 
-const currentCard = computed(() => props.dueCards[0] ?? null)
+const currentCard = computed(() => props.dueCards?.[0] ?? null)
 const revealed = ref(false)
 
 // Chaque bouton annonce la boîte atteinte et l'échéance : quatre notes, quatre effets.
@@ -98,6 +124,10 @@ function grade(g: Grade): void {
         }}
         aujourd'hui
       </div>
+      <div v-if="scope" class="mt-0.5 flex items-center gap-2 text-[11.5px] text-txt-3">
+        <span>Portée : {{ scope.label }}</span>
+        <Link href="/revision" class="text-accent transition hover:opacity-80">changer</Link>
+      </div>
     </div>
     <div class="ml-auto flex gap-3">
       <div class="rounded-[12px] border border-line bg-panel px-4 py-2.5 text-center">
@@ -122,13 +152,65 @@ function grade(g: Grade): void {
   </div>
 
   <div class="mx-auto max-w-[880px]">
+    <!-- Portée refusée (thème supprimé, combinaison impossible) : on ne révise SURTOUT
+         pas « tout » à la place — on le dit, ici, sur l'écran de choix. -->
     <div
-      v-if="currentCard"
+      v-if="scopeError"
+      class="mb-4 rounded-md border border-bad bg-panel-2 p-2.5 text-[11.5px] font-semibold text-bad"
+    >
+      {{ scopeError }}
+    </div>
+
+    <!-- Aucune carte nulle part : ni portée à choisir, ni session à mener. -->
+    <div
+      v-if="stats.totalCards === 0"
+      class="flex min-h-[230px] flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed border-line-2 bg-bg-2 p-9 text-center"
+    >
+      <div class="text-[16px] font-semibold">Votre base de révision est vide</div>
+      <div class="max-w-[380px] text-[12.5px] text-txt-2">
+        Créez vos catégories, vos thèmes et vos cartes depuis la gestion des cartes : elles
+        apparaîtront ici dès la prochaine session.
+      </div>
+      <Link
+        href="/revision/settings"
+        class="mt-2 rounded-[10px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white transition hover:opacity-90"
+      >
+        Gérer les cartes
+      </Link>
+    </div>
+
+    <!-- Écran de choix : que réviser ce soir ? -->
+    <template v-else-if="view === 'choice'">
+      <LeitnerScopePicker
+        v-if="choices && choices.totalDueCount > 0"
+        :categories="choices.categories"
+        :unclassified-due-count="choices.unclassifiedDueCount"
+        :total-due-count="choices.totalDueCount"
+      />
+      <div
+        v-else
+        class="flex min-h-[230px] flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed border-line-2 bg-bg-2 p-9 text-center"
+      >
+        <div class="text-[16px] font-semibold">Tout est à jour — aucune carte due</div>
+        <div class="max-w-[380px] text-[12.5px] text-txt-2">
+          Revenez demain, ou enrichissez votre base depuis la gestion des cartes.
+        </div>
+        <Link
+          href="/revision/settings"
+          class="mt-2 rounded-[10px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white transition hover:opacity-90"
+        >
+          Gérer les cartes
+        </Link>
+      </div>
+    </template>
+
+    <div
+      v-else-if="currentCard"
       class="flex min-h-[230px] flex-col items-center justify-center gap-4 rounded-[14px] border border-line-2 bg-panel p-9 text-center"
     >
       <div class="flex flex-wrap items-center justify-center gap-1.5">
         <span class="rounded-full border border-line-2 bg-panel-2 px-2.5 py-1 text-[11px] text-txt-2">
-          Boîte {{ currentCard.box }} · {{ dueCards.length }} restantes
+          Boîte {{ currentCard.box }} · {{ stats.dueCount }} restantes
         </span>
         <span
           v-if="currentCard.theme"
@@ -174,29 +256,43 @@ function grade(g: Grade): void {
         </button>
       </div>
     </div>
+    <!-- Portée épuisée. Deux gestes, et AUCUNE redirection automatique : l'utilisateur
+         doit *voir* qu'il a fini — un retour auto à l'écran de choix se lirait comme un
+         bug. « Terminé » et « rien à réviser ici » sont la même file vide : seul le
+         travail déjà fait aujourd'hui dans la portée les distingue (`scope.finished`) ;
+         annoncer « bravo » à qui n'a rien fait serait faux. -->
     <div
       v-else
       class="flex min-h-[230px] flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed border-line-2 bg-bg-2 p-9 text-center"
     >
-      <template v-if="stats.totalCards">
-        <div class="text-[16px] font-semibold">Tout est à jour — aucune carte due</div>
+      <template v-if="scope?.finished">
+        <div class="text-[16px] font-semibold text-ok">Portée terminée — {{ scope.label }}</div>
         <div class="max-w-[380px] text-[12.5px] text-txt-2">
-          Revenez demain, ou enrichissez votre base depuis la gestion des cartes.
+          Plus aucune carte due ici, y compris celles que vous avez revues à l'instant.
         </div>
       </template>
       <template v-else>
-        <div class="text-[16px] font-semibold">Votre base de révision est vide</div>
+        <div class="text-[16px] font-semibold">Rien à réviser dans cette portée</div>
         <div class="max-w-[380px] text-[12.5px] text-txt-2">
-          Créez vos catégories, vos thèmes et vos cartes depuis la gestion des cartes : elles
-          apparaîtront ici dès la prochaine session.
+          {{ scope?.label }} n'a aucune carte due aujourd'hui. Choisissez une autre portée, ou
+          revenez demain.
         </div>
       </template>
-      <Link
-        href="/revision/settings"
-        class="mt-2 rounded-[10px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white transition hover:opacity-90"
-      >
-        Gérer les cartes
-      </Link>
+
+      <div class="mt-2 flex flex-wrap justify-center gap-2">
+        <Link
+          href="/revision"
+          class="rounded-[10px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white transition hover:opacity-90"
+        >
+          Choisir une autre portée
+        </Link>
+        <Link
+          href="/"
+          class="rounded-[10px] border border-line-2 bg-panel-2 px-3.5 py-2 text-[12.5px] text-txt-2 transition hover:border-accent"
+        >
+          Arrêter
+        </Link>
+      </div>
     </div>
 
     <div class="mt-6 mb-3 flex items-center gap-3">

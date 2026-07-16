@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
+import { ALL_CARDS, applyScope, type CardScope } from '#modules/leitner/services/leitner_scope'
 
 export interface CardFilters {
   search?: string
@@ -9,6 +10,21 @@ export interface CardFilters {
   themeId?: number
   box?: number
   unclassified?: boolean
+}
+
+/**
+ * Les filtres de classement de cet écran **sont** une portée de révision : la même
+ * question, posée par une autre page. La traduction SQL vit donc dans `leitner_scope`,
+ * en un seul exemplaire — surtout la sous-requête catégorie → thèmes.
+ *
+ * L'ordre de priorité est celui, historique, de cet écran : « non classées » l'emporte
+ * sur un thème, qui l'emporte sur une catégorie.
+ */
+function filtersToScope(filters: CardFilters): CardScope {
+  if (filters.unclassified) return { kind: 'unclassified' }
+  if (filters.themeId) return { kind: 'theme', id: filters.themeId }
+  if (filters.categoryId) return { kind: 'category', id: filters.categoryId }
+  return ALL_CARDS
 }
 
 export interface ThemeNode {
@@ -44,15 +60,7 @@ export default class LeitnerCatalogService {
       query.where((builder) => builder.whereILike('front', needle).orWhereILike('back', needle))
     }
 
-    if (filters.unclassified) {
-      query.whereNull('leitner_theme_id')
-    } else if (filters.themeId) {
-      query.where('leitner_theme_id', filters.themeId)
-    } else if (filters.categoryId) {
-      query.whereIn('leitner_theme_id', (sub) =>
-        sub.from('leitner_themes').select('id').where('leitner_category_id', filters.categoryId!)
-      )
-    }
+    applyScope(query, filtersToScope(filters))
 
     if (filters.box) query.where('box', filters.box)
 

@@ -124,7 +124,8 @@ test.group('Leitner / cartes saisies par l’utilisateur', (group) => {
       nextReview: DateTime.now(),
     })
 
-    const response = await client.get('/revision').loginAs(user).withInertia()
+    // `?scope=all` : `/revision` nu est l'écran de choix d'une portée (voir CC-36).
+    const response = await client.get('/revision?scope=all').loginAs(user).withInertia()
 
     response.assertStatus(200)
     const props = response.inertiaProps as Record<string, any>
