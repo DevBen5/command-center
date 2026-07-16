@@ -41,14 +41,18 @@ test.group('Leitner / file de révision', (group) => {
       .redirects(0)
   }
 
-  test('une carte notée `again` reste due le jour même', async ({ client, assert }) => {
+  test('une carte notée `again` reste due le jour même, dans sa boîte', async ({
+    client,
+    assert,
+  }) => {
     const user = await login()
     const card = await makeCard('Ratée', 3)
 
     await review(client, user, card, 'again')
 
     await card.refresh()
-    assert.equal(card.box, 1)
+    // `again` ne rétrograde pas : il remet la carte dans la session, sans sanction.
+    assert.equal(card.box, 3)
     assert.equal(card.nextReview.toISODate(), DateTime.now().toISODate())
     // Elle est toujours dans la file : on revoit ce qu'on vient de rater.
     assert.lengthOf(await dueCards(client, user), 1)

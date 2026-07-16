@@ -250,11 +250,13 @@ export default class LeitnerService {
   /**
    * Applique une note à une carte. Chaque note a un effet distinct :
    *
-   * - `again` : retour boîte 1, **due le jour même**. La carte reste dans
-   *   `dueCards` et revient en fin de file dans la session en cours — le geste
-   *   du Leitner physique : on ne range pas une carte qu'on vient de rater.
+   * - `again` : **la boîte ne bouge pas**, la carte est **due le jour même**. Elle
+   *   reste dans `dueCards` et revient en fin de file dans la session en cours.
+   *   C'est « remets-la moi maintenant », pas une sanction : rater une fois ne
+   *   défait pas ce qui a été acquis, seule la promotion est suspendue.
    * - `hard`  : la carte **stagne** dans sa boîte. Deux `hard` consécutifs sur
    *   la même carte la renvoient en boîte 1 : stagner deux fois n'est pas savoir.
+   *   ⚠️ C'est désormais le **seul** chemin de rétrogradation.
    * - `good`  : +1 boîte.
    * - `easy`  : +2 boîtes.
    *
@@ -282,7 +284,9 @@ export default class LeitnerService {
   private async nextBox(card: LeitnerCard, grade: Grade): Promise<number> {
     switch (grade) {
       case 'again':
-        return 1
+        // La boîte est inchangée : `again` remet la carte dans la session, il ne
+        // rétrograde pas. Seul `next_review` bouge (à aujourd'hui), dans `review()`.
+        return card.box
       case 'hard':
         return (await this.lastGrade(card)) === 'hard' ? 1 : card.box
       case 'good':

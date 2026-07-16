@@ -85,7 +85,11 @@ const gradeActions = computed(() => {
   const hardDemotes = card.lastGrade === 'hard'
 
   return [
-    { grade: 'again' as Grade, label: 'À revoir', hint: 'boîte 1 · revient dans la session' },
+    {
+      grade: 'again' as Grade,
+      label: 'À revoir',
+      hint: `reste boîte ${card.box} · revient dans la session`,
+    },
     {
       grade: 'hard' as Grade,
       label: 'Difficile',

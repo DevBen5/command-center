@@ -23,13 +23,26 @@ function makeCard(box: number) {
 test.group('LeitnerService / révision', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
-  test('`again` renvoie la carte en boîte 1 et la laisse due aujourd’hui', async ({ assert }) => {
+  test('`again` laisse la carte dans sa boîte et la laisse due aujourd’hui', async ({ assert }) => {
     const card = await makeCard(4)
 
     await new LeitnerService().review(card, 'again')
 
-    assert.equal(card.box, 1)
+    // `again` ne rétrograde pas : il remet la carte dans la session, c'est tout.
+    assert.equal(card.box, 4)
     // Due le jour même : la carte reste dans la file et revient dans la session.
+    assert.equal(card.nextReview.toISODate(), TODAY())
+  })
+
+  test('`again` répété ne fait jamais descendre la carte', async ({ assert }) => {
+    const card = await makeCard(5)
+    const service = new LeitnerService()
+
+    await service.review(card, 'again')
+    await service.review(card, 'again')
+    await service.review(card, 'again')
+
+    assert.equal(card.box, 5)
     assert.equal(card.nextReview.toISODate(), TODAY())
   })
 
@@ -147,7 +160,7 @@ test.group('LeitnerService / intervalles des boîtes', (group) => {
     assert.equal(card.nextReview.toISODate(), IN(10))
   })
 
-  test('`again` reste due le jour même quel que soit l’intervalle de la boîte 1', async ({
+  test('`again` reste due le jour même quel que soit l’intervalle de sa boîte', async ({
     assert,
   }) => {
     const service = new LeitnerService()
@@ -156,9 +169,9 @@ test.group('LeitnerService / intervalles des boîtes', (group) => {
     const card = await makeCard(4)
     await service.review(card, 'again')
 
-    assert.equal(card.box, 1)
-    // L'intervalle de la boîte 1 ne s'applique pas à un échec : la carte revient
-    // dans la session en cours.
+    assert.equal(card.box, 4)
+    // Aucun intervalle ne s'applique à `again` — surtout pas les 21 jours de sa
+    // boîte : la carte revient dans la session en cours.
     assert.equal(card.nextReview.toISODate(), TODAY())
   })
 

@@ -208,27 +208,36 @@ Chaque note a un effet distinct :
 
 | note    | boîte atteinte                            | `next_review`              |
 | ------- | ----------------------------------------- | -------------------------- |
-| `again` | 1                                         | **aujourd'hui**            |
+| `again` | **inchangée**                             | **aujourd'hui**            |
 | `hard`  | inchangée — sauf **2ᵉ `hard` d'affilée** → 1 | intervalle de cette boîte |
 | `good`  | +1                                        | intervalle de cette boîte  |
 | `easy`  | +2                                        | intervalle de cette boîte  |
 
 - La boîte est plafonnée à 5. `next_review` = aujourd'hui + l'intervalle **réglé** pour la boîte
   **atteinte** (après mouvement) — `again` est la **seule** note qui laisse la carte due le jour
-  même, et le seul cas où l'intervalle de la boîte 1 ne s'applique pas.
-- Conséquence : **une carte ratée reste due et revient dans la session en cours**, en fin de file,
-  jusqu'à ce qu'elle passe. C'est le geste du Leitner physique. Toute autre note repousse
-  l'échéance d'au moins un jour, donc vide la carte de la session du jour.
+  même, et le seul cas où aucun intervalle ne s'applique.
+- **`again` ne rétrograde pas**, et ce n'est pas un oubli : c'est « remets-la moi maintenant », pas
+  une sanction. La carte reste dans sa boîte, redevient due, et **revient en fin de file dans la
+  session en cours**, jusqu'à ce qu'elle passe. Rater une fois ne défait pas ce qui a été acquis —
+  seule la promotion est suspendue. Toute autre note repousse l'échéance d'au moins un jour, donc
+  vide la carte de la session du jour.
+- ⚠️ **Le « 2ᵉ `hard` d'affilée » est donc le seul chemin de rétrogradation du module.** Aucune
+  quantité de `again` ne fait descendre une carte : une carte de boîte 5 qu'on rate tous les jours
+  reste en boîte 5, et repart à l'intervalle de la boîte 5 dès le premier `good`. C'est le prix
+  assumé d'un `again` sans sanction ; si ce comportement gêne un jour, c'est **cette ligne** qu'il
+  faut rouvrir, pas l'ordre de la file.
 - « Deux `hard` d'affilée » = la **dernière révision enregistrée** pour cette carte était déjà
   `hard`, quel que soit le délai entre les deux (`LeitnerService.lastGrade`). Stagner deux fois
-  n'est pas savoir. Un `hard` séparé du précédent par une autre note ne rétrograde pas.
+  n'est pas savoir. Un `hard` séparé du précédent par une autre note ne rétrograde pas — **y compris
+  par un `again`**, qui remet donc le compteur à zéro.
 
 **L'ordre de la file dépend de cette règle.** `LeitnerService.dueCards(scope)` trie
-`next_review` asc → `updated_at` asc → `id` asc. **Ne trie jamais par `box`** : une carte ratée
-retombe en boîte 1 et repasserait devant toutes les cartes de boîte ≥ 2 — elle se re-présenterait
-en boucle. Avec ce tri elle est dernière aux deux critères (échéance la plus tardive parmi les
-cartes dues, et écriture la plus récente), donc en fin de file. **Le ciblage par thème n'y change
-rien** : la portée retire des cartes, elle ne réordonne pas.
+`next_review` asc → `updated_at` asc → `id` asc. **Ne trie jamais par `box`** : depuis qu'`again`
+laisse la boîte intacte, un tri par `box` rendrait la carte ratée **à la même place** qu'avant la
+note — elle se re-présenterait aussitôt, en boucle, et la session serait bloquée sur elle. C'est
+`updated_at` qui la renvoie en fin de file : la noter l'écrit, donc elle devient la plus récemment
+touchée, donc la dernière. **Le ciblage par thème n'y change rien** : la portée retire des cartes,
+elle ne réordonne pas.
 
 La requête vit dans le **service**, pas dans le contrôleur : c'est la règle métier, et c'est ce qui
 la rend testable unitairement (`tests/unit/leitner_due_cards.spec.ts`) — l'ordre n'était jusque-là
