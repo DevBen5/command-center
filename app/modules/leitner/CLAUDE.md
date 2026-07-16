@@ -55,7 +55,18 @@ validators/leitner.ts                      card · review · reviewScope (la por
                                            · llmDetect · llmModels · llmTest (LISTE BLANCHE SSRF)
 components/LeitnerTabs.vue                 la barre d'onglets des quatre écrans (PAS dans pages/)
 components/IngestionTitle.vue              le titre d'un travail, renommable en ligne (PAS dans pages/)
-components/LeitnerScopePicker.vue          l'écran de choix d'une portée (PAS dans pages/)
+components/LeitnerScopePicker.vue          l'écran de choix d'une portée : la barre PUIS l'arbre
+                                           (PAS dans pages/)
+components/LeitnerScopeSearch.vue          la barre de recherche de l'écran de choix : on nomme une
+                                           catégorie/thème, clic ou Entrée ouvre la session — ↑↓,
+                                           Entrée, Échap · NE réutilise PAS TaxonomyCombobox (plus
+                                           bas) (PAS dans pages/)
+components/leitner_scope_search.ts         son filtrage : accents ignorés, chemin Catégorie · Thème,
+                                           portée à 0 trouvée mais non sélectionnable — du CODE PUR,
+                                           donc le test qui compte de ce lot
+components/TaxonomyCombobox.vue            le sélecteur catégorie/thème de la relecture des
+                                           brouillons — rend une CHAÎNE, texte libre autorisé
+                                           (PAS dans pages/)
 pages/index.vue                            choix d'une portée OU session de révision (`view`) · fin de
                                            portée · grille des 5 boîtes
 pages/settings.vue                         tableau des cartes · création/édition · sélection
@@ -187,6 +198,56 @@ il compte en **une requête** (`group by leitner_theme_id`) agrégée en JS, jam
 ⚠️ Postgres rend `count(*)` en `bigint`, donc en **chaîne** : sans `Number()`, les sommes de
 catégorie concatèneraient (`'1' + '1'` = `'11'`). Le test porte sur le total d'une catégorie — un
 compte de thème seul ne l'attraperait pas, `assert.equal` de chai étant laxiste (`==`).
+
+### La barre de recherche : elle s'ajoute à l'arbre, elle ne le remplace pas
+
+`LeitnerScopeSearch.vue` — on tape un nom de catégorie ou de thème, la liste s'affine ; le chevron
+déplie **tout** l'arbre sans rien taper ; un clic, ou Entrée, ouvre la session.
+
+⚠️ **Ne retire pas l'arbre au profit de la barre.** Ce sont deux gestes : la barre est l'accès rapide
+quand on sait ce qu'on veut, l'arbre est la **seule vue d'ensemble** de ce qui est dû ce soir.
+
+Trois règles de l'écran s'appliquent à la barre, et pas une n'est décorative :
+
+- **Les accents.** Les catégories réelles s'appellent « Sécurité », « Modèles » ; personne ne tape
+  les accents dans une barre de recherche. `normalizeForSearch` reprend l'approche de `draftKey`
+  (NFD + `\p{Diacritic}` + minuscules) — un `toLowerCase().includes()` **ne trouve rien** pour
+  `securite`. C'est le piège du lot, et son test.
+- **Le chemin, toujours complet.** « Linux » est à la fois une catégorie **et** un thème de DevOps
+  dans les données réelles : un thème affiché seul ne désigne rien. D'où `Catégorie · Thème`.
+- **Une portée à 0 se trouve, mais ne s'ouvre pas** — ni au clic, ni à l'Entrée, et ↑↓ la **sautent**
+  (s'arrêter dessus laisserait Entrée sans effet, sans dire pourquoi). Elle n'est **jamais masquée** :
+  disparaître ferait croire qu'elle n'existe pas.
+
+**Aucune requête.** L'arbre entier est déjà dans la prop `choices` (5 catégories, 15 thèmes) :
+le filtrage est côté client, dans `leitner_scope_search.ts`. Ni route, ni endpoint, ni debounce —
+il n'y a rien à attendre. Et `/revision` ne faisant que réviser, la barre n'offre **aucun** « Créer
+« X » » ni lien vers la gestion : sans résultat, elle le dit, et c'est tout.
+
+⚠️ **Elle ne réutilise pas `TaxonomyCombobox`, et il ne faut pas les fusionner.** La tentation est
+réelle — même interaction (champ + chevron qui déplie tout + liste qui filtre), et les pièges de
+focus/blur de l'un ont bel et bien été repris par l'autre (`mousedown.prevent`, pour que le champ ne
+perde pas le focus avant que le clic n'aboutisse). Mais ils partagent une **interaction**, pas une
+**donnée** :
+
+| | `TaxonomyCombobox` | `LeitnerScopeSearch` |
+| --- | --- | --- |
+| rend | une **chaîne** (`update:modelValue`) | une **navigation** vers `?category=` / `?theme=` |
+| options | `string[]` plat | (catégorie, thème) avec **ids** et **comptes dus** |
+| texte libre | oui — « Créer « X » » | **non** : `/revision` ne crée rien, jamais |
+| filtre | `toLowerCase().includes()` | **accents normalisés** (piège n° 1) |
+| clavier | aucun | ↑ ↓ Entrée Échap |
+
+Une abstraction commune coûterait plus qu'elle ne rapporterait : le seul tronc partagé serait le
+couple champ/chevron, et chaque appelant reprendrait ses options, son filtre, son rendu et son
+action. `TaxonomyCombobox` a aussi un `filtering` que la barre n'a **pas**, et c'est structurel : son
+champ porte une **valeur déjà choisie** (d'où le besoin de rouvrir la liste entière malgré elle),
+celui de la barre ne porte qu'une **requête** — l'arbre entier s'affiche exactement quand elle est
+vide.
+
+⚠️ **L'aide clavier n'est affichée que parce que ↑ ↓ Entrée Échap sont réellement implémentés.**
+Si tu touches à cette navigation, retire l'aide ou répare-la : annoncer un raccourci qu'on n'a pas
+est le défaut que la palette ⌘K traîne déjà.
 
 ### Stats de portée vs stats globales — la distinction n'est pas devinable
 
@@ -708,6 +769,12 @@ repli muet sur « tout » est le mode d'échec que ce lot existe pour éviter),
 `tests/functional/modules/leitner_scope.spec.ts` couvre l'écran de choix et ses **comptes dus**, la
 fin de portée (distincte d'une portée vide dès le départ) et surtout que **noter une carte conserve
 la portée** — le piège n° 1, celui du `withQs()`.
+`tests/unit/leitner_scope_search.spec.ts` couvre le **filtrage de la barre de recherche** de cet
+écran — dont `securite` qui trouve « Sécurité » (le test qui compte), le chemin `Catégorie · Thème`,
+et une portée à 0 trouvée mais **non sélectionnable**. Du code pur : ce dépôt n'a **aucun test de
+composant Vue**, et ce n'est pas un oubli — la question est ouverte, ne la tranche pas au détour d'un
+lot. Ce que ce test ne voit donc **pas** : le focus/blur, le chevron, ↑↓ Entrée Échap, et qu'un clic
+ouvre bien la session. Ça, il faut un vrai passage navigateur.
 `tests/functional/modules/leitner_review.spec.ts`
 couvre la file de révision (une carte ratée reste due le jour même et repart en fin de file) — il
 vise `?scope=all`, qui doit se comporter **exactement** comme `/revision` d'avant le ciblage,

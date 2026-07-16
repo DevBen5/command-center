@@ -1,18 +1,7 @@
 <script setup lang="ts">
 import { Link } from '@inertiajs/vue3'
-
-interface ThemeChoice {
-  id: number
-  name: string
-  dueCount: number
-}
-
-interface CategoryChoice {
-  id: number
-  name: string
-  dueCount: number
-  themes: ThemeChoice[]
-}
+import LeitnerScopeSearch from './LeitnerScopeSearch.vue'
+import type { CategoryChoice } from './leitner_scope_search'
 
 /**
  * L'écran de choix : que réviser ce soir ? Chaque ligne montre son nombre de cartes
@@ -20,6 +9,11 @@ interface CategoryChoice {
  *
  * Une portée à 0 s'affiche (elle existe) mais n'est pas un lien : elle n'invite pas
  * au clic.
+ *
+ * Deux accès, et le second ne remplace pas le premier : la **barre de recherche**
+ * (`LeitnerScopeSearch`) en haut pour atteindre une portée en la nommant, l'**arbre**
+ * en dessous pour voir d'un coup d'œil ce qui est dû. Ne retire pas l'arbre au
+ * profit de la barre : c'est la seule vue d'ensemble.
  */
 defineProps<{
   categories: CategoryChoice[]
@@ -34,6 +28,9 @@ function dueLabel(count: number): string {
 
 <template>
   <div class="flex flex-col gap-4">
+    <!-- L'accès rapide, quand on sait déjà ce qu'on veut. L'arbre reste dessous. -->
+    <LeitnerScopeSearch :categories="categories" />
+
     <Link
       href="/revision?scope=all"
       class="flex items-center gap-3 rounded-[14px] border border-accent bg-accent-soft px-5 py-4 transition hover:opacity-90"
