@@ -14,7 +14,7 @@ dossier `pages/` (`inertia/app/app.ts`) : un composant partagé posé là devien
 composants du module vivent dans `components/` et s'importent relativement (`../components/…`).
 
 ```
-controllers/leitner_controller.ts          révision seule : index · review
+controllers/leitner_controller.ts          révision seule : index (choix OU session) · review
 controllers/leitner_settings_controller.ts écran de gestion : CRUD cartes + taxonomie + intervalles
                                            + export/import JSON
 controllers/leitner_ingestion_controller.ts ingestion d'un cours par un LLM local : formulaire +
@@ -24,6 +24,10 @@ controllers/leitner_ingestion_controller.ts ingestion d'un cours par un LLM loca
 controllers/leitner_llm_controller.ts      configuration du LLM : détection, /models, génération de
                                            contrôle — n'écrit RIEN (ni base, ni disque)
 services/leitner_service.ts                règle métier (boîtes, intervalles, stats) ← source de vérité
+                                           + la FILE de révision : dueCards(scope), resolveScope,
+                                           dueScopeChoices
+services/leitner_scope.ts                  la PORTÉE : le type `CardScope` et `applyScope` — l'unique
+                                           copie de la sous-requête catégorie → thèmes
 services/leitner_catalog_service.ts        catalogue : filtres, CRUD cartes, catégories/thèmes
                                            ← seul point d'écriture d'une carte, porte la dédup
 services/leitner_backup_service.ts         export/import JSON — le filet de sécurité du module
@@ -42,7 +46,8 @@ models/leitner_theme.ts                    belongsTo category · hasMany cards
 models/leitner_settings.ts                 réglages du module — UNE seule ligne (id = 1)
 models/leitner_ingestion.ts                le travail : titre, statut, source, compteurs, erreur
 models/leitner_draft_card.ts               une carte PROPOSÉE, rattachée à son ingestion
-validators/leitner.ts                      card · review · cardIds · cardsTheme · category · theme
+validators/leitner.ts                      card · review · reviewScope (la portée, dans la query
+                                           string) · cardIds · cardsTheme · category · theme
                                            · boxIntervals · backup · backupImport
                                            · courseIngestion (SANS fichier : que du texte)
                                            · documentExtract (le seul à porter un fichier)
@@ -50,7 +55,9 @@ validators/leitner.ts                      card · review · cardIds · cardsThe
                                            · llmDetect · llmModels · llmTest (LISTE BLANCHE SSRF)
 components/LeitnerTabs.vue                 la barre d'onglets des quatre écrans (PAS dans pages/)
 components/IngestionTitle.vue              le titre d'un travail, renommable en ligne (PAS dans pages/)
-pages/index.vue                            session de révision · grille des 5 boîtes
+components/LeitnerScopePicker.vue          l'écran de choix d'une portée (PAS dans pages/)
+pages/index.vue                            choix d'une portée OU session de révision (`view`) · fin de
+                                           portée · grille des 5 boîtes
 pages/settings.vue                         tableau des cartes · création/édition · sélection
                                            multiple · taxonomie · intervalles des boîtes
 pages/ingest.vue                           soumission d'un cours (formulaire VIERGE) · le chargeur
@@ -106,6 +113,89 @@ La modale de `settings.vue` sert à la fois à créer (`editing === null`) et à
 fait en général par séries sur un même sujet. `@submit.prevent="submitCard()"` s'écrit **avec les
 parenthèses** — sans elles, Vue passe l'événement en `keepOpen` et la modale ne se ferme jamais.
 
+## La portée d'une session : `/revision` a deux visages
+
+`/revision` **nu** est l'écran de **choix** (que réviser ce soir ?) ; `/revision?scope=all`,
+`?scope=unclassified`, `?category=<id>` ou `?theme=<id>` est la **session**, restreinte à cette
+portée. Une seule page Inertia (`modules/leitner/index`), un prop `view` qui tranche — d'où le fait
+que `tests/functional/modules/pages.spec.ts` tienne sans modification.
+
+### La portée vit dans l'URL, et nulle part ailleurs
+
+**Rien en base, rien en session.** La portée est un *geste*, pas un *réglage* : elle ne survit pas à
+la session et n'a pas à le faire. Une colonne `current_scope` dans `leitner_settings` serait un état
+à invalider (thème supprimé, plus rien de dû, deux onglets ouverts) pour un gain nul — et
+`leitner_settings` porte la **configuration** du module, pas ce que l'utilisateur est en train de
+faire. Deux onglets, deux portées, aucun conflit possible : c'est la propriété qu'on achète.
+
+C'est gratuit parce que **la page n'a aucun état** : `currentCard` vaut `dueCards[0]`, `review()`
+redirige en arrière, la page se recharge et **re-requête**. Il n'y a rien à reprendre, rien à
+invalider. Aucune route nouvelle non plus : la portée est une query string sur `GET /revision`.
+
+⚠️ **`response.redirect().withQs().back()` — le `withQs()` n'est pas décoratif.** `back()` renvoie
+sur le `referer` mais **sur son seul `pathname`** : il **jette la query string**
+(`Redirect.back()`, @adonisjs/http-server — le `#forwardQueryString` vaut `false` par défaut). Sans
+`withQs()`, `?theme=3` disparaîtrait **à chaque note**, en silence : la session repartirait sur
+toutes les cartes dues sans une erreur ni un log. Ne le retire pas, et ne remplace pas ce `back()`
+par un `toRoute()`. C'est le piège n° 1 du module ; son test est
+`leitner_scope.spec.ts` → « noter une carte CONSERVE la portée », et il **assert l'en-tête
+`location` brut** — `assertRedirectsTo` ne compare que le chemin, il laisserait passer exactement
+cette régression.
+
+### La fin d'une portée est une file vide — jamais un compteur
+
+⚠️ **`again` laisse la carte due le jour même** (voir « La règle métier ») : elle reste dans
+`dueCards` et revient en fin de file, **dans la portée**. Donc **« la fin d'un thème » n'arrive que
+quand plus aucune de ses cartes n'est due — y compris celles qu'on vient de rater**. C'est voulu.
+
+L'écran de fin se déclenche donc sur une **re-requête vide** dans la portée, **jamais** sur un
+compteur de cartes vues. Compter les cartes présentées et s'arrêter à N reproduirait l'erreur que
+l'ordre de la file existe pour éviter : une carte ratée disparaîtrait de la session.
+
+Aucune **redirection automatique** à la fin : l'utilisateur doit *voir* qu'il a fini — un retour auto
+à l'écran de choix se lirait comme un bug. Deux gestes : « Choisir une autre portée » (`/revision`) ou
+« Arrêter » (`/`).
+
+⚠️ **« Terminée » et « vide dès le départ » sont la même file vide** — ouvrir `?theme=7` sur un thème
+sans carte due doit dire « rien à réviser », **pas** « terminé, bravo » : on n'a rien fait. Seul
+`LeitnerService.hasReviewedTodayInScope(scope)` les sépare, et il rend un **booléen, pas un
+compteur** : aucun chiffre n'est affiché sur cet écran. `reviewedToday()` ne pourrait de toute façon
+pas servir — il est **global**, il annoncerait les cartes revues dans *tous* les thèmes, et un chiffre
+faux est pire que pas de chiffre. Limite acceptée : une carte révisée ce matin puis déplacée dans un
+autre thème fait dire « rien à réviser » à son ancien thème.
+
+### Le refus, jamais le repli
+
+⚠️ **Un id inexistant ne retombe JAMAIS sur « tout ».** Un thème supprimé depuis un autre onglet, et
+l'utilisateur réviserait l'intégralité de sa base en croyant travailler Docker. `resolveScope` rend
+un résultat **ou** un refus — son type n'a pas de troisième cas, et pas de valeur par défaut.
+`category` **et** `theme` ensemble : refus aussi. Pas de « le dernier gagne », pas de « le plus
+précis gagne » : une combinaison qu'on n'a pas voulue est une erreur, pas une devinette.
+
+Le refus **redirige vers `/revision` avec un flash** (`scopeError`), plutôt qu'un 404 : le cas réel
+n'est pas une URL bricolée mais un thème supprimé — l'utilisateur doit atterrir là où il peut agir.
+La validation de forme (`reviewScopeValidator`) est enveloppée dans un `try/catch` pour la même
+raison : laisser filer l'exception redirigerait sur le `referer`, donc sur l'URL fautive elle-même.
+
+### Les comptes de l'écran de choix sont des comptes DUS
+
+Chaque ligne montre son nombre de cartes **dues**, pas son total : un thème de 200 cartes dont 0 est
+due n'a aucun intérêt ce soir. ⚠️ **`LeitnerCatalogService.categoryTree()` ne convient donc pas** —
+son `withCount('cards')` compte les cartes **totales**. C'est `LeitnerService.dueScopeChoices()`, et
+il compte en **une requête** (`group by leitner_theme_id`) agrégée en JS, jamais une par thème.
+
+⚠️ Postgres rend `count(*)` en `bigint`, donc en **chaîne** : sans `Number()`, les sommes de
+catégorie concatèneraient (`'1' + '1'` = `'11'`). Le test porte sur le total d'une catégorie — un
+compte de thème seul ne l'attraperait pas, `assert.equal` de chai étant laxiste (`==`).
+
+### Stats de portée vs stats globales — la distinction n'est pas devinable
+
+| mesure | portée ? | pourquoi |
+| ------ | -------- | -------- |
+| `dueCount`, grille des 5 boîtes | **suit la portée** | c'est ce qu'on est en train de réviser : la grille doit décrire *ça* |
+| `streak`, `reviewedToday`, `retention` | **globaux** | ce sont des mesures d'**habitude**, pas de thème. Une série de 40 jours qui retomberait à zéro parce qu'on a ouvert un autre thème serait absurde |
+| `totalCards` | **global** | un inventaire, dans la même rangée que les trois précédentes. Contrepartie assumée : la grille scopée ne somme pas au « total cartes » affiché |
+
 ## La règle métier
 
 Les intervalles (jours avant la prochaine révision, boîte par boîte) **vivent en base**, dans la
@@ -133,13 +223,18 @@ Chaque note a un effet distinct :
   `hard`, quel que soit le délai entre les deux (`LeitnerService.lastGrade`). Stagner deux fois
   n'est pas savoir. Un `hard` séparé du précédent par une autre note ne rétrograde pas.
 
-**L'ordre de la file dépend de cette règle.** `leitner_controller.ts::index` trie
+**L'ordre de la file dépend de cette règle.** `LeitnerService.dueCards(scope)` trie
 `next_review` asc → `updated_at` asc → `id` asc. **Ne trie jamais par `box`** : une carte ratée
 retombe en boîte 1 et repasserait devant toutes les cartes de boîte ≥ 2 — elle se re-présenterait
 en boucle. Avec ce tri elle est dernière aux deux critères (échéance la plus tardive parmi les
-cartes dues, et écriture la plus récente), donc en fin de file.
+cartes dues, et écriture la plus récente), donc en fin de file. **Le ciblage par thème n'y change
+rien** : la portée retire des cartes, elle ne réordonne pas.
 
-**Rétention** (`leitner_controller.ts::index`) : `grade !== 'again'`. `hard` compte comme une
+La requête vit dans le **service**, pas dans le contrôleur : c'est la règle métier, et c'est ce qui
+la rend testable unitairement (`tests/unit/leitner_due_cards.spec.ts`) — l'ordre n'était jusque-là
+verrouillé que par un test fonctionnel.
+
+**Rétention** (`leitner_controller.ts::globalStats`) : `grade !== 'again'`. `hard` compte comme une
 **réussite** — la réponse a été rappelée, péniblement ; ce n'est pas un échec de rappel, même
 depuis qu'il ne fait plus progresser la carte.
 
@@ -584,17 +679,29 @@ Trois corollaires, aussi importants que la liste elle-même :
 - **`next_review` est une colonne `date`, `reviewed_at` un `timestamp`.** Les requêtes ne se
   formatent donc pas pareil : `today.toSQLDate()` pour les cartes dues, `startOfDay.toSQL()` pour
   les révisions. Les intervertir passe le typecheck et casse le filtre en silence.
+  `LeitnerService.hasReviewedTodayInScope` est le point où les deux se croisent.
 - **Le filtre par catégorie passe par une sous-requête** sur `leitner_themes` (une carte ne connaît
   que son thème, pas sa catégorie). Filtrer sur `leitner_category_id` depuis `leitner_cards` n'a
-  aucun sens : la colonne n'existe pas.
+  aucun sens : la colonne n'existe pas. Elle s'écrit **une seule fois**, dans
+  `services/leitner_scope.ts` : la portée d'une session et le filtre du catalogue posent la même
+  question, et `LeitnerCatalogService.cards()` comme `LeitnerService.dueCards()` passent par
+  `applyScope`. N'en fais pas une troisième copie.
 - Les stats (`reviewedToday`, `streakDays`) et le catalogue chargent les lignes et comptent en JS,
   sans pagination. Volumétrie personnelle : c'est assumé.
 
 ## Avant de rendre la main
 
 `npm test` — `tests/unit/leitner_service.spec.ts` couvre la règle des boîtes (une note = une
-assertion sur la boîte **et** sur `next_review`), `tests/functional/modules/leitner_review.spec.ts`
-couvre la file de révision (une carte ratée reste due le jour même et repart en fin de file),
+assertion sur la boîte **et** sur `next_review`), `tests/unit/leitner_due_cards.spec.ts` couvre la
+**file et sa portée** (`all` · `theme` · `category` via ses thèmes · `unclassified`, l'ordre à
+l'intérieur d'une portée, une carte `again` qui y reste, et le **refus** d'un id inexistant — le
+repli muet sur « tout » est le mode d'échec que ce lot existe pour éviter),
+`tests/functional/modules/leitner_scope.spec.ts` couvre l'écran de choix et ses **comptes dus**, la
+fin de portée (distincte d'une portée vide dès le départ) et surtout que **noter une carte conserve
+la portée** — le piège n° 1, celui du `withQs()`.
+`tests/functional/modules/leitner_review.spec.ts`
+couvre la file de révision (une carte ratée reste due le jour même et repart en fin de file) — il
+vise `?scope=all`, qui doit se comporter **exactement** comme `/revision` d'avant le ciblage,
 `tests/unit/leitner_catalog_service.spec.ts` couvre les filtres, la suppression multiple, le
 reclassement et les cascades de la taxonomie, et `tests/functional/modules/leitner_backup.spec.ts`
 couvre la sauvegarde — dont **l'aller-retour** (export → base vidée → import → base identique), le
