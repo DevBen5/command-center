@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { Head, Link, router } from '@inertiajs/vue3'
+import { Head, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
+import LeitnerTabs from '../components/LeitnerTabs.vue'
 
 defineOptions({ layout: AppLayout })
 
@@ -372,6 +373,8 @@ function deleteTheme(theme: ThemeNode): void {
 <template>
   <Head title="Gestion des cartes" />
 
+  <LeitnerTabs />
+
   <div class="mb-4 flex items-center gap-3">
     <div>
       <div class="text-[18px] font-bold">Gestion des cartes</div>
@@ -387,18 +390,6 @@ function deleteTheme(theme: ThemeNode): void {
     >
       + Nouvelle carte
     </button>
-    <Link
-      href="/revision/ingest"
-      class="rounded-[10px] border border-line-2 bg-panel px-3.5 py-2 text-[12.5px] text-txt-2 transition hover:border-accent hover:text-txt"
-    >
-      Ingérer un cours
-    </Link>
-    <Link
-      href="/revision"
-      class="rounded-[10px] border border-line-2 bg-panel px-3.5 py-2 text-[12.5px] text-txt-2 transition hover:border-accent hover:text-txt"
-    >
-      ← Retour à la révision
-    </Link>
   </div>
 
   <div class="grid grid-cols-[1fr_320px] items-start gap-4">

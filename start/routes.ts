@@ -21,6 +21,7 @@ const LeitnerSettingsController = () =>
   import('#modules/leitner/controllers/leitner_settings_controller')
 const LeitnerIngestionController = () =>
   import('#modules/leitner/controllers/leitner_ingestion_controller')
+const LeitnerLlmController = () => import('#modules/leitner/controllers/leitner_llm_controller')
 
 /*
 |--------------------------------------------------------------------------
@@ -103,12 +104,40 @@ router
         // Ingestion d'un cours par un LLM local : le modèle **propose** des cartes,
         // l'utilisateur relit et valide. Rien n'entre en base sans relecture.
         // (Déclaré avant `/:id/review` : « ingest » n'est pas un id de carte.)
+        //
+        // Le POST ne fait qu'amorcer le travail : il crée l'ingestion en `pending`, la
+        // lance en tâche de fond et redirige vers sa page de suivi — **une URL par
+        // travail**, qu'on peut quitter, partager et retrouver à jour.
         router.get('/ingest', [LeitnerIngestionController, 'index'])
         router.post('/ingest', [LeitnerIngestionController, 'store'])
+        // Un fichier (.txt · .md · .pdf) → son texte, pour qu'il se relise AVANT que le
+        // travail n'existe. Cette route n'écrit RIEN : ni ingestion, ni brouillon — c'est
+        // ici l'équivalent du « aucune écriture » des routes de diagnostic LLM. Elle rend
+        // du JSON nu : la page l'appelle en fetch, donc avec l'en-tête `x-xsrf-token`.
+        router.post('/ingest/extract', [LeitnerIngestionController, 'extract'])
         router.put('/ingest/drafts/:id', [LeitnerIngestionController, 'updateDraft'])
         router.post('/ingest/drafts/accept', [LeitnerIngestionController, 'accept'])
         router.post('/ingest/drafts/reject', [LeitnerIngestionController, 'reject'])
-        router.delete('/ingest/:id', [LeitnerIngestionController, 'destroy'])
+        // `where(number)` : sans lui, « drafts » serait un id d'ingestion recevable.
+        router
+          .get('/ingest/:id', [LeitnerIngestionController, 'show'])
+          .where('id', router.matchers.number())
+        router
+          .put('/ingest/:id/title', [LeitnerIngestionController, 'rename'])
+          .where('id', router.matchers.number())
+        router
+          .delete('/ingest/:id', [LeitnerIngestionController, 'destroy'])
+          .where('id', router.matchers.number())
+
+        // Configuration du LLM : détecter le serveur, lister ses modèles, tester une
+        // génération. Ces trois routes n'écrivent RIEN (ni base, ni disque) : elles
+        // rendent le bloc à coller dans `.env`, et l'utilisateur redémarre.
+        // ⚠️ Elles font émettre au serveur des requêtes vers une URL saisie : la liste
+        // blanche des validateurs (loopback + plages privées) est le seul rempart SSRF.
+        router.get('/llm', [LeitnerLlmController, 'index'])
+        router.post('/llm/detect', [LeitnerLlmController, 'detect'])
+        router.post('/llm/models', [LeitnerLlmController, 'models'])
+        router.post('/llm/test', [LeitnerLlmController, 'test'])
 
         router.post('/:id/review', [LeitnerController, 'review'])
       })

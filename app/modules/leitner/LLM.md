@@ -40,11 +40,15 @@ Dans `.env` (documentées dans `.env.example`, défauts dans `config/llm.ts`) :
 | `LLM_API_KEY`    | *(vide)*                    | Optionnelle : un serveur local n'authentifie rien.     |
 | `LLM_TIMEOUT_MS` | `120000`                    | Délai max **par appel** (donc par morceau de cours).   |
 
-⚠️ **Ces valeurs viennent de l'environnement, et n'apparaîtront jamais dans un formulaire.** Un champ
-« URL du serveur » dans l'écran de réglages serait une **SSRF** : le serveur émettrait des requêtes
-HTTP vers l'hôte du choix de celui qui écrit dans ce champ (y compris une IP interne). Un changement
-de serveur LLM se fait dans `.env`, suivi d'un redémarrage — c'est volontairement un geste
-d'administration, pas un geste d'utilisateur.
+⚠️ **Ces valeurs viennent de l'environnement, jamais de la base.** Une URL de serveur enregistrée
+depuis un formulaire serait une **SSRF** : le serveur émettrait, à chaque ingestion, des requêtes
+HTTP vers l'hôte du choix de celui qui a écrit dans ce champ (y compris une IP interne). Un
+changement de serveur LLM se fait dans `.env`, suivi d'un redémarrage — c'est volontairement un
+geste d'administration, pas un geste d'utilisateur.
+
+L'onglet **Configuration** (`/revision/llm`) t'évite de le faire à l'aveugle : il détecte le serveur,
+liste ses modèles, lance une vraie génération, et **fabrique le bloc à coller ici**. Il n'enregistre
+rien — les URL qu'il teste ne survivent pas à la requête, et doivent viser un hôte local ou privé.
 
 ## 3. Choisir le modèle
 
@@ -126,7 +130,13 @@ LLM_MODEL=qwen2.5:7b
 
 ## 5. Vérifier avant de soumettre un cours
 
-Le serveur répond, et le nom du modèle est bon :
+**Le plus simple : l'onglet Configuration** (`/revision/llm`). Il fait exactement ce que font les
+`curl` ci-dessous, dans l'ordre, et il te dit où ça casse : le serveur répond-il ? un modèle est-il
+chargé ? ce modèle rend-il du JSON exploitable ? La dernière question est la seule qui compte
+vraiment, et aucune documentation ne peut y répondre à ta place — un modèle trop petit rend une
+phrase polie là où on attend `{"cards":[…]}`, et ça ne se voit qu'en le faisant générer.
+
+À la main, si tu préfères. Le serveur répond, et le nom du modèle est bon :
 
 ```bash
 curl http://127.0.0.1:1234/v1/models

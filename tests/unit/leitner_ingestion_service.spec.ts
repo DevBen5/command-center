@@ -7,10 +7,12 @@ import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
 import LeitnerIngestionService, {
   chunkCourse,
+  ingestionJobs,
+  keepNewDrafts,
   LlmParseError,
   MAX_CHUNK_CHARS,
-  mergeDrafts,
   parseLlmCards,
+  type DraftInput,
 } from '#modules/leitner/services/leitner_ingestion_service'
 import { LlmUnavailableError, type LlmMessage } from '#modules/leitner/services/llm_client'
 import FakeLlmClient from '#tests/fakes/fake_llm_client'
@@ -28,9 +30,23 @@ const ONE_CARD = JSON.stringify({
 })
 
 /** Le vrai client n'est jamais construit : aucun test ne parle à un modèle. */
-function service(responder: string[] | ((messages: LlmMessage[], call: number) => string)) {
+function service(
+  responder: string[] | ((messages: LlmMessage[], call: number) => string | Promise<string>)
+) {
   const llm = new FakeLlmClient(responder)
   return { llm, service: new LeitnerIngestionService(llm, new LeitnerCatalogService()) }
+}
+
+/**
+ * L'ingestion est **asynchrone** : `start()` rend la main aussitôt, le travail part en
+ * tâche de fond. Un test qui n'attendrait pas ce travail (`ingestionJobs()`) courrait
+ * contre lui — et contre le rollback de sa propre transaction.
+ */
+async function ingest(ingestionService: LeitnerIngestionService, text: string) {
+  const ingestion = await ingestionService.start({ text, source: 'paste' })
+  await ingestionJobs()
+  await ingestion.refresh()
+  return ingestion
 }
 
 /*
@@ -140,9 +156,19 @@ test.group('LeitnerIngestionService / découpage du cours', () => {
   })
 })
 
-test.group('LeitnerIngestionService / fusion entre morceaux', () => {
+/*
+| Les brouillons s'écrivant au fil de l'eau, la déduplication ne fusionne plus des lots
+| en fin de course : chaque lot est confronté à ce qui a **déjà été retenu**.
+*/
+test.group('LeitnerIngestionService / déduplication entre morceaux', () => {
+  /** Rejoue des lots successifs, comme le fait la tâche de fond, morceau par morceau. */
+  function keepAll(batches: DraftInput[][]): DraftInput[] {
+    const seen = new Set<string>()
+    return batches.flatMap((batch) => keepNewDrafts(batch, seen))
+  }
+
   test('un principe énoncé deux fois ne donne pas deux cartes', ({ assert }) => {
-    const merged = mergeDrafts([
+    const kept = keepAll([
       [
         {
           front: 'Rôle du handshake TLS ?',
@@ -163,18 +189,18 @@ test.group('LeitnerIngestionService / fusion entre morceaux', () => {
       [{ front: 'Rôle du DNS ?', back: 'Résoudre les noms.', category: 'Réseau', theme: 'DNS' }],
     ])
 
-    assert.lengthOf(merged, 2)
+    assert.lengthOf(kept, 2)
     // La première formulation gagne : c'est celle du morceau où le principe est posé.
-    assert.equal(merged[0].back, 'Négocier les clés.')
+    assert.equal(kept[0].back, 'Négocier les clés.')
   })
 
   test('le même recto sous deux thèmes reste deux cartes', ({ assert }) => {
-    const merged = mergeDrafts([
+    const kept = keepAll([
       [{ front: 'Rôle du proxy ?', back: 'Relayer.', category: 'Réseau', theme: 'HTTP' }],
       [{ front: 'Rôle du proxy ?', back: 'Relayer.', category: 'DevOps', theme: 'Docker' }],
     ])
 
-    assert.lengthOf(merged, 2)
+    assert.lengthOf(kept, 2)
   })
 })
 
@@ -190,7 +216,7 @@ test.group('LeitnerIngestionService / ingestion', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   test('écrit des brouillons, jamais des cartes', async ({ assert }) => {
-    const ingestion = await service([ONE_CARD]).service.ingest({ text: COURSE, source: 'paste' })
+    const ingestion = await ingest(service([ONE_CARD]).service, COURSE)
 
     assert.equal(ingestion.status, 'done')
     assert.equal(ingestion.cardsProposed, 1)
@@ -201,23 +227,87 @@ test.group('LeitnerIngestionService / ingestion', (group) => {
     assert.lengthOf(await LeitnerCard.all(), 0)
   })
 
-  test('fusionne les cartes entre morceaux', async ({ assert }) => {
+  test('le travail naît en attente, et rend la main avant le modèle', async ({ assert }) => {
+    // Le modèle est retenu : tant qu'il ne répond pas, `start()` doit avoir rendu la
+    // main. Un `await` sur la tâche de fond referait du synchrone — ce test le voit.
+    let release: () => void
+    const held = new Promise<void>((resolve) => (release = resolve))
+
+    const { service: ingestionService } = service(async () => {
+      await held
+      return ONE_CARD
+    })
+
+    const ingestion = await ingestionService.start({ text: COURSE, source: 'paste' })
+
+    assert.include(['pending', 'running'], ingestion.status)
+    assert.equal(ingestion.cardsProposed, 0)
+    assert.lengthOf(await LeitnerDraftCard.all(), 0)
+
+    release!()
+    await ingestionJobs()
+    await ingestion.refresh()
+
+    assert.equal(ingestion.status, 'done')
+    assert.lengthOf(await LeitnerDraftCard.all(), 1)
+  })
+
+  test('déduplique les cartes entre morceaux', async ({ assert }) => {
     // Un cours assez long pour tenir en plusieurs morceaux, et un modèle qui répond
     // la même carte à chaque fois : le principe rappelé en conclusion.
     const long = `${'Le handshake négocie les clés et les algorithmes. '.repeat(400)}`
     const { service: ingestionService, llm } = service([ONE_CARD])
 
-    const ingestion = await ingestionService.ingest({ text: long, source: 'paste' })
+    const ingestion = await ingest(ingestionService, long)
 
     assert.isAbove(llm.calls.length, 1)
     assert.equal(ingestion.cardsProposed, 1)
     assert.lengthOf(await LeitnerDraftCard.all(), 1)
   })
 
+  test('la progression avance morceau par morceau, et les brouillons avec elle', async ({
+    assert,
+  }) => {
+    // Une carte différente par morceau : le compteur doit suivre le travail réel.
+    const long = `${'Le handshake négocie les clés et les algorithmes. '.repeat(400)}`
+    const { service: ingestionService } = service((_messages, call) =>
+      JSON.stringify({ cards: [{ front: `Principe ${call} ?`, back: 'Un verso.' }] })
+    )
+
+    const ingestion = await ingest(ingestionService, long)
+
+    assert.isAbove(ingestion.chunkCount, 1)
+    assert.equal(ingestion.chunksDone, ingestion.chunkCount)
+    assert.equal(ingestion.cardsProposed, ingestion.chunkCount)
+    assert.lengthOf(await LeitnerDraftCard.all(), ingestion.chunkCount)
+  })
+
+  test('un échec en cours de route garde les brouillons déjà écrits, et le dit', async ({
+    assert,
+  }) => {
+    // Rupture assumée avec l'import JSON (tout ou rien) : ici, les brouillons
+    // s'écrivent au fil de l'eau. Ce sont des brouillons, pas des cartes.
+    const long = `${'Le handshake négocie les clés et les algorithmes. '.repeat(400)}`
+    const { service: ingestionService } = service((_messages, call) => {
+      if (call === 0) return ONE_CARD
+      throw new LlmUnavailableError('Le serveur LLM (http://127.0.0.1:1234/v1) est injoignable.')
+    })
+
+    const ingestion = await ingest(ingestionService, long)
+
+    assert.equal(ingestion.status, 'failed')
+    assert.include(ingestion.error!, 'injoignable')
+    // Le premier morceau a produit sa carte : elle reste, et le compteur ne ment pas.
+    assert.equal(ingestion.cardsProposed, 1)
+    assert.lengthOf(await LeitnerDraftCard.all(), 1)
+    // Ce qui n'entre jamais en base sans relecture, ce sont les cartes.
+    assert.lengthOf(await LeitnerCard.all(), 0)
+  })
+
   test('répare une seule fois un JSON illisible', async ({ assert }) => {
     const { service: ingestionService, llm } = service(['pas du JSON du tout', ONE_CARD])
 
-    const ingestion = await ingestionService.ingest({ text: COURSE, source: 'paste' })
+    const ingestion = await ingest(ingestionService, COURSE)
 
     assert.equal(ingestion.status, 'done')
     assert.lengthOf(llm.calls, 2)
@@ -232,7 +322,7 @@ test.group('LeitnerIngestionService / ingestion', (group) => {
   }) => {
     const { service: ingestionService, llm } = service(['toujours pas du JSON'])
 
-    const ingestion = await ingestionService.ingest({ text: COURSE, source: 'paste' })
+    const ingestion = await ingest(ingestionService, COURSE)
 
     assert.equal(ingestion.status, 'failed')
     assert.include(ingestion.error!, 'JSON')
@@ -241,12 +331,12 @@ test.group('LeitnerIngestionService / ingestion', (group) => {
     assert.lengthOf(await LeitnerDraftCard.all(), 0)
   })
 
-  test('un LLM injoignable échoue proprement, sans écriture partielle', async ({ assert }) => {
+  test('un LLM injoignable échoue proprement, jamais en `running`', async ({ assert }) => {
     const { service: ingestionService } = service(() => {
       throw new LlmUnavailableError('Le serveur LLM (http://127.0.0.1:1234/v1) est injoignable.')
     })
 
-    const ingestion = await ingestionService.ingest({ text: COURSE, source: 'paste' })
+    const ingestion = await ingest(ingestionService, COURSE)
 
     assert.equal(ingestion.status, 'failed')
     assert.include(ingestion.error!, 'injoignable')
@@ -260,7 +350,7 @@ test.group('LeitnerIngestionService / promotion des brouillons', (group) => {
 
   async function ingestOne() {
     const { service: ingestionService } = service([ONE_CARD])
-    const ingestion = await ingestionService.ingest({ text: COURSE, source: 'paste' })
+    const ingestion = await ingest(ingestionService, COURSE)
     const drafts = await LeitnerDraftCard.query().where('leitner_ingestion_id', ingestion.id)
     return { ingestionService, drafts }
   }

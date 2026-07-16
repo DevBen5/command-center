@@ -82,3 +82,4 @@ app/modules/  services · agents · veille · leitner  → import via #modules/*
 - **Ne ré-épingle pas `@swc/core` en version exacte.** Le pin `1.11.24` hérité du scaffold
   `create-adonisjs` segfaulte à la terminaison du process de test dès que le graphe de modules
   dépasse un certain volume : `npm test` affiche `PASSED` mais sort en **code 1**. Range `^1.15.43`.
+- Ne t'ajoutes jamais en tant que co-author sur les commit, si tu vois des commit ou tu es co-author, supprimes toi.

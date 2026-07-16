@@ -1,0 +1,11 @@
+# Les PDF de `tests/fixtures/` sont des binaires versionnés, générés une fois.
+#
+# ⚠️ Sans cette ligne, git les prend pour du TEXTE : son heuristique ne regarde que
+# les 8000 premiers octets à la recherche d'un octet NUL, et `cours.pdf`, `scan.pdf`
+# et `epais.pdf` n'en ont aucun. Avec `core.autocrlf=true` (le défaut sous Windows),
+# chaque `\n` redevient alors `\r\n` **au checkout** — un octet de plus par ligne,
+# quand un PDF stocke des offsets d'octets absolus dans sa table `xref`. Le dépôt
+# courant n'y verrait rien : les fichiers sur disque sont les originaux. La casse
+# n'apparaîtrait qu'au clone suivant, sur une autre machine ou en CI, et `unpdf`
+# rendrait un « fichier corrompu » sur des fixtures pourtant valides.
+*.pdf binary

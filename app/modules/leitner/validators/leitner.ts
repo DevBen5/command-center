@@ -160,22 +160,87 @@ export const backupImportValidator = vine.compile(
 | arrêtée par la relecture humaine — parce que rien de ce que sort le modèle n'est
 | jamais exécuté, interprété comme du SQL, ni utilisé comme identifiant.
 |
-| ⚠️ L'URL du serveur LLM, elle, n'est PAS saisissable : elle vient de
-| l'environnement (`start/env.ts` → `config/llm.ts`). Un champ « URL du serveur »
-| dans un formulaire serait une SSRF. Ne l'y remets jamais.
+| ⚠️ L'URL du serveur LLM **utilisée par l'ingestion** n'est PAS saisissable : elle
+| vient de l'environnement (`start/env.ts` → `config/llm.ts`). Ne l'ajoute jamais à
+| ce formulaire. Seules les routes de diagnostic de `/revision/llm` acceptent une URL
+| — transitoire, et sous la liste blanche définie plus bas.
 */
 
 /**
- * Le cours à ingérer : du texte collé **ou** un fichier `.txt` / `.md`. Le contrôleur
- * exige l'un des deux (un formulaire vide n'est pas une erreur de type).
+ * Longueur maximale d'un titre d'ingestion : la largeur de la colonne `title`, et la
+ * borne de tous les chemins qui l'écrivent — la saisie, le renommage, et la déduction
+ * (`deduceTitle`, qui tronque à cette valeur sans couper un mot).
+ */
+export const TITLE_MAX_CHARS = 120
+
+/**
+ * Longueur maximale d'un nom de fichier déclaré : la largeur de la colonne
+ * `source_name` (`varchar(255)`).
+ */
+export const SOURCE_NAME_MAX_CHARS = 255
+
+/**
+ * Le cours à ingérer : **du texte, et rien que du texte**.
  *
- * Le plafond de caractères est appliqué au contenu final — collé ou lu du fichier —
- * dans le contrôleur : c'est la contrepartie de l'exécution synchrone.
+ * ⚠️ Ce validateur n'a plus de champ fichier, et c'est le cœur du lot PDF. Depuis que
+ * le texte extrait se prévisualise, le champ fichier n'est plus une voie de soumission
+ * mais un **chargeur de texte** : il passe par `POST /revision/ingest/extract`, remplit
+ * le `<textarea>`, et c'est le texte relu qui arrive ici. `store()` ne touche donc plus
+ * aucun fichier — il ne reçoit que du texte.
+ *
+ * ⚠️ **`source` et `sourceName` sont par conséquent DÉCLARATIFS** : c'est le client qui
+ * a fait l'extraction, donc c'est lui qui annonce l'origine. Quelqu'un peut coller du
+ * texte en le disant tiré de « cours.pdf ». Le dégât est **cosmétique** — un faux nom de
+ * fichier dans l'historique — et c'est acceptable **à trois conditions, qui sont le prix
+ * de la prévisualisation** :
+ *
+ * 1. ils sont bornés en longueur (ici) ;
+ * 2. ils ne sont **jamais interprétés** — `sourceName` n'est pas un chemin, rien ne le
+ *    rouvre, rien ne le résout ; `source` est une valeur d'une liste fermée ;
+ * 3. ils ne sont que **stockés et affichés** (une pastille à côté du titre, et le nom
+ *    de fichier repris comme candidat au titre déduit).
+ *
+ * Le titre reste **optionnel** : vide, il se déduit du contenu (`deduceTitle`) — et un
+ * nom de fichier est un bien meilleur candidat que « Texte collé ». Le plafond de
+ * caractères du cours est appliqué dans le contrôleur, et déjà à l'extraction.
  */
 export const courseIngestionValidator = vine.compile(
   vine.object({
+    title: vine.string().trim().maxLength(TITLE_MAX_CHARS).optional(),
     text: vine.string().trim().optional(),
-    file: vine.file({ size: '2mb', extnames: ['txt', 'md'] }).optional(),
+    source: vine.enum(['paste', 'file', 'pdf'] as const).optional(),
+    sourceName: vine.string().trim().maxLength(SOURCE_NAME_MAX_CHARS).nullable().optional(),
+  })
+)
+
+/**
+ * Le fichier à convertir en texte : `.txt` · `.md` · `.pdf`.
+ *
+ * ⚠️ **L'extension ne prouve rien** : `extnames` ne regarde que le nom du fichier et un
+ * type MIME que le client déclare. C'est un premier tri, pas une garantie — les octets
+ * magiques (`%PDF-`) sont vérifiés par `LeitnerPdfService`, et un fichier qui ment est
+ * refusé, jamais parsé au hasard.
+ *
+ * ⚠️ La taille est relevée à 15 Mo : les 2 Mo d'avant visaient du `.txt`, un PDF de
+ * cours pèse couramment 5 à 20 Mo. Elle doit rester **sous** le `limit: '20mb'` de
+ * `config/bodyparser.ts`, qui est le plafond dur global — au-dessus, l'erreur viendrait
+ * du parseur (illisible) au lieu du validateur (explicite). Le nombre de **pages** est
+ * borné à part : un PDF léger peut en porter des centaines.
+ */
+export const documentExtractValidator = vine.compile(
+  vine.object({
+    file: vine.file({ size: '15mb', extnames: ['txt', 'md', 'pdf'] }),
+  })
+)
+
+/**
+ * Renommage d'une ingestion, depuis l'historique comme depuis sa page de suivi. Un
+ * titre **vide est refusé** : un travail sans nom, c'est l'historique de « Texte collé »
+ * qu'on vient de quitter.
+ */
+export const ingestionTitleValidator = vine.compile(
+  vine.object({
+    title: vine.string().trim().minLength(1).maxLength(TITLE_MAX_CHARS),
   })
 )
 
@@ -191,9 +256,139 @@ export const draftCardValidator = vine.compile(
   })
 )
 
-/** Validation / rejet en lot des brouillons d'une ingestion. */
+/** Rejet en lot : un brouillon écarté n'a pas de contenu à retenir, juste un id. */
 export const draftIdsValidator = vine.compile(
   vine.object({
     ids: vine.array(vine.number().positive()).minLength(1),
+  })
+)
+
+/**
+ * Validation en lot — et elle **porte le contenu**, pas seulement des ids.
+ *
+ * ⚠️ C'est le cœur du geste : valider, c'est valider **ce qu'on a sous les yeux**. Un
+ * `accept` qui ne recevrait que des ids relirait la ligne en base et créerait la carte
+ * avec le texte du modèle, jetant en silence la correction en cours de saisie — et le
+ * brouillon passerait quand même `accepted`, sans plus rien à rattraper.
+ */
+export const draftPromotionValidator = vine.compile(
+  vine.object({
+    drafts: vine
+      .array(
+        vine.object({
+          id: vine.number().positive(),
+          front: vine.string().trim().minLength(1),
+          back: vine.string().trim().minLength(1),
+          category: taxonomyName().nullable().optional(),
+          theme: taxonomyName().nullable().optional(),
+        })
+      )
+      .minLength(1),
+  })
+)
+
+/*
+|------------------------------------------------------------------------------
+| Diagnostic du serveur LLM (/revision/llm)
+|------------------------------------------------------------------------------
+| L'écran de configuration fait émettre au serveur des requêtes vers une URL
+| **saisie par l'utilisateur** — c'est inévitable : il faut tester la valeur AVANT
+| de la coller dans `.env`. Transitoire ou non, c'est une SSRF si on ne la borde pas.
+|
+| ⚠️ La liste blanche ci-dessous est le seul rempart, et elle s'applique à TOUTES
+| les routes de diagnostic. Elle ne change rien à la frontière de confiance : ces
+| routes n'écrivent rien, et la valeur qu'utilise réellement le serveur continue de
+| venir de l'environnement (`config/llm.ts`), pas d'une requête HTTP.
+*/
+
+/**
+ * Hôte **loopback** (`127.0.0.0/8`, `::1`, `localhost`) ou **plage privée**
+ * (`10/8`, `172.16/12`, `192.168/16`). Tout le reste est refusé — en particulier
+ * `169.254.169.254` (métadonnées cloud) et **tout nom de domaine**, fût-il résolu
+ * vers une IP privée : seule une IP littérale (ou `localhost`) est acceptée.
+ *
+ * L'hôte est celui qu'a normalisé le parseur d'URL (`http://0x7f000001` devient
+ * `127.0.0.1`, `http://[::1]` devient `[::1]`) : la comparaison porte sur la forme
+ * canonique, jamais sur ce qui a été tapé. Un LLM « local » vit par définition dans
+ * ces plages : la contrainte ne coûte rien à l'usage.
+ */
+function isLocalHostname(hostname: string): boolean {
+  const host = hostname.toLowerCase()
+  if (host === 'localhost' || host === '[::1]') return true
+
+  const octets = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+  if (!octets) return false
+
+  const [a, b] = octets.slice(1, 3).map(Number)
+
+  if (a === 127) return true // 127.0.0.0/8
+  if (a === 10) return true // 10.0.0.0/8
+  if (a === 172 && b >= 16 && b <= 31) return true // 172.16.0.0/12
+  if (a === 192 && b === 168) return true // 192.168.0.0/16
+
+  return false
+}
+
+/** `http`/`https` sur un hôte local ou privé, sans identifiants dans l'URL. */
+export function isLocalLlmUrl(value: string): boolean {
+  let url: URL
+  try {
+    url = new URL(value.trim())
+  } catch {
+    return false
+  }
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
+  // `http://127.0.0.1@evil.example` : l'hôte n'est pas ce qu'on croit lire.
+  if (url.username !== '' || url.password !== '') return false
+
+  return isLocalHostname(url.hostname)
+}
+
+const localLlmUrl = vine.createRule((value: unknown, _options: undefined, field: FieldContext) => {
+  if (typeof value !== 'string') return
+  if (!isLocalLlmUrl(value)) {
+    field.report(
+      'Le champ {{ field }} doit être une URL http(s) vers un hôte local ou privé ' +
+        '(127.0.0.1, localhost, 10/8, 172.16/12, 192.168/16).',
+      'localLlmUrl',
+      field
+    )
+  }
+})
+
+const llmBaseUrl = () => vine.string().trim().maxLength(255).use(localLlmUrl())
+
+/** Le nom du modèle est du texte : il n'est ni exécuté, ni interprété — juste renvoyé au serveur. */
+const llmModel = () => vine.string().trim().minLength(1).maxLength(200)
+
+/**
+ * Détection : la liste des candidats sondés est **en dur dans le contrôleur**, jamais
+ * fournie par le client — sinon la « détection » devient un scanner de ports téléguidé.
+ * Seule une URL saisie à la main s'ajoute, et elle passe par la liste blanche.
+ */
+export const llmDetectValidator = vine.compile(
+  vine.object({
+    baseUrl: llmBaseUrl().optional(),
+  })
+)
+
+/** Liste des modèles exposés par un serveur candidat. */
+export const llmModelsValidator = vine.compile(
+  vine.object({
+    baseUrl: llmBaseUrl(),
+  })
+)
+
+/**
+ * Génération de contrôle. Les deux champs sont optionnels : sans eux, c'est la
+ * configuration **chargée** (celle de l'environnement) qui est testée — c'est le
+ * bandeau d'état, et elle ne passe par aucune liste blanche puisqu'elle ne vient
+ * d'aucune requête.
+ */
+export const llmTestValidator = vine.compile(
+  vine.object({
+    baseUrl: llmBaseUrl().optional(),
+    model: llmModel().optional(),
   })
 )

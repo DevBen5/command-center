@@ -54,6 +54,13 @@ export default defineConfig({
     () => import('@adonisjs/auth/auth_provider'),
     () => import('@adonisjs/inertia/inertia_provider'),
     () => import('@adonisjs/i18n/i18n_provider'),
+    // L'ingestion Leitner tourne en tâche de fond dans le processus : un redémarrage
+    // laisse des travaux coincés en `running`. Ce provider les balaie au boot.
+    // `web` seulement : ni `node ace`, ni les tests, n'ont de tâche de fond à récupérer.
+    {
+      file: () => import('#providers/leitner_provider'),
+      environment: ['web'],
+    },
   ],
 
   /*

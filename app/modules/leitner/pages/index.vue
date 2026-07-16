@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
+import LeitnerTabs from '../components/LeitnerTabs.vue'
 
 defineOptions({ layout: AppLayout })
 
@@ -87,6 +88,8 @@ function grade(g: Grade): void {
 <template>
   <Head title="Révision" />
 
+  <LeitnerTabs />
+
   <div class="mb-4 flex items-center gap-3">
     <div>
       <div class="text-[18px] font-bold">
@@ -115,12 +118,6 @@ function grade(g: Grade): void {
         <div class="font-mono text-[20px] font-bold">{{ stats.totalCards }}</div>
         <div class="text-[10.5px] text-txt-3">total cartes</div>
       </div>
-      <Link
-        href="/revision/settings"
-        class="flex items-center rounded-[12px] border border-line-2 bg-panel px-4 text-[12.5px] text-txt-2 transition hover:border-accent hover:text-txt"
-      >
-        Gérer les cartes
-      </Link>
     </div>
   </div>
 

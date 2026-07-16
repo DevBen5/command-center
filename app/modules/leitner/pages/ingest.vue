@@ -1,25 +1,19 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
+import IngestionTitle from '../components/IngestionTitle.vue'
+import LeitnerTabs from '../components/LeitnerTabs.vue'
 
 defineOptions({ layout: AppLayout })
 
-interface ThemeNode {
-  id: number
-  name: string
-}
-
-interface CategoryNode {
-  id: number
-  name: string
-  themes: ThemeNode[]
-}
+type Source = 'paste' | 'file' | 'pdf'
 
 interface Ingestion {
   id: number
+  title: string | null
   status: 'pending' | 'running' | 'done' | 'failed'
-  source: 'paste' | 'file'
+  source: Source
   sourceName: string | null
   charCount: number
   chunkCount: number
@@ -27,24 +21,14 @@ interface Ingestion {
   cardsProposed: number
   error: string | null
   createdAt: string
-}
-
-interface Draft {
-  id: number
-  front: string
-  back: string
-  category: string | null
-  theme: string | null
-  status: 'pending' | 'accepted' | 'rejected'
+  /** Ce que les brouillons sont devenus : à relire · devenus cartes · écartés. */
+  drafts: { pending: number; accepted: number; rejected: number }
 }
 
 const props = defineProps<{
   ingestions: Ingestion[]
-  current: Ingestion | null
-  drafts: Draft[]
-  categories: CategoryNode[]
   maxChars: number
-  promotionReport: { cardsCreated: number; cardsSkipped: number } | null
+  titleMaxChars: number
   ingestErrors: string[] | null
 }>()
 
@@ -55,152 +39,289 @@ const STATUS_LABELS: Record<Ingestion['status'], string> = {
   failed: 'Échec',
 }
 
-/*
-| Soumission du cours — texte collé ou fichier .txt / .md.
-|
-| L'URL du serveur LLM n'est PAS un champ de ce formulaire, et ne le sera jamais :
-| elle vient de l'environnement (config/llm.ts). Un champ « URL du serveur » ferait
-| émettre au serveur des requêtes vers l'hôte du choix de qui remplit le formulaire.
-*/
-const text = ref('')
-const file = ref<File | null>(null)
-const fileInput = ref<HTMLInputElement | null>(null)
-const submitting = ref(false)
-
-function pickFile(event: Event): void {
-  file.value = (event.target as HTMLInputElement).files?.[0] ?? null
+const STATUS_CLASSES: Record<Ingestion['status'], string> = {
+  pending: 'text-txt-2',
+  running: 'text-accent',
+  done: 'text-ok',
+  failed: 'text-bad',
 }
 
-// Le compteur ne vaut que pour le texte collé : la taille d'un fichier est vérifiée
-// côté serveur, après lecture (c'est son contenu qui compte, pas son poids sur disque).
-const overCap = computed(() => text.value.length > props.maxChars)
-const canSubmit = computed(
-  () => !submitting.value && !overCap.value && (file.value !== null || text.value.trim().length > 0)
+/** D'où sort le texte. Déclaratif depuis la prévisualisation : affiché, jamais interprété. */
+const SOURCE_LABELS: Record<Source, string> = {
+  paste: 'Collé',
+  file: 'Fichier',
+  pdf: 'PDF',
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('fr-FR', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+/*
+|------------------------------------------------------------------------------
+| L'historique se met à jour tout seul
+|------------------------------------------------------------------------------
+| Un travail tourne en tâche de fond : sans ça, sa ligne resterait figée jusqu'à ce
+| qu'on change d'onglet et revienne. Même mécanique que la page de suivi — un
+| rechargement partiel d'Inertia (`only: ['ingestions']`), sans route JSON.
+|
+| Et les deux mêmes pièges : on n'interroge QUE tant qu'un job est `pending`/`running`
+| (sinon rien ne bougera plus, la boucle s'arrête), et l'intervalle est nettoyé au
+| démontage — un setInterval qui survit à une navigation Inertia émet dans le vide.
+*/
+const POLL_INTERVAL_MS = 1_500
+
+const hasActive = computed(() =>
+  props.ingestions.some(
+    (ingestion) => ingestion.status === 'pending' || ingestion.status === 'running'
+  )
 )
 
-// Synchrone : la requête attend le LLM, morceau par morceau. Ça peut durer.
+let timer: ReturnType<typeof setInterval> | null = null
+const polling = ref(false)
+
+function stopPolling(): void {
+  if (timer === null) return
+  clearInterval(timer)
+  timer = null
+}
+
+function startPolling(): void {
+  if (timer !== null) return
+
+  timer = setInterval(() => {
+    // Une requête à la fois : un serveur lent ne doit pas se faire empiler des recharges.
+    if (polling.value) return
+    polling.value = true
+
+    router.reload({
+      only: ['ingestions'],
+      onFinish: () => (polling.value = false),
+    })
+  }, POLL_INTERVAL_MS)
+}
+
+watch(hasActive, (active) => (active ? startPolling() : stopPolling()), { immediate: true })
+onUnmounted(stopPolling)
+
+/*
+| Soumission du cours — du texte, et rien que du texte.
+|
+| Le formulaire ne se « vide » plus après coup : le POST lance le travail en tâche de
+| fond et redirige vers sa page de suivi (/revision/ingest/:id). On a changé de page,
+| et cette page-ci reste vierge.
+|
+| L'URL du serveur LLM n'est PAS un champ de ce formulaire, et ne le sera jamais :
+| elle vient de l'environnement (config/llm.ts). Pour la régler, l'onglet
+| « Configuration » (/revision/llm) la teste et rend le bloc à coller dans .env.
+*/
+const title = ref('')
+const text = ref('')
+const submitting = ref(false)
+
+/*
+|------------------------------------------------------------------------------
+| Le champ fichier n'est plus une soumission : c'est un chargeur de texte
+|------------------------------------------------------------------------------
+| Prévisualiser veut dire que le texte existe AVANT le travail. Choisir un fichier
+| (.txt · .md · .pdf) appelle donc /revision/ingest/extract, qui rend son texte et
+| remplit le <textarea> — c'est ce texte-là, relu et corrigé, que le POST envoie.
+|
+| Le texte reste MODIFIABLE : couper la page de garde, la bibliographie ou les
+| remerciements est l'usage normal, pas un contournement. Et sur un PDF à deux
+| colonnes, l'extraction rend du charabia entrelacé : c'est une limite connue, et
+| c'est exactement pour ça que cet écran existe — on le voit, on corrige, ou on renonce.
+|
+| ⚠️ `source` / `sourceName` partent donc du client (c'est lui qui a extrait) : ils
+| sont DÉCLARATIFS. Le serveur les borne, les stocke et les affiche — jamais plus.
+*/
+const source = ref<Source>('paste')
+const sourceName = ref<string | null>(null)
+const extracting = ref(false)
+const extractError = ref<string | null>(null)
+const fileInput = ref<HTMLInputElement | null>(null)
+
+/**
+ * Shield exige le jeton CSRF (`enableXsrfCookie`) : sans l'en-tête `x-xsrf-token`, repris
+ * du cookie, le POST est rejeté — par une **redirection**, pas par un 403 (le gestionnaire
+ * d'exceptions traite `E_BAD_CSRF_TOKEN` par un flash + `redirect().back()`, même sur un
+ * `accept: application/json`). Le `fetch` la suivrait et lirait de l'HTML : d'où un message
+ * d'échec vague au lieu du vrai. Le jeton n'est donc pas optionnel.
+ */
+function xsrfToken(): string {
+  const cookie = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/)
+  return cookie ? decodeURIComponent(cookie[1]) : ''
+}
+
+async function pickFile(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const chosen = input.files?.[0]
+  if (!chosen) return
+
+  extracting.value = true
+  extractError.value = null
+
+  const body = new FormData()
+  body.append('file', chosen)
+
+  try {
+    const response = await fetch('/revision/ingest/extract', {
+      method: 'POST',
+      // `accept` : sans lui, un refus du validateur devient une redirection Inertia
+      // avec erreurs flashées, au lieu d'un 422 lisible ici.
+      headers: { 'accept': 'application/json', 'x-xsrf-token': xsrfToken() },
+      body,
+    })
+
+    const payload = (await response.json().catch(() => null)) as {
+      ok?: boolean
+      text?: string
+      source?: Source
+      sourceName?: string
+      error?: string | null
+      errors?: { message: string }[]
+    } | null
+
+    if (!response.ok) {
+      // 422 : le validateur a refusé le fichier (type, taille).
+      throw new Error(payload?.errors?.[0]?.message ?? `Le serveur a répondu ${response.status}.`)
+    }
+
+    // L'échec d'extraction n'est pas une panne : c'est une réponse, et son message brut
+    // est l'information utile (« scan », « protégé par mot de passe », « illisible »).
+    if (!payload?.ok) throw new Error(payload?.error ?? "L'extraction a échoué.")
+
+    text.value = payload.text ?? ''
+    source.value = payload.source ?? 'file'
+    sourceName.value = payload.sourceName ?? chosen.name
+  } catch (error) {
+    extractError.value = error instanceof Error ? error.message : String(error)
+    // Le formulaire reste utilisable : on peut coller du texte à la place.
+    input.value = ''
+  } finally {
+    extracting.value = false
+  }
+}
+
+/** Repartir de zéro : le texte chargé s'oublie, et son origine avec lui. */
+function clearFile(): void {
+  text.value = ''
+  extractError.value = null
+  if (fileInput.value) fileInput.value.value = ''
+}
+
+// Un texte vidé n'a plus d'origine : annoncer « cours.pdf » sur ce qui sera collé à la
+// main serait un faux nom dans l'historique, cosmétique mais gratuit.
+watch(text, (value) => {
+  if (value !== '') return
+  source.value = 'paste'
+  sourceName.value = null
+})
+
+const overCap = computed(() => text.value.length > props.maxChars)
+const canSubmit = computed(
+  () => !submitting.value && !extracting.value && !overCap.value && text.value.trim().length > 0
+)
+
+/**
+ * Toute la ligne d'historique mène à son travail, pas seulement son titre — un lien
+ * large de 3 mots dans une carte de 300 pixels ne se clique pas.
+ *
+ * Deux exceptions : le titre est **déjà** un `<Link>` (le laisser faire, sinon la
+ * navigation partirait deux fois), et les contrôles de renommage (`data-no-nav`)
+ * doivent pouvoir être cliqués sans quitter la page.
+ */
+function openIngestion(event: MouseEvent, id: number): void {
+  if ((event.target as HTMLElement).closest('a, [data-no-nav]')) return
+  router.get(`/revision/ingest/${id}`)
+}
+
 function submitCourse(): void {
   if (!canSubmit.value) return
 
   submitting.value = true
   router.post(
     '/revision/ingest',
-    { text: text.value, file: file.value },
+    {
+      title: title.value.trim() || null,
+      text: text.value,
+      source: source.value,
+      sourceName: sourceName.value,
+    },
     {
       onFinish: () => {
         submitting.value = false
       },
-      onSuccess: () => {
-        text.value = ''
-        file.value = null
-        if (fileInput.value) fileInput.value.value = ''
-      },
     }
   )
-}
-
-/*
-| Relecture des brouillons — le cœur du ticket : le LLM propose, l'humain valide.
-*/
-
-/** Copie locale éditable : le brouillon corrigé remplace ce que le modèle a proposé. */
-const edited = reactive(
-  Object.fromEntries(
-    props.drafts.map((draft) => [
-      draft.id,
-      {
-        front: draft.front,
-        back: draft.back,
-        category: draft.category ?? '',
-        theme: draft.theme ?? '',
-      },
-    ])
-  )
-)
-
-const pendingDrafts = computed(() => props.drafts.filter((draft) => draft.status === 'pending'))
-const reviewedDrafts = computed(() => props.drafts.filter((draft) => draft.status !== 'pending'))
-
-const selected = ref<number[]>([])
-const allSelected = computed(
-  () => pendingDrafts.value.length > 0 && selected.value.length === pendingDrafts.value.length
-)
-
-function toggleAll(): void {
-  selected.value = allSelected.value ? [] : pendingDrafts.value.map((draft) => draft.id)
-}
-
-/** Le thème seul n'a pas de sens : il appartient toujours à une catégorie. */
-function halfClassified(id: number): boolean {
-  const draft = edited[id]
-  return Boolean(draft.category.trim()) !== Boolean(draft.theme.trim())
-}
-
-function saveDraft(id: number): void {
-  const draft = edited[id]
-  router.put(
-    `/revision/ingest/drafts/${id}`,
-    {
-      front: draft.front,
-      back: draft.back,
-      category: draft.category.trim() || null,
-      theme: draft.theme.trim() || null,
-    },
-    { preserveScroll: true }
-  )
-}
-
-/** Valider = créer les cartes (boîte 1, dues aujourd'hui) via le catalogue. */
-function accept(ids: number[]): void {
-  if (ids.length === 0) return
-  router.post('/revision/ingest/drafts/accept', { ids }, { preserveScroll: true })
-  selected.value = []
-}
-
-function reject(ids: number[]): void {
-  if (ids.length === 0) return
-  router.post('/revision/ingest/drafts/reject', { ids }, { preserveScroll: true })
-  selected.value = []
-}
-
-function destroyIngestion(id: number): void {
-  if (!confirm('Supprimer cette ingestion et ses brouillons ? Les cartes validées restent.')) return
-  router.delete(`/revision/ingest/${id}`)
 }
 </script>
 
 <template>
   <Head title="Ingestion d'un cours" />
 
-  <div class="mb-4 flex items-center gap-3">
-    <div>
-      <div class="text-[18px] font-bold">Ingestion d'un cours</div>
-      <div class="text-[12.5px] text-txt-2">
-        Un LLM local en extrait les grands principes. Il <b>propose</b> des cartes : rien n'entre en
-        base sans ta relecture.
-      </div>
+  <LeitnerTabs />
+
+  <div class="mb-4">
+    <div class="text-[18px] font-bold">Ingestion d'un cours</div>
+    <div class="text-[12.5px] text-txt-2">
+      Un LLM local en extrait les grands principes. Il <b>propose</b> des cartes : rien n'entre en
+      base sans ta relecture.
     </div>
-    <Link
-      href="/revision/settings"
-      class="ml-auto rounded-[10px] border border-line-2 bg-panel px-3.5 py-2 text-[12.5px] text-txt-2 transition hover:border-accent hover:text-txt"
-    >
-      ← Gestion des cartes
-    </Link>
   </div>
 
-  <div class="grid grid-cols-[1fr_320px] items-start gap-4">
+  <div class="grid grid-cols-[1fr_360px] items-start gap-4">
     <div class="flex flex-col gap-4">
       <!-- Soumission -->
       <form
         class="flex flex-col gap-2 rounded-[14px] border border-line bg-panel p-4"
         @submit.prevent="submitCourse"
       >
-        <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase">Le cours</label>
+        <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase" for="ingest-title">
+          Titre (optionnel)
+        </label>
+        <input
+          id="ingest-title"
+          v-model="title"
+          :maxlength="titleMaxChars"
+          placeholder="Vide, il sera déduit du cours (son premier titre, sa première ligne…)"
+          class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] outline-none focus:border-accent"
+        />
+
+        <div class="mt-2 flex items-center gap-2">
+          <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase" for="ingest-text">
+            Le cours
+          </label>
+          <!-- D'où vient le texte à l'écran : une pastille, pas un titre. -->
+          <span
+            v-if="sourceName"
+            class="rounded-md border border-line px-1.5 py-0.5 text-[11px] text-txt-2"
+          >
+            {{ sourceName }}
+          </span>
+          <button
+            v-if="sourceName"
+            type="button"
+            class="text-[11px] text-txt-3 transition hover:text-accent"
+            @click="clearFile"
+          >
+            Effacer
+          </button>
+        </div>
         <textarea
+          id="ingest-text"
           v-model="text"
           rows="10"
-          placeholder="Colle ici le texte du cours…"
-          class="resize-y rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] outline-none focus:border-accent"
+          :disabled="extracting"
+          :placeholder="
+            extracting ? 'Extraction du texte…' : 'Colle ici le texte du cours, ou charge un fichier…'
+          "
+          class="resize-y rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] outline-none focus:border-accent disabled:opacity-60"
         />
 
         <div class="flex items-center gap-3">
@@ -211,19 +332,31 @@ function destroyIngestion(id: number): void {
             {{ text.length.toLocaleString('fr-FR') }} /
             {{ maxChars.toLocaleString('fr-FR') }} caractères
           </span>
-          <span class="ml-auto text-[11.5px] text-txt-3">ou un fichier .txt / .md</span>
+          <span class="ml-auto text-[11.5px] text-txt-3">
+            {{ extracting ? 'Lecture du fichier…' : 'ou un fichier .txt / .md / .pdf' }}
+          </span>
           <input
             ref="fileInput"
             type="file"
-            accept=".txt,.md,text/plain,text/markdown"
-            class="max-w-[220px] text-[11.5px] text-txt-2 file:mr-2 file:rounded-md file:border file:border-line-2 file:bg-panel-2 file:px-2 file:py-1 file:text-[11.5px] file:text-txt-2"
+            accept=".txt,.md,.pdf,text/plain,text/markdown,application/pdf"
+            :disabled="extracting"
+            class="max-w-[220px] text-[11.5px] text-txt-2 file:mr-2 file:rounded-md file:border file:border-line-2 file:bg-panel-2 file:px-2 file:py-1 file:text-[11.5px] file:text-txt-2 disabled:opacity-50"
             @change="pickFile"
           />
         </div>
 
+        <!-- L'échec de l'extraction, brut, là où l'utilisateur regarde. Le formulaire
+             reste utilisable : on peut coller le texte à la place. -->
+        <p v-if="extractError" class="text-[11.5px] text-bad">{{ extractError }}</p>
+
         <p v-if="overCap" class="text-[11.5px] text-bad">
-          Le plafond est celui de l'exécution synchrone : la requête attend le modèle, morceau par
-          morceau. Découpe le cours, ou soumets-le en plusieurs fois.
+          Au-delà, ce n'est plus un cours : découpe-le, ou soumets-le en plusieurs fois.
+        </p>
+
+        <p v-else-if="source === 'pdf'" class="text-[11.5px] text-txt-3">
+          Texte extrait d'un PDF : relis-le. Coupe la page de garde et la bibliographie —
+          et sur un document à deux colonnes, l'extraction les entrelace : ce charabia-là ne
+          se rattrape pas, mieux vaut renoncer.
         </p>
 
         <button
@@ -231,8 +364,13 @@ function destroyIngestion(id: number): void {
           class="mt-1 self-start rounded-[10px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white transition hover:opacity-90 disabled:opacity-50"
           :disabled="!canSubmit"
         >
-          {{ submitting ? 'Analyse en cours… (le modèle travaille)' : 'Analyser le cours' }}
+          {{ submitting ? 'Lancement…' : 'Analyser le cours' }}
         </button>
+
+        <p class="text-[11.5px] text-txt-3">
+          L'analyse tourne en tâche de fond : tu es redirigé vers sa page de suivi, que tu peux
+          quitter et retrouver à tout moment.
+        </p>
       </form>
 
       <!-- Retours de la dernière action -->
@@ -244,209 +382,68 @@ function destroyIngestion(id: number): void {
           {{ error }}
         </li>
       </ul>
-
-      <div
-        v-if="promotionReport"
-        class="rounded-[14px] border border-ok bg-panel p-4 text-[11.5px] text-txt-2"
-      >
-        <span class="font-semibold text-ok">
-          {{ promotionReport.cardsCreated }} carte(s) créée(s)
-        </span>
-        — boîte 1, dues aujourd'hui.
-        <span v-if="promotionReport.cardsSkipped" class="text-warn">
-          {{ promotionReport.cardsSkipped }} ignorée(s) : ce recto existait déjà sous ce thème.
-        </span>
-      </div>
-
-      <!-- Ingestion courante -->
-      <div v-if="current" class="rounded-[14px] border border-line bg-panel p-4">
-        <div class="flex items-center gap-2">
-          <span
-            class="rounded-md px-2 py-0.5 text-[11px] font-semibold"
-            :class="{
-              'bg-panel-2 text-txt-2': current.status === 'pending' || current.status === 'running',
-              'bg-panel-2 text-ok': current.status === 'done',
-              'bg-panel-2 text-bad': current.status === 'failed',
-            }"
-          >
-            {{ STATUS_LABELS[current.status] }}
-          </span>
-          <span class="text-[12.5px] text-txt-2">
-            {{ current.sourceName ?? 'Texte collé' }} ·
-            {{ current.charCount.toLocaleString('fr-FR') }} caractères · {{ current.chunksDone }}/{{
-              current.chunkCount
-            }}
-            morceau(x) · {{ current.cardsProposed }} carte(s) proposée(s)
-          </span>
-          <button
-            type="button"
-            class="ml-auto text-[11.5px] text-txt-3 transition hover:text-bad"
-            @click="destroyIngestion(current.id)"
-          >
-            Supprimer
-          </button>
-        </div>
-
-        <p v-if="current.error" class="mt-2 text-[11.5px] text-bad">{{ current.error }}</p>
-      </div>
-
-      <!-- Brouillons à relire -->
-      <div v-if="pendingDrafts.length" class="rounded-[14px] border border-line bg-panel">
-        <div class="flex items-center gap-3 border-b border-line px-4 py-3">
-          <label class="flex items-center gap-2 text-[12.5px] text-txt-2">
-            <input type="checkbox" :checked="allSelected" @change="toggleAll" />
-            {{ selected.length }} / {{ pendingDrafts.length }} sélectionnée(s)
-          </label>
-          <button
-            type="button"
-            class="ml-auto rounded-md border border-accent bg-accent px-2.5 py-1.5 text-[12px] text-white transition hover:opacity-90 disabled:opacity-40"
-            :disabled="!selected.length"
-            @click="accept(selected)"
-          >
-            Valider la sélection
-          </button>
-          <button
-            type="button"
-            class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-1.5 text-[12px] text-txt-2 transition hover:border-bad hover:text-bad disabled:opacity-40"
-            :disabled="!selected.length"
-            @click="reject(selected)"
-          >
-            Rejeter
-          </button>
-        </div>
-
-        <div
-          v-for="draft in pendingDrafts"
-          :key="draft.id"
-          class="flex gap-3 border-b border-line px-4 py-3 last:border-b-0"
-        >
-          <input v-model="selected" type="checkbox" :value="draft.id" class="mt-1" />
-
-          <div class="flex flex-1 flex-col gap-2">
-            <textarea
-              v-model="edited[draft.id].front"
-              rows="2"
-              class="resize-y rounded-md border border-line-2 bg-panel-2 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-accent"
-            />
-            <textarea
-              v-model="edited[draft.id].back"
-              rows="2"
-              class="resize-y rounded-md border border-line-2 bg-panel-2 px-2.5 py-1.5 text-[12.5px] text-txt-2 outline-none focus:border-accent"
-            />
-
-            <div class="flex items-center gap-2">
-              <input
-                v-model="edited[draft.id].category"
-                list="ingest-categories"
-                placeholder="Catégorie"
-                class="w-[150px] rounded-md border border-line-2 bg-panel-2 px-2 py-1 text-[11.5px] outline-none focus:border-accent"
-              />
-              <input
-                v-model="edited[draft.id].theme"
-                list="ingest-themes"
-                placeholder="Thème"
-                class="w-[150px] rounded-md border border-line-2 bg-panel-2 px-2 py-1 text-[11.5px] outline-none focus:border-accent"
-              />
-              <span v-if="halfClassified(draft.id)" class="text-[11px] text-warn">
-                Catégorie et thème vont ensemble.
-              </span>
-
-              <button
-                type="button"
-                class="ml-auto rounded-md border border-line-2 bg-panel-2 px-2 py-1 text-[11.5px] text-txt-2 transition hover:border-accent hover:text-txt"
-                @click="saveDraft(draft.id)"
-              >
-                Enregistrer
-              </button>
-              <button
-                type="button"
-                class="rounded-md border border-accent bg-accent px-2 py-1 text-[11.5px] text-white transition hover:opacity-90"
-                @click="accept([draft.id])"
-              >
-                Valider
-              </button>
-              <button
-                type="button"
-                class="rounded-md border border-line-2 bg-panel-2 px-2 py-1 text-[11.5px] text-txt-3 transition hover:border-bad hover:text-bad"
-                @click="reject([draft.id])"
-              >
-                Rejeter
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div
-        v-else-if="current && current.status === 'done'"
-        class="rounded-[14px] border border-line bg-panel p-4 text-[12.5px] text-txt-3"
-      >
-        Aucun brouillon en attente sur cette ingestion.
-      </div>
-
-      <!-- Brouillons déjà relus : la trace de ce que le modèle a proposé. -->
-      <div v-if="reviewedDrafts.length" class="rounded-[14px] border border-line bg-panel p-4">
-        <div class="mb-2 text-[11px] tracking-[.1em] text-txt-3 uppercase">Déjà relus</div>
-        <div
-          v-for="draft in reviewedDrafts"
-          :key="draft.id"
-          class="flex items-center gap-2 py-1 text-[11.5px]"
-        >
-          <span :class="draft.status === 'accepted' ? 'text-ok' : 'text-txt-3'">
-            {{ draft.status === 'accepted' ? '✓' : '✕' }}
-          </span>
-          <span class="truncate text-txt-2">{{ draft.front }}</span>
-        </div>
-      </div>
     </div>
 
-    <!-- Dernières ingestions -->
+    <!-- Historique : un travail, un titre, une page. -->
     <div class="rounded-[14px] border border-line bg-panel p-4">
-      <div class="mb-2 text-[11px] tracking-[.1em] text-txt-3 uppercase">Dernières ingestions</div>
+      <div class="mb-2 text-[11px] tracking-[.1em] text-txt-3 uppercase">Historique</div>
 
       <p v-if="!ingestions.length" class="text-[11.5px] text-txt-3">
-        Aucune pour l'instant. Colle un cours pour commencer.
+        Aucune ingestion pour l'instant. Colle un cours pour commencer.
       </p>
 
-      <Link
+      <div
         v-for="ingestion in ingestions"
         :key="ingestion.id"
-        :href="`/revision/ingest?id=${ingestion.id}`"
-        class="mt-1 block rounded-md border px-2.5 py-2 transition hover:border-accent"
-        :class="
-          current?.id === ingestion.id ? 'border-accent bg-panel-2' : 'border-line bg-panel-2'
-        "
+        class="mt-1 cursor-pointer rounded-md border border-line bg-panel-2 px-2.5 py-2 transition hover:border-accent"
+        @click="openIngestion($event, ingestion.id)"
       >
-        <div class="flex items-center gap-2">
-          <span
-            class="text-[11px] font-semibold"
-            :class="{
-              'text-ok': ingestion.status === 'done',
-              'text-bad': ingestion.status === 'failed',
-              'text-txt-2': ingestion.status === 'pending' || ingestion.status === 'running',
-            }"
-          >
+        <IngestionTitle
+          :id="ingestion.id"
+          :title="ingestion.title"
+          :max-chars="titleMaxChars"
+          :href="`/revision/ingest/${ingestion.id}`"
+          text-class="text-[12.5px] font-medium"
+        />
+
+        <div class="mt-1 flex items-center gap-2 text-[11px]">
+          <span :class="STATUS_CLASSES[ingestion.status]" class="font-semibold">
             {{ STATUS_LABELS[ingestion.status] }}
           </span>
-          <span class="truncate text-[11.5px] text-txt-2">
-            {{ ingestion.sourceName ?? 'Texte collé' }}
+          <!-- L'origine est une pastille à côté du titre, jamais un titre. -->
+          <span
+            class="rounded-md border border-line px-1.5 py-0.5 text-txt-3"
+            :title="ingestion.sourceName ?? undefined"
+          >
+            {{ SOURCE_LABELS[ingestion.source] }}
           </span>
-          <span class="ml-auto text-[11px] text-txt-3">{{ ingestion.cardsProposed }} carte(s)</span>
+          <span class="text-txt-3">{{ ingestion.cardsProposed }} proposée(s)</span>
+          <span class="ml-auto text-txt-3">{{ formatDate(ingestion.createdAt) }}</span>
         </div>
+
+        <!-- Le sort des brouillons : ce qui reste à relire, ce qui est devenu carte,
+             ce qui a été écarté. Un travail « terminé » dont tout a été rejeté et un
+             travail dont tout attend encore ne se ressemblent pas. -->
+        <div v-if="ingestion.cardsProposed" class="mt-1 flex items-center gap-3 text-[11px]">
+          <span v-if="ingestion.drafts.pending" class="text-warn">
+            {{ ingestion.drafts.pending }} à relire
+          </span>
+          <span v-if="ingestion.drafts.accepted" class="text-ok">
+            ✓ {{ ingestion.drafts.accepted }} validée(s)
+          </span>
+          <span v-if="ingestion.drafts.rejected" class="text-txt-3">
+            ✕ {{ ingestion.drafts.rejected }} rejetée(s)
+          </span>
+        </div>
+      </div>
+
+      <Link
+        v-if="ingestions.length"
+        href="/revision/settings"
+        class="mt-3 block text-[11.5px] text-txt-3 transition hover:text-accent"
+      >
+        Voir les cartes validées →
       </Link>
     </div>
   </div>
-
-  <!-- Taxonomie existante : on propose ce qui existe, sans l'imposer (le modèle peut
-       inventer un thème, il sera créé à la volée à la validation). -->
-  <datalist id="ingest-categories">
-    <option v-for="category in categories" :key="category.id" :value="category.name" />
-  </datalist>
-  <datalist id="ingest-themes">
-    <option
-      v-for="theme in categories.flatMap((category) => category.themes)"
-      :key="theme.id"
-      :value="theme.name"
-    />
-  </datalist>
 </template>

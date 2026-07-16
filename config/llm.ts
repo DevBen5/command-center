@@ -4,10 +4,15 @@ import env from '#start/env'
  * Serveur LLM local, **compatible OpenAI** (`POST {baseUrl}/chat/completions`) :
  * LM Studio, llama.cpp `--server`, vLLM… Le code ne dépend que de ce contrat.
  *
- * ⚠️ **Frontière de confiance.** Ces valeurs viennent de l'environnement, jamais
- * d'un formulaire. Une URL de base éditable depuis l'UI serait une SSRF : le serveur
- * émettrait des requêtes vers l'hôte du choix de celui qui écrit dans le champ.
- * C'est le même raisonnement que `agent.config.command` dans le module `agents`.
+ * ⚠️ **Frontière de confiance.** Ces valeurs viennent de l'environnement, jamais d'un
+ * formulaire et **jamais de la base** : la valeur qu'utilise réellement le serveur ne
+ * peut être changée par aucune requête HTTP. Une URL de base éditable en base ou en
+ * session serait une SSRF permanente. C'est le même raisonnement que
+ * `agent.config.command` dans le module `agents`.
+ *
+ * L'écran `/revision/llm` **teste** des URL candidates avant qu'on ne les colle ici :
+ * transitoire, en mémoire, et sous liste blanche (loopback et plages privées). Il ne
+ * persiste rien — voir `leitner_llm_controller.ts`.
  */
 export interface LlmConfig {
   baseUrl: string

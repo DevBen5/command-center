@@ -41,9 +41,10 @@ export default await Env.create(new URL('../', import.meta.url), {
   | Serveur LLM local (compatible OpenAI) — ingestion Leitner
   |----------------------------------------------------------
   |
-  | ⚠️ L'URL du serveur LLM vient **de l'environnement, jamais d'un formulaire**.
-  | Exposer une URL de base dans un écran de réglages en ferait une SSRF : le
-  | serveur émettrait des requêtes vers l'hôte du choix de qui écrit dans ce champ.
+  | ⚠️ La configuration du LLM vient **de l'environnement, jamais de la base** : c'est
+  | ce qui garantit qu'aucune requête HTTP ne peut changer l'hôte que le serveur
+  | appelle. `/revision/llm` aide à fabriquer ce bloc (détection, test), sous liste
+  | blanche et sans rien persister — il ne remplace pas ces variables.
   | Les valeurs par défaut vivent dans `config/llm.ts`.
   */
   LLM_BASE_URL: Env.schema.string.optional(),
