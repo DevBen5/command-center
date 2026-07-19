@@ -23,6 +23,13 @@ export default class FakeLlmClient extends LlmClient {
   /** Les cibles de chaque génération : `undefined` = la configuration chargée. */
   readonly targets: (LlmTarget | undefined)[] = []
 
+  /**
+   * Les options de chaque génération, dans l'ordre. C'est ce qui rend `temperature`
+   * assertable : le juge veut `0`, l'ingestion garde `0.2` — sans cette trace, un
+   * changement du défaut de `LlmClient` passerait les tests en silence.
+   */
+  readonly options: { json?: boolean; temperature?: number; timeoutMs?: number }[] = []
+
   /** Les URL sondées : de quoi vérifier que la liste des candidats reste celle du code. */
   readonly pinged: string[] = []
 
@@ -44,11 +51,21 @@ export default class FakeLlmClient extends LlmClient {
 
   async complete(
     messages: LlmMessage[],
-    options: { json?: boolean; target?: LlmTarget } = {}
+    options: {
+      json?: boolean
+      target?: LlmTarget
+      temperature?: number
+      timeoutMs?: number
+    } = {}
   ): Promise<string> {
     const call = this.calls.length
     this.calls.push(messages)
     this.targets.push(options.target)
+    this.options.push({
+      json: options.json,
+      temperature: options.temperature,
+      timeoutMs: options.timeoutMs,
+    })
 
     if (typeof this.responder === 'function') return this.responder(messages, call)
     return this.responder[Math.min(call, this.responder.length - 1)]

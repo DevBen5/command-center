@@ -27,6 +27,17 @@ export interface LlmTarget {
  */
 export const PROBE_TIMEOUT_MS = 2_000
 
+/**
+ * Température de l'**ingestion** : une synthèse, pas une improvisation — on veut la
+ * même sortie sur le même cours.
+ *
+ * ⚠️ C'est le défaut de `complete()`, et il ne change pas. Un **juge**, lui, veut `0`
+ * (voir `LeitnerJudgeService`) : il le demande explicitement, appel par appel. Ne fais
+ * pas l'inverse — abaisser ce défaut « puisque le juge le veut » modifierait en
+ * silence le comportement de l'ingestion, qui est le seul autre appelant.
+ */
+export const DEFAULT_TEMPERATURE = 0.2
+
 /** Sans slash final : le client concatène `/chat/completions` ou `/models`. */
 export function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, '')
@@ -65,17 +76,31 @@ export default class LlmClient {
    * `target` teste une URL candidate : la génération de contrôle de `/revision/llm`
    * est **la vraie génération de l'ingestion**, sur une autre cible. Sans elle, elle
    * ne prouverait rien.
+   *
+   * `temperature` et `timeoutMs` sont des **exceptions demandées appel par appel**, et
+   * leurs défauts (`DEFAULT_TEMPERATURE`, `LLM_TIMEOUT_MS`) restent ceux de l'ingestion.
+   * Le juge de révision les surcharge tous les deux : il veut `0` (une note, pas une
+   * synthèse) et un délai court (l'utilisateur a la carte sous les yeux, il attend).
    */
   async complete(
     messages: LlmMessage[],
-    options: { json?: boolean; target?: LlmTarget } = {}
+    options: {
+      json?: boolean
+      target?: LlmTarget
+      temperature?: number
+      timeoutMs?: number
+    } = {}
   ): Promise<string> {
     const config = this.resolve(options.target)
+    const tuning = {
+      temperature: options.temperature ?? DEFAULT_TEMPERATURE,
+      timeoutMs: options.timeoutMs ?? config.timeoutMs,
+    }
 
-    let response = await this.post(config, messages, options.json ?? false)
+    let response = await this.post(config, messages, options.json ?? false, tuning)
 
     if (!response.ok && options.json && response.status === 400) {
-      response = await this.post(config, messages, false)
+      response = await this.post(config, messages, false, tuning)
     }
 
     if (!response.ok) {
@@ -162,7 +187,12 @@ export default class LlmClient {
   }
 
   /** Un échec réseau (serveur éteint) et un dépassement de délai sont la même erreur ici. */
-  private async post(config: LlmConfig, messages: LlmMessage[], json: boolean): Promise<Response> {
+  private async post(
+    config: LlmConfig,
+    messages: LlmMessage[],
+    json: boolean,
+    tuning: { temperature: number; timeoutMs: number }
+  ): Promise<Response> {
     try {
       return await fetch(`${config.baseUrl}/chat/completions`, {
         method: 'POST',
@@ -173,16 +203,15 @@ export default class LlmClient {
         body: JSON.stringify({
           model: config.model,
           messages,
-          // Une synthèse, pas une improvisation : on veut la même sortie sur le même cours.
-          temperature: 0.2,
+          temperature: tuning.temperature,
           ...(json ? { response_format: { type: 'json_object' } } : {}),
         }),
-        signal: AbortSignal.timeout(config.timeoutMs),
+        signal: AbortSignal.timeout(tuning.timeoutMs),
       })
     } catch {
       throw new LlmUnavailableError(
         `Le serveur LLM (${config.baseUrl}) est injoignable ou n'a pas répondu ` +
-          `en moins de ${Math.round(config.timeoutMs / 1000)} s.`
+          `en moins de ${Math.round(tuning.timeoutMs / 1000)} s.`
       )
     }
   }
