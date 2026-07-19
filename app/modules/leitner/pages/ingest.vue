@@ -4,6 +4,7 @@ import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import IngestionTitle from '../components/IngestionTitle.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
+import { xsrfToken } from '../components/leitner_csrf'
 
 defineOptions({ layout: AppLayout })
 
@@ -145,18 +146,6 @@ const sourceName = ref<string | null>(null)
 const extracting = ref(false)
 const extractError = ref<string | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
-
-/**
- * Shield exige le jeton CSRF (`enableXsrfCookie`) : sans l'en-tête `x-xsrf-token`, repris
- * du cookie, le POST est rejeté — par une **redirection**, pas par un 403 (le gestionnaire
- * d'exceptions traite `E_BAD_CSRF_TOKEN` par un flash + `redirect().back()`, même sur un
- * `accept: application/json`). Le `fetch` la suivrait et lirait de l'HTML : d'où un message
- * d'échec vague au lieu du vrai. Le jeton n'est donc pas optionnel.
- */
-function xsrfToken(): string {
-  const cookie = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/)
-  return cookie ? decodeURIComponent(cookie[1]) : ''
-}
 
 async function pickFile(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement

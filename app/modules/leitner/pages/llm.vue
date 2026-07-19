@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { Head } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
+import { xsrfToken } from '../components/leitner_csrf'
 
 defineOptions({ layout: AppLayout })
 
@@ -34,16 +35,9 @@ const props = defineProps<{
 
 /*
 | Les trois routes de diagnostic rendent du JSON nu (pas de réponse Inertia) : elles
-| n'écrivent rien et ne changent aucune page. On les appelle donc en `fetch`.
-|
-| ⚠️ Shield exige le jeton CSRF (`enableXsrfCookie`) : sans l'en-tête `x-xsrf-token`,
-| repris du cookie, tout POST part en 403 — et le message ne dit pas pourquoi.
+| n'écrivent rien et ne changent aucune page. On les appelle donc en `fetch` — donc
+| avec le jeton CSRF à la main (`leitner_csrf.ts`), qu'Inertia poserait seul.
 */
-function xsrfToken(): string {
-  const cookie = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]*)/)
-  return cookie ? decodeURIComponent(cookie[1]) : ''
-}
-
 async function post<T>(url: string, body: Record<string, unknown>): Promise<T> {
   const response = await fetch(url, {
     method: 'POST',
