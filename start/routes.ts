@@ -139,6 +139,11 @@ router
         router.post('/llm/models', [LeitnerLlmController, 'models'])
         router.post('/llm/test', [LeitnerLlmController, 'test'])
 
+        // La réponse écrite → un verdict, AVANT le dévoilement du verso. JSON nu (la
+        // page l'appelle en fetch, donc avec `x-xsrf-token`), et elle n'écrit RIEN :
+        // l'historisation se fait à la note. Un juge éteint rend 200 + `verdict: null`,
+        // jamais une erreur — la révision ne tombe pas parce que LM Studio est éteint.
+        router.post('/:id/judge', [LeitnerController, 'judge'])
         router.post('/:id/review', [LeitnerController, 'review'])
       })
       .prefix('/revision')

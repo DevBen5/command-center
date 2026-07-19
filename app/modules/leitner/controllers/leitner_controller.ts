@@ -1,12 +1,18 @@
+import { inject } from '@adonisjs/core'
 import { DateTime } from 'luxon'
 import type { HttpContext } from '@adonisjs/core/http'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
+import LeitnerJudgeService from '#modules/leitner/services/leitner_judge_service'
 import LeitnerService, {
   type ScopeInput,
   type ScopeRefusal,
 } from '#modules/leitner/services/leitner_service'
-import { reviewScopeValidator, reviewValidator } from '#modules/leitner/validators/leitner'
+import {
+  judgeValidator,
+  reviewScopeValidator,
+  reviewValidator,
+} from '#modules/leitner/validators/leitner'
 
 /**
  * Refus d'une portée. Ils atterrissent en flash sur l'écran de choix : le cas réel
@@ -24,7 +30,15 @@ const SCOPE_ERRORS: Record<ScopeRefusal | 'malformed', string> = {
   'unknown-category': "Cette catégorie n'existe plus.",
 }
 
+/**
+ * ⚠️ `LeitnerJudgeService` est **injecté** (il porte lui-même un `LlmClient` injecté) :
+ * c'est ce qui permet aux tests fonctionnels de tourner contre un faux client, sans
+ * réseau. Ne l'instancie pas en dur.
+ */
+@inject()
 export default class LeitnerController {
+  constructor(private judgeService: LeitnerJudgeService) {}
+
   /**
    * `/revision` a deux visages, et c'est la query string qui tranche :
    *
@@ -157,9 +171,37 @@ export default class LeitnerController {
    * portée ».
    */
   async review({ params, request, response }: HttpContext) {
-    const { grade } = await request.validateUsing(reviewValidator)
+    const { grade, answer, verdict, latencyMs } = await request.validateUsing(reviewValidator)
     const card = await LeitnerCard.findOrFail(params.id)
-    await new LeitnerService().review(card, grade)
+    // La note vient de l'utilisateur, le reste est de la trace. `grade` est passé tel
+    // quel : ce n'est pas parce qu'un verdict l'accompagne qu'il le corrige.
+    await new LeitnerService().review(card, grade, { answer, verdict, latencyMs })
     return response.redirect().withQs().back()
+  }
+
+  /**
+   * La réponse écrite → un verdict, **avant** le dévoilement du verso.
+   *
+   * ⚠️ **Cette route n'écrit RIEN.** L'historisation se fait à la note, pas ici : tant
+   * que l'utilisateur n'a pas cliqué un bouton, il n'y a pas de révision. C'est aussi ce
+   * qui rend un double-clic sans conséquence en base.
+   *
+   * Elle rend du **JSON nu**, pas de l'Inertia — comme les routes de `/revision/llm` et
+   * d'extraction PDF, et pour la même raison : la page l'appelle en `fetch` pendant que
+   * le verso s'affiche. Donc en-tête **`x-xsrf-token`** obligatoire côté client (Shield),
+   * sans quoi tout POST part en 403.
+   *
+   * ⚠️ **Aucune erreur n'en sort.** Un juge éteint, trop lent ou incompréhensible rend
+   * `verdict: null` + `unavailable: true` en **200** : la révision est le cœur du module,
+   * elle ne tombe pas parce que LM Studio est éteint. Un 500 ici casserait le
+   * dévoilement — exactement ce que l'attendu « repli obligatoire » interdit.
+   */
+  async judge({ params, request, response }: HttpContext) {
+    const { answer } = await request.validateUsing(judgeValidator)
+    // La carte se relit en base : un `front`/`back` venus du client laisseraient juger
+    // une carte qui n'existe pas, et feraient de cette route un proxy vers le LLM local.
+    const card = await LeitnerCard.findOrFail(params.id)
+
+    return response.json(await this.judgeService.judge(card, answer))
   }
 }

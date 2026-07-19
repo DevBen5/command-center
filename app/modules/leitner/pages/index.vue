@@ -4,10 +4,13 @@ import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import LeitnerScopePicker from '../components/LeitnerScopePicker.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
+import { xsrfToken } from '../components/leitner_csrf'
 
 defineOptions({ layout: AppLayout })
 
 type Grade = 'again' | 'hard' | 'good' | 'easy'
+/** Ce que le juge peut dire. Il **propose** une note, il ne la choisit jamais. */
+type Verdict = 'juste' | 'partiel' | 'faux'
 
 interface LeitnerCard {
   id: number
@@ -75,6 +78,135 @@ function dueLabel(box: number): string {
 const currentCard = computed(() => props.dueCards?.[0] ?? null)
 const revealed = ref(false)
 
+/*
+|----------------------------------------------------------------------------
+| La réponse écrite : on répond AVANT de voir, et le juge propose une note
+|----------------------------------------------------------------------------
+| Écrire sa réponse avant le dévoilement supprime la triche de l'auto-évaluation.
+| Le dévoilement **vaut soumission** : on ne peut pas lire le verso puis écrire.
+|
+| ⚠️ Le verdict ne fait que **présélectionner** un bouton. Les quatre restent
+| cliquables, et c'est structurel : la note dit l'effort de rappel, que le juge
+| ne connaît pas — et c'est cette confirmation qui rend une injection de prompt
+| dans la réponse sans effet. Ne la retire pas « pour fluidifier ».
+*/
+
+const answer = ref('')
+/** Le juge tourne : le champ ET le bouton sont verrouillés (sinon deux appels). */
+const judging = ref(false)
+const verdict = ref<Verdict | null>(null)
+/** Ce qui manquait — **la valeur pédagogique réelle**, à côté du verso. */
+const missing = ref('')
+/** Le juge n'a pas pu répondre : un badge discret, jamais un blocage. */
+const judgeUnavailable = ref(false)
+const suggestedGrade = ref<Grade | null>(null)
+const latencyMs = ref<number | null>(null)
+
+/**
+ * ⚠️ **Tout l'état de la carte en cours se remet à zéro à CHAQUE réponse du serveur.**
+ * Deux raisons, et la seconde est un piège :
+ *
+ * 1. La réponse écrite pour la carte 1 ne doit jamais être historisée sur la note de
+ *    la carte 2 — ce serait une donnée fausse, sans erreur ni log.
+ * 2. ⚠️ **Surveiller `currentCard.id` ne suffit PAS**, et c'est contre-intuitif :
+ *    `again` laisse la carte due le jour même et la remet dans la file (voir la règle
+ *    métier). Sur une file d'**une seule carte** — le cas normal en fin de session,
+ *    justement sur celle qu'on vient de rater — la carte qui revient porte le **même
+ *    id**, le `watch` ne se déclenche pas, et le verso resterait affiché avec la
+ *    réponse et le verdict de la tentative précédente. On ne pourrait plus réviser
+ *    honnêtement la carte : exactement la triche que ce lot existe pour supprimer.
+ *
+ * D'où la source : la **référence** de `dueCards`, qu'Inertia renouvelle à chaque
+ * réponse. Une note remet donc l'écran à zéro, que la carte change ou non.
+ * N'ajoute jamais un `ref` de jugement sans l'ajouter ici aussi.
+ */
+watch(
+  () => props.dueCards,
+  () => {
+    revealed.value = false
+    answer.value = ''
+    judging.value = false
+    verdict.value = null
+    missing.value = ''
+    judgeUnavailable.value = false
+    suggestedGrade.value = null
+    latencyMs.value = null
+  }
+)
+
+/**
+ * Dévoiler : le verso s'affiche **tout de suite**, le juge travaille derrière.
+ *
+ * ⚠️ On n'attend pas le verdict pour montrer le verso, et c'est délibéré : le juge a
+ * beau être borné à `JUDGE_TIMEOUT_MS`, faire fixer un écran d'attente à quelqu'un qui
+ * a la carte sous les yeux, c'est la révision qui tombe parce que le LLM est lent. La
+ * présélection arrive quand elle arrive ; si l'utilisateur note avant, il n'en avait
+ * pas besoin.
+ */
+async function reveal(): Promise<void> {
+  if (judging.value) return
+  revealed.value = true
+
+  const card = currentCard.value
+  const submitted = answer.value.trim()
+  // Rien d'écrit : aucun appel, aucune présélection — l'auto-évaluation nue.
+  if (!card || submitted === '') return
+
+  judging.value = true
+  try {
+    const response = await fetch(`/revision/${card.id}/judge`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'accept': 'application/json',
+        // Shield : sans cet en-tête, le POST part en 403 (et pas `x-csrf-token`).
+        'x-xsrf-token': xsrfToken(),
+      },
+      body: JSON.stringify({ answer: submitted }),
+    })
+    if (!response.ok) throw new Error(String(response.status))
+
+    const judgment = (await response.json()) as {
+      verdict: Verdict | null
+      missing: string
+      latencyMs: number | null
+      suggestedGrade: Grade | null
+      unavailable: boolean
+    }
+
+    // La carte a pu changer pendant l'appel (note rapide, retour arrière) : appliquer
+    // un verdict à la carte suivante serait pire que de le perdre.
+    if (currentCard.value?.id !== card.id) return
+
+    verdict.value = judgment.verdict
+    missing.value = judgment.missing
+    latencyMs.value = judgment.latencyMs
+    suggestedGrade.value = judgment.suggestedGrade
+    judgeUnavailable.value = judgment.unavailable
+  } catch {
+    // Le repli, jusqu'au bout : une révision ne tombe pas parce que le juge est muet.
+    if (currentCard.value?.id === card.id) judgeUnavailable.value = true
+  } finally {
+    if (currentCard.value?.id === card.id) judging.value = false
+  }
+}
+
+const VERDICT_LABELS: Record<Verdict, string> = {
+  juste: 'Juste',
+  partiel: 'Partiellement juste',
+  faux: 'Faux',
+}
+
+/**
+ * Le bouton mis en avant : celui que le juge propose, **sinon `easy`**.
+ *
+ * ⚠️ Ce repli sur `easy` n'est pas un choix esthétique : c'est le bouton que cet écran
+ * mettait en avant avant l'arrivée du juge. Sans lui, une panne de LM Studio changerait
+ * l'apparence de la révision — or elle doit retomber *exactement* sur l'auto-évaluation
+ * d'avant. Le mot « suggéré », lui, ne s'affiche que si un juge l'a vraiment dit.
+ */
+const highlightedGrade = computed<Grade>(() => suggestedGrade.value ?? 'easy')
+
 // Chaque bouton annonce la boîte atteinte et l'échéance : quatre notes, quatre effets.
 const gradeActions = computed(() => {
   const card = currentCard.value
@@ -102,16 +234,25 @@ const gradeActions = computed(() => {
   ]
 })
 
-watch(
-  () => currentCard.value?.id,
-  () => {
-    revealed.value = false
-  }
-)
-
+/**
+ * La note — **celle de l'utilisateur, toujours**. Le verdict l'accompagne comme trace,
+ * il ne la corrige pas : noter « Facile » sur une réponse jugée fausse enregistre bien
+ * `easy`, et la carte monte de deux boîtes.
+ */
 function grade(g: Grade): void {
   if (!currentCard.value) return
-  router.post(`/revision/${currentCard.value.id}/review`, { grade: g }, { preserveScroll: true })
+  router.post(
+    `/revision/${currentCard.value.id}/review`,
+    {
+      grade: g,
+      // La réponse écrite est conservée même quand le juge n'a rien pu dire :
+      // `verdict: null` se relit comme « jamais jugé », pas comme « jugé faux ».
+      answer: answer.value.trim() || null,
+      verdict: verdict.value,
+      latencyMs: latencyMs.value,
+    },
+    { preserveScroll: true }
+  )
 }
 </script>
 
@@ -225,11 +366,24 @@ function grade(g: Grade): void {
       </div>
       <div class="max-w-[420px] text-[19px] font-semibold">{{ currentCard.front }}</div>
 
+      <!-- On répond AVANT de voir : le dévoilement vaut soumission. Le champ se
+           verrouille dès qu'on a révélé — on ne peut pas lire puis écrire. -->
+      <div class="w-3/5">
+        <textarea
+          v-model="answer"
+          :disabled="revealed"
+          rows="3"
+          placeholder="Votre réponse — écrivez-la avant de révéler le verso"
+          class="w-full resize-y rounded-[10px] border border-line-2 bg-bg-2 p-3 text-[13px] text-txt placeholder:text-txt-3 focus:border-accent focus:outline-none disabled:opacity-60"
+          @keydown.ctrl.enter.prevent="reveal()"
+        ></textarea>
+      </div>
+
       <button
         v-if="!revealed"
         type="button"
-        class="w-3/5 rounded-[10px] border border-dashed border-line-2 bg-accent-soft py-3.5 text-[11.5px] text-txt-2"
-        @click="revealed = true"
+        class="w-3/5 rounded-[10px] border border-dashed border-line-2 bg-accent-soft py-3.5 text-[11.5px] text-txt-2 transition hover:border-accent"
+        @click="reveal()"
       >
         verso masqué — cliquer pour révéler
       </button>
@@ -237,23 +391,60 @@ function grade(g: Grade): void {
         {{ currentCard.back }}
       </div>
 
+      <!-- Le verdict et, surtout, CE QUI MANQUAIT : c'est là qu'est la valeur
+           pédagogique du lot, pas dans l'étiquette « juste / partiel / faux ». -->
+      <div v-if="revealed && (judging || verdict || judgeUnavailable)" class="w-3/5 text-left">
+        <div v-if="judging" class="text-[11.5px] text-txt-3">Évaluation en cours…</div>
+
+        <div v-else-if="verdict" class="flex flex-col gap-1.5">
+          <span
+            class="self-start rounded-full border px-2.5 py-1 text-[11px] font-semibold"
+            :class="
+              verdict === 'juste'
+                ? 'border-ok text-ok'
+                : verdict === 'partiel'
+                  ? 'border-warn text-warn'
+                  : 'border-bad text-bad'
+            "
+          >
+            {{ VERDICT_LABELS[verdict] }}
+          </span>
+          <p v-if="missing" class="text-[12px] text-txt-2">{{ missing }}</p>
+        </div>
+
+        <!-- Repli : discret, non bloquant. Sans ce mot, l'absence de présélection
+             se lirait comme un bug — alors que la révision fonctionne, à l'identique
+             de ce qu'elle était avant le juge. -->
+        <div v-else class="text-[11.5px] text-txt-3">
+          Juge indisponible — évaluez vous-même.
+        </div>
+      </div>
+
       <div v-if="revealed" class="flex flex-wrap justify-center gap-2">
+        <!-- ⚠️ La présélection n'est qu'un SURLIGNAGE : les quatre boutons restent
+             cliquables, et cliquer ailleurs applique bien l'autre note. Le juge sait
+             si c'est juste, pas si ça a coûté — c'est ça que la note dit. -->
         <button
           v-for="action in gradeActions"
           :key="action.grade"
           type="button"
           class="min-w-[140px] rounded-[9px] border px-3.5 py-2 transition"
           :class="
-            action.grade === 'easy'
+            action.grade === highlightedGrade
               ? 'border-accent bg-accent text-white hover:opacity-90'
               : 'border-line-2 bg-panel-2 hover:border-accent'
           "
           @click="grade(action.grade)"
         >
-          <span class="block text-[12.5px] font-semibold">{{ action.label }}</span>
+          <span class="block text-[12.5px] font-semibold">
+            {{ action.label }}
+            <span v-if="action.grade === suggestedGrade" class="text-[10px] opacity-75">
+              · suggéré
+            </span>
+          </span>
           <span
             class="mt-0.5 block text-[10.5px]"
-            :class="action.grade === 'easy' ? 'text-white opacity-75' : 'text-txt-3'"
+            :class="action.grade === highlightedGrade ? 'text-white opacity-75' : 'text-txt-3'"
           >
             {{ action.hint }}
           </span>

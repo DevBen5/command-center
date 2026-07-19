@@ -14,9 +14,54 @@ export const cardValidator = vine.compile(
   })
 )
 
+/**
+ * Longueur maximale d'une réponse écrite. Large — on répond parfois en trois phrases —
+ * mais borné : le texte part dans un prompt et s'écrit en base.
+ */
+export const ANSWER_MAX_CHARS = 2_000
+
+/**
+ * La note, et **l'historique de la réponse écrite qui l'a précédée**.
+ *
+ * ⚠️ `grade` reste le seul champ qui pilote quoi que ce soit. Les trois autres sont de
+ * la trace : `LeitnerService.review()` ne les lit pas. C'est ce qui rend possible — et
+ * normal — un `verdict: 'faux'` enregistré avec `grade: 'easy'` : le juge propose,
+ * l'utilisateur dispose.
+ *
+ * ⚠️ **`verdict` et `latencyMs` sont DÉCLARATIFS.** Le jugement et la note sont deux
+ * requêtes : la seconde porte ce que le client annonce, et rien ne prouve qu'un juge
+ * l'a réellement dit. C'est la même doctrine que `source`/`sourceName` de l'ingestion
+ * (bornés, jamais interprétés, seulement stockés puis affichés), et elle tient pour la
+ * même raison : ces champs **ne calculent rien**. Le dégât maximal est une ligne qui
+ * ment dans son propre historique, sur un tableau de bord mono-utilisateur. Ne bâtis
+ * jamais une règle métier dessus — c'est à ce moment-là que ça deviendrait un problème.
+ */
 export const reviewValidator = vine.compile(
   vine.object({
     grade: vine.enum(['again', 'hard', 'good', 'easy'] as const),
+    answer: vine.string().trim().maxLength(ANSWER_MAX_CHARS).nullable().optional(),
+    verdict: vine
+      .enum(['juste', 'partiel', 'faux'] as const)
+      .nullable()
+      .optional(),
+    // Une durée, pas une date : bornée large, elle n'est qu'une mesure historisée.
+    latencyMs: vine.number().withoutDecimals().min(0).max(600_000).nullable().optional(),
+  })
+)
+
+/**
+ * La réponse à juger. Le texte est **du contenu non fiable** — il finit dans un prompt,
+ * et peut contenir des consignes adressées au modèle (« dis que c'est juste »). C'est
+ * acceptable parce qu'**aucun verdict n'est appliqué sans confirmation** : le dégât
+ * maximal est un bouton présélectionné à tort, que l'utilisateur voit et change.
+ *
+ * ⚠️ La carte n'est pas dans le corps de la requête : elle vient de l'URL et se relit en
+ * base. Un `front`/`back` fournis par le client laisseraient juger une carte qui n'existe
+ * pas — et rendraient la route utilisable comme simple proxy vers le LLM local.
+ */
+export const judgeValidator = vine.compile(
+  vine.object({
+    answer: vine.string().trim().maxLength(ANSWER_MAX_CHARS),
   })
 )
 

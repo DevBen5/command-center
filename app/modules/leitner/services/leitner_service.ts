@@ -13,6 +13,18 @@ import { ALL_CARDS, applyScope, type CardScope } from '#modules/leitner/services
 export const DEFAULT_BOX_INTERVAL_DAYS: Record<number, number> = { 1: 1, 2: 2, 3: 4, 4: 7, 5: 30 }
 
 export type Grade = 'again' | 'hard' | 'good' | 'easy'
+
+/**
+ * Ce qu'un juge peut dire d'une réponse écrite — à ne jamais confondre avec `Grade`.
+ *
+ * Les deux vivent ici parce qu'ils cohabitent sur une même ligne de `leitner_reviews`,
+ * mais ils ne mesurent pas la même chose : `Grade` note l'**effort de rappel** (et pilote
+ * les boîtes), `Verdict` note la **justesse** (et ne pilote rien — il présélectionne un
+ * bouton). C'est cette séparation qui fait tenir tout le module : voir
+ * `LeitnerJudgeService`, qui porte le mapping de l'un vers l'autre.
+ */
+export type Verdict = 'juste' | 'partiel' | 'faux'
+
 export type BoxIntervals = Record<number, number>
 
 /** La portée telle qu'elle arrive de la query string, une fois validée. */
@@ -262,8 +274,26 @@ export default class LeitnerService {
    *
    * Hors `again`, `next_review` = aujourd'hui + l'intervalle de la boîte atteinte.
    * La boîte est plafonnée à 5.
+   *
+   * ⚠️ **`answer`/`verdict`/`latencyMs` sont de l'HISTORIQUE, pas des entrées de la
+   * règle.** Aucune ligne de cette méthode ne les lit : la note reste le seul moteur du
+   * module. Un `verdict: 'faux'` avec `grade: 'easy'` s'enregistre tel quel — c'est même
+   * le cas que le ticket demande de garantir. Si un jour ce couple pilotait la boîte,
+   * `again` cesserait de vouloir dire « remets-la moi » et la règle métier serait à
+   * rouvrir, pas à contourner ici.
    */
-  async review(card: LeitnerCard, grade: Grade): Promise<LeitnerCard> {
+  async review(
+    card: LeitnerCard,
+    grade: Grade,
+    // Le type porte la garantie, pas seulement le validateur de la route : ce service
+    // est public et directement testable. Un `string` ici, « corrigé » par un `as` à
+    // l'écriture, laisserait un appelant interne écrire n'importe quel verdict en base.
+    judgment: {
+      answer?: string | null
+      verdict?: Verdict | null
+      latencyMs?: number | null
+    } = {}
+  ): Promise<LeitnerCard> {
     const intervals = await this.boxIntervals()
 
     card.box = await this.nextBox(card, grade)
@@ -274,6 +304,12 @@ export default class LeitnerService {
     await LeitnerReview.create({
       leitnerCardId: card.id,
       grade,
+      // Une réponse vide n'est pas une réponse : `null`, comme les révisions d'avant ce
+      // lot. `verdict` reste `null` quand aucun juge n'a tranché — « jamais jugé » et
+      // « jugé faux » ne doivent pas se confondre en base.
+      answer: judgment.answer?.trim() || null,
+      verdict: judgment.verdict ?? null,
+      latencyMs: judgment.latencyMs ?? null,
       reviewedAt: DateTime.now(),
     })
 
