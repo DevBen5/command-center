@@ -1,13 +1,14 @@
 # Module Leitner — répétition espacée
 
 Route `/revision` (⚠️ **pas** `/leitner`) · pages Inertia `modules/leitner/index`,
-`modules/leitner/settings`, `modules/leitner/ingest`, `modules/leitner/ingest_show`,
-`modules/leitner/llm` · tables `leitner_cards`, `leitner_reviews`, `leitner_categories`,
-`leitner_themes`, `leitner_settings`, `leitner_ingestions`, `leitner_draft_cards`.
+`modules/leitner/settings`, `modules/leitner/stats`, `modules/leitner/ingest`,
+`modules/leitner/ingest_show`, `modules/leitner/llm` · tables `leitner_cards`,
+`leitner_reviews`, `leitner_categories`, `leitner_themes`, `leitner_settings`,
+`leitner_ingestions`, `leitner_draft_cards`.
 
-Quatre écrans, une barre d'onglets (`components/LeitnerTabs.vue`) : **Révision** (`/revision`) ·
-**Cartes** (`/revision/settings`) · **Ingestion** (`/revision/ingest`) · **Configuration**
-(`/revision/llm`).
+Cinq écrans, une barre d'onglets (`components/LeitnerTabs.vue`) : **Révision** (`/revision`) ·
+**Cartes** (`/revision/settings`) · **Stats** (`/revision/stats`) · **Ingestion**
+(`/revision/ingest`) · **Configuration** (`/revision/llm`).
 
 ⚠️ **`components/` n'est pas `pages/`.** La résolution Inertia fait un glob sur les `.vue` de tout
 dossier `pages/` (`inertia/app/app.ts`) : un composant partagé posé là deviendrait une page. Les
@@ -24,6 +25,8 @@ controllers/leitner_ingestion_controller.ts ingestion d'un cours par un LLM loca
                                            brouillons, relecture, promotion
 controllers/leitner_llm_controller.ts      configuration du LLM : détection, /models, génération de
                                            contrôle — n'écrit RIEN (ni base, ni disque)
+controllers/leitner_stats_controller.ts    l'écran d'EFFORT : un seul rendu, aucune logique —
+                                           tout est dans le service
 services/leitner_service.ts                règle métier (boîtes, intervalles, stats) ← source de vérité
                                            + la FILE de révision : dueCards(scope), resolveScope,
                                            dueScopeChoices
@@ -32,6 +35,11 @@ services/leitner_judge_service.ts          le JUGE de la réponse écrite : cour
                                            la choisit jamais
 services/leitner_scope.ts                  la PORTÉE : le type `CardScope` et `applyScope` — l'unique
                                            copie de la sous-requête catégorie → thèmes
+services/leitner_sessions.ts               l'INFÉRENCE de session depuis `reviewed_at` +
+                                           `SESSION_GAP_MINUTES` + `median` — du CODE PUR, sans base,
+                                           donc le test qui compte du lot statistiques
+services/leitner_stats_service.ts          les stats d'EFFORT : charge, délègue le regroupement,
+                                           agrège par fenêtre — globales, jamais scopées
 services/leitner_catalog_service.ts        catalogue : filtres, CRUD cartes, catégories/thèmes
                                            ← seul point d'écriture d'une carte, porte la dédup
 services/leitner_backup_service.ts         export/import JSON — le filet de sécurité du module
@@ -77,6 +85,8 @@ pages/index.vue                            choix d'une portée OU session de ré
                                            portée · grille des 5 boîtes
 pages/settings.vue                         tableau des cartes · création/édition · sélection
                                            multiple · taxonomie · intervalles des boîtes
+pages/stats.vue                            l'effort : sessions (7/30/365 j) · durée médiane ·
+                                           cartes par session · temps médian par carte · total 30 j
 pages/ingest.vue                           soumission d'un cours (formulaire VIERGE) · le chargeur
                                            de fichier et la prévisualisation éditable · historique
 pages/ingest_show.vue                      la page d'UN travail : progression · brouillons · échec
@@ -262,6 +272,72 @@ est le défaut que la palette ⌘K traîne déjà.
 | `dueCount`, grille des 5 boîtes | **suit la portée** | c'est ce qu'on est en train de réviser : la grille doit décrire *ça* |
 | `streak`, `reviewedToday`, `retention` | **globaux** | ce sont des mesures d'**habitude**, pas de thème. Une série de 40 jours qui retomberait à zéro parce qu'on a ouvert un autre thème serait absurde |
 | `totalCards` | **global** | un inventaire, dans la même rangée que les trois précédentes. Contrepartie assumée : la grille scopée ne somme pas au « total cartes » affiché |
+
+## L'onglet « Stats » : la session est INFÉRÉE, jamais enregistrée
+
+`/revision/stats` mesure l'**effort** — combien de sessions, de quelle durée, combien de cartes
+dedans — là où les quatre chiffres de `/revision` ne mesurent que l'**habitude** (série, revues du
+jour, rétention, inventaire). **Aucune colonne n'a été ajoutée pour ça** : tout se déduit des
+horodatages déjà en base, donc rétroactivement, sur l'historique existant.
+
+L'inférence tient à une propriété de l'écran de révision, et **à elle seule** : la page est **sans
+état** — noter une carte recharge `/revision` et affiche la suivante aussitôt (voir « La portée vit
+dans l'URL »). L'horodatage de la note N marque donc aussi le **début** de la carte N+1. D'où :
+
+- le **temps par carte** = l'écart entre deux `reviewed_at` consécutifs — disponible pour toutes les
+  cartes **sauf la première de chaque session**, dont personne ne sait quand elle a commencé ;
+- une **session** = une grappe de révisions séparée de la suivante par plus de
+  `SESSION_GAP_MINUTES` ; sa durée = `dernier − premier`.
+
+⚠️ **Si la révision devenait un jour *stateful*** (une SPA qui enchaîne les cartes sans recharger,
+un `next_review` calculé côté client, une file préchargée), **toute cette mesure deviendrait fausse
+en silence** — les chiffres continueraient de s'afficher, plausibles, et plus rien ne les
+rattacherait au temps réellement passé. C'est le prix de l'inférence, et la raison pour laquelle
+elle est écrite ici plutôt que devinée depuis le code.
+
+### Les trois décisions à ne pas rouvrir sans y penser
+
+- **Le seuil de 30 minutes est une convention, pas une vérité.** Rien dans `leitner_reviews` ne
+  distingue une pause café d'une carte difficile qu'on a ruminée. On l'assume — et c'est
+  précisément pourquoi tout ce qui en découle est publié en **médiane** : une valeur aberrante ne
+  déplace pas une médiane, elle écraserait une moyenne. Ne remplace pas `median` par `avg` « parce
+  que c'est plus simple » : une session à deux cartes suffirait à rendre la durée moyenne absurde.
+- **Une session à une seule carte dure 0, et s'affiche telle quelle.** La masquer ou la fondre dans
+  une autre serait mentir sur l'effort : cette minute-là a bien eu lieu.
+- **Les stats d'effort sont globales, jamais scopées** — exactement comme `streak`, `reviewedToday`
+  et la rétention (voir le commentaire de `boxCounts` et le tableau « Stats de portée vs stats
+  globales »). Une session est un moment de **travail**, pas un moment de thème, et une même
+  session en traverse volontiers plusieurs. **Pas de `?theme=` sur cet écran.**
+
+### Deux pièges du calcul
+
+⚠️ **Fenêtrer les révisions *avant* de les regrouper ne donne pas le même résultat que regrouper
+puis fenêtrer.** Une session à cheval sur la frontière des 30 jours serait coupée en deux, et
+**comptée deux fois**. `LeitnerStatsService` charge donc **une seule fois** sur la fenêtre la plus
+large (365 j), regroupe **une seule fois**, puis range les sessions obtenues par leur `startedAt`.
+Reste la troncature au bord des 365 j : inévitable, sans effet visible sur un comptage annuel.
+
+⚠️ **`groupIntoSessions` retrie son entrée, et ce n'est pas de la paranoïa** : une requête sans
+`orderBy` rend un ordre arbitraire, et un découpage sur une suite désordonnée produit des sessions
+absurdes — sans lever, sans log, avec des chiffres parfaitement plausibles à l'écran. Le service
+trie **aussi**, côté SQL ; le doublon est voulu, l'un dit l'intention, l'autre garantit le résultat.
+Même logique pour `median`, qui impose son comparateur numérique : `[9, 10, 100].sort()` rend
+`[10, 100, 9]`, donc une médiane fausse et crédible.
+
+`median` rend **`null` quand il n'y a rien à mesurer, jamais `0`** — et la page affiche `—`, comme
+elle le fait déjà pour la rétention. Un « 0 s par carte » sur une base neuve se lirait comme une
+mesure alors que c'est une absence. Une vraie durée de 0 (la session à une carte, ci-dessus)
+s'affiche, elle, bel et bien.
+
+⚠️ **Le « temps total » est un plancher, pas un total.** Une session dure `dernier − premier` : le
+temps passé sur sa **première** carte n'y est donc pas — il est inconnu, par construction. Sur des
+sessions courtes, l'écart est loin d'être négligeable (une session de trois cartes n'en compte que
+deux). Ne « corrige » pas ça en imputant à la première carte la médiane des autres : ce serait
+fabriquer une mesure qu'on n'a pas, dans le seul chiffre que l'utilisateur lira comme un fait.
+
+**Limites assumées** : un onglet laissé ouvert dix minutes gonfle le temps d'une carte (la médiane
+l'absorbe) ; deux onglets qui révisent en parallèle entrelaceraient les horodatages et produiraient
+des temps par carte faux — mono-utilisateur, c'est accepté.
 
 ## La réponse écrite : le juge propose, l'utilisateur dispose
 
@@ -905,6 +981,15 @@ et une portée à 0 trouvée mais **non sélectionnable**. Du code pur : ce dép
 composant Vue**, et ce n'est pas un oubli — la question est ouverte, ne la tranche pas au détour d'un
 lot. Ce que ce test ne voit donc **pas** : le focus/blur, le chevron, ↑↓ Entrée Échap, et qu'un clic
 ouvre bien la session. Ça, il faut un vrai passage navigateur.
+`tests/unit/leitner_sessions.spec.ts` couvre l'**inférence de session** — du code pur, sans base ni
+horloge, donc le test qui compte du lot statistiques : 31 min d'écart → deux sessions, 29 min → une
+seule, exactement 30 → une seule (la coupure est sur « **plus de** »), une carte isolée → durée 0,
+le temps par carte sur une grappe, et surtout **une entrée désordonnée qui donne le même résultat
+qu'une entrée triée** — le mode d'échec silencieux du lot. Plus la médiane : son tri numérique
+(`[9, 10, 100]`, qui attrape le tri lexicographique) et son `null` sur l'absence de mesure. Ce qu'il
+ne voit **pas** : l'agrégation par fenêtre du service, glu triviale au-dessus de ces deux fonctions,
+et tout le rendu (le formatage des durées, le `—` sur base vide) — angle mort des tests de composant
+Vue, à vérifier au navigateur.
 `tests/unit/leitner_judge_service.spec.ts` couvre **le juge de la réponse écrite** — le test qui
 compte de ce lot : le court-circuit (l'assertion qui porte le test est `calls.length === 0`, pas le
 verdict : c'est l'**absence d'appel** qui est l'objet), les accents, la réponse vide qui ne juge rien,
