@@ -9,6 +9,7 @@ const PAGES: Array<{ route: string; component: string }> = [
   { route: '/veille', component: 'modules/veille/index' },
   { route: '/revision', component: 'modules/leitner/index' },
   { route: '/revision/settings', component: 'modules/leitner/settings' },
+  { route: '/revision/stats', component: 'modules/leitner/stats' },
   { route: '/revision/ingest', component: 'modules/leitner/ingest' },
 ]
 

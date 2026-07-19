@@ -22,6 +22,7 @@ const LeitnerSettingsController = () =>
 const LeitnerIngestionController = () =>
   import('#modules/leitner/controllers/leitner_ingestion_controller')
 const LeitnerLlmController = () => import('#modules/leitner/controllers/leitner_llm_controller')
+const LeitnerStatsController = () => import('#modules/leitner/controllers/leitner_stats_controller')
 
 /*
 |--------------------------------------------------------------------------
@@ -83,6 +84,11 @@ router
         // Toute la saisie de cartes passe par là ; /revision ne fait que réviser.
         router.get('/settings', [LeitnerSettingsController, 'index'])
         router.put('/settings/intervals', [LeitnerSettingsController, 'updateIntervals'])
+
+        // L'effort de révision, déduit des seuls horodatages de `leitner_reviews` :
+        // sessions, durées, cartes par session. Aucune portée ici — comme la série et
+        // la rétention, ce sont des mesures d'habitude, pas de thème.
+        router.get('/stats', [LeitnerStatsController, 'index'])
 
         // Téléchargement JSON : réponse HTTP nue, hors Inertia (voir le contrôleur).
         router.get('/export', [LeitnerSettingsController, 'exportBackup'])

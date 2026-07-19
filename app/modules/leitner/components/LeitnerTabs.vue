@@ -2,14 +2,18 @@
 import { computed } from 'vue'
 import { Link, usePage } from '@inertiajs/vue3'
 
-// Les quatre écrans du module, en une barre unique.
+// Les cinq écrans du module, en une barre unique.
 //
 // ⚠️ Ce composant ne vit PAS dans `pages/` : la résolution Inertia fait un glob sur
 // les fichiers .vue de tout dossier `pages/` (voir `inertia/app/app.ts`), donc un
 // fichier posé là deviendrait une page. Il s'importe relativement depuis les pages.
+//
+// ⚠️ L'onglet actif se décide par `startsWith` (plus bas) : n'ajoute jamais un href
+// qui soit le préfixe d'un autre, les deux s'allumeraient ensemble.
 const TABS = [
   { href: '/revision', label: 'Révision' },
   { href: '/revision/settings', label: 'Cartes' },
+  { href: '/revision/stats', label: 'Stats' },
   { href: '/revision/ingest', label: 'Ingestion' },
   { href: '/revision/llm', label: 'Configuration' },
 ] as const
