@@ -13,6 +13,11 @@ import env from '#start/env'
  * L'écran `/revision/llm` **teste** des URL candidates avant qu'on ne les colle ici :
  * transitoire, en mémoire, et sous liste blanche (loopback et plages privées). Il ne
  * persiste rien — voir `leitner_llm_controller.ts`.
+ *
+ * ⚠️ **La liste blanche ne vaut que pour l'URL saisie** : elle ne vérifie pas la cible
+ * d'une redirection, qu'un hôte pourtant autorisé peut renvoyer. Ce qui la complète est
+ * le refus des `3xx` dans `LlmClient` (`redirect: 'manual'`). Ne présente jamais l'une
+ * des deux comme suffisante — c'est le défaut qu'a corrigé CC-37.
  */
 export interface LlmConfig {
   baseUrl: string

@@ -361,10 +361,17 @@ export const draftPromotionValidator = vine.compile(
 | **saisie par l'utilisateur** — c'est inévitable : il faut tester la valeur AVANT
 | de la coller dans `.env`. Transitoire ou non, c'est une SSRF si on ne la borde pas.
 |
-| ⚠️ La liste blanche ci-dessous est le seul rempart, et elle s'applique à TOUTES
-| les routes de diagnostic. Elle ne change rien à la frontière de confiance : ces
-| routes n'écrivent rien, et la valeur qu'utilise réellement le serveur continue de
-| venir de l'environnement (`config/llm.ts`), pas d'une requête HTTP.
+| ⚠️ La liste blanche ci-dessous s'applique à TOUTES les routes de diagnostic. Elle
+| ne change rien à la frontière de confiance : ces routes n'écrivent rien, et la
+| valeur qu'utilise réellement le serveur continue de venir de l'environnement
+| (`config/llm.ts`), pas d'une requête HTTP.
+|
+| ⚠️ Elle n'est PAS le seul rempart, et le croire est le défaut qu'a corrigé CC-37 :
+| elle ne valide que l'URL SAISIE, jamais la cible d'un `Location`. Un hôte loopback
+| ou privé — accepté ici — qui répond `302 Location: http://169.254.169.254/…`
+| ferait sortir la requête du périmètre. Ce qui la complète est le refus des
+| redirections dans `LlmClient` (`redirect: 'manual'` + `refuseRedirect`). Les deux
+| ensemble font la garantie ; ne retire ni l'une, ni l'autre.
 */
 
 /**

@@ -947,6 +947,31 @@ c'est une SSRF si on ne la borde pas.
 Un LLM « local » vit par définition dans ces plages : la contrainte ne coûte rien à l'usage.
 `tests/unit/leitner_llm_url.spec.ts` est **le** test à ne pas laisser tomber.
 
+#### Elle ne vaut que pour l'URL saisie : les redirections sont refusées
+
+⚠️ **La liste blanche n'est pas suffisante à elle seule, et la croire suffisante était un vrai
+défaut** (CC-37). Elle valide l'URL **saisie**, et rien d'autre : la cible d'un `Location` ne
+repasse par aucun validateur. Un hôte loopback ou privé — accepté par la liste — qui répond
+`302 Location: http://169.254.169.254/…` faisait sortir la requête du périmètre, et `listModels`
+/ `test` rendaient le contenu récupéré au client. Le défaut d'undici est `redirect: 'follow'`,
+jusqu'à 20 sauts : ce choix se pose, il ne s'hérite pas.
+
+Les deux `fetch` de `llm_client.ts` passent donc **`redirect: 'manual'`**, et `refuseRedirect()`
+fait de toute réponse `3xx` une `LlmUnavailableError`. Un serveur compatible OpenAI n'a aucune
+redirection légitime. **La garantie, ce sont les deux ensemble** — liste blanche *et* refus des
+redirections. N'en présente jamais une seule comme le rempart.
+
+⚠️ **`refuseRedirect()` est appelé HORS du `try/catch` des deux méthodes**, et c'est le piège du
+lot : dedans, il serait avalé puis ré-écrit en « injoignable ou n'a pas répondu en moins de N s »
+— le contraire de ce qui vient de se produire. C'est aussi la raison de `'manual'` plutôt que du
+`redirect: 'error'` qu'on pourrait croire plus simple : `'error'` fait lever undici *dans* le
+`try`, donc produit exactement ce message trompeur pour un serveur qui a répondu tout de suite.
+
+Le test est `tests/unit/leitner_llm_redirect.spec.ts` — **le seul du dépôt qui fasse émettre au
+vrai `LlmClient` une requête**, et c'est inévitable : tous les autres passent par le faux client,
+qui ne fait pas de réseau et ne peut donc pas voir ce défaut. (La suite fonctionnelle ouvre elle
+aussi une socket — `testUtils.httpServer().start()` — mais elle reçoit, elle n'émet pas.)
+
 Trois corollaires, aussi importants que la liste elle-même :
 
 - **La liste des candidats sondés est en dur** (`LLM_CANDIDATES`, dans le contrôleur : LM Studio
@@ -1031,8 +1056,14 @@ ainsi que l'**asynchrone** : le POST rend la main avant le modèle (le faux clie
 temps de le vérifier), un échec laisse `failed` avec son message et jamais `running`, et un travail
 orphelin est bien balayé. `tests/unit/leitner_ingestion_title.spec.ts` couvre la **déduction du
 titre** — du code pur, donc le test qui compte de ce lot.
-`tests/unit/leitner_llm_url.spec.ts` couvre la **liste blanche SSRF** (le test qui compte) et
-`tests/functional/modules/leitner_llm.spec.ts` l'écran de configuration — dont le fait que **la base
+`tests/unit/leitner_llm_url.spec.ts` couvre la **liste blanche SSRF** (le test qui compte),
+`tests/unit/leitner_llm_redirect.spec.ts` ce qui la **complète** — un `302` depuis un hôte
+autorisé n'est pas suivi, et l'assertion qui porte le test est le **compteur de requêtes de la
+cible** (`hits === 0`), pas l'erreur : la cible rend une réponse *valide*, donc un test qui
+n'asserterait que « ça lève » passerait à tort. C'est le seul test du dépôt qui fasse émettre au
+vrai client une requête (deux serveurs jetables sur `127.0.0.1:0`, fermés en teardown — sans quoi
+`forceExit: false` fige `npm test`) —
+et `tests/functional/modules/leitner_llm.spec.ts` l'écran de configuration — dont le fait que **la base
 est inchangée après un test de génération**. `tests/unit/leitner_pdf_service.spec.ts` couvre
 l'extraction et **ses six refus, un par un** (les confondre est la faute que ce lot évite), plus le
 nettoyage — du code pur, donc le test qui compte de ce lot ; le fonctionnel vérifie que la route
