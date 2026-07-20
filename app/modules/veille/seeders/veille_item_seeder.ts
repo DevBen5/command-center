@@ -5,7 +5,7 @@ export default class extends BaseSeeder {
   async run() {
     await VeilleItem.updateOrCreateMany('title', [
       {
-        type: 'rss',
+        type: 'article',
         title: 'Construire un pipeline RAG local sans cloud',
         url: 'https://blog.exemple.dev/rag-local',
         content: "Un tour d'horizon des briques pour monter un pipeline RAG entièrement local.",
@@ -27,7 +27,7 @@ export default class extends BaseSeeder {
         readingQueue: false,
       },
       {
-        type: 'rss',
+        type: 'article',
         title: 'Sortie de Traefik 3.x : ce qui change',
         url: 'https://flux.reseau.io/traefik-3',
         content: 'Nouveautés de la v3 de Traefik : middlewares, observabilité, config dynamique.',
@@ -42,7 +42,7 @@ export default class extends BaseSeeder {
         readingQueue: true,
       },
       {
-        type: 'rss',
+        type: 'article',
         title: 'Le point sur Rust en 2026',
         url: 'https://blog.rust-lang.org/2026-roadmap',
         content: 'Feuille de route Rust pour 2026 : async, edition, tooling.',

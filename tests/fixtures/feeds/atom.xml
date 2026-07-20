@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Blog Exemple</title>
+  <link rel="alternate" href="https://blog.exemple.dev"/>
+  <id>tag:blog.exemple.dev,2026:feed</id>
+  <updated>2026-07-13T09:00:00Z</updated>
+  <entry>
+    <title>Pipeline RAG local</title>
+    <link rel="alternate" href="https://blog.exemple.dev/rag-local"/>
+    <id>tag:blog.exemple.dev,2026:atom:1</id>
+    <published>2026-07-13T09:00:00Z</published>
+    <updated>2026-07-13T09:00:00Z</updated>
+    <content type="html">&lt;p&gt;Monter un pipeline &amp;amp; le tenir.&lt;/p&gt;&lt;script&gt;alert(1)&lt;/script&gt;</content>
+  </entry>
+  <entry>
+    <title>Sortie de Traefik 3</title>
+    <link rel="alternate" href="https://blog.exemple.dev/traefik-3"/>
+    <id>tag:blog.exemple.dev,2026:atom:2</id>
+    <published>2026-07-12T09:00:00Z</published>
+    <updated>2026-07-12T09:00:00Z</updated>
+    <content type="html">Middlewares et configuration dynamique.</content>
+  </entry>
+</feed>

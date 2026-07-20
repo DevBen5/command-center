@@ -1,41 +1,72 @@
+import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
+import { DateTime } from 'luxon'
 import VeilleItem from '#modules/veille/models/veille_item'
+import VeilleSource from '#modules/veille/models/veille_source'
+import VeilleStatsService from '#modules/veille/services/veille_stats_service'
 import { captureValidator } from '#modules/veille/validators/veille'
 
+/** Combien d'items par page. Au-delà, la page devient lourde à afficher autant qu'à parcourir. */
+const PER_PAGE = 50
+
+/**
+ * Un paramètre d'URL est **toujours** une chaîne : `?readingQueue=false` arrive en `"false"`,
+ * qui est truthy. C'est ce qui faisait que le filtre « file de lecture » s'activait à la première
+ * navigation et ne se désactivait plus — aucun bouton ne le pilotait, il s'allumait tout seul.
+ */
+function asBool(value: unknown): boolean {
+  return value === true || value === 'true' || value === '1'
+}
+
+@inject()
 export default class VeilleController {
+  constructor(private stats: VeilleStatsService) {}
+
   async index({ inertia, request }: HttpContext) {
     const type = request.input('type')
     const tag = request.input('tag')
-    const readingQueue = request.input('readingQueue')
     const search = request.input('search')
+    const sourceId = Number(request.input('sourceId')) || null
+    const readingQueue = asBool(request.input('readingQueue'))
+    const unread = asBool(request.input('unread'))
+    const page = Math.max(1, Number(request.input('page')) || 1)
 
-    const query = VeilleItem.query().orderBy('created_at', 'desc')
+    const query = VeilleItem.query()
+      // `id` en second critère rend l'ordre **total**. Sans lui, deux items publiés à la même
+      // seconde peuvent s'échanger entre deux requêtes : la pagination sauterait ou répéterait
+      // une ligne pendant qu'une collecte tourne.
+      .orderByRaw('coalesce(published_at, created_at) DESC, id DESC')
 
     if (type) query.where('type', type)
+    // `tags` est un `text[]` Postgres : le binding `?` reste paramétré, jamais concaténé.
     if (tag) query.whereRaw('? = ANY(tags)', [tag])
-    if (readingQueue) query.where('reading_queue', true)
     if (search) query.whereRaw("search_vector @@ plainto_tsquery('french', ?)", [search])
+    if (sourceId) query.where('veille_source_id', sourceId)
+    if (readingQueue) query.where('reading_queue', true)
+    if (unread) query.whereNull('read_at')
 
-    const items = await query
+    const paginator = await query.paginate(page, PER_PAGE)
 
-    // Stats globales (indépendantes des filtres courants) pour la bande d'indicateurs.
-    const all = await VeilleItem.all()
-    const stats = {
-      total: all.length,
-      rss: all.filter((i) => i.type === 'rss').length,
-      queue: all.filter((i) => i.readingQueue).length,
-      tags: new Set(all.flatMap((i) => i.tags)).size,
-    }
+    const [stats, tags, sources] = await Promise.all([
+      this.stats.fetchStats(),
+      this.stats.fetchTags(),
+      VeilleSource.query().orderBy('title', 'asc'),
+    ])
 
     return inertia.render('modules/veille/index', {
-      items,
+      items: paginator.all(),
+      pagination: paginator.getMeta(),
       stats,
-      filters: { type, tag, readingQueue: !!readingQueue, search },
+      tags,
+      sources,
+      filters: { type, tag, readingQueue, unread, search, sourceId },
     })
   }
 
   async store({ request, response }: HttpContext) {
     const payload = await request.validateUsing(captureValidator)
+    // Pas de `dedup_key` : une capture manuelle n'est jamais dédoublonnée. L'index unique
+    // accepte autant de NULL qu'on veut, elle ne peut donc pas se heurter à un item collecté.
     await VeilleItem.create(payload)
     return response.redirect().back()
   }
@@ -43,6 +74,14 @@ export default class VeilleController {
   async toggleQueue({ params, response }: HttpContext) {
     const item = await VeilleItem.findOrFail(params.id)
     item.readingQueue = !item.readingQueue
+    await item.save()
+    return response.redirect().back()
+  }
+
+  /** Lu / non-lu. Sans cette bascule, on ne sait jamais où on s'est arrêté. */
+  async toggleRead({ params, response }: HttpContext) {
+    const item = await VeilleItem.findOrFail(params.id)
+    item.readAt = item.readAt === null ? DateTime.now() : null
     await item.save()
     return response.redirect().back()
   }

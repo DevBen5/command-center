@@ -16,6 +16,8 @@ const HomeController = () => import('#core/dashboard/controllers/home_controller
 const ServicesController = () => import('#modules/services/controllers/services_controller')
 const AgentsController = () => import('#modules/agents/controllers/agents_controller')
 const VeilleController = () => import('#modules/veille/controllers/veille_controller')
+const VeilleSourcesController = () =>
+  import('#modules/veille/controllers/veille_sources_controller')
 const LeitnerController = () => import('#modules/leitner/controllers/leitner_controller')
 const LeitnerSettingsController = () =>
   import('#modules/leitner/controllers/leitner_settings_controller')
@@ -71,7 +73,25 @@ router
       .group(() => {
         router.get('/', [VeilleController, 'index'])
         router.post('/', [VeilleController, 'store'])
-        router.post('/:id/queue', [VeilleController, 'toggleQueue'])
+
+        // ⚠️ Les routes littérales `/sources...` sont déclarées **avant** les `/:id/...` :
+        // dans l'autre ordre, `/veille/sources` serait capté comme un `:id` valant « sources ».
+        router.get('/sources', [VeilleSourcesController, 'index'])
+        router.post('/sources', [VeilleSourcesController, 'store'])
+        router.post('/sources/refresh', [VeilleSourcesController, 'refreshAll'])
+        router
+          .post('/sources/:id', [VeilleSourcesController, 'update'])
+          .where('id', router.matchers.number())
+        router
+          .post('/sources/:id/refresh', [VeilleSourcesController, 'refresh'])
+          .where('id', router.matchers.number())
+
+        router
+          .post('/:id/queue', [VeilleController, 'toggleQueue'])
+          .where('id', router.matchers.number())
+        router
+          .post('/:id/read', [VeilleController, 'toggleRead'])
+          .where('id', router.matchers.number())
       })
       .prefix('/veille')
 

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Blog Exemple</title>
+    <link>https://blog.exemple.dev</link>
+    <description>Le blog d'exemple</description>
+    <item>
+      <title>Pipeline RAG local</title>
+      <link>https://blog.exemple.dev/rag-local</link>
+      <guid isPermaLink="false">tag:blog.exemple.dev,2026:rss:1</guid>
+      <pubDate>Mon, 13 Jul 2026 09:00:00 GMT</pubDate>
+      <description>&lt;p&gt;Monter un pipeline &amp;amp; le tenir.&lt;/p&gt;&lt;script&gt;alert(1)&lt;/script&gt;</description>
+    </item>
+    <item>
+      <title>Sortie de Traefik 3</title>
+      <link>https://blog.exemple.dev/traefik-3</link>
+      <guid isPermaLink="false">tag:blog.exemple.dev,2026:rss:2</guid>
+      <pubDate>Sun, 12 Jul 2026 09:00:00 GMT</pubDate>
+      <description>Middlewares et configuration dynamique.</description>
+    </item>
+  </channel>
+</rss>

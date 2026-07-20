@@ -61,6 +61,14 @@ export default defineConfig({
       file: () => import('#providers/leitner_provider'),
       environment: ['web'],
     },
+    // La collecte des flux de veille tourne elle aussi en tâche de fond dans le processus.
+    // Ce provider démarre la boucle au boot et l'arrête à l'extinction. `web` seulement :
+    // en test, la collecte est appelée directement avec un faux fetcher — une boucle de fond
+    // irait chercher de vrais flux sur le réseau pendant que la suite s'exécute.
+    {
+      file: () => import('#providers/veille_provider'),
+      environment: ['web'],
+    },
   ],
 
   /*
