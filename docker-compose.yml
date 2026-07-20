@@ -6,7 +6,16 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
-      - '${DB_PORT}:5432'
+      # ⚠️ **`127.0.0.1:` en préfixe, et il n'est pas décoratif.** Sans lui, Docker publie
+      # sur `0.0.0.0` : la base — qui porte l'unique exemplaire des cartes, sans seeder ni
+      # seconde copie — serait joignable depuis tout le réseau, et « réseau local » veut
+      # dire tous les inconnus connectés dès qu'on travaille sur un wifi partagé.
+      #
+      # Ça ne coûte rien : tout ce qui utilise ce port tourne **sur cette machine**
+      # (serveur de dev, `npm test`, un client SQL installé). `db:backup`, `db:restore` et
+      # Adminer ne passent pas par lui du tout — les deux premiers par `docker compose
+      # exec`, le troisième par le réseau interne du compose.
+      - '127.0.0.1:${DB_PORT}:5432'
     volumes:
       # Bind mount, et non un volume nommé : les données vivent dans ./pgdata, sur le
       # disque de la machine. Un `docker compose down -v` n'y touche pas — le `-v` ne
@@ -23,6 +32,41 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - command-center-network
+
+  # Explorateur web de la base — l'équivalent de phpMyAdmin pour Postgres. Une seule
+  # page, aucun compte à créer, ~10 Mo d'image.
+  #
+  # ⚠️ **Il ne démarre PAS avec `docker compose up`** : le profil `tools` l'exige
+  # explicitement. C'est délibéré — il donne un accès complet en lecture ET en écriture
+  # à la base qui contient l'unique exemplaire des cartes (voir le CLAUDE.md racine :
+  # aucun seeder, la base est la seule copie). Un outil capable de vider une table ne
+  # tourne pas en permanence par défaut.
+  #
+  #     docker compose --profile tools up -d adminer   # démarrer
+  #     docker compose stop adminer                    # arrêter
+  #
+  # Puis http://127.0.0.1:8081 — Système « PostgreSQL », Serveur `postgres` (le nom du
+  # service, pas 127.0.0.1 : on est dans le réseau Docker), utilisateur et mot de passe
+  # du `.env`, base `app`.
+  adminer:
+    image: adminer:5
+    profiles: ['tools']
+    ports:
+      # ⚠️ **`127.0.0.1:` en préfixe, et ce n'est pas décoratif.** Sans lui, Docker
+      # publie sur `0.0.0.0` — l'interface serait offerte à tout le réseau local (wifi
+      # partagé, réseau d'entreprise), avec un formulaire de connexion à la base
+      # directement dessus. Ne le retire pas.
+      - '127.0.0.1:8081:8080'
+    environment:
+      # Pré-remplit le champ « Serveur » du formulaire : c'est le nom du service Docker,
+      # joignable via le réseau du compose, jamais `localhost` (qui désignerait le
+      # conteneur Adminer lui-même).
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - command-center-network
 

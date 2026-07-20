@@ -27,6 +27,31 @@ la base, il ne fusionne pas.
 Les scripts (`scripts/db-*.js`) appellent `docker compose exec` via `spawn` **avec un tableau
 d'arguments**, jamais une chaîne interpolée dans un shell.
 
+**Regarder la base.** Trois voies, et aucune n'est requise par l'application :
+
+```bash
+docker compose exec postgres psql -U root -d app        # rien à installer, marche tout de suite
+docker compose --profile tools up -d adminer            # puis http://127.0.0.1:8081
+```
+
+⚠️ **Adminer est derrière le profil `tools` et ne démarre donc PAS avec `docker compose up`.** C'est
+délibéré : il donne un accès complet en lecture **et en écriture** à la base qui porte l'unique
+exemplaire des cartes. Un outil capable de vider une table ne tourne pas en fond par défaut. Son
+port est lié à `127.0.0.1` explicitement — sans ce préfixe, Docker publierait sur `0.0.0.0` et
+offrirait un formulaire de connexion à la base à tout le réseau local.
+
+⚠️ Dans le formulaire, le serveur est **`postgres`** (le nom du service, joignable par le réseau du
+compose), pas `127.0.0.1` — qui désignerait le conteneur Adminer lui-même. Et la base est **`app`** :
+le cluster en porte trois, dont `app_test` que `npm test` vide à chaque exécution. Le port 5433 ne
+concerne que les clients installés **sur la machine** (DBeaver, extension VS Code) ; ni `psql` via
+`exec`, ni Adminer ne passent par lui.
+
+⚠️ **Les deux ports publiés sont liés à `127.0.0.1`, jamais à `0.0.0.0`.** Docker publie sur toutes
+les interfaces quand on écrit `'5433:5432'` : la base — l'unique exemplaire des cartes — serait alors
+joignable depuis tout le réseau, et « réseau local » veut dire tous les inconnus connectés dès qu'on
+travaille sur un wifi partagé. Ne retire pas ce préfixe : rien de ce que le projet utilise n'y perd,
+puisque tout ce qui passe par ces ports tourne sur la même machine.
+
 Le module Leitner a en plus son propre export/import JSON (`/revision/settings`), qui ne couvre que
 son contenu et n'ajoute que ce qui manque — voir `app/modules/leitner/CLAUDE.md`.
 
