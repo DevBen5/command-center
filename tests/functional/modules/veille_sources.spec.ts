@@ -311,8 +311,114 @@ test.group('Veille / écran des sources', (group) => {
     const sources = await VeilleSource.all()
     assert.lengthOf(sources, 1)
     assert.equal(sources[0].url, 'https://blog.exemple.dev/feed.xml')
+    // Sans cadence soumise, le défaut reste 1 heure, en dur.
     assert.equal(sources[0].fetchIntervalMinutes, 60)
     assert.isTrue(sources[0].active)
+  })
+
+  /**
+   * CC-57 — la cadence se saisit avec son unité, et c'est le **serveur** qui convertit.
+   *
+   * Ces quatre tests couvrent le mode d'échec asymétrique du ticket : une unité perdue en route
+   * ne lève aucune erreur naturellement (un `12` voulant dire 12 heures passe le plancher de 5
+   * comme s'il valait 12 minutes, et le flux est interrogé 5 fois par heure au lieu de 2 fois
+   * par jour). Il faut donc rendre bruyant ce qui ne l'est pas.
+   */
+  test('CC-57 — 2 jours sont enregistrés comme 2880 minutes, pas 2', async ({ assert, client }) => {
+    const user = await login()
+
+    await client
+      .post('/veille/sources')
+      .json({
+        url: 'https://blog.exemple.dev/feed.xml',
+        title: 'Blog',
+        interval: 2,
+        intervalUnit: 'days',
+      })
+      .header('referrer', '/veille/sources')
+      .loginAs(user)
+      .withCsrfToken()
+      .redirects(0)
+
+    const sources = await VeilleSource.all()
+    assert.lengthOf(sources, 1)
+    assert.equal(sources[0].fetchIntervalMinutes, 2880)
+  })
+
+  /**
+   * ⚠️ **Le test qui garde le garde.**
+   *
+   * Les `.min(5).max(10_080)` ont quitté le schéma — ils ne savaient pas dans quelle unité le
+   * nombre était écrit. La règle `intervalWithinBounds` est désormais la SEULE borne : si elle
+   * sortait en silence (unité illisible, `field.parent` indisponible), 8 jours = 11520 minutes
+   * passerait sans le moindre message. C'est ce test qui tombe si ça arrive.
+   */
+  test('CC-57 — 8 jours sont refusés, avec un message qui parle en jours', async ({
+    assert,
+    client,
+  }) => {
+    const user = await login()
+
+    const response = await client
+      .post('/veille/sources')
+      .json({
+        url: 'https://blog.exemple.dev/feed.xml',
+        title: 'Blog',
+        interval: 8,
+        intervalUnit: 'days',
+      })
+      .header('referrer', '/veille/sources')
+      .loginAs(user)
+      .withCsrfToken()
+      .redirects(0)
+
+    response.assertStatus(302)
+    assert.lengthOf(await VeilleSource.all(), 0, '8 jours (11520 min) a franchi le plafond')
+
+    // Le message doit parler dans l'unité SAISIE : « au plus 7 jours », pas « au plus 10080 ».
+    const errors = response.flashMessages().sourceErrors as Record<string, string>
+    assert.include(errors.interval, '7 jours')
+  })
+
+  test('CC-57 — une valeur sans unité est REFUSÉE, pas lue en minutes', async ({
+    assert,
+    client,
+  }) => {
+    const user = await login()
+
+    const response = await client
+      .post('/veille/sources')
+      .json({ url: 'https://blog.exemple.dev/feed.xml', title: 'Blog', interval: 12 })
+      .header('referrer', '/veille/sources')
+      .loginAs(user)
+      .withCsrfToken()
+      .redirects(0)
+
+    response.assertStatus(302)
+    assert.lengthOf(
+      await VeilleSource.all(),
+      0,
+      '« 12 » sans unité a été enregistré — c’est exactement le piège du ticket'
+    )
+  })
+
+  test('CC-57 — une cadence décimale est refusée, jamais arrondie', async ({ assert, client }) => {
+    const user = await login()
+
+    await client
+      .post('/veille/sources')
+      .json({
+        url: 'https://blog.exemple.dev/feed.xml',
+        title: 'Blog',
+        interval: 1.5,
+        intervalUnit: 'hours',
+      })
+      .header('referrer', '/veille/sources')
+      .loginAs(user)
+      .withCsrfToken()
+      .redirects(0)
+
+    assert.lengthOf(await VeilleSource.all(), 0, '1,5 heure a été arrondie quelque part')
   })
 
   test('REFUSE une URL interne — la garde SSRF passe par la route', async ({ assert, client }) => {
@@ -383,6 +489,92 @@ test.group('Veille / écran des sources', (group) => {
       await VeilleSource.all(),
       1,
       'la source a été supprimée au lieu d’être désactivée'
+    )
+  })
+
+  test('CC-57 — modifier la cadence d’une source la convertit aussi', async ({
+    assert,
+    client,
+  }) => {
+    const user = await login()
+    const feed = await VeilleSource.create({
+      kind: 'rss',
+      url: 'https://a.dev/feed',
+      title: 'Source',
+      fetchIntervalMinutes: 60,
+      active: true,
+    })
+
+    await client
+      .post(`/veille/sources/${feed.id}`)
+      .json({ interval: 3, intervalUnit: 'days' })
+      .header('referrer', '/veille/sources')
+      .loginAs(user)
+      .withCsrfToken()
+      .redirects(0)
+
+    await feed.refresh()
+    // ⚠️ `source.merge(payload)` poserait `interval`/`intervalUnit` en propriétés parasites et
+    // laisserait la cadence à 60, sans erreur. C'est ce que ce test interdit.
+    assert.equal(feed.fetchIntervalMinutes, 4320)
+  })
+
+  test('CC-57 — une cadence refusée sur une source laisse un message visible', async ({
+    assert,
+    client,
+  }) => {
+    const user = await login()
+    const feed = await VeilleSource.create({
+      kind: 'rss',
+      url: 'https://a.dev/feed',
+      title: 'Source',
+      fetchIntervalMinutes: 60,
+      active: true,
+    })
+
+    const response = await client
+      .post(`/veille/sources/${feed.id}`)
+      .json({ interval: 30, intervalUnit: 'days' })
+      .header('referrer', '/veille/sources')
+      .loginAs(user)
+      .withCsrfToken()
+      .redirects(0)
+
+    response.assertStatus(302)
+    await feed.refresh()
+    assert.equal(feed.fetchIntervalMinutes, 60, 'la cadence hors bornes a été enregistrée')
+
+    // Sans le `try/catch` d'`update`, ce refus n'arriverait jamais jusqu'à la page : elle ne lit
+    // que `sourceErrors`. Le `sourceId` dit sur quelle ligne l'afficher.
+    const errors = response.flashMessages().sourceErrors as Record<string, unknown>
+    assert.equal(errors.sourceId, feed.id)
+    assert.include(errors.interval as string, '7 jours')
+  })
+
+  test('CC-57 — désactiver une source ne touche pas sa cadence', async ({ assert, client }) => {
+    const user = await login()
+    const feed = await VeilleSource.create({
+      kind: 'rss',
+      url: 'https://a.dev/feed',
+      title: 'Source',
+      fetchIntervalMinutes: 2880,
+      active: true,
+    })
+
+    await client
+      .post(`/veille/sources/${feed.id}`)
+      .json({ active: false })
+      .header('referrer', '/veille/sources')
+      .loginAs(user)
+      .withCsrfToken()
+      .redirects(0)
+
+    await feed.refresh()
+    assert.isFalse(feed.active)
+    assert.equal(
+      feed.fetchIntervalMinutes,
+      2880,
+      'le merge explicite a écrasé une cadence non soumise'
     )
   })
 

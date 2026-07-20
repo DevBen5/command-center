@@ -4,7 +4,11 @@ import logger from '@adonisjs/core/services/logger'
 import { errors as vineErrors } from '@vinejs/vine'
 import VeilleSource from '#modules/veille/models/veille_source'
 import VeilleCollectorService from '#modules/veille/services/veille_collector_service'
-import { sourceUpdateValidator, sourceValidator } from '#modules/veille/validators/veille'
+import {
+  resolveIntervalMinutes,
+  sourceUpdateValidator,
+  sourceValidator,
+} from '#modules/veille/validators/veille'
 
 @inject()
 export default class VeilleSourcesController {
@@ -54,19 +58,46 @@ export default class VeilleSourcesController {
       kind: 'rss',
       url: payload.url,
       title: payload.title,
-      fetchIntervalMinutes: payload.fetchIntervalMinutes ?? 60,
+      // Le défaut reste 1 heure, en dur. `resolveIntervalMinutes` rend `undefined` quand la
+      // cadence n'a pas été soumise du tout.
+      fetchIntervalMinutes: resolveIntervalMinutes(payload) ?? 60,
       active: true,
     })
 
     return response.redirect().back()
   }
 
-  async update({ params, request, response }: HttpContext) {
+  async update({ params, request, response, session }: HttpContext) {
     const source = await VeilleSource.findOrFail(params.id)
-    const payload = await request.validateUsing(sourceUpdateValidator)
 
-    // `merge` ignore les clés absentes : on ne remet pas à `null` ce qui n'a pas été soumis.
-    source.merge(payload)
+    let payload: Awaited<ReturnType<typeof sourceUpdateValidator.validate>>
+    try {
+      payload = await request.validateUsing(sourceUpdateValidator)
+    } catch (error) {
+      // Sans ce bloc, une cadence refusée sur ce chemin serait **invisible** : la page ne lit que
+      // `sourceErrors`, et l'utilisateur verrait un rechargement sans changement ni message.
+      // Le `sourceId` sert à afficher l'erreur sur la bonne ligne — plusieurs sources se
+      // modifient depuis le même écran.
+      if (error instanceof vineErrors.E_VALIDATION_ERROR) {
+        const messages = error.messages as { field: string; message: string }[]
+        session.flash('sourceErrors', {
+          sourceId: source.id,
+          ...Object.fromEntries(messages.map((item) => [item.field, item.message])),
+        })
+        return response.redirect().back()
+      }
+      throw error
+    }
+
+    // ⚠️ Merge explicite, et pas `source.merge(payload)` : le payload porte désormais
+    // `interval`/`intervalUnit`, qui ne sont **pas** des colonnes. `merge` les poserait en
+    // propriétés parasites, non persistées — la cadence ne changerait jamais, sans erreur.
+    // Les clés absentes ne sont pas touchées : on ne remet pas à `null` ce qui n'a pas été soumis.
+    const minutes = resolveIntervalMinutes(payload)
+    if (payload.title !== undefined) source.title = payload.title
+    if (payload.active !== undefined) source.active = payload.active
+    if (minutes !== undefined) source.fetchIntervalMinutes = minutes
+
     await source.save()
 
     return response.redirect().back()

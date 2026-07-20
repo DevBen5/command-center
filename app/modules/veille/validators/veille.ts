@@ -1,5 +1,13 @@
 import vine from '@vinejs/vine'
 import type { FieldContext } from '@vinejs/vine/types'
+import {
+  INTERVAL_UNITS,
+  formatQuantity,
+  isIntervalUnit,
+  toMinutes,
+  unitBounds,
+  type IntervalUnit,
+} from '#modules/veille/shared/interval'
 
 /**
  * ⚠️ Cette liste est dupliquée dans `VeilleItemType` (modèle) et dans la contrainte
@@ -126,20 +134,104 @@ const publicFeedUrl = vine.createRule(
   }
 )
 
+// ---------------------------------------------------------------------------------------------
+// La cadence — l'unité voyage avec la valeur, et c'est le serveur qui convertit
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Le mode d'échec que cette règle existe pour rendre bruyant est **asymétrique**.
+ *
+ * Si l'unité se perd en route et qu'un `12` voulant dire 12 **heures** arrive comme 12 minutes,
+ * rien ne le signale : 12 passe le plancher de 5. La source serait interrogée 5 fois par heure
+ * au lieu de 2 fois par jour — un serveur tiers martelé, sans une ligne de log. Le sens inverse
+ * est inoffensif : un `2` voulant dire 2 minutes tombe sous le plancher et se fait refuser.
+ *
+ * D'où le contrat : la page envoie `{ interval, intervalUnit }` et **ne convertit jamais**. Si
+ * elle convertissait avant d'envoyer, le serveur ne verrait qu'un nombre de minutes sans moyen
+ * de re-valider ce que l'utilisateur voulait dire — la garde reposerait entièrement sur le
+ * JavaScript de la page.
+ *
+ * ⚠️ **Cette règle est la SEULE borne** : les `.min(5).max(10_080)` du schéma ont disparu, parce
+ * qu'ils ne savaient pas dans quelle unité le nombre était écrit. Elle **échoue donc fermée** —
+ * une unité illisible reporte une erreur au lieu de sortir en silence. Sortir en silence
+ * laisserait passer « 8 jours » (11520 min) sans aucune borne, ce qui serait pire que le bug
+ * qu'on corrige. Le test `veille_sources.spec.ts` qui poste 8 jours et attend un refus est ce
+ * qui garde ce garde.
+ */
+const intervalWithinBounds = vine.createRule(
+  (value: unknown, _options: undefined, field: FieldContext) => {
+    if (typeof value !== 'number') return
+
+    const unit = field.parent?.intervalUnit
+    if (!isIntervalUnit(unit)) {
+      field.report(
+        'Le champ {{ field }} exige une unité valide (minutes, heures ou jours).',
+        'intervalWithinBounds',
+        field
+      )
+      return
+    }
+
+    const { min, max } = unitBounds(unit)
+    if (value < min) {
+      field.report(
+        `La cadence doit être d'au moins ${formatQuantity(min, unit)}.`,
+        'intervalWithinBounds',
+        field
+      )
+    } else if (value > max) {
+      field.report(
+        `La cadence ne peut pas dépasser ${formatQuantity(max, unit)}.`,
+        'intervalWithinBounds',
+        field
+      )
+    }
+  }
+)
+
+/**
+ * Les deux champs vont ensemble ou aucun : `requiredIfExists` dans les **deux sens** transforme
+ * une unité droppée en refus bruyant, au lieu d'un nombre lu dans la mauvaise unité.
+ *
+ * Pas de décimale (`withoutDecimals`) : « 1,5 heure » se saisit en 90 minutes. Autoriser les
+ * décimales obligerait à arrondir quelque part.
+ */
+const intervalFields = {
+  interval: vine
+    .number()
+    .withoutDecimals()
+    .use(intervalWithinBounds())
+    .optional()
+    .requiredIfExists('intervalUnit'),
+  intervalUnit: vine.enum(INTERVAL_UNITS).optional().requiredIfExists('interval'),
+}
+
+/**
+ * La conversion, en **un seul endroit nommé** — appelée par le contrôleur après validation.
+ *
+ * Rend `undefined` quand la cadence n'a pas été soumise du tout : l'appelant décide alors du
+ * défaut (1 heure à la création) ou ne touche à rien (mise à jour).
+ */
+export function resolveIntervalMinutes(payload: {
+  interval?: number
+  intervalUnit?: IntervalUnit
+}): number | undefined {
+  if (payload.interval === undefined || payload.intervalUnit === undefined) return undefined
+  return toMinutes(payload.interval, payload.intervalUnit)
+}
+
 export const sourceValidator = vine.compile(
   vine.object({
     url: vine.string().trim().maxLength(2048).use(publicFeedUrl()),
     title: vine.string().trim().minLength(1).maxLength(200),
-    // Plancher à 5 minutes : en dessous, on martèle un serveur tiers pour rien — un flux qui
-    // publie plus souvent que ça n'existe pas.
-    fetchIntervalMinutes: vine.number().min(5).max(10_080).optional(),
+    ...intervalFields,
   })
 )
 
 export const sourceUpdateValidator = vine.compile(
   vine.object({
     title: vine.string().trim().minLength(1).maxLength(200).optional(),
-    fetchIntervalMinutes: vine.number().min(5).max(10_080).optional(),
     active: vine.boolean().optional(),
+    ...intervalFields,
   })
 )
