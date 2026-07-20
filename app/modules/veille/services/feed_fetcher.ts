@@ -57,14 +57,23 @@ export default class FeedFetcher {
 
       const response = await this.request(current, conditional, deadline)
 
-      if (response.status === 304) return { status: 'not-modified' }
+      if (response.status === 304) {
+        await this.drain(response)
+        return { status: 'not-modified' }
+      }
 
       if (response.status >= 300 && response.status < 400) {
+        // ⚠️ Drainé **avant** `nextHop`, qui lève sur trois cas (pas de `Location`, `Location`
+        // illisible, chaîne trop longue). Dans l'autre ordre, la libération serait sautée
+        // précisément sur les chemins d'échec — les plus fréquents chez un agrégateur. Les
+        // en-têtes, eux, restent lisibles après `cancel()`.
+        await this.drain(response)
         current = this.nextHop(response, current, hop)
         continue
       }
 
       if (!response.ok) {
+        await this.drain(response)
         throw new FeedUnavailableError(
           `Le flux a répondu ${response.status} ${response.statusText}.`.trim()
         )
@@ -152,6 +161,23 @@ export default class FeedFetcher {
       throw new FeedUnavailableError(
         `Le flux est injoignable ou n'a pas répondu en moins de ${TIMEOUT_MS / 1000} s.`
       )
+    }
+  }
+
+  /**
+   * Libère la connexion quand on ne lira pas le corps.
+   *
+   * Tant qu'un corps n'est pas drainé, undici garde la connexion dans son pool. Et les réponses
+   * qu'on ne lit pas sont justement les plus fréquentes ici : redirections, 404, 500, 304.
+   *
+   * L'échec du `cancel` est avalé **à dessein** : le flux a pu être interrompu par l'échéance,
+   * auquel cas il est déjà mort. C'est du nettoyage — il n'y a rien à rattraper, et rien à dire.
+   */
+  private async drain(response: Response): Promise<void> {
+    try {
+      await response.body?.cancel()
+    } catch {
+      /* déjà fermé ou interrompu : rien à libérer */
     }
   }
 

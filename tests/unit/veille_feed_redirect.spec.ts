@@ -52,6 +52,10 @@ function bind(server: Server): Promise<void> {
 }
 
 function shut(server: Server): Promise<void> {
+  // ⚠️ `close()` seul n'interrompt PAS les connexions keep-alive déjà établies : il attend
+  // qu'elles se terminent. Avec `forceExit: false` (adonisrc.ts), une socket laissée ouverte
+  // fige `npm test` sans le moindre message.
+  server.closeAllConnections()
   return new Promise((resolve) => server.close(() => resolve()))
 }
 
