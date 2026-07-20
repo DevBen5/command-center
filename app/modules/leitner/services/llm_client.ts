@@ -13,6 +13,12 @@ export interface LlmMessage {
  * ⚠️ Une cible venue d'une requête HTTP est passée par la liste blanche
  * (`llmBaseUrl` dans les validateurs du module) : loopback et plages privées, rien
  * d'autre. Sans elle, ces méthodes seraient une SSRF.
+ *
+ * ⚠️ **Mais la liste blanche ne valide que l'URL saisie, et elle ne suffit donc pas à
+ * elle seule** : elle ne dit rien de la cible d'un `Location`. Un hôte autorisé qui
+ * répond `302` ferait sortir la requête du périmètre. Ce qui la complète est le refus
+ * des redirections (`redirect: 'manual'` + `refuseRedirect`, plus bas) — les deux
+ * ensemble font la garantie, jamais l'une sans l'autre.
  */
 export interface LlmTarget {
   baseUrl: string
@@ -186,6 +192,35 @@ export default class LlmClient {
     }
   }
 
+  /**
+   * Une redirection est un **refus**, jamais un saut — c'est ce qui complète la liste
+   * blanche SSRF.
+   *
+   * ⚠️ `isLocalLlmUrl` ne valide que l'**URL saisie**. Elle ne dit rien de la cible d'un
+   * `Location` : un hôte loopback ou privé, accepté par la liste, qui répond
+   * `302 Location: http://169.254.169.254/…` sortirait du périmètre, et le contenu
+   * récupéré remonterait au client. `redirect: 'manual'` (posé sur les deux `fetch`)
+   * rend la réponse 3xx telle quelle sans jamais appeler la cible ; ce contrôle-ci en
+   * fait une erreur. Un serveur compatible OpenAI n'a aucune redirection légitime.
+   *
+   * ⚠️ **Il est appelé HORS du `try/catch` des deux méthodes, et ça n'est pas un
+   * détail** : dedans, il serait avalé puis ré-écrit en « injoignable ou n'a pas répondu
+   * en moins de N s » — le contraire de ce qui vient de se produire. Le serveur a
+   * répondu, tout de suite ; envoyer chercher une panne réseau ferait perdre la journée
+   * de qui a un reverse-proxy qui redirige.
+   */
+  private refuseRedirect(response: Response, baseUrl: string): void {
+    if (response.status < 300 || response.status >= 400) return
+
+    const location = response.headers.get('location')
+
+    throw new LlmUnavailableError(
+      `Le serveur LLM (${baseUrl}) a répondu par une redirection (${response.status}` +
+        `${location ? ` vers ${location}` : ''}), refusée : la cible d'une redirection ` +
+        `n'est pas vérifiée par la liste blanche. Renseigne directement l'URL finale.`
+    )
+  }
+
   /** Un échec réseau (serveur éteint) et un dépassement de délai sont la même erreur ici. */
   private async post(
     config: LlmConfig,
@@ -193,8 +228,10 @@ export default class LlmClient {
     json: boolean,
     tuning: { temperature: number; timeoutMs: number }
   ): Promise<Response> {
+    let response: Response
+
     try {
-      return await fetch(`${config.baseUrl}/chat/completions`, {
+      response = await fetch(`${config.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -206,6 +243,9 @@ export default class LlmClient {
           temperature: tuning.temperature,
           ...(json ? { response_format: { type: 'json_object' } } : {}),
         }),
+        // ⚠️ Le défaut d'undici est `follow` (20 sauts) : ce choix s'écrit, il ne
+        // s'hérite pas. Voir `refuseRedirect`.
+        redirect: 'manual',
         signal: AbortSignal.timeout(tuning.timeoutMs),
       })
     } catch {
@@ -214,15 +254,22 @@ export default class LlmClient {
           `en moins de ${Math.round(tuning.timeoutMs / 1000)} s.`
       )
     }
+
+    this.refuseRedirect(response, config.baseUrl)
+
+    return response
   }
 
   /** Lecture seule, et **délai de sonde** : c'est le diagnostic, pas une génération. */
   private async get(baseUrl: string, path: string): Promise<Response> {
     const url = `${normalizeBaseUrl(baseUrl)}${path}`
+    let response: Response
 
     try {
-      return await fetch(url, {
+      response = await fetch(url, {
         headers: this.config.apiKey ? { authorization: `Bearer ${this.config.apiKey}` } : {},
+        // Même raison que dans `post()` : la liste blanche ne couvre pas un `Location`.
+        redirect: 'manual',
         signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
       })
     } catch {
@@ -231,5 +278,9 @@ export default class LlmClient {
           `${PROBE_TIMEOUT_MS / 1000} s.`
       )
     }
+
+    this.refuseRedirect(response, normalizeBaseUrl(baseUrl))
+
+    return response
   }
 }
