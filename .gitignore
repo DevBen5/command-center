@@ -27,3 +27,7 @@ yarn-error.log
 
 # Platform specific
 .DS_Store
+
+# Claude Code — les skills du projet sont versionnés, l'état local ne l'est pas
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
