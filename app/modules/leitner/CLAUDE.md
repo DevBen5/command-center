@@ -142,6 +142,17 @@ parenthèses** — sans elles, Vue passe l'événement en `keepOpen` et la modal
 
 ## La portée d'une session : `/revision` a deux visages
 
+⚠️ **Trois noms pour une même chose, et c'est délibéré.** À l'écran on dit **« paquet »** — le
+mot des cartes mémoire, celui d'Anki, compris sans explication. Dans le code et l'URL on dit
+**`scope`** (`CardScope`, `applyScope`, `?scope=all`). Cette doc dit **« portée »**, parce qu'elle
+raisonne sur le concept, pas sur son étiquette.
+
+Ne « corrige » pas l'un pour aligner l'autre : renommer `scope` casserait l'URL, qui est un
+contrat ; et remplacer « paquet » par « portée » à l'écran remettrait un mot d'ingénieur devant
+quelqu'un qui veut juste réviser Docker. Ce qu'il faut, en revanche, c'est que **les chaînes
+visibles restent en « paquet »** — elles vivent dans `pages/index.vue`, `components/LeitnerScopeSearch.vue`
+et les `SCOPE_ERRORS` de `leitner_controller.ts`.
+
 `/revision` **nu** est l'écran de **choix** (que réviser ce soir ?) ; `/revision?scope=all`,
 `?scope=unclassified`, `?category=<id>` ou `?theme=<id>` est la **session**, restreinte à cette
 portée. Une seule page Inertia (`modules/leitner/index`), un prop `view` qui tranche — d'où le fait

@@ -154,7 +154,7 @@ function dueLabel(count: number): string {
       <button
         type="button"
         tabindex="-1"
-        :aria-label="open ? 'Replier la liste' : 'Déplier toutes les portées'"
+        :aria-label="open ? 'Replier la liste' : 'Déplier tous les paquets'"
         class="shrink-0 text-txt-3 transition hover:text-accent"
         @mousedown.prevent="toggle"
       >

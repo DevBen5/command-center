@@ -270,7 +270,7 @@ function grade(g: Grade): void {
         aujourd'hui
       </div>
       <div v-if="scope" class="mt-0.5 flex items-center gap-2 text-[11.5px] text-txt-3">
-        <span>Portée : {{ scope.label }}</span>
+        <span>Paquet : {{ scope.label }}</span>
         <Link href="/revision" class="text-accent transition hover:opacity-80">changer</Link>
       </div>
     </div>
@@ -461,15 +461,15 @@ function grade(g: Grade): void {
       class="flex min-h-[230px] flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed border-line-2 bg-bg-2 p-9 text-center"
     >
       <template v-if="scope?.finished">
-        <div class="text-[16px] font-semibold text-ok">Portée terminée — {{ scope.label }}</div>
+        <div class="text-[16px] font-semibold text-ok">Paquet terminé — {{ scope.label }}</div>
         <div class="max-w-[380px] text-[12.5px] text-txt-2">
           Plus aucune carte due ici, y compris celles que vous avez revues à l'instant.
         </div>
       </template>
       <template v-else>
-        <div class="text-[16px] font-semibold">Rien à réviser dans cette portée</div>
+        <div class="text-[16px] font-semibold">Rien à réviser dans ce paquet</div>
         <div class="max-w-[380px] text-[12.5px] text-txt-2">
-          {{ scope?.label }} n'a aucune carte due aujourd'hui. Choisissez une autre portée, ou
+          {{ scope?.label }} n'a aucune carte due aujourd'hui. Choisissez un autre paquet, ou
           revenez demain.
         </div>
       </template>
@@ -479,7 +479,7 @@ function grade(g: Grade): void {
           href="/revision"
           class="rounded-[10px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white transition hover:opacity-90"
         >
-          Choisir une autre portée
+          Choisir un autre paquet
         </Link>
         <Link
           href="/"

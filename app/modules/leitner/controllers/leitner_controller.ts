@@ -24,8 +24,8 @@ import {
  * string>` laisserait passer l'oubli, et l'utilisateur lirait un flash `undefined`.
  */
 const SCOPE_ERRORS: Record<ScopeRefusal | 'malformed', string> = {
-  'malformed': 'Portée de révision invalide.',
-  'combined': 'Une catégorie ou un thème, pas les deux : choisissez une seule portée.',
+  'malformed': 'Paquet de révision invalide.',
+  'combined': 'Une catégorie ou un thème, pas les deux : choisissez un seul paquet.',
   'unknown-theme': "Ce thème n'existe plus.",
   'unknown-category': "Cette catégorie n'existe plus.",
 }
