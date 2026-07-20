@@ -4,6 +4,8 @@ import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerSettings from '#modules/leitner/models/leitner_settings'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
+import { isUsableMeasure } from '#modules/leitner/services/leitner_fluency'
+import LeitnerFluencyService from '#modules/leitner/services/leitner_fluency_service'
 import { ALL_CARDS, applyScope, type CardScope } from '#modules/leitner/services/leitner_scope'
 
 // Intervalle (en jours) avant la prochaine révision, selon la boîte **atteinte**
@@ -275,8 +277,9 @@ export default class LeitnerService {
    * Hors `again`, `next_review` = aujourd'hui + l'intervalle de la boîte atteinte.
    * La boîte est plafonnée à 5.
    *
-   * ⚠️ **`answer`/`verdict`/`latencyMs` sont de l'HISTORIQUE, pas des entrées de la
-   * règle.** Aucune ligne de cette méthode ne les lit : la note reste le seul moteur du
+   * ⚠️ **Tout ce qui accompagne la note est de l'HISTORIQUE, pas une entrée de la
+   * règle.** Aucune ligne de cette méthode ne lit `answer`, `verdict`, `latencyMs` ni
+   * les mesures de fluence pour décider d'une boîte : la note reste le seul moteur du
    * module. Un `verdict: 'faux'` avec `grade: 'easy'` s'enregistre tel quel — c'est même
    * le cas que le ticket demande de garantir. Si un jour ce couple pilotait la boîte,
    * `again` cesserait de vouloir dire « remets-la moi » et la règle métier serait à
@@ -292,9 +295,20 @@ export default class LeitnerService {
       answer?: string | null
       verdict?: Verdict | null
       latencyMs?: number | null
+      thinkingMs?: number | null
+      totalMs?: number | null
+      interrupted?: boolean
     } = {}
   ): Promise<LeitnerCard> {
     const intervals = await this.boxIntervals()
+    const answer = judgment.answer?.trim() || null
+
+    // ⚠️ **AVANT l'insertion, et l'ordre n'est pas négociable.** Cette question compte
+    // les révisions déjà enregistrées aujourd'hui pour cette carte : posée après le
+    // `create()` ci-dessous, elle répondrait « oui » y compris sur une première
+    // présentation, et **plus aucune mesure ne serait jamais écrite** — sans erreur,
+    // sans log, avec une colonne éternellement vide et un lot qui paraît livré.
+    const thinkingMs = await this.usableThinkingMs(card, answer, judgment)
 
     card.box = await this.nextBox(card, grade)
     card.nextReview =
@@ -307,13 +321,50 @@ export default class LeitnerService {
       // Une réponse vide n'est pas une réponse : `null`, comme les révisions d'avant ce
       // lot. `verdict` reste `null` quand aucun juge n'a tranché — « jamais jugé » et
       // « jugé faux » ne doivent pas se confondre en base.
-      answer: judgment.answer?.trim() || null,
+      answer,
       verdict: judgment.verdict ?? null,
       latencyMs: judgment.latencyMs ?? null,
+      thinkingMs,
+      // Le temps total, lui, s'écrit toujours : c'est de l'observation, aucune règle ne
+      // le lit. Il dit surtout la longueur de la réponse tapée — voir la migration.
+      totalMs: judgment.totalMs ?? null,
       reviewedAt: DateTime.now(),
     })
 
     return card
+  }
+
+  /**
+   * Le temps de réflexion, **ou `null` s'il n'est comparable à rien**.
+   *
+   * ⚠️ **Les trois conditions d'`isUsableMeasure` gouvernent ici l'écriture et, dans
+   * `LeitnerFluencyService`, la proposition — elles ne peuvent pas diverger.** Écrire la
+   * mesure d'une re-présentation ferait dériver la médiane de la carte vers le bas
+   * (mémoire de travail), et une carte mal sue finirait par se voir proposer `easy` :
+   * exactement ce que ce lot existe pour empêcher. C'est ce couplage qui autorise à
+   * relire `thinking_ms` sans jamais filtrer.
+   *
+   * S'y ajoute **une quatrième condition, propre à l'écriture** : une révision sans
+   * réponse écrite n'est pas retenue — dévoiler sans rien taper n'est pas une tentative
+   * de rappel, et l'inclure mélangerait deux populations dans la même colonne. La
+   * proposition n'a pas à la connaître : le juge n'est jamais appelé sans réponse.
+   */
+  private async usableThinkingMs(
+    card: LeitnerCard,
+    answer: string | null,
+    judgment: { thinkingMs?: number | null; interrupted?: boolean }
+  ): Promise<number | null> {
+    if (answer === null || judgment.thinkingMs === null || judgment.thinkingMs === undefined) {
+      return null
+    }
+
+    const measure = {
+      thinkingMs: judgment.thinkingMs,
+      interrupted: judgment.interrupted ?? false,
+      represented: await new LeitnerFluencyService().wasPresentedToday(card.id),
+    }
+
+    return isUsableMeasure(measure) ? measure.thinkingMs : null
   }
 
   /** Boîte atteinte par la carte pour cette note, avant enregistrement. */

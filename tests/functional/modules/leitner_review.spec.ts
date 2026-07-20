@@ -251,4 +251,205 @@ test.group('Leitner / file de révision', (group) => {
     // révision. C'est aussi ce qui rend un double-clic sans conséquence en base.
     assert.lengthOf(await LeitnerReview.query().where('leitner_card_id', card.id), 0)
   })
+
+  /*
+  |----------------------------------------------------------------------------
+  | Le timer fantôme : la fluence AFFINE la proposition, elle ne la décide pas
+  |----------------------------------------------------------------------------
+  | Le juge laisse `hard`, `good` et `easy` indistincts — tous trois sont « juste »
+  | pour lui. Le temps jusqu'à la première frappe récupère la nuance, à trois
+  | conditions sans lesquelles la mesure ment. Ces conditions sont les trois
+  | critères de succès du ticket, et les voici bout en bout.
+  |
+  | La règle elle-même est prouvée unitairement (`tests/unit/leitner_fluency.spec.ts`,
+  | du code pur) : ce qui se joue ici est le **branchement** — la référence lue en
+  | base, la re-présentation tranchée côté serveur, et ce qui finit vraiment écrit.
+  */
+
+  /** Des mesures passées, donc jamais des re-présentations du jour. */
+  async function withFluencyHistory(card: LeitnerCard, thinkingMs: number, count: number) {
+    for (let index = 0; index < count; index++) {
+      await LeitnerReview.create({
+        leitnerCardId: card.id,
+        grade: 'good',
+        thinkingMs,
+        reviewedAt: DateTime.now().minus({ days: index + 1 }),
+      })
+    }
+  }
+
+  /** Le verso exact court-circuite le juge : verdict « juste », et aucun LLM à brancher. */
+  function judge(client: any, user: User, card: LeitnerCard, measure: any) {
+    return client
+      .post(`/revision/${card.id}/judge`)
+      .json({ answer: 'Verso', ...measure })
+      .loginAs(user)
+      .withCsrfToken()
+  }
+
+  test('une réponse juste ET très rapide fait proposer `easy`', async ({ client }) => {
+    const user = await login()
+    const card = await makeCard('Bien sue', 2)
+    // Cinq mesures : la carte devient sa propre référence, médiane 10 s.
+    await withFluencyHistory(card, 10_000, 5)
+
+    const response = await judge(client, user, card, { thinkingMs: 3_000, totalMs: 6_000 })
+
+    response.assertStatus(200)
+    // Sans le chrono, CC-43 s'arrêtait à `good` sur tout verdict juste. C'est la nuance
+    // que ce lot récupère — et elle reste une SUGGESTION, pas une note appliquée.
+    response.assertBodyContains({ verdict: 'juste', suggestedGrade: 'easy' })
+  })
+
+  test('une carte qui ne se connaît pas encore se compare à sa boîte', async ({ client }) => {
+    const user = await login()
+    const known = await makeCard('Voisine de boîte', 2)
+    await withFluencyHistory(known, 10_000, 20)
+    // La cible n'a aucune mesure à elle : c'est la médiane de la boîte qui sert.
+    const card = await makeCard('Nouvelle en boîte 2', 2)
+
+    const response = await judge(client, user, card, { thinkingMs: 3_000, totalMs: 6_000 })
+
+    response.assertStatus(200)
+    // ⚠️ Ce test existe pour la **jointure**, pas pour la règle (prouvée unitairement) :
+    // une relation mal nommée rendrait zéro ligne, donc « aucune référence », donc la
+    // présélection de CC-43 — un repli parfaitement silencieux, et le lot ne servirait
+    // jamais tant qu'une carte n'a pas 5 mesures à elle.
+    response.assertBodyContains({ verdict: 'juste', suggestedGrade: 'easy' })
+  })
+
+  test('une carte re-présentée dans la journée n’est jamais proposée `easy`', async ({
+    client,
+  }) => {
+    const user = await login()
+    const card = await makeCard('Ratée puis redonnée', 2)
+    await withFluencyHistory(card, 10_000, 5)
+    // ⚠️ Le premier critère du ticket. `again` a laissé la carte due le jour même : la
+    // seconde réponse est rapide par **mémoire de travail**, pas par apprentissage.
+    // La proposer `easy` reviendrait à promouvoir une carte qu'on vient de rater.
+    await review(client, user, card, 'again')
+
+    const response = await judge(client, user, card, { thinkingMs: 300, totalMs: 800 })
+
+    response.assertStatus(200)
+    // Même mesure absurde de rapidité qu'au test précédent : c'est la re-présentation,
+    // et elle seule, qui fait retomber sur la présélection de CC-43.
+    response.assertBodyContains({ verdict: 'juste', suggestedGrade: 'good' })
+  })
+
+  test('une carte sans historique retombe sur la présélection de CC-43', async ({ client }) => {
+    const user = await login()
+    const card = await makeCard('Jamais mesurée', 1)
+
+    const response = await judge(client, user, card, { thinkingMs: 200, totalMs: 500 })
+
+    response.assertStatus(200)
+    // ⚠️ Le deuxième critère du ticket. Sans référence, il n'y a rien à comparer : le
+    // lot doit être **indiscernable de son absence** — pas de badge, pas de message.
+    response.assertBodyContains({ verdict: 'juste', suggestedGrade: 'good' })
+  })
+
+  test('une perte de focus écarte la mesure au lieu de l’historiser', async ({
+    client,
+    assert,
+  }) => {
+    const user = await login()
+    const card = await makeCard('Interrompue', 2)
+
+    // ⚠️ Le troisième critère du ticket. Le téléphone a sonné pendant la réflexion.
+    //
+    // ⚠️ **40 s, et surtout PAS 400 s** : au-delà du plafond de 120 s, la mesure serait
+    // écartée de toute façon et ce test passerait même si le drapeau `interrupted`
+    // n'était plus lu nulle part. Ici elle est parfaitement plausible : seul le drapeau
+    // l'écarte.
+    await review(client, user, card, 'good', {
+      answer: 'Une réponse écrite après l’interruption.',
+      thinkingMs: 40_000,
+      totalMs: 55_000,
+      interrupted: true,
+    })
+
+    const saved = await LeitnerReview.query().where('leitner_card_id', card.id).firstOrFail()
+    // `null` = « mesure inexploitable », jamais « instantané ». Sans ça, cette valeur
+    // polluerait la médiane de la carte et lui vaudrait `hard` pendant des semaines.
+    assert.isNull(saved.thinkingMs)
+    // Le temps total, lui, s'écrit toujours : c'est de l'observation, aucune règle ne
+    // le lit. Il permettra de vérifier après coup que mesurer la 1ʳᵉ frappe était juste.
+    assert.equal(saved.totalMs, 55_000)
+  })
+
+  test('une interruption annoncée au juge annule aussi le raffinement', async ({ client }) => {
+    const user = await login()
+    const card = await makeCard('Interrompue puis jugée', 2)
+    await withFluencyHistory(card, 10_000, 5)
+
+    // 40 s contre une médiane de 10 s : sans le drapeau, ce serait `hard`. Ce test
+    // couvre le **câblage** du drapeau de bout en bout — page → validateur → `suggest` —
+    // que l'unitaire ne voit pas.
+    const response = await judge(client, user, card, {
+      thinkingMs: 40_000,
+      totalMs: 55_000,
+      interrupted: true,
+    })
+
+    response.assertStatus(200)
+    response.assertBodyContains({ verdict: 'juste', suggestedGrade: 'good' })
+  })
+
+  test('une première présentation répondue historise bien sa mesure', async ({
+    client,
+    assert,
+  }) => {
+    const user = await login()
+    const card = await makeCard('Première du jour', 1)
+
+    await review(client, user, card, 'good', {
+      answer: 'Ma réponse.',
+      thinkingMs: 7_500,
+      totalMs: 21_000,
+    })
+
+    const saved = await LeitnerReview.query().where('leitner_card_id', card.id).firstOrFail()
+    // ⚠️ Le test de l'ordre d'écriture : la question « déjà présentée aujourd'hui ? »
+    // compte les révisions existantes, donc elle DOIT être posée avant l'insertion.
+    // Posée après, elle répondrait toujours « oui » — et cette colonne resterait
+    // éternellement vide, sans une erreur ni un log.
+    assert.equal(saved.thinkingMs, 7_500)
+    assert.equal(saved.totalMs, 21_000)
+  })
+
+  test('la mesure d’une re-présentation n’entre pas dans l’historique', async ({
+    client,
+    assert,
+  }) => {
+    const user = await login()
+    const card = await makeCard('Redonnée dans la session', 2)
+
+    await review(client, user, card, 'again', { answer: 'Raté.', thinkingMs: 20_000 })
+    await review(client, user, card, 'good', { answer: 'Su, cette fois.', thinkingMs: 900 })
+
+    const saved = await LeitnerReview.query().where('leitner_card_id', card.id).orderBy('id', 'asc')
+
+    // ⚠️ **Le même filtre gouverne l'affichage et l'écriture, et les deux ne peuvent
+    // pas diverger.** Retenir les 900 ms de la seconde tentative ferait dériver la
+    // médiane de la carte vers le bas, et une carte mal sue finirait par se voir
+    // proposer `easy` : exactement ce que ce lot existe pour empêcher. C'est ce
+    // couplage qui permet de relire `thinking_ms` sans jamais filtrer.
+    assert.equal(saved[0].thinkingMs, 20_000)
+    assert.isNull(saved[1].thinkingMs)
+  })
+
+  test('une révision sans réponse écrite ne mesure rien', async ({ client, assert }) => {
+    const user = await login()
+    const card = await makeCard('Dévoilée sans répondre', 1)
+
+    // Dévoiler sans rien taper n'est pas une tentative de rappel : l'inclure
+    // mélangerait deux populations dans la même colonne — le reproche fait à
+    // `latency_ms`, qu'on ne refait pas ici.
+    await review(client, user, card, 'good', { thinkingMs: 4_000, totalMs: 9_000 })
+
+    const saved = await LeitnerReview.query().where('leitner_card_id', card.id).firstOrFail()
+    assert.isNull(saved.thinkingMs)
+    assert.equal(saved.totalMs, 9_000)
+  })
 })

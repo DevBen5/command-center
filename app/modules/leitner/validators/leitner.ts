@@ -1,6 +1,7 @@
 import vine from '@vinejs/vine'
 import type { FieldContext } from '@vinejs/vine/types'
 import { DateTime } from 'luxon'
+import { MEASURE_MAX_MS } from '#modules/leitner/services/leitner_fluency'
 
 /**
  * Création / édition d'une carte. `leitnerThemeId` est optionnel : une carte
@@ -28,13 +29,20 @@ export const ANSWER_MAX_CHARS = 2_000
  * normal — un `verdict: 'faux'` enregistré avec `grade: 'easy'` : le juge propose,
  * l'utilisateur dispose.
  *
- * ⚠️ **`verdict` et `latencyMs` sont DÉCLARATIFS.** Le jugement et la note sont deux
- * requêtes : la seconde porte ce que le client annonce, et rien ne prouve qu'un juge
- * l'a réellement dit. C'est la même doctrine que `source`/`sourceName` de l'ingestion
- * (bornés, jamais interprétés, seulement stockés puis affichés), et elle tient pour la
- * même raison : ces champs **ne calculent rien**. Le dégât maximal est une ligne qui
- * ment dans son propre historique, sur un tableau de bord mono-utilisateur. Ne bâtis
- * jamais une règle métier dessus — c'est à ce moment-là que ça deviendrait un problème.
+ * ⚠️ **Tout ce qui accompagne `grade` est DÉCLARATIF.** Juger, chronométrer et noter
+ * sont des requêtes distinctes : la dernière porte ce que le client annonce, et rien ne
+ * prouve qu'un juge ou un chrono l'a réellement dit. Pour `verdict` et `latencyMs`,
+ * c'est la doctrine de `source`/`sourceName` de l'ingestion (bornés, jamais interprétés,
+ * seulement stockés puis affichés), et elle tient pour la même raison : ces champs **ne
+ * calculent rien**.
+ *
+ * ⚠️ **`thinkingMs` fait exception, et il faut le savoir** : il choisit le bouton mis en
+ * avant, et il alimente la référence des propositions futures. Ce qui le rend acceptable
+ * est plus étroit — la proposition n'est **jamais appliquée sans confirmation**, la
+ * valeur est bornée ici, et un client qui mentirait ne dégraderait que **ses propres**
+ * suggestions, sur un tableau de bord mono-utilisateur. Voir `leitner_fluency.ts`. Le
+ * jour où une règle lirait cette colonne pour décider d'une boîte, c'est ce
+ * raisonnement-là qu'il faudrait rouvrir.
  */
 export const reviewValidator = vine.compile(
   vine.object({
@@ -46,8 +54,31 @@ export const reviewValidator = vine.compile(
       .optional(),
     // Une durée, pas une date : bornée large, elle n'est qu'une mesure historisée.
     latencyMs: vine.number().withoutDecimals().min(0).max(600_000).nullable().optional(),
+    ...fluencyMeasureFields(),
   })
 )
+
+/**
+ * Le chrono fantôme, tel que la page l'annonce. Les trois champs voyagent ensemble sur
+ * `judge` comme sur `review` : la proposition et l'historisation doivent se décider sur
+ * exactement la même mesure, sans quoi l'écran suggérerait sur une base et la base en
+ * garderait une autre.
+ *
+ * ⚠️ **`MEASURE_MAX_MS` n'est pas un plafond de vraisemblance, c'est un plafond de
+ * transport** — et il existe pour qu'une mesure absurde ne fasse jamais **échouer une
+ * note**. Un onglet laissé ouvert trois heures produit un temps total de onze millions
+ * de millisecondes : sous une borne plus serrée, `POST /review` partirait en 422 et
+ * l'utilisateur cliquerait une note sans que rien ne se passe. La page écrête **avant**
+ * l'envoi ; le seuil réellement exploitable (`MAX_THINKING_MS`, 120 s) est appliqué plus
+ * loin, dans la règle, et non ici.
+ */
+function fluencyMeasureFields() {
+  return {
+    thinkingMs: vine.number().withoutDecimals().min(0).max(MEASURE_MAX_MS).nullable().optional(),
+    totalMs: vine.number().withoutDecimals().min(0).max(MEASURE_MAX_MS).nullable().optional(),
+    interrupted: vine.boolean().optional(),
+  }
+}
 
 /**
  * La réponse à juger. Le texte est **du contenu non fiable** — il finit dans un prompt,
@@ -62,6 +93,9 @@ export const reviewValidator = vine.compile(
 export const judgeValidator = vine.compile(
   vine.object({
     answer: vine.string().trim().maxLength(ANSWER_MAX_CHARS),
+    // Le chrono fantôme affine la proposition — jamais la note appliquée. La carte
+    // ayant déjà été notée aujourd'hui, elle, se relit en base : la page n'en sait rien.
+    ...fluencyMeasureFields(),
   })
 )
 

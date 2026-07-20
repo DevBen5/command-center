@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import LeitnerScopePicker from '../components/LeitnerScopePicker.vue'
@@ -102,6 +102,127 @@ const judgeUnavailable = ref(false)
 const suggestedGrade = ref<Grade | null>(null)
 const latencyMs = ref<number | null>(null)
 
+/*
+|----------------------------------------------------------------------------
+| Le chrono fantôme : il mesure, il n'affiche RIEN, il ne décide de rien
+|----------------------------------------------------------------------------
+| Le temps de réponse est un proxy réel de la force du souvenir : c'est lui qui
+| récupère les trois nuances que le juge ne distingue pas (`hard`, `good` et `easy`
+| sont tous « juste » pour lui).
+|
+| ⚠️ **Il ne s'affiche jamais, et c'est le sens du mot « fantôme ».** Un chrono
+| visible change le comportement qu'il prétend mesurer — il stresse et fait bâcler
+| la réponse. Ne l'expose pas « pour que l'utilisateur comprenne la suggestion ».
+|
+| ⚠️ **On mesure jusqu'à la PREMIÈRE FRAPPE, pas jusqu'au dévoilement.** Le temps
+| total est dominé par la longueur de la réponse à taper, pas par la difficulté du
+| rappel : un verso en prose coûte quarante secondes même parfaitement su. Une fois
+| qu'on tape, on sait. Le total est transmis quand même, en donnée d'observation,
+| et aucune règle ne le lit.
+|
+| ⚠️ **Cette page ne conclut rien.** Elle chronomètre et transmet ; c'est le serveur
+| qui décide si la mesure est exploitable (`leitner_fluency.ts`) — y compris la
+| condition qu'elle ne peut pas connaître : la carte a-t-elle déjà été notée
+| aujourd'hui ?
+*/
+
+/**
+ * Plafond de **transport**, dupliqué depuis `services/leitner_fluency.ts` — et la
+ * duplication est subie, pas choisie : un `.ts` de `app/modules/` s'importe par l'alias
+ * `#modules/*`, que Vite ne résout pas en dev (il pointe vers des `.js` compilés). C'est
+ * la même raison qui fait importer `leitner_csrf` relativement.
+ *
+ * ⚠️ **L'invariant à tenir : cette valeur reste ≤ celle du validateur.** Au-dessus, une
+ * mesure passerait ici et serait refusée là-bas — `POST /review` partirait en 422, et
+ * l'utilisateur cliquerait une note sans que rien ne se passe. En dessous, on perd
+ * seulement de la précision sur une donnée d'observation : sans conséquence.
+ */
+const MEASURE_MAX_MS = 3_600_000
+
+const presentedAt = ref(Date.now())
+/**
+ * ⚠️ **`document.hidden` est lu à l'arrivée de la carte, pas seulement écouté.**
+ * `visibilitychange` ne signale qu'une **transition** : une carte présentée dans un
+ * onglet déjà en arrière-plan (ctrl+clic, restauration de session, ou simplement la note
+ * suivante qui arrive pendant qu'on est ailleurs) n'émettrait aucun événement. On
+ * reviendrait une minute plus tard, sous le plafond de 120 s, et « Difficile » serait
+ * proposé — puis historisé — sur une carte parfaitement sue.
+ */
+const hiddenAtPresentation = () => typeof document !== 'undefined' && document.hidden
+/** `null` tant que rien n'a été tapé : c'est cette absence qui vaut « non mesurable ». */
+const firstInputAt = ref<number | null>(null)
+/**
+ * Le dévoilement **fige** le temps total. Sans ça, la note l'inclurait aussi la lecture
+ * du verso — et la colonne d'observation mesurerait deux choses à la fois, exactement le
+ * reproche fait à `latency_ms`.
+ */
+const revealedAt = ref<number | null>(null)
+/** Le document a été masqué ou la fenêtre défocalisée **avant** la première frappe. */
+const interrupted = ref(hiddenAtPresentation())
+
+/** La première frappe, et elle seule : les suivantes ne disent plus rien du rappel. */
+function markFirstInput(): void {
+  if (firstInputAt.value === null) firstInputAt.value = Date.now()
+}
+
+/**
+ * Une interruption ne compte que **pendant la réflexion**. Après la première frappe,
+ * le rappel a déjà eu lieu : partir répondre au téléphone ne fausse plus rien.
+ *
+ * ⚠️ Ces deux écouteurs ne suffisent pas, et ce n'est pas grave : `visibilitychange`
+ * ne se déclenche pas quand on bascule vers une autre application (l'onglet reste
+ * visible), et *rien* ne se déclenche quand on se détourne simplement de l'écran. Le
+ * vrai filet est le plafond de 120 s appliqué côté serveur ; ceci n'attrape que ce
+ * qu'un navigateur sait dire.
+ */
+function markInterrupted(): void {
+  if (firstInputAt.value === null) interrupted.value = true
+}
+
+function onVisibilityChange(): void {
+  if (document.hidden) markInterrupted()
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  window.addEventListener('blur', markInterrupted)
+})
+
+// ⚠️ Sans ce retrait, les écouteurs survivent à une navigation Inertia et s'empilent
+// à chaque retour sur /revision — le même piège que le `setInterval` d'`ingest_show`.
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  window.removeEventListener('blur', markInterrupted)
+})
+
+/**
+ * Une durée écrêtée, ou **`null` si elle n'a pas de sens**.
+ *
+ * ⚠️ **Une durée négative se rend `null`, surtout pas `0`.** Une correction NTP, une
+ * reprise de machine virtuelle ou un changement d'heure manuel entre l'affichage et la
+ * frappe recule l'horloge : ramener ça à zéro donnerait la **meilleure valeur possible**,
+ * donc `easy` proposé et un `0` écrit en base qui tirerait la médiane de la carte vers le
+ * bas durablement. Une mesure qu'on n'a pas ne vaut pas zéro.
+ *
+ * ⚠️ **L'écrêtage haut n'est pas cosmétique non plus.** Un onglet laissé ouvert trois
+ * heures donne onze millions de millisecondes ; envoyé tel quel, le validateur refuserait
+ * et `POST /review` partirait en 422 — l'utilisateur cliquerait une note sans que rien ne
+ * se passe.
+ */
+function duration(from: number, to: number): number | null {
+  const elapsed = to - from
+  return elapsed < 0 ? null : Math.min(MEASURE_MAX_MS, elapsed)
+}
+
+/** Les mesures à transmettre : c'est le serveur qui juge de leur validité, et lui seul. */
+function fluencyMeasure() {
+  return {
+    thinkingMs: firstInputAt.value === null ? null : duration(presentedAt.value, firstInputAt.value),
+    totalMs: duration(presentedAt.value, revealedAt.value ?? Date.now()),
+    interrupted: interrupted.value,
+  }
+}
+
 /**
  * ⚠️ **Tout l'état de la carte en cours se remet à zéro à CHAQUE réponse du serveur.**
  * Deux raisons, et la seconde est un piège :
@@ -119,6 +240,13 @@ const latencyMs = ref<number | null>(null)
  * D'où la source : la **référence** de `dueCards`, qu'Inertia renouvelle à chaque
  * réponse. Une note remet donc l'écran à zéro, que la carte change ou non.
  * N'ajoute jamais un `ref` de jugement sans l'ajouter ici aussi.
+ *
+ * ⚠️ **Le chrono est encore plus sensible que le jugement à cet oubli.** Un
+ * `presentedAt` qui survivrait donnerait une durée énorme — mesure écartée, dégât nul.
+ * Mais un `firstInputAt` qui survivrait donnerait une durée **quasi nulle**, donc
+ * `easy` proposé sur la carte qu'on vient de rater : exactement ce que ce lot existe
+ * pour empêcher. (Le serveur reste un second rempart — une carte déjà notée
+ * aujourd'hui n'est jamais affinée — mais on ne s'en remet pas à lui.)
  */
 watch(
   () => props.dueCards,
@@ -131,6 +259,11 @@ watch(
     judgeUnavailable.value = false
     suggestedGrade.value = null
     latencyMs.value = null
+    presentedAt.value = Date.now()
+    firstInputAt.value = null
+    revealedAt.value = null
+    // Pas `false` : la carte peut arriver dans un onglet déjà masqué (voir plus haut).
+    interrupted.value = hiddenAtPresentation()
   }
 )
 
@@ -146,6 +279,9 @@ watch(
 async function reveal(): Promise<void> {
   if (judging.value) return
   revealed.value = true
+  // Le temps total se fige ici, avant tout appel : au-delà, on mesurerait la lecture
+  // du verso. Il n'est ré-armé que par le `watch` sur `dueCards`.
+  revealedAt.value ??= Date.now()
 
   const card = currentCard.value
   const submitted = answer.value.trim()
@@ -162,7 +298,9 @@ async function reveal(): Promise<void> {
         // Shield : sans cet en-tête, le POST part en 403 (et pas `x-csrf-token`).
         'x-xsrf-token': xsrfToken(),
       },
-      body: JSON.stringify({ answer: submitted }),
+      // Le chrono part avec la réponse : la proposition et l'historisation doivent se
+      // décider sur exactement la même mesure.
+      body: JSON.stringify({ answer: submitted, ...fluencyMeasure() }),
     })
     if (!response.ok) throw new Error(String(response.status))
 
@@ -250,6 +388,9 @@ function grade(g: Grade): void {
       answer: answer.value.trim() || null,
       verdict: verdict.value,
       latencyMs: latencyMs.value,
+      // La même mesure que celle envoyée au juge — le serveur décide seul si elle est
+      // exploitable, et donc si elle rejoint l'historique.
+      ...fluencyMeasure(),
     },
     { preserveScroll: true }
   )
@@ -375,6 +516,7 @@ function grade(g: Grade): void {
           rows="3"
           placeholder="Votre réponse — écrivez-la avant de révéler le verso"
           class="w-full resize-y rounded-[10px] border border-line-2 bg-bg-2 p-3 text-[13px] text-txt placeholder:text-txt-3 focus:border-accent focus:outline-none disabled:opacity-60"
+          @input="markFirstInput()"
           @keydown.ctrl.enter.prevent="reveal()"
         ></textarea>
       </div>

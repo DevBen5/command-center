@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import type { HttpContext } from '@adonisjs/core/http'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
+import LeitnerFluencyService from '#modules/leitner/services/leitner_fluency_service'
 import LeitnerJudgeService from '#modules/leitner/services/leitner_judge_service'
 import LeitnerService, {
   type ScopeInput,
@@ -171,11 +172,11 @@ export default class LeitnerController {
    * paquet ».
    */
   async review({ params, request, response }: HttpContext) {
-    const { grade, answer, verdict, latencyMs } = await request.validateUsing(reviewValidator)
+    const { grade, ...judgment } = await request.validateUsing(reviewValidator)
     const card = await LeitnerCard.findOrFail(params.id)
     // La note vient de l'utilisateur, le reste est de la trace. `grade` est passé tel
-    // quel : ce n'est pas parce qu'un verdict l'accompagne qu'il le corrige.
-    await new LeitnerService().review(card, grade, { answer, verdict, latencyMs })
+    // quel : ce n'est pas parce qu'un verdict ou un chrono l'accompagne qu'il le corrige.
+    await new LeitnerService().review(card, grade, judgment)
     return response.redirect().withQs().back()
   }
 
@@ -195,13 +196,30 @@ export default class LeitnerController {
    * `verdict: null` + `unavailable: true` en **200** : la révision est le cœur du module,
    * elle ne tombe pas parce que LM Studio est éteint. Un 500 ici casserait le
    * dévoilement — exactement ce que l'attendu « repli obligatoire » interdit.
+   *
+   * ⚠️ **Deux services, et ils ne se confondent pas** : le juge dit la **justesse** et en
+   * déduit un bouton ; la fluence ajoute l'**effort** par-dessus, et seulement sur un
+   * verdict `juste`. Le juge n'appelle aucune base — c'est ce qui le garde testable
+   * contre un faux client — et la fluence n'appelle aucun LLM. Ne les fusionne pas.
    */
   async judge({ params, request, response }: HttpContext) {
-    const { answer } = await request.validateUsing(judgeValidator)
+    const { answer, thinkingMs, interrupted } = await request.validateUsing(judgeValidator)
     // La carte se relit en base : un `front`/`back` venus du client laisseraient juger
     // une carte qui n'existe pas, et feraient de cette route un proxy vers le LLM local.
     const card = await LeitnerCard.findOrFail(params.id)
 
-    return response.json(await this.judgeService.judge(card, answer))
+    const judgment = await this.judgeService.judge(card, answer)
+
+    return response.json({
+      ...judgment,
+      // Le chrono ne fait que déplacer un surlignage : sans mesure exploitable ni
+      // référence, `suggest` rend exactement ce que le juge proposait — en silence.
+      suggestedGrade: await new LeitnerFluencyService().suggest(
+        card,
+        judgment.verdict,
+        judgment.suggestedGrade,
+        { thinkingMs: thinkingMs ?? null, interrupted: interrupted ?? false }
+      ),
+    })
   }
 }
