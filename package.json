@@ -36,6 +36,7 @@
     "@tailwindcss/vite": "^4.3.2",
     "@types/luxon": "^3.7.2",
     "@types/node": "^22.15.18",
+    "@types/sanitize-html": "^2.16.1",
     "@vitejs/plugin-vue": "^6.0.7",
     "eslint": "^9.26.0",
     "hot-hook": "^0.4.0",
@@ -64,6 +65,8 @@
     "luxon": "^3.7.2",
     "pg": "^8.22.0",
     "reflect-metadata": "^0.2.2",
+    "rss-parser": "^3.13.0",
+    "sanitize-html": "^2.17.6",
     "unpdf": "^1.6.2",
     "vue": "^3.5.39",
     "vue-i18n": "^11.4.6"
