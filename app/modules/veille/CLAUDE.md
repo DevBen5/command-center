@@ -19,6 +19,9 @@ models/veille_source.ts                  le robinet · isDue()
 models/veille_item.ts                    ce qui en sort · types article · bookmark · note
 validators/veille.ts                     captureValidator · sourceValidator · sourceUpdateValidator
                                          + isPublicFeedUrl / isBlockedAddress (GARDE SSRF)
+                                         + intervalWithinBounds / resolveIntervalMinutes
+shared/interval.ts                       PUR · toMinutes / fromMinutes / unitBounds
+                                         partagé par le serveur ET la page Vue
 ```
 
 ⚠️ Ce module touche **deux** fichiers hors de son dossier : `start/routes.ts` et
@@ -212,6 +215,50 @@ plusieurs, deux processus feraient le travail en double — sans rien corrompre 
 
 ⚠️ **`timer.unref()`** — sans lui, le timer suffit à retenir le processus.
 
+### La cadence : stockée en minutes, saisie dans l'unité qu'on veut
+
+⚠️ **`fetch_interval_minutes` est une colonne en minutes, et le reste.** La minute est l'unité
+canonique parce que c'est celle que `isDue()` utilise (`plus({ minutes })`). Seules la **saisie** et
+l'**affichage** connaissent les heures et les jours — CC-57 n'a demandé aucune migration.
+
+Stocker un couple (valeur, unité) obligerait le planificateur à convertir à chaque tick et ferait
+coexister deux représentations de la même durée. Elles divergeraient.
+
+**`shared/interval.ts` est pur, et importé des deux côtés** — le validateur et `pages/sources.vue`.
+C'est délibéré : une seconde implémentation côté navigateur serait exactement le moyen de faire
+diverger ce qui s'affiche de ce qui est enregistré. La page l'importe en relatif
+(`../shared/interval.js`) ; Vite bascule le `.js` sur le `.ts`.
+
+⚠️ **L'unité voyage jusqu'au serveur, la page ne convertit JAMAIS avant d'envoyer.** Le payload est
+`{ interval, intervalUnit }`, et c'est `resolveIntervalMinutes` qui fait les minutes. Si la page
+convertissait, le serveur ne verrait plus qu'un nombre de minutes sans aucun moyen de re-valider ce
+que l'utilisateur voulait dire : toute la garde reposerait sur du JavaScript de page.
+
+Le mode d'échec est **asymétrique**, et c'est ce qui le rend dangereux. Un `12` voulant dire 12
+heures et compris comme 12 minutes ne lève rien : 12 passe le plancher de 5, et la source est
+interrogée 5 fois par heure au lieu de 2 fois par jour. Personne ne s'en aperçoit. Le sens inverse
+est inoffensif (2 minutes tombe sous le plancher et se fait refuser). D'où `requiredIfExists` dans
+**les deux sens** : une unité droppée est un refus bruyant, jamais un nombre lu de travers.
+
+⚠️ **`intervalWithinBounds` est la SEULE borne.** Les `.min(5).max(10_080)` ont quitté le schéma —
+ils ne savaient pas dans quelle unité le nombre était écrit. La règle **échoue donc fermée** : une
+unité illisible reporte une erreur, elle ne sort jamais en silence. Sortir en silence laisserait
+passer « 8 jours » (11520 min) sans aucune borne — pire que le bug corrigé. Le test qui poste 8 jours
+et attend un refus est **ce qui garde ce garde** : ne le supprime pas.
+
+⚠️ **`update` ne fait pas `source.merge(payload)`.** Le payload porte `interval`/`intervalUnit`, qui
+ne sont pas des colonnes : `merge` les poserait en propriétés parasites et la cadence ne changerait
+**jamais**, sans erreur. Le merge est explicite, champ par champ.
+
+À la lecture, `fromMinutes` prend la **plus grande unité qui divise exactement** : 90 reste « 90
+minutes » et ne devient pas « 1,5 heure ». Pas de décimale — un arrondi silencieux sur une cadence
+est exactement ce qu'on évite.
+
+⚠️ L'aller-retour n'est **pas** symétrique dans les deux sens, contrairement à ce qu'énonce CC-57.
+`toMinutes(fromMinutes(m)) === m` est vrai pour tout `m` ; `fromMinutes(toMinutes(v, u)) === (v, u)`
+n'est vrai que pour les couples **canoniques** — `fromMinutes(toMinutes(60, 'minutes'))` rend
+`(1, 'hours')`. Les deux propriétés sont testées séparément dans `tests/unit/veille_interval.spec.ts`.
+
 ### Le rafraîchissement manuel : deux comportements, et c'est voulu
 
 - **Une source → synchrone.** C'est le seul moyen de vérifier qu'une source qu'on vient d'ajouter
@@ -307,6 +354,9 @@ pilotait. D'où le helper `asBool`.
   fait qu'un** (contre la base *et* dans une même passe), **un flux en erreur n'empêche pas les
   autres**, le flux à zéro entrée signalé, le 304 qui n'écrase pas le compteur, et surtout
   **l'etag non mémorisé quand l'insert a échoué**.
+- `tests/unit/veille_interval.spec.ts` — **CC-57** : les deux propriétés d'aller-retour (l'universelle
+  et celle qui ne vaut que pour les couples canoniques), la table de lecture (30 · 60 · 90 · 1440 ·
+  2880 · 10080), les bornes par unité, et le wording affiché — qui régresse en silence.
 - `tests/functional/modules/veille_items.spec.ts` — **CC-20** : la recherche plein texte (dont
   l'apostrophe, l'injection SQL et les caractères spéciaux — avec une assertion sur le **résultat**,
   pas seulement sur l'absence de crash), le filtre par tag accentué, `store`, `toggleQueue`,
