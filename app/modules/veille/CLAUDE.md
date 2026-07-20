@@ -20,13 +20,16 @@ models/veille_item.ts                    ce qui en sort · types article · book
 validators/veille.ts                     captureValidator · sourceValidator · sourceUpdateValidator
                                          + isPublicFeedUrl / isBlockedAddress (GARDE SSRF)
                                          + intervalWithinBounds / resolveIntervalMinutes
+                                         + timeOfDay / scheduleFields
 shared/interval.ts                       PUR · toMinutes / fromMinutes / unitBounds
+                                         + parseTimeOfDay / normalizeTimeOfDay / formatSchedule
                                          partagé par le serveur ET la page Vue
 ```
 
-⚠️ Ce module touche **deux** fichiers hors de son dossier : `start/routes.ts` et
+⚠️ Ce module touche **trois** fichiers hors de son dossier : `start/routes.ts`,
 `providers/veille_provider.ts` (déclaré dans `adonisrc.ts` sous `environment: ['web']`, comme le
-provider Leitner). Voir « Le déclenchement » plus bas.
+provider Leitner) et **`config/veille.ts`** (le fuseau des collectes à heure fixe, voir plus bas).
+Voir « Le déclenchement ».
 
 ## `type` dit ce que c'est, `kind` dit d'où ça vient
 
@@ -201,8 +204,9 @@ Leitner : une tâche de fond dans le processus, démarrée par un provider sous 
 (ni `node ace`, ni les tests n'ont de collecte à faire tourner).
 
 `veille_scheduler` regarde **toutes les minutes quelles sources sont dues** — il ne collecte pas tout
-à chaque tick. La cadence réelle est portée par `fetch_interval_minutes`, source par source, et une
-source jamais collectée est due immédiatement (`VeilleSource.isDue`).
+à chaque tick. La cadence réelle est portée source par source (`fetch_interval_minutes`, ou l'heure
+du jour en mode horaire), et une source jamais collectée est due immédiatement
+(`VeilleSource.isDue`).
 
 ⚠️ **Différence assumée avec Leitner : aucun statut « en cours » n'est persisté**, donc **rien à
 balayer au démarrage**. Un redémarrage en pleine passe ne laisse rien de sale : la collecte est
@@ -253,6 +257,89 @@ ne sont pas des colonnes : `merge` les poserait en propriétés parasites et la 
 À la lecture, `fromMinutes` prend la **plus grande unité qui divise exactement** : 90 reste « 90
 minutes » et ne devient pas « 1,5 heure ». Pas de décimale — un arrondi silencieux sur une cadence
 est exactement ce qu'on évite.
+
+### L'horaire mural : le second mode, et pourquoi ce n'en est pas un troisième réglage
+
+⚠️ **Une source a deux modes d'ordonnancement, discriminés en base par `schedule_mode`** —
+`interval` (la cadence historique) et `daily` (« tous les jours à 7h », dans `daily_at`).
+
+Ce n'est **pas** une unité de plus dans le sélecteur de CC-57. Un intervalle **dérive** : chaque
+collecte en retard — redémarrage, passe lente, garde `running` qui saute un tick — décale toutes
+les suivantes, et le « tous les jours » de 7h passe à 8h30 en une semaine. Un horaire mural se
+**réancre** chaque jour au lieu d'accumuler. Aucun réglage de l'intervalle ne produit ça ; il
+fallait une seconde branche.
+
+`isDue()` cesse alors de demander « assez de temps écoulé ? » pour demander « suis-je passé après
+l'heure du jour, sans avoir déjà collecté dans cette fenêtre ? » :
+
+```
+now >= aujourdHui(HH:MM)  ET  lastFetchedAt < aujourdHui(HH:MM)
+```
+
+⚠️ **Le second membre est ce qui remplace l'intervalle.** Sans lui, une source serait recollectée
+à **chaque tick** une fois l'heure passée — un millier de fois entre 7h et minuit. C'est un test
+d'appartenance à une fenêtre, pas un test de durée. C'est aussi lui qui fait qu'un redémarrage à
+10h ne rejoue pas la collecte de 7h déjà faite (`startScheduler` lance une passe immédiate).
+
+**La boucle n'a pas changé** : le tick d'une minute avait déjà la granularité nécessaire.
+
+⚠️ **Le fuseau est `config/veille.ts` (`APP_TIMEZONE`, défaut `Europe/Paris`), et surtout PAS
+`TZ`.** Les deux répondent à des questions différentes, ne les « harmonise » pas :
+
+- `TZ` (UTC dans ce dépôt) est le fuseau du **process**. `last_fetched_at` est un `timestamp
+  without time zone` : il est écrit et relu dedans. Le changer ferait dériver l'interprétation de
+  toutes les lignes déjà en base.
+- `APP_TIMEZONE` ne situe que la **fenêtre horaire**. Sans lui, « 7h » se déclencherait à 9h à
+  Paris l'été et 8h l'hiver — la collecte aurait bien lieu, simplement pas quand l'écran le dit,
+  **et rien ne le signalerait**.
+
+⚠️ **Un `APP_TIMEZONE` invalide fait échouer le démarrage, délibérément.** `setZone('Paris')` — un
+nom presque juste — rend un DateTime **invalide**, et toute comparaison avec un invalide est
+fausse : `isDue()` répondrait `false` à chaque tick, indéfiniment. La source se tairait pour
+toujours, sans erreur ni log. Refuser de démarrer est le seul endroit où cet échec a un lecteur ;
+dans la boucle de fond, il n'en a aucun. Ne remplace pas ce `throw` par un repli silencieux.
+
+**Trois décisions tranchées, qui ne se devinent pas :**
+
+- **La fenêtre manquée est rattrapée**, pas sautée. Éteint à 7h, rallumé à 9h : on collecte à 9h.
+  Pour un agrégateur, sauter revient à perdre une journée de flux. Et le rattrapage ne décale pas
+  le lendemain — c'est toute la propriété.
+- **Une source neuve collecte tout de suite** (`lastFetchedAt === null`), dans les deux modes.
+  Sinon une source ajoutée à 14h reste muette jusqu'au lendemain 7h et on ne sait pas si l'URL
+  est bonne.
+- **La cadence en minutes survit au passage en horaire.** `fetch_interval_minutes` n'est jamais
+  effacé : revenir à l'intervalle retrouve la valeur, au lieu de repartir du défaut.
+
+⚠️ **L'exclusivité est une contrainte en base, `veille_sources_schedule_check`** — pas un `if` :
+
+```sql
+(schedule_mode = 'interval' AND daily_at IS NULL)
+OR (schedule_mode = 'daily' AND daily_at IS NOT NULL)
+```
+
+Une seule contrainte nommée porte **et** l'énumération (toute autre valeur échoue les deux
+branches) **et** la cohérence. Conséquence directe côté contrôleur : **repasser en `interval` doit
+remettre `daily_at` à `null`**, sinon l'écriture est refusée et la page prend une 500.
+
+⚠️ **`isDue()` ne refuse PAS un mode `daily` sans heure : il retombe sur la branche intervalle.**
+La contrainte rend le cas inatteignable, mais un `return false` figerait la source pour toujours,
+sans erreur, dans une boucle que personne ne regarde. Une source qui collecte à la mauvaise
+cadence se voit ; une source qui ne collecte plus, non. Le repli va vers le comportement visible —
+ne l'« assainis » pas en `false`.
+
+⚠️ **Le test est `=== 'daily'`, jamais `=== 'interval'`.** Le défaut `'interval'` est en base, pas
+sur le modèle : `VeilleSource.create({...})` sans le champ le laisse `undefined` en mémoire. Tout
+ce qui n'est pas explicitement horaire suit donc l'ancienne branche — la non-régression est
+structurelle, pas une convention.
+
+⚠️ **Le driver `pg` rend un `time` sous la forme `'07:00:00'`**, là où un `<input type="time">`
+veut `'07:00'`. Donné tel quel, le champ resterait **vide** sans un mot. D'où `normalizeTimeOfDay`,
+appelé à chaque dérivation du brouillon dans `sources.vue`.
+
+⚠️ **La page poste le mode et *seulement* les champs de ce mode.** Envoyer une heure avec un mode
+`interval` enregistrerait un réglage inerte — affiché comme saisi, jamais appliqué. Le validateur
+refuse d'ailleurs les deux dépareillages (`requiredIfExists` / `requiredWhen`), même doctrine que
+l'unité de CC-57.
 
 ⚠️ L'aller-retour n'est **pas** symétrique dans les deux sens, contrairement à ce qu'énonce CC-57.
 `toMinutes(fromMinutes(m)) === m` est vrai pour tout `m` ; `fromMinutes(toMinutes(v, u)) === (v, u)`
@@ -353,10 +440,24 @@ pilotait. D'où le helper `asBool`.
 - `tests/functional/modules/veille_sources.spec.ts` — la collecte : **le même item deux fois n'en
   fait qu'un** (contre la base *et* dans une même passe), **un flux en erreur n'empêche pas les
   autres**, le flux à zéro entrée signalé, le 304 qui n'écrase pas le compteur, et surtout
-  **l'etag non mémorisé quand l'insert a échoué**.
+  **l'etag non mémorisé quand l'insert a échoué**. Côté CC-59 : la création en mode horaire, les
+  cinq dépareillages mode/heure refusés, la bascule aller-retour qui ne perd ni la cadence ni
+  l'heure, et **la contrainte en base vérifiée pour elle-même** — un cas par test, une écriture
+  refusée avortant la transaction du test.
 - `tests/unit/veille_interval.spec.ts` — **CC-57** : les deux propriétés d'aller-retour (l'universelle
   et celle qui ne vaut que pour les couples canoniques), la table de lecture (30 · 60 · 90 · 1440 ·
-  2880 · 10080), les bornes par unité, et le wording affiché — qui régresse en silence.
+  2880 · 10080), les bornes par unité, et le wording affiché — qui régresse en silence. Plus, pour
+  **CC-59**, la lecture d'une heure du jour : la forme `'07:00:00'` du driver `pg`, le `null`
+  rendu au lieu d'une exception, et « tous les jours à 7h00 » à côté de « tous les 2 jours ».
+- `tests/unit/veille_schedule.spec.ts` — **CC-59**, et c'est le test qui porte le lot. Il rejoue la
+  boucle du planificateur minute par minute et vérifie **la liste exacte des collectes** : une par
+  jour, à l'heure dite. Dedans, deux choses qui ne se voient nulle part ailleurs :
+  **la dérive**, montrée côte à côte — avec une heure de retard par collecte, l'horaire tient 7h
+  pendant sept jours quand l'intervalle glisse jusqu'à 14h ; et **le fuseau**, où `06:30` UTC
+  (= 7h30 à Paris) doit rendre la source due. Ce second test est celui qui tombe si le `setZone`
+  disparaît — sans lui, la régression serait parfaitement silencieuse. Plus les changements
+  d'heure (mars et octobre, dont une heure qui n'existe pas ce jour-là), le rattrapage d'une
+  fenêtre manquée, la source neuve, et le repli d'un mode `daily` sans heure.
 - `tests/functional/modules/veille_items.spec.ts` — **CC-20** : la recherche plein texte (dont
   l'apostrophe, l'injection SQL et les caractères spéciaux — avec une assertion sur le **résultat**,
   pas seulement sur l'absence de crash), le filtre par tag accentué, `store`, `toggleQueue`,
