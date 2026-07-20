@@ -54,13 +54,21 @@ export default class VeilleSourcesController {
       return fail({ url: 'Cette source est déjà suivie.' })
     }
 
+    // Le mode horaire est explicite : à défaut, on crée en mode intervalle, comme avant CC-59.
+    const daily = payload.scheduleMode === 'daily'
+
     await VeilleSource.create({
       kind: 'rss',
       url: payload.url,
       title: payload.title,
       // Le défaut reste 1 heure, en dur. `resolveIntervalMinutes` rend `undefined` quand la
-      // cadence n'a pas été soumise du tout.
+      // cadence n'a pas été soumise du tout. Elle est conservée **même en mode horaire** :
+      // revenir à l'intervalle plus tard retrouve la valeur, au lieu de repartir du défaut.
       fetchIntervalMinutes: resolveIntervalMinutes(payload) ?? 60,
+      scheduleMode: daily ? 'daily' : 'interval',
+      // ⚠️ `null` hors mode horaire, sinon la contrainte `veille_sources_schedule_check` refuse
+      // l'écriture : une ligne ne porte jamais deux réglages dont un seul s'applique.
+      dailyAt: daily ? (payload.dailyAt ?? null) : null,
       active: true,
     })
 
@@ -97,6 +105,15 @@ export default class VeilleSourcesController {
     if (payload.title !== undefined) source.title = payload.title
     if (payload.active !== undefined) source.active = payload.active
     if (minutes !== undefined) source.fetchIntervalMinutes = minutes
+
+    // ⚠️ Le mode et l'heure bougent **ensemble**. Repasser en intervalle sans remettre `dailyAt`
+    // à `null` violerait `veille_sources_schedule_check` : une 500 au lieu d'un enregistrement.
+    // Le validateur garantit qu'un mode `daily` arrive avec son heure ; l'heure seule, sans mode,
+    // a déjà été refusée.
+    if (payload.scheduleMode !== undefined) {
+      source.scheduleMode = payload.scheduleMode
+      source.dailyAt = payload.scheduleMode === 'daily' ? (payload.dailyAt ?? null) : null
+    }
 
     await source.save()
 

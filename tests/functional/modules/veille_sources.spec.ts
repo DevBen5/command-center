@@ -578,6 +578,211 @@ test.group('Veille / écran des sources', (group) => {
     )
   })
 
+  /**
+   * CC-59 — le second mode d'ordonnancement, « tous les jours à 7h ».
+   *
+   * Le comportement de `isDue()` se teste unitairement (`veille_schedule.spec.ts`, horloge
+   * injectée). Ici, seulement ce qui traverse la route : ce qui est enregistré, ce qui est
+   * refusé, et l'invariant que la base garantit elle-même.
+   */
+  test('CC-59 — une source se crée en mode horaire', async ({ assert, client }) => {
+    const user = await login()
+
+    await client
+      .post('/veille/sources')
+      .json({
+        url: 'https://blog.exemple.dev/feed.xml',
+        title: 'Blog',
+        scheduleMode: 'daily',
+        dailyAt: '07:00',
+      })
+      .header('referrer', '/veille/sources')
+      .loginAs(user)
+      .withCsrfToken()
+      .redirects(0)
+
+    const sources = await VeilleSource.all()
+    assert.lengthOf(sources, 1)
+    assert.equal(sources[0].scheduleMode, 'daily')
+    // ⚠️ Le driver `pg` rend un `time` avec ses secondes : c'est ce que `normalizeTimeOfDay`
+    // absorbe avant l'affichage. Si cette forme changeait, le champ de la page se viderait.
+    assert.equal(sources[0].dailyAt, '07:00:00')
+    // La cadence en minutes est conservée : revenir à l'intervalle retrouve une valeur sensée.
+    assert.equal(sources[0].fetchIntervalMinutes, 60)
+  })
+
+  /**
+   * ⚠️ Le pendant CC-59 du piège de l'unité droppée. Les deux champs vont ensemble ou aucun :
+   * une heure sans mode serait un réglage **inerte** — enregistré, affiché, jamais appliqué.
+   * Et un mode sans heure violerait la contrainte en base, donc une 500 au lieu d'un message.
+   */
+  test('CC-59 — un mode et une heure dépareillés sont refusés, jamais enregistrés', async ({
+    assert,
+    client,
+  }) => {
+    const user = await login()
+
+    const payloads = [
+      { cas: 'mode horaire sans heure', extra: { scheduleMode: 'daily' } },
+      { cas: 'heure sans mode', extra: { dailyAt: '07:00' } },
+      { cas: 'heure hors format', extra: { scheduleMode: 'daily', dailyAt: '7h' } },
+      { cas: 'heure inexistante', extra: { scheduleMode: 'daily', dailyAt: '25:00' } },
+      { cas: 'mode inconnu', extra: { scheduleMode: 'cron', dailyAt: '07:00' } },
+    ]
+
+    for (const { cas, extra } of payloads) {
+      const response = await client
+        .post('/veille/sources')
+        .json({ url: 'https://blog.exemple.dev/feed.xml', title: 'Blog', ...extra })
+        .header('referrer', '/veille/sources')
+        .loginAs(user)
+        .withCsrfToken()
+        .redirects(0)
+
+      response.assertStatus(302)
+      assert.lengthOf(await VeilleSource.all(), 0, `${cas} : la source a été enregistrée`)
+    }
+  })
+
+  test('CC-59 — le refus d’une heure laisse un message lisible sur la ligne', async ({
+    assert,
+    client,
+  }) => {
+    const user = await login()
+    const feed = await VeilleSource.create({
+      kind: 'rss',
+      url: 'https://a.dev/feed',
+      title: 'Source',
+      fetchIntervalMinutes: 60,
+      active: true,
+    })
+
+    const response = await client
+      .post(`/veille/sources/${feed.id}`)
+      .json({ scheduleMode: 'daily', dailyAt: '99:99' })
+      .header('referrer', '/veille/sources')
+      .loginAs(user)
+      .withCsrfToken()
+      .redirects(0)
+
+    response.assertStatus(302)
+    await feed.refresh()
+    assert.equal(feed.scheduleMode, 'interval', 'une heure illisible a fait basculer le mode')
+
+    const errors = response.flashMessages().sourceErrors as Record<string, unknown>
+    assert.equal(errors.sourceId, feed.id)
+    assert.include(errors.dailyAt as string, 'HH:MM')
+  })
+
+  test('CC-59 — une source bascule d’un mode à l’autre sans rien perdre', async ({
+    assert,
+    client,
+  }) => {
+    const user = await login()
+    const feed = await VeilleSource.create({
+      kind: 'rss',
+      url: 'https://a.dev/feed',
+      title: 'Source',
+      fetchIntervalMinutes: 2880,
+      active: true,
+    })
+
+    async function setSchedule(payload: Record<string, unknown>) {
+      await client
+        .post(`/veille/sources/${feed.id}`)
+        .json(payload)
+        .header('referrer', '/veille/sources')
+        .loginAs(user)
+        .withCsrfToken()
+        .redirects(0)
+      await feed.refresh()
+    }
+
+    await setSchedule({ scheduleMode: 'daily', dailyAt: '07:00' })
+    assert.equal(feed.scheduleMode, 'daily')
+    assert.equal(feed.dailyAt, '07:00:00')
+    // La cadence en minutes survit au passage : elle n'est pas remise au défaut.
+    assert.equal(feed.fetchIntervalMinutes, 2880, 'la cadence a été perdue en passant en horaire')
+
+    // ⚠️ Le retour à l'intervalle DOIT remettre `daily_at` à `null` : sans ça, la contrainte
+    // `veille_sources_schedule_check` refuse l'écriture et la page prend une 500.
+    await setSchedule({ scheduleMode: 'interval', interval: 3, intervalUnit: 'days' })
+    assert.equal(feed.scheduleMode, 'interval')
+    assert.isNull(feed.dailyAt, 'une heure résiduelle est restée sur une source en intervalle')
+    assert.equal(feed.fetchIntervalMinutes, 4320)
+  })
+
+  test('CC-59 — modifier le titre seul ne touche pas à l’ordonnancement', async ({
+    assert,
+    client,
+  }) => {
+    const user = await login()
+    const feed = await VeilleSource.create({
+      kind: 'rss',
+      url: 'https://a.dev/feed',
+      title: 'Source',
+      fetchIntervalMinutes: 60,
+      scheduleMode: 'daily',
+      dailyAt: '07:00',
+      active: true,
+    })
+
+    await client
+      .post(`/veille/sources/${feed.id}`)
+      .json({ title: 'Nouveau nom' })
+      .header('referrer', '/veille/sources')
+      .loginAs(user)
+      .withCsrfToken()
+      .redirects(0)
+
+    await feed.refresh()
+    assert.equal(feed.title, 'Nouveau nom')
+    assert.equal(feed.scheduleMode, 'daily', 'le mode a été écrasé par une modification de titre')
+    assert.equal(feed.dailyAt, '07:00:00')
+  })
+
+  /**
+   * ⚠️ **L'invariant est en base, pas dans un `if`** — même doctrine que la clé de dédup.
+   *
+   * C'est cette contrainte qui rend inatteignable la branche de repli d'`isDue()`. Si elle
+   * disparaissait, une ligne incohérente passerait, et une source en mode horaire sans heure
+   * retomberait silencieusement sur sa cadence en minutes.
+   *
+   * ⚠️ Un cas par test : une écriture refusée **avorte la transaction** du test, et tout ce qui
+   * suivrait échouerait pour une autre raison que celle qu'on veut montrer.
+   */
+  async function constraintViolatedBy(attrs: Partial<VeilleSource>): Promise<string> {
+    try {
+      await VeilleSource.create({
+        kind: 'rss',
+        url: 'https://incoherent.dev/feed',
+        title: 'Ligne incohérente',
+        fetchIntervalMinutes: 60,
+        active: true,
+        ...attrs,
+      })
+    } catch (error) {
+      // `constraint` est porté par l'erreur du driver `pg` : c'est le nom exact, là où le
+      // message enrobé par knex commence par tout le SQL.
+      return String((error as { constraint?: string }).constraint ?? (error as Error).message)
+    }
+    return 'aucune erreur — la contrainte a disparu'
+  }
+
+  test('CC-59 — la base refuse un mode horaire sans heure', async ({ assert }) => {
+    assert.equal(
+      await constraintViolatedBy({ scheduleMode: 'daily', dailyAt: null }),
+      'veille_sources_schedule_check'
+    )
+  })
+
+  test('CC-59 — la base refuse une heure sur une source en intervalle', async ({ assert }) => {
+    assert.equal(
+      await constraintViolatedBy({ scheduleMode: 'interval', dailyAt: '07:00' }),
+      'veille_sources_schedule_check'
+    )
+  })
+
   test('le rafraîchissement manuel d’une source collecte tout de suite', async ({
     assert,
     client,

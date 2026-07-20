@@ -1,11 +1,16 @@
 import { test } from '@japa/runner'
 import {
+  DEFAULT_DAILY_AT,
   INTERVAL_UNITS,
   MAX_INTERVAL_MINUTES,
   MIN_INTERVAL_MINUTES,
   formatInterval,
   formatQuantity,
+  formatSchedule,
+  formatTimeOfDay,
   fromMinutes,
+  normalizeTimeOfDay,
+  parseTimeOfDay,
   toMinutes,
   unitBounds,
   type IntervalUnit,
@@ -140,5 +145,69 @@ test.group('Veille / cadence — ce qui se lit à l’écran', () => {
     // La plainte d'origine : « toutes les 1440 min » ne se lit pas.
     assert.notInclude(formatInterval(1440), '1440')
     assert.notInclude(formatInterval(10_080), '10080')
+  })
+})
+
+/**
+ * CC-59 — l'heure du jour. Le comportement d'ordonnancement se teste dans
+ * `veille_schedule.spec.ts` ; ici, seulement la traduction entre ce que Postgres stocke, ce que
+ * le champ accepte et ce qui s'affiche.
+ */
+test.group('Veille / horaire — lire et écrire une heure du jour', () => {
+  test('parseTimeOfDay accepte HH:MM et la forme rendue par Postgres', ({ assert }) => {
+    assert.deepEqual(parseTimeOfDay('07:00'), { hour: 7, minute: 0 })
+    // ⚠️ Le driver `pg` rend un `time` sous la forme `'07:00:00'` : la refuser viderait le champ.
+    assert.deepEqual(parseTimeOfDay('07:00:00'), { hour: 7, minute: 0 })
+    assert.deepEqual(parseTimeOfDay('23:59'), { hour: 23, minute: 59 })
+    assert.deepEqual(parseTimeOfDay('00:00'), { hour: 0, minute: 0 })
+    assert.deepEqual(parseTimeOfDay(' 07:30 '), { hour: 7, minute: 30 })
+  })
+
+  test('parseTimeOfDay rend null plutôt que de lever — la boucle n’a pas de lecteur', ({
+    assert,
+  }) => {
+    for (const invalid of [null, undefined, '', '7:00', '24:00', '07:60', '-1:00', 'sept heures']) {
+      assert.isNull(parseTimeOfDay(invalid), `« ${invalid} » a été accepté`)
+    }
+  })
+
+  test('normalizeTimeOfDay ramène à la forme que le champ accepte', ({ assert }) => {
+    assert.equal(normalizeTimeOfDay('07:00:00'), '07:00')
+    assert.equal(normalizeTimeOfDay('7:00'), DEFAULT_DAILY_AT, 'une heure illisible vide le champ')
+    assert.equal(normalizeTimeOfDay(null), DEFAULT_DAILY_AT)
+    assert.equal(normalizeTimeOfDay('23:05'), '23:05')
+  })
+
+  test('l’heure se lit à la française, sans zéro de tête', ({ assert }) => {
+    assert.equal(formatTimeOfDay('07:00'), '7h00')
+    assert.equal(formatTimeOfDay('07:00:00'), '7h00')
+    assert.equal(formatTimeOfDay('00:30'), '0h30')
+    assert.equal(formatTimeOfDay('23:59'), '23h59')
+  })
+
+  /**
+   * Le point d'entrée unique de l'affichage : la page n'a pas à choisir sa fonction selon le
+   * mode, donc elle ne peut pas se tromper de branche. C'est du wording, et il régresse en
+   * silence — d'où son test, comme pour `formatInterval`.
+   */
+  test('formatSchedule dit « tous les jours à 7h00 » à côté de « tous les 2 jours »', ({
+    assert,
+  }) => {
+    assert.equal(
+      formatSchedule({ scheduleMode: 'daily', dailyAt: '07:00:00', fetchIntervalMinutes: 60 }),
+      'tous les jours à 7h00'
+    )
+    assert.equal(
+      formatSchedule({ scheduleMode: 'interval', dailyAt: null, fetchIntervalMinutes: 2880 }),
+      'tous les 2 jours'
+    )
+    // ⚠️ Le mode décide, jamais la présence d'une heure : une source en mode intervalle qui
+    // porterait une heure résiduelle doit lire sa cadence en minutes.
+    assert.equal(
+      formatSchedule({ scheduleMode: 'interval', dailyAt: '07:00', fetchIntervalMinutes: 60 }),
+      'toutes les heures'
+    )
+    // Et une source d'avant CC-59, dont le mode n'a jamais été chargé, reste lisible.
+    assert.equal(formatSchedule({ fetchIntervalMinutes: 30 }), 'toutes les 30 minutes')
   })
 })

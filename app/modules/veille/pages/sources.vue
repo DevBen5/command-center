@@ -3,12 +3,16 @@ import { computed, ref, watch } from 'vue'
 import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import {
+  DEFAULT_DAILY_AT,
   fromMinutes,
-  formatInterval,
   formatQuantity,
+  formatSchedule,
+  normalizeTimeOfDay,
+  parseTimeOfDay,
   toMinutes,
   unitBounds,
   type IntervalUnit,
+  type ScheduleMode,
 } from '../shared/interval.js'
 
 defineOptions({ layout: AppLayout })
@@ -19,6 +23,8 @@ interface VeilleSource {
   url: string
   title: string
   fetchIntervalMinutes: number
+  scheduleMode: ScheduleMode
+  dailyAt: string | null
   lastFetchedAt: string | null
   lastError: string | null
   lastErrorAt: string | null
@@ -26,10 +32,17 @@ interface VeilleSource {
   active: boolean
 }
 
-/** Le couple saisi tel qu'il est en cours d'édition — jamais converti côté page. */
-interface IntervalDraft {
+/**
+ * La cadence en cours d'édition — jamais convertie côté page.
+ *
+ * Les deux modes coexistent dans le brouillon même si un seul s'applique : basculer de l'un à
+ * l'autre ne doit pas effacer ce qui était saisi dans le premier.
+ */
+interface ScheduleDraft {
+  scheduleMode: ScheduleMode
   interval: number
   intervalUnit: IntervalUnit
+  dailyAt: string
 }
 
 const props = defineProps<{
@@ -56,37 +69,78 @@ const UNIT_OPTIONS: { value: IntervalUnit; label: string }[] = [
 ]
 
 /**
+ * ⚠️ « À 7h » n'est **pas** une unité de plus. Un intervalle dit « après la dernière collecte »
+ * et dérive ; un horaire mural se réancre chaque jour. Le premier choix porte donc sur le mode,
+ * et le sélecteur d'unité se replie sous « intervalle ».
+ */
+const MODE_OPTIONS: { value: ScheduleMode; label: string }[] = [
+  { value: 'interval', label: 'intervalle' },
+  { value: 'daily', label: 'horaire' },
+]
+
+/**
  * ⚠️ La page **ne convertit jamais avant d'envoyer** : elle poste `{ interval, intervalUnit }`
  * et c'est le serveur qui fait les minutes. Convertir ici ne laisserait au validateur qu'un
  * nombre de minutes, sans moyen de re-valider ce que l'utilisateur voulait dire — toute la
  * garde reposerait sur ce fichier.
  */
-const DEFAULT_DRAFT: IntervalDraft = { interval: 1, intervalUnit: 'hours' }
+const DEFAULT_DRAFT: ScheduleDraft = {
+  scheduleMode: 'interval',
+  interval: 1,
+  intervalUnit: 'hours',
+  dailyAt: DEFAULT_DAILY_AT,
+}
 
 const form = ref({ url: '', title: '', ...DEFAULT_DRAFT })
 const submitting = ref(false)
 const refreshing = ref<number | null>(null)
 const saving = ref<number | null>(null)
 
-/** Le couple affiché pour chaque source, re-dérivé des minutes stockées à chaque chargement. */
-const drafts = ref<Record<number, IntervalDraft>>({})
+/** Le brouillon affiché pour chaque source, re-dérivé de ce qui est stocké à chaque chargement. */
+const drafts = ref<Record<number, ScheduleDraft>>({})
 
 watch(
   () => props.sources,
   (sources) => {
-    const next: Record<number, IntervalDraft> = {}
+    const next: Record<number, ScheduleDraft> = {}
     for (const source of sources) {
       const { value, unit } = fromMinutes(source.fetchIntervalMinutes)
-      next[source.id] = { interval: value, intervalUnit: unit }
+      next[source.id] = {
+        scheduleMode: source.scheduleMode,
+        interval: value,
+        intervalUnit: unit,
+        // Postgres rend `'07:00:00'` : donné tel quel, un `<input type="time">` resterait vide.
+        dailyAt: normalizeTimeOfDay(source.dailyAt),
+      }
     }
     drafts.value = next
   },
   { immediate: true }
 )
 
-function isWithinBounds(draft: IntervalDraft): boolean {
+/** Le brouillon est-il enregistrable ? Chaque mode a sa propre règle, et une seule s'applique. */
+function isDraftValid(draft: ScheduleDraft): boolean {
+  if (draft.scheduleMode === 'daily') {
+    return parseTimeOfDay(draft.dailyAt) !== null
+  }
   const { min, max } = unitBounds(draft.intervalUnit)
   return Number.isInteger(draft.interval) && draft.interval >= min && draft.interval <= max
+}
+
+/**
+ * Ce qui part au serveur. Le mode voyage **toujours**, et seuls les champs du mode retenu
+ * l'accompagnent : poster une heure sur une source en mode intervalle enregistrerait un réglage
+ * qui ne s'applique pas.
+ */
+function schedulePayload(draft: ScheduleDraft): Record<string, unknown> {
+  if (draft.scheduleMode === 'daily') {
+    return { scheduleMode: 'daily', dailyAt: draft.dailyAt }
+  }
+  return {
+    scheduleMode: 'interval',
+    interval: draft.interval,
+    intervalUnit: draft.intervalUnit,
+  }
 }
 
 /** « de 1 à 7 jours » — dit la règle avant qu'on la viole, plutôt qu'après. */
@@ -103,7 +157,7 @@ function boundsHint(unit: IntervalUnit): string {
  * ⚠️ Le `<select>` n'est donc pas en `v-model` — il faut lire l'ancienne unité avant qu'elle
  * ne soit écrasée.
  */
-function switchUnit(draft: IntervalDraft, next: IntervalUnit): void {
+function switchUnit(draft: ScheduleDraft, next: IntervalUnit): void {
   const minutes = toMinutes(draft.interval, draft.intervalUnit)
   const factor = toMinutes(1, next)
 
@@ -115,42 +169,47 @@ function switchUnit(draft: IntervalDraft, next: IntervalUnit): void {
 
 function submit(): void {
   if (!form.value.url.trim() || !form.value.title.trim()) return
-  if (!isWithinBounds(form.value)) return
+  if (!isDraftValid(form.value)) return
 
   submitting.value = true
-  router.post('/veille/sources', { ...form.value }, {
-    preserveScroll: true,
-    onSuccess: () => {
-      form.value = { url: '', title: '', ...DEFAULT_DRAFT }
-    },
-    onFinish: () => {
-      submitting.value = false
-    },
-  })
-}
-
-/** La cadence est-elle différente de ce qui est enregistré ? */
-function isIntervalDirty(source: VeilleSource): boolean {
-  const draft = drafts.value[source.id]
-  if (!draft) return false
-  return toMinutes(draft.interval, draft.intervalUnit) !== source.fetchIntervalMinutes
-}
-
-function saveInterval(source: VeilleSource): void {
-  const draft = drafts.value[source.id]
-  if (!draft || !isWithinBounds(draft)) return
-
-  saving.value = source.id
   router.post(
-    `/veille/sources/${source.id}`,
-    { interval: draft.interval, intervalUnit: draft.intervalUnit },
+    '/veille/sources',
+    { url: form.value.url, title: form.value.title, ...schedulePayload(form.value) },
     {
       preserveScroll: true,
+      onSuccess: () => {
+        form.value = { url: '', title: '', ...DEFAULT_DRAFT }
+      },
       onFinish: () => {
-        saving.value = null
+        submitting.value = false
       },
     }
   )
+}
+
+/** La cadence est-elle différente de ce qui est enregistré ? Le mode compte autant que la valeur. */
+function isScheduleDirty(source: VeilleSource): boolean {
+  const draft = drafts.value[source.id]
+  if (!draft) return false
+
+  if (draft.scheduleMode !== source.scheduleMode) return true
+  if (draft.scheduleMode === 'daily') {
+    return draft.dailyAt !== normalizeTimeOfDay(source.dailyAt)
+  }
+  return toMinutes(draft.interval, draft.intervalUnit) !== source.fetchIntervalMinutes
+}
+
+function saveSchedule(source: VeilleSource): void {
+  const draft = drafts.value[source.id]
+  if (!draft || !isDraftValid(draft)) return
+
+  saving.value = source.id
+  router.post(`/veille/sources/${source.id}`, schedulePayload(draft), {
+    preserveScroll: true,
+    onFinish: () => {
+      saving.value = null
+    },
+  })
 }
 
 function toggleActive(source: VeilleSource): void {
@@ -253,7 +312,7 @@ const NOTIFICATION_CLASSES: Record<string, string> = {
             </div>
             <div class="mt-0.5 truncate font-mono text-[11px] text-txt-3">{{ source.url }}</div>
             <div class="mt-1 flex flex-wrap items-center gap-2 text-[11.5px] text-txt-3">
-              <span>{{ formatInterval(source.fetchIntervalMinutes) }}</span>
+              <span>{{ formatSchedule(source) }}</span>
               <span>·</span>
               <span>dernière collecte : {{ formatDateTime(source.lastFetchedAt) }}</span>
               <template v-if="source.lastItemCount !== null">
@@ -284,54 +343,84 @@ const NOTIFICATION_CLASSES: Record<string, string> = {
           </div>
         </div>
 
-        <!-- Cadence, modifiable ici. Le couple (valeur, unité) est re-dérivé des minutes
-             stockées : une source réglée à 2880 se rouvre sur « 2 jours ». -->
+        <!-- Cadence, modifiable ici. Le brouillon est re-dérivé de ce qui est stocké : une source
+             réglée à 2880 se rouvre sur « 2 jours », une source horaire sur son heure. -->
         <div
           v-if="drafts[source.id]"
           class="mt-2 flex flex-wrap items-center gap-2 text-[11.5px] text-txt-3"
         >
           <span>cadence</span>
-          <input
-            v-model.number="drafts[source.id].interval"
-            type="number"
-            :min="unitBounds(drafts[source.id].intervalUnit).min"
-            :max="unitBounds(drafts[source.id].intervalUnit).max"
-            class="w-16 rounded-md border border-line-2 bg-panel px-2 py-1 text-[11.5px] text-txt"
-          />
+
+          <!-- Le premier choix porte sur le MODE. L'unité n'est qu'un détail de l'intervalle,
+               d'où son repli sous celui-ci. -->
           <select
-            :value="drafts[source.id].intervalUnit"
+            v-model="drafts[source.id].scheduleMode"
             class="rounded-md border border-line-2 bg-panel px-2 py-1 text-[11.5px] text-txt"
-            @change="
-              switchUnit(drafts[source.id], ($event.target as HTMLSelectElement).value as IntervalUnit)
-            "
           >
-            <option v-for="unit in UNIT_OPTIONS" :key="unit.value" :value="unit.value">
-              {{ unit.label }}
+            <option v-for="mode in MODE_OPTIONS" :key="mode.value" :value="mode.value">
+              {{ mode.label }}
             </option>
           </select>
 
+          <template v-if="drafts[source.id].scheduleMode === 'interval'">
+            <input
+              v-model.number="drafts[source.id].interval"
+              type="number"
+              :min="unitBounds(drafts[source.id].intervalUnit).min"
+              :max="unitBounds(drafts[source.id].intervalUnit).max"
+              class="w-16 rounded-md border border-line-2 bg-panel px-2 py-1 text-[11.5px] text-txt"
+            />
+            <select
+              :value="drafts[source.id].intervalUnit"
+              class="rounded-md border border-line-2 bg-panel px-2 py-1 text-[11.5px] text-txt"
+              @change="
+                switchUnit(drafts[source.id], ($event.target as HTMLSelectElement).value as IntervalUnit)
+              "
+            >
+              <option v-for="unit in UNIT_OPTIONS" :key="unit.value" :value="unit.value">
+                {{ unit.label }}
+              </option>
+            </select>
+          </template>
+
+          <template v-else>
+            <span>tous les jours à</span>
+            <input
+              v-model="drafts[source.id].dailyAt"
+              type="time"
+              class="rounded-md border border-line-2 bg-panel px-2 py-1 text-[11.5px] text-txt"
+            />
+          </template>
+
           <button
-            v-if="isIntervalDirty(source)"
+            v-if="isScheduleDirty(source)"
             type="button"
             class="rounded-md border border-accent px-2.5 py-1 text-[11.5px] text-accent disabled:opacity-40"
-            :disabled="saving === source.id || !isWithinBounds(drafts[source.id])"
-            @click="saveInterval(source)"
+            :disabled="saving === source.id || !isDraftValid(drafts[source.id])"
+            @click="saveSchedule(source)"
           >
             {{ saving === source.id ? '…' : 'Enregistrer' }}
           </button>
 
-          <span v-if="!isWithinBounds(drafts[source.id])" class="text-bad">
-            {{ boundsHint(drafts[source.id].intervalUnit) }}
+          <span v-if="!isDraftValid(drafts[source.id])" class="text-bad">
+            {{
+              drafts[source.id].scheduleMode === 'daily'
+                ? 'heure attendue au format HH:MM'
+                : boundsHint(drafts[source.id].intervalUnit)
+            }}
           </span>
         </div>
 
         <!-- L'erreur du serveur sur CETTE source. Sans elle, une cadence refusée ne se verrait
              nulle part : la page ne lit que `sourceErrors`. -->
         <p
-          v-if="props.sourceErrors?.sourceId === source.id && props.sourceErrors.interval"
+          v-if="
+            props.sourceErrors?.sourceId === source.id &&
+            (props.sourceErrors.interval || props.sourceErrors.dailyAt)
+          "
           class="mt-1 text-[11px] text-bad"
         >
-          {{ props.sourceErrors.interval }}
+          {{ props.sourceErrors.interval ?? props.sourceErrors.dailyAt }}
         </p>
 
         <!-- Le message d'échec, brut, celui du serveur. Un flux mort qui échoue en silence est
@@ -381,37 +470,65 @@ const NOTIFICATION_CLASSES: Record<string, string> = {
         </p>
 
         <label class="mt-1 text-[11px] text-txt-3">Cadence</label>
-        <div class="flex gap-2">
-          <input
-            v-model.number="form.interval"
-            type="number"
-            :min="unitBounds(form.intervalUnit).min"
-            :max="unitBounds(form.intervalUnit).max"
-            class="w-20 rounded-md border border-line-2 bg-panel px-2 py-1.5 text-[12px]"
-          />
-          <select
-            :value="form.intervalUnit"
-            class="flex-1 rounded-md border border-line-2 bg-panel px-2 py-1.5 text-[12px]"
-            @change="switchUnit(form, ($event.target as HTMLSelectElement).value as IntervalUnit)"
-          >
-            <option v-for="unit in UNIT_OPTIONS" :key="unit.value" :value="unit.value">
-              {{ unit.label }}
-            </option>
-          </select>
-        </div>
-        <p class="text-[11px]" :class="isWithinBounds(form) ? 'text-txt-3' : 'text-bad'">
-          {{ boundsHint(form.intervalUnit) }}
-        </p>
-        <p v-if="addErrors?.interval || addErrors?.intervalUnit" class="text-[11px] text-bad">
-          {{ addErrors.interval ?? addErrors.intervalUnit }}
+        <select
+          v-model="form.scheduleMode"
+          class="rounded-md border border-line-2 bg-panel px-2 py-1.5 text-[12px]"
+        >
+          <option v-for="mode in MODE_OPTIONS" :key="mode.value" :value="mode.value">
+            {{ mode.label }}
+          </option>
+        </select>
+
+        <!-- L'unité est repliée sous « intervalle » : elle ne veut rien dire pour un horaire. -->
+        <template v-if="form.scheduleMode === 'interval'">
+          <div class="flex gap-2">
+            <input
+              v-model.number="form.interval"
+              type="number"
+              :min="unitBounds(form.intervalUnit).min"
+              :max="unitBounds(form.intervalUnit).max"
+              class="w-20 rounded-md border border-line-2 bg-panel px-2 py-1.5 text-[12px]"
+            />
+            <select
+              :value="form.intervalUnit"
+              class="flex-1 rounded-md border border-line-2 bg-panel px-2 py-1.5 text-[12px]"
+              @change="switchUnit(form, ($event.target as HTMLSelectElement).value as IntervalUnit)"
+            >
+              <option v-for="unit in UNIT_OPTIONS" :key="unit.value" :value="unit.value">
+                {{ unit.label }}
+              </option>
+            </select>
+          </div>
+          <p class="text-[11px]" :class="isDraftValid(form) ? 'text-txt-3' : 'text-bad'">
+            {{ boundsHint(form.intervalUnit) }}
+          </p>
+        </template>
+
+        <template v-else>
+          <div class="flex items-center gap-2">
+            <span class="text-[12px] text-txt-3">tous les jours à</span>
+            <input
+              v-model="form.dailyAt"
+              type="time"
+              class="flex-1 rounded-md border border-line-2 bg-panel px-2 py-1.5 text-[12px]"
+            />
+          </div>
+          <p class="text-[11px]" :class="isDraftValid(form) ? 'text-txt-3' : 'text-bad'">
+            Une liste fraîche à heure fixe, sans dériver d’un jour sur l’autre.
+          </p>
+        </template>
+
+        <p
+          v-if="addErrors?.interval || addErrors?.intervalUnit || addErrors?.dailyAt"
+          class="text-[11px] text-bad"
+        >
+          {{ addErrors.interval ?? addErrors.intervalUnit ?? addErrors.dailyAt }}
         </p>
 
         <button
           type="submit"
           class="mt-1 rounded-md border border-accent bg-accent px-2 py-1.5 text-[12px] text-white disabled:opacity-50"
-          :disabled="
-            submitting || !form.url.trim() || !form.title.trim() || !isWithinBounds(form)
-          "
+          :disabled="submitting || !form.url.trim() || !form.title.trim() || !isDraftValid(form)"
         >
           Ajouter
         </button>

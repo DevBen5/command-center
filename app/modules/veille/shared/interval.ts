@@ -1,10 +1,15 @@
 /**
- * Cadence de collecte — conversion entre l'unité de l'utilisateur et celle du planificateur.
+ * Cadence de collecte — conversion entre l'unité de l'utilisateur et celle du planificateur,
+ * et lecture de l'heure du jour pour le mode horaire.
  *
- * ⚠️ **Le stockage ne change pas** : `veille_sources.fetch_interval_minutes` reste une colonne
- * en minutes, et `VeilleSource.isDue()` continue de faire `plus({ minutes })`. La minute est
- * l'unité canonique parce que c'est celle que la boucle utilise. Seules la **saisie** et
- * l'**affichage** connaissent les heures et les jours.
+ * ⚠️ **En mode intervalle, le stockage n'a pas changé** : `veille_sources.fetch_interval_minutes`
+ * reste une colonne en minutes, et `VeilleSource.isDue()` continue de faire `plus({ minutes })`.
+ * La minute est l'unité canonique parce que c'est celle que la boucle utilise. Seules la
+ * **saisie** et l'**affichage** connaissent les heures et les jours.
+ *
+ * ⚠️ **Le mode horaire (CC-59), lui, a bien une colonne à part** (`daily_at`) — et il le fallait :
+ * « à 7h » n'est pas une durée, donc rien dans `fetch_interval_minutes` ne pouvait la porter.
+ * C'est la raison pour laquelle CC-59 a une migration là où CC-57 n'en avait pas.
  *
  * Stocker un couple (valeur, unité) ferait coexister deux représentations de la même durée —
  * elles finiraient par diverger, et le planificateur convertirait à chaque tick pour rien.
@@ -112,4 +117,91 @@ export function formatInterval(minutes: number): string {
     return `${article} ${UNIT_LABELS[unit].many}`
   }
   return `${article} ${formatQuantity(value, unit)}`
+}
+
+// ---------------------------------------------------------------------------------------------
+// CC-59 — l'horaire mural, le second mode d'ordonnancement
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Les deux façons de cadencer une source. `interval` est l'historique (« N minutes après la
+ * dernière collecte »), `daily` l'horaire mural (« tous les jours à 7h »).
+ *
+ * Ce n'est **pas** une unité de plus dans le sélecteur : « à 7h » n'est pas une durée. Le champ
+ * passe de « minutes | heures | jours » à « intervalle | horaire », l'unité se repliant sous le
+ * premier.
+ */
+export const SCHEDULE_MODES = ['interval', 'daily'] as const
+
+export type ScheduleMode = (typeof SCHEDULE_MODES)[number]
+
+export function isScheduleMode(value: unknown): value is ScheduleMode {
+  return typeof value === 'string' && (SCHEDULE_MODES as readonly string[]).includes(value)
+}
+
+/** L'heure par défaut proposée quand on bascule en mode horaire. */
+export const DEFAULT_DAILY_AT = '07:00'
+
+/**
+ * `HH:MM`, avec ou sans les secondes — Postgres rend un `time` sous la forme `'07:00:00'`, un
+ * `<input type="time">` sous la forme `'07:00'`. Les deux doivent se lire.
+ */
+const TIME_OF_DAY = /^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/
+
+/**
+ * L'heure du jour, décomposée — ou `null` si elle est absente ou illisible.
+ *
+ * ⚠️ **Rendre `null` plutôt que lever est délibéré** : cette fonction est appelée depuis
+ * `isDue()`, dans une boucle de fond où personne ne lit d'exception. L'appelant décide quoi
+ * faire d'une heure manquante ; ici on se contente de dire qu'elle l'est.
+ */
+export function parseTimeOfDay(value: string | null | undefined): {
+  hour: number
+  minute: number
+} | null {
+  if (typeof value !== 'string') return null
+
+  const parts = value.trim().match(TIME_OF_DAY)
+  if (!parts) return null
+
+  return { hour: Number(parts[1]), minute: Number(parts[2]) }
+}
+
+/**
+ * La forme `HH:MM` — celle que le `<input type="time">` accepte, et la seule qu'on poste.
+ *
+ * Postgres rend `'07:00:00'` : le donner tel quel au champ le laisserait **vide**, sans un mot.
+ * Une heure invalide retombe sur le défaut plutôt que de vider le champ.
+ */
+export function normalizeTimeOfDay(value: string | null | undefined): string {
+  const at = parseTimeOfDay(value)
+  if (at === null) return DEFAULT_DAILY_AT
+
+  return `${String(at.hour).padStart(2, '0')}:${String(at.minute).padStart(2, '0')}`
+}
+
+/** « 7h00 », « 0h30 » — la convention française, l'heure sans zéro de tête. */
+export function formatTimeOfDay(value: string | null | undefined): string {
+  const at = parseTimeOfDay(value)
+  if (at === null) return '—'
+
+  return `${at.hour}h${String(at.minute).padStart(2, '0')}`
+}
+
+/**
+ * La cadence telle qu'elle se lit dans la liste, **quel que soit le mode** : « toutes les 30
+ * minutes » à côté de « tous les jours à 7h00 ».
+ *
+ * Un seul point d'entrée pour l'affichage : la page n'a pas à savoir quelle fonction appeler
+ * selon le mode, donc elle ne peut pas se tromper de branche.
+ */
+export function formatSchedule(source: {
+  scheduleMode?: ScheduleMode | string | null
+  dailyAt?: string | null
+  fetchIntervalMinutes: number
+}): string {
+  if (source.scheduleMode === 'daily') {
+    return `tous les jours à ${formatTimeOfDay(source.dailyAt)}`
+  }
+  return formatInterval(source.fetchIntervalMinutes)
 }

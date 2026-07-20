@@ -2,8 +2,10 @@ import vine from '@vinejs/vine'
 import type { FieldContext } from '@vinejs/vine/types'
 import {
   INTERVAL_UNITS,
+  SCHEDULE_MODES,
   formatQuantity,
   isIntervalUnit,
+  parseTimeOfDay,
   toMinutes,
   unitBounds,
   type IntervalUnit,
@@ -220,11 +222,55 @@ export function resolveIntervalMinutes(payload: {
   return toMinutes(payload.interval, payload.intervalUnit)
 }
 
+// ---------------------------------------------------------------------------------------------
+// CC-59 — l'horaire mural, et l'exclusivité des deux modes
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * L'heure du jour, au format `HH:MM` — celui que produit un `<input type="time">`.
+ *
+ * Une regex plutôt qu'un `vine.date()` : on ne veut pas d'une date, seulement de deux nombres
+ * bornés. Et le refus doit parler de l'heure, pas d'un format ISO que l'utilisateur n'a jamais vu.
+ */
+const timeOfDay = vine.createRule((value: unknown, _options: undefined, field: FieldContext) => {
+  if (typeof value !== 'string') return
+  if (parseTimeOfDay(value) === null) {
+    field.report(
+      'L’heure de collecte doit s’écrire HH:MM, entre 00:00 et 23:59.',
+      'timeOfDay',
+      field
+    )
+  }
+})
+
+/**
+ * Les deux champs de l'horaire, avec la même doctrine que la cadence de CC-57 : **l'exclusivité
+ * se valide dans les deux sens**, faute de quoi le mode d'échec est silencieux.
+ *
+ * - `dailyAt` sans `scheduleMode` : l'heure serait enregistrée sur une source restée en mode
+ *   intervalle — un réglage inerte, que l'écran afficherait pourtant comme saisi.
+ * - `scheduleMode: 'daily'` sans `dailyAt` : la contrainte `veille_sources_schedule_check`
+ *   refuserait l'écriture, mais en 500 — une page d'erreur au lieu d'un message.
+ *
+ * `requiredWhen` couvre le second, `requiredIfExists` le premier. Un champ manquant devient un
+ * refus lisible, jamais un réglage qui ne s'applique pas.
+ */
+const scheduleFields = {
+  scheduleMode: vine.enum(SCHEDULE_MODES).optional().requiredIfExists('dailyAt'),
+  dailyAt: vine
+    .string()
+    .trim()
+    .use(timeOfDay())
+    .optional()
+    .requiredWhen('scheduleMode', '=', 'daily'),
+}
+
 export const sourceValidator = vine.compile(
   vine.object({
     url: vine.string().trim().maxLength(2048).use(publicFeedUrl()),
     title: vine.string().trim().minLength(1).maxLength(200),
     ...intervalFields,
+    ...scheduleFields,
   })
 )
 
@@ -233,5 +279,6 @@ export const sourceUpdateValidator = vine.compile(
     title: vine.string().trim().minLength(1).maxLength(200).optional(),
     active: vine.boolean().optional(),
     ...intervalFields,
+    ...scheduleFields,
   })
 )

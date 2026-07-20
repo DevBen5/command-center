@@ -20,6 +20,20 @@ export default await Env.create(new URL('../', import.meta.url), {
 
   /*
   |----------------------------------------------------------
+  | Fuseau des collectes de veille à heure fixe
+  |----------------------------------------------------------
+  |
+  | ⚠️ **Distinct de `TZ`, et pas un doublon.** `TZ` est le fuseau du process, dans
+  | lequel s'écrivent et se relisent les `timestamp` de la base. `APP_TIMEZONE` ne
+  | situe que la fenêtre horaire d'une source de veille en mode `daily` : « 7h » veut
+  | dire 7h ici, pas 7h UTC. Défaut et validation dans `config/veille.ts` — un nom de
+  | fuseau invalide y fait échouer le démarrage, faute de quoi la collecte se tairait
+  | en silence.
+  */
+  APP_TIMEZONE: Env.schema.string.optional(),
+
+  /*
+  |----------------------------------------------------------
   | Variables for configuring session package
   |----------------------------------------------------------
   */
