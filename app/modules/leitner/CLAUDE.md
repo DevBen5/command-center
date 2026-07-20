@@ -481,11 +481,17 @@ client et veulent l'inverse (noter vs synthétiser). Le test qui le tient est
 `tests/unit/leitner_llm_client.spec.ts`, qui inspecte le **corps réel** de la requête — et
 `?? DEFAULT_TEMPERATURE`, jamais `||` : `0` est falsy, un `||` ferait improviser le juge en silence.
 
-**L'export JSON ne contient ni `answer` ni `verdict`, ni les deux mesures de fluence** : il restaure
-un *état* (série, rétention, règle du 2ᵉ `hard`), et aucune règle de boîte ne lit ces colonnes.
-Contrepartie assumée : une restauration sur machine neuve perd les réponses écrites **et remet la
-référence de fluence à zéro** — le raffinement redevient silencieusement inerte le temps de la
-reconstituer.
+**L'export JSON porte les cinq colonnes, et c'est CC-51 qui l'a rendu obligatoire.** L'arbitraire
+d'origine tenait sur une phrase — l'export restaure un *état* (série, rétention, règle du 2ᵉ `hard`)
+et **aucune règle ne lit ces colonnes** — ce qui rendait la perte cosmétique : on perdait de la
+trace, jamais du comportement. ⚠️ **La fluence a cassé cette phrase** : `thinking_ms` **est** lu par
+une règle. Une restauration qui l'aurait laissé derrière ne perdait donc plus de l'historique mais
+**remettait le raffinement à zéro**, silencieusement inerte le temps de reconstituer 5 mesures par
+carte — aucune erreur à l'écran, juste une fonctionnalité qui a cessé de fonctionner.
+
+⚠️ **La leçon vaut pour la prochaine colonne, pas seulement pour celles-ci** : « aucune règle ne la
+lit » est une propriété du code **d'aujourd'hui**, pas du format. Le jour où une colonne cesse d'être
+décorative, c'est l'export qu'il faut rouvrir — et rien ne le signalera.
 
 ## Le timer fantôme : la fluence AFFINE la proposition
 
@@ -707,7 +713,14 @@ enregistrée (`lastGrade`).
       "category": "DevOps", "theme": "Docker",
       "box": 3, "nextReview": "2026-07-20",
       "createdAt": "2026-07-01T08:00:00.000Z", "updatedAt": "2026-07-13T09:02:00.000Z",
-      "reviews": [{ "grade": "good", "reviewedAt": "2026-07-13T09:02:00.000Z" }]
+      "reviews": [
+        {
+          "grade": "good", "reviewedAt": "2026-07-13T09:02:00.000Z",
+          "answer": "Négocier les clés de session.", "verdict": "partiel",
+          "latencyMs": 4200, "thinkingMs": 8500, "totalMs": 31000
+        },
+        { "grade": "hard", "reviewedAt": "2026-07-14T09:02:00.000Z" }
+      ]
     }
   ]
 }
@@ -717,7 +730,16 @@ enregistrée (`lastGrade`).
   Réinjecter un id casserait les séquences Postgres (`leitner_cards_id_seq` ne suit pas un insert à
   id explicite) : le prochain ajout depuis l'UI planterait sur un doublon de clé primaire.
 - Une carte non classée **omet** `category` et `theme` (plutôt que `null`) : le fichier se relit et
-  se retouche à la main.
+  se retouche à la main. **Une révision omet de même ce qui vaut `null`** — la seconde de l'exemple
+  n'a jamais été jugée. ⚠️ L'omission porte sur `=== null`, **jamais sur la vérité** : une réponse
+  vide (`""`) et une frappe immédiate (`0`) sont des valeurs, pas des absences, et elles sont
+  écrites. Un filtre falsy les perdrait.
+- **Les cinq colonnes de trace d'une révision sont exportées** (`answer`, `verdict`, `latencyMs`,
+  `thinkingMs`, `totalMs`) — voir « Ce que l'historique retient ». `thinkingMs` n'est pas de
+  l'historique : c'est la **référence de fluence**, et la perdre désactive le raffinement des
+  propositions sans le dire. `answer` est de loin la colonne la plus lourde (2 000 caractères
+  possibles par révision) : c'est **assumé**, le fichier est une sauvegarde et non un format
+  d'échange, et il n'y a **pas** de paramètre pour l'alléger.
 - `nextReview` est un jour calendaire (`YYYY-MM-DD`, colonne `date`) ; `reviewedAt`, `createdAt` et
   `updatedAt` sont des horodatages ISO complets (`timestamp`). Ne pas les intervertir.
 - `createdAt` / `updatedAt` sont exportés **parce que l'ordre de la file de révision en dépend**
@@ -759,10 +781,22 @@ vide — nouvelle machine, base perdue — et il n'y a alors rien à écraser.
   déclarée. `category` et `theme` vont **toujours ensemble** : l'un sans l'autre est une erreur, pas
   une carte non classée.
 - Une carte existante n'est **jamais écrasée** : son verso, sa boîte et son échéance survivent à un
-  import qui contiendrait le même recto.
+  import qui contiendrait le même recto. ⚠️ **Elle est ignorée *entièrement*, ses révisions
+  comprises** : ses colonnes de trace vides ne sont **jamais rétro-remplies** depuis le fichier — la
+  boucle des révisions vit après le `continue` de déduplication. Ce n'est pas un oubli : apparier
+  deux révisions demanderait une clé qu'on n'a pas (`reviewed_at` n'est pas unique), et un mauvais
+  appariement écrirait des mesures sur la mauvaise carte, donc une **référence de fluence fausse**,
+  en silence. Le scénario réel — restaurer dans une base vide — n'est pas concerné. Un test le fige.
 - **`version` inconnue → refus**, avec un message. Un import « au mieux » sur un format qu'on ne
   comprend pas écrit des données fausses en silence. Un fichier **sans** `version` est un fichier
   écrit à la main : il est lu comme la version courante.
+- ⚠️ **`BACKUP_VERSION` vaut toujours `1`, et l'ajout des cinq colonnes de trace ne l'a pas
+  bumpée — c'est un choix, pas un oubli.** L'ajout est strictement **additif** : un fichier
+  antérieur reste intégralement lisible, donc le déclarer « autre format » serait faux. Ce qu'un
+  bump aurait acheté est l'inverse — qu'un build **antérieur** refuse net un fichier neuf au lieu de
+  le tronquer. **Coût assumé, et c'est le seul** : un checkout d'avant CC-51 qui importerait un
+  fichier d'aujourd'hui en perdrait les cinq champs **sans un mot**. Bump-la le jour où un champ
+  change de sens ou devient obligatoire ; là, un ancien fichier serait vraiment illisible.
 - **Tout ou rien** : `db.transaction()` + `{ client: trx }` sur chaque écriture. Sans ça, un fichier
   qui casse à la 300ᵉ carte laisserait 299 cartes derrière lui.
 - Le retour d'import (rapport ou erreurs) passe par un **flash** relu dans `index` et renvoyé en
@@ -774,6 +808,28 @@ en base**. Une carte importée en boîte 12 puis notée `hard` y resterait : `bo
 `undefined`, Luxon fait `plus({ days: undefined })` = +0 jour et rend une date **valide** —
 `next_review` = aujourd'hui, indéfiniment. Aucune exception, aucun log. Ne relâche jamais cette
 borne dans `backupValidator`.
+
+⚠️ **La trace d'une révision est bornée exactement comme le `POST /review` qui l'écrit**
+(`backupReviewTraceFields`, à côté de `reviewValidator`) : un fichier n'est pas une source plus
+fiable qu'une requête. C'est la même doctrine que `verdict`/`latencyMs` et `source`/`sourceName` —
+sauf que **`thinkingMs` alimente une règle**, donc un fichier écrit à la main peut dégrader ses
+propres suggestions. Borné, ça reste acceptable : la proposition n'est jamais appliquée sans
+confirmation, et la note cliquée reste le seul moteur de Leitner — **aucune boîte ne bouge sur ces
+champs**. Ne les accepte jamais en vrac.
+
+⚠️ Deux détails de ces bornes qui ne se devinent pas. **`interrupted` n'est pas dans le fichier** :
+c'est un drapeau de transport qui dit à la règle d'écarter la mesure du moment, et une révision déjà
+en base a **déjà** été filtrée par lui — ne fusionne pas `backupReviewTraceFields()` avec
+`fluencyMeasureFields()`. Et le plafond des durées est **`MEASURE_MAX_MS` (1 h), pas
+`MAX_THINKING_MS` (120 s)** : c'est celui auquel la page écrête avant d'envoyer, donc celui que la
+colonne peut légitimement porter. Plus serré, on refuserait l'import d'un fichier honnêtement
+exporté.
+
+⚠️ **Élargir `backupValidator` touche aussi l'ingestion**, qui s'en sert pour valider la sortie du
+LLM. Ça reste sans danger — `parseLlmCards` recopie explicitement les **quatre** seuls champs
+`front`/`back`/`category`/`theme` avant de valider, donc un modèle ne peut fabriquer ni révision, ni
+mesure. C'est cette recopie qui tient la garantie, pas le validateur : ne la remplace pas par un
+passe-plat.
 
 ⚠️ **Ne réinjecte jamais les ids.** Les séquences Postgres (`leitner_cards_id_seq`) ne suivent pas
 un insert à id explicite : le prochain ajout depuis l'UI planterait sur un doublon de clé primaire.
@@ -1182,7 +1238,14 @@ l'ordre « compter les révisions du jour AVANT d'insérer la nouvelle »,
 `tests/unit/leitner_catalog_service.spec.ts` couvre les filtres, la suppression multiple, le
 reclassement et les cascades de la taxonomie, et `tests/functional/modules/leitner_backup.spec.ts`
 couvre la sauvegarde — dont **l'aller-retour** (export → base vidée → import → base identique), le
-seul test qui valide la promesse de l'export. `tests/unit/leitner_ingestion_service.spec.ts` et
+seul test qui valide la promesse de l'export. ⚠️ **Sa valeur tient entièrement dans son
+`snapshot()`** : une colonne que cette fonction ne lit pas peut être perdue par l'export sans qu'un
+seul test ne rougisse — c'est exactement ce qui a laissé passer CC-51, les cinq colonnes de trace
+sortant de la base sans jamais y revenir, suite verte. **Une colonne ajoutée à `leitner_cards` ou
+`leitner_reviews` s'ajoute à `snapshot()` dans le même lot, ou elle n'est pas sauvegardée.**
+L'aller-retour porte donc une révision **jugée** et une **jamais jugée** : `null` doit se relire
+`null`, jamais `0` ni `''` — plus une troisième aux valeurs falsy (`answer: ''`, `thinkingMs: 0`),
+qui sont des mesures et non des absences. `tests/unit/leitner_ingestion_service.spec.ts` et
 `tests/functional/modules/leitner_ingest.spec.ts` couvrent l'ingestion (parsing, découpage,
 déduplication, promotion, échecs du LLM) **contre un faux client** — jamais contre un vrai modèle —
 ainsi que l'**asynchrone** : le POST rend la main avant le modèle (le faux client est *retenu* le
