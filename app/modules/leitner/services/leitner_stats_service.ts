@@ -41,7 +41,7 @@ export interface LeitnerEffortStats {
  * cartes dedans. Tout est déduit de `leitner_reviews` — aucune colonne n'a été
  * ajoutée pour ça, et l'historique déjà en base se lit rétroactivement.
  *
- * ⚠️ **Ces mesures sont globales, jamais scopées** — exactement comme `streak`,
+ * ⚠️ **Ces mesures sont globales, jamais restreintes à un paquet** — exactement comme `streak`,
  * `reviewedToday` et la rétention (voir `LeitnerService.boxCounts`). Une session est
  * un moment de travail, pas un moment de thème : la découper par thème n'aurait pas
  * de sens, puisqu'une même session peut en traverser plusieurs. Pas de `?theme=` sur

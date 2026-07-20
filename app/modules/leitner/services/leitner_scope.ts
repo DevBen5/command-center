@@ -5,7 +5,7 @@ import type LeitnerCard from '#modules/leitner/models/leitner_card'
  * Un sous-ensemble de cartes désigné par le classement : tout, un thème, une
  * catégorie (donc tous ses thèmes), ou les cartes non classées.
  *
- * C'est la **portée** d'une session de révision (`/revision?theme=3`) autant que le
+ * C'est le **paquet** d'une session de révision (`/revision?theme=3`) autant que le
  * filtre du catalogue (`/revision/settings`) : les deux disent la même chose, et
  * s'appuient sur `applyScope` plutôt que d'en recopier chacun la traduction SQL.
  */
@@ -15,15 +15,15 @@ export type CardScope =
   | { kind: 'category'; id: number }
   | { kind: 'theme'; id: number }
 
-/** Aucune restriction — la valeur par défaut partout où une portée est facultative. */
+/** Aucune restriction — la valeur par défaut partout où un paquet est facultatif. */
 export const ALL_CARDS: CardScope = { kind: 'all' }
 
 /**
- * Restreint une requête sur `leitner_cards` à une portée. Mute le builder (comme
+ * Restreint une requête sur `leitner_cards` à un paquet. Mute le builder (comme
  * tout Lucid) et ne touche ni à l'ordre, ni aux autres conditions.
  *
  * ⚠️ **Une carte ne connaît que son thème, jamais sa catégorie** : `leitner_cards`
- * n'a pas de `leitner_category_id`. Une portée de catégorie passe donc par une
+ * n'a pas de `leitner_category_id`. Un paquet de catégorie passe donc par une
  * sous-requête sur `leitner_themes` — et c'est ici, une seule fois, qu'elle s'écrit.
  */
 export function applyScope(

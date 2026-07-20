@@ -37,7 +37,7 @@ const CATEGORIES: CategoryChoice[] = [
   },
 ]
 
-test.group('Leitner / recherche d’une portée', () => {
+test.group('Leitner / recherche d’un paquet', () => {
   test('taper `securite` trouve « Sécurité » — sans accent, sans casse', ({ assert }) => {
     // LE test du lot : personne ne tape les accents dans une barre de recherche.
     for (const query of ['securite', 'Sécurité', 'SECURITE', 'sÉcUrItE']) {
@@ -101,7 +101,7 @@ test.group('Leitner / recherche d’une portée', () => {
     for (const query of ['', '   ']) {
       const matches = filterScopes(CATEGORIES, query)
 
-      // 3 catégories + 5 thèmes, aucune portée perdue en route.
+      // 3 catégories + 5 thèmes, aucun paquet perdu en route.
       assert.lengthOf(matches, 8)
       assert.lengthOf(
         matches.filter((match) => match.kind === 'category'),
@@ -118,10 +118,10 @@ test.group('Leitner / recherche d’une portée', () => {
     assert.deepEqual(filterScopes(CATEGORIES, 'informatique quantique'), [])
   })
 
-  test('une portée à 0 carte due est trouvée, mais marquée non sélectionnable', ({ assert }) => {
+  test('un paquet à 0 carte due est trouvé, mais marqué non sélectionnable', ({ assert }) => {
     const matches = filterScopes(CATEGORIES, 'linux')
 
-    // Elle n'est pas masquée : disparaître ferait croire qu'elle n'existe pas.
+    // Il n'est pas masqué : disparaître ferait croire qu'il n'existe pas.
     // La catégorie « Linux » ET le thème « DevOps · Linux », distingués par leur chemin.
     assert.deepEqual(
       matches.map((match) => [match.kind, match.categoryName, match.themeName, match.selectable]),
@@ -143,7 +143,7 @@ test.group('Leitner / recherche d’une portée', () => {
     }
   })
 
-  test('chaque portée porte l’URL de sa session — jamais une route nouvelle', ({ assert }) => {
+  test('chaque paquet porte l’URL de sa session — jamais une route nouvelle', ({ assert }) => {
     for (const match of filterScopes(CATEGORIES, '')) {
       const expected =
         match.kind === 'category' ? /^\/revision\?category=\d+$/ : /^\/revision\?theme=\d+$/

@@ -39,7 +39,7 @@ services/leitner_sessions.ts               l'INFÉRENCE de session depuis `revie
                                            `SESSION_GAP_MINUTES` + `median` — du CODE PUR, sans base,
                                            donc le test qui compte du lot statistiques
 services/leitner_stats_service.ts          les stats d'EFFORT : charge, délègue le regroupement,
-                                           agrège par fenêtre — globales, jamais scopées
+                                           agrège par fenêtre — globales, jamais par paquet
 services/leitner_catalog_service.ts        catalogue : filtres, CRUD cartes, catégories/thèmes
                                            ← seul point d'écriture d'une carte, porte la dédup
 services/leitner_backup_service.ts         export/import JSON — le filet de sécurité du module
@@ -58,7 +58,7 @@ models/leitner_theme.ts                    belongsTo category · hasMany cards
 models/leitner_settings.ts                 réglages du module — UNE seule ligne (id = 1)
 models/leitner_ingestion.ts                le travail : titre, statut, source, compteurs, erreur
 models/leitner_draft_card.ts               une carte PROPOSÉE, rattachée à son ingestion
-validators/leitner.ts                      card · review · reviewScope (la portée, dans la query
+validators/leitner.ts                      card · review · reviewScope (le paquet, dans la query
                                            string) · cardIds · cardsTheme · category · theme
                                            · boxIntervals · backup · backupImport
                                            · courseIngestion (SANS fichier : que du texte)
@@ -67,7 +67,7 @@ validators/leitner.ts                      card · review · reviewScope (la por
                                            · llmDetect · llmModels · llmTest (LISTE BLANCHE SSRF)
 components/LeitnerTabs.vue                 la barre d'onglets des quatre écrans (PAS dans pages/)
 components/IngestionTitle.vue              le titre d'un travail, renommable en ligne (PAS dans pages/)
-components/LeitnerScopePicker.vue          l'écran de choix d'une portée : la barre PUIS l'arbre
+components/LeitnerScopePicker.vue          l'écran de choix d'un paquet : la barre PUIS l'arbre
                                            (PAS dans pages/)
 components/LeitnerScopeSearch.vue          la barre de recherche de l'écran de choix : on nomme une
                                            catégorie/thème, clic ou Entrée ouvre la session — ↑↓,
@@ -76,13 +76,13 @@ components/LeitnerScopeSearch.vue          la barre de recherche de l'écran de 
 components/leitner_csrf.ts                 le jeton `x-xsrf-token` des routes JSON du module —
                                            l'UNIQUE copie (index · ingest · llm l'importent)
 components/leitner_scope_search.ts         son filtrage : accents ignorés, chemin Catégorie · Thème,
-                                           portée à 0 trouvée mais non sélectionnable — du CODE PUR,
+                                           paquet à 0 trouvé mais non sélectionnable — du CODE PUR,
                                            donc le test qui compte de ce lot
 components/TaxonomyCombobox.vue            le sélecteur catégorie/thème de la relecture des
                                            brouillons — rend une CHAÎNE, texte libre autorisé
                                            (PAS dans pages/)
-pages/index.vue                            choix d'une portée OU session de révision (`view`) · fin de
-                                           portée · grille des 5 boîtes
+pages/index.vue                            choix d'un paquet OU session de révision (`view`) · fin de
+                                           paquet · grille des 5 boîtes
 pages/settings.vue                         tableau des cartes · création/édition · sélection
                                            multiple · taxonomie · intervalles des boîtes
 pages/stats.vue                            l'effort : sessions (7/30/365 j) · durée médiane ·
@@ -140,35 +140,35 @@ La modale de `settings.vue` sert à la fois à créer (`editing === null`) et à
 fait en général par séries sur un même sujet. `@submit.prevent="submitCard()"` s'écrit **avec les
 parenthèses** — sans elles, Vue passe l'événement en `keepOpen` et la modale ne se ferme jamais.
 
-## La portée d'une session : `/revision` a deux visages
+## Le paquet à réviser : `/revision` a deux visages
 
-⚠️ **Trois noms pour une même chose, et c'est délibéré.** À l'écran on dit **« paquet »** — le
-mot des cartes mémoire, celui d'Anki, compris sans explication. Dans le code et l'URL on dit
-**`scope`** (`CardScope`, `applyScope`, `?scope=all`). Cette doc dit **« portée »**, parce qu'elle
-raisonne sur le concept, pas sur son étiquette.
+⚠️ **Un seul mot français : « paquet ».** C'est le mot des cartes mémoire, celui d'Anki, compris
+sans explication. Il vaut partout — à l'écran, dans cette doc, dans les commentaires, dans les noms
+de tests. Le terme « portée » a été employé jusqu'au 2026-07-20 ; il n'a plus cours, ne le
+réintroduis pas.
 
-Ne « corrige » pas l'un pour aligner l'autre : renommer `scope` casserait l'URL, qui est un
-contrat ; et remplacer « paquet » par « portée » à l'écran remettrait un mot d'ingénieur devant
-quelqu'un qui veut juste réviser Docker. Ce qu'il faut, en revanche, c'est que **les chaînes
-visibles restent en « paquet »** — elles vivent dans `pages/index.vue`, `components/LeitnerScopeSearch.vue`
-et les `SCOPE_ERRORS` de `leitner_controller.ts`.
+Le code et l'URL, eux, disent **`scope`** (`CardScope`, `applyScope`, `resolveScope`, `?scope=all`)
+— et ça reste. Ce n'est pas une deuxième terminologie mais la traduction habituelle du module :
+`LeitnerCard` pour « carte », `box` pour « boîte », `review` pour « révision ». **Ne renomme pas
+`scope`** : la query string est un contrat, elle vit dans les signets et dans le `withQs()` de
+chaque note, et un identifiant français ici jurerait avec tout le reste du dépôt.
 
 `/revision` **nu** est l'écran de **choix** (que réviser ce soir ?) ; `/revision?scope=all`,
-`?scope=unclassified`, `?category=<id>` ou `?theme=<id>` est la **session**, restreinte à cette
-portée. Une seule page Inertia (`modules/leitner/index`), un prop `view` qui tranche — d'où le fait
+`?scope=unclassified`, `?category=<id>` ou `?theme=<id>` est la **session**, restreinte à ce
+paquet. Une seule page Inertia (`modules/leitner/index`), un prop `view` qui tranche — d'où le fait
 que `tests/functional/modules/pages.spec.ts` tienne sans modification.
 
-### La portée vit dans l'URL, et nulle part ailleurs
+### Le paquet vit dans l'URL, et nulle part ailleurs
 
-**Rien en base, rien en session.** La portée est un *geste*, pas un *réglage* : elle ne survit pas à
+**Rien en base, rien en session.** Le paquet est un *geste*, pas un *réglage* : il ne survit pas à
 la session et n'a pas à le faire. Une colonne `current_scope` dans `leitner_settings` serait un état
 à invalider (thème supprimé, plus rien de dû, deux onglets ouverts) pour un gain nul — et
 `leitner_settings` porte la **configuration** du module, pas ce que l'utilisateur est en train de
-faire. Deux onglets, deux portées, aucun conflit possible : c'est la propriété qu'on achète.
+faire. Deux onglets, deux paquets, aucun conflit possible : c'est la propriété qu'on achète.
 
 C'est gratuit parce que **la page n'a aucun état** : `currentCard` vaut `dueCards[0]`, `review()`
 redirige en arrière, la page se recharge et **re-requête**. Il n'y a rien à reprendre, rien à
-invalider. Aucune route nouvelle non plus : la portée est une query string sur `GET /revision`.
+invalider. Aucune route nouvelle non plus : le paquet est une query string sur `GET /revision`.
 
 ⚠️ **`response.redirect().withQs().back()` — le `withQs()` n'est pas décoratif.** `back()` renvoie
 sur le `referer` mais **sur son seul `pathname`** : il **jette la query string**
@@ -176,22 +176,22 @@ sur le `referer` mais **sur son seul `pathname`** : il **jette la query string**
 `withQs()`, `?theme=3` disparaîtrait **à chaque note**, en silence : la session repartirait sur
 toutes les cartes dues sans une erreur ni un log. Ne le retire pas, et ne remplace pas ce `back()`
 par un `toRoute()`. C'est le piège n° 1 du module ; son test est
-`leitner_scope.spec.ts` → « noter une carte CONSERVE la portée », et il **assert l'en-tête
+`leitner_scope.spec.ts` → « noter une carte CONSERVE le paquet », et il **assert l'en-tête
 `location` brut** — `assertRedirectsTo` ne compare que le chemin, il laisserait passer exactement
 cette régression.
 
-### La fin d'une portée est une file vide — jamais un compteur
+### La fin d'un paquet est une file vide — jamais un compteur
 
 ⚠️ **`again` laisse la carte due le jour même** (voir « La règle métier ») : elle reste dans
-`dueCards` et revient en fin de file, **dans la portée**. Donc **« la fin d'un thème » n'arrive que
+`dueCards` et revient en fin de file, **dans le paquet**. Donc **« la fin d'un thème » n'arrive que
 quand plus aucune de ses cartes n'est due — y compris celles qu'on vient de rater**. C'est voulu.
 
-L'écran de fin se déclenche donc sur une **re-requête vide** dans la portée, **jamais** sur un
+L'écran de fin se déclenche donc sur une **re-requête vide** dans le paquet, **jamais** sur un
 compteur de cartes vues. Compter les cartes présentées et s'arrêter à N reproduirait l'erreur que
 l'ordre de la file existe pour éviter : une carte ratée disparaîtrait de la session.
 
 Aucune **redirection automatique** à la fin : l'utilisateur doit *voir* qu'il a fini — un retour auto
-à l'écran de choix se lirait comme un bug. Deux gestes : « Choisir une autre portée » (`/revision`) ou
+à l'écran de choix se lirait comme un bug. Deux gestes : « Choisir un autre paquet » (`/revision`) ou
 « Arrêter » (`/`).
 
 ⚠️ **« Terminée » et « vide dès le départ » sont la même file vide** — ouvrir `?theme=7` sur un thème
@@ -242,9 +242,9 @@ Trois règles de l'écran s'appliquent à la barre, et pas une n'est décorative
   `securite`. C'est le piège du lot, et son test.
 - **Le chemin, toujours complet.** « Linux » est à la fois une catégorie **et** un thème de DevOps
   dans les données réelles : un thème affiché seul ne désigne rien. D'où `Catégorie · Thème`.
-- **Une portée à 0 se trouve, mais ne s'ouvre pas** — ni au clic, ni à l'Entrée, et ↑↓ la **sautent**
-  (s'arrêter dessus laisserait Entrée sans effet, sans dire pourquoi). Elle n'est **jamais masquée** :
-  disparaître ferait croire qu'elle n'existe pas.
+- **Un paquet à 0 se trouve, mais ne s'ouvre pas** — ni au clic, ni à l'Entrée, et ↑↓ le **sautent**
+  (s'arrêter dessus laisserait Entrée sans effet, sans dire pourquoi). Il n'est **jamais masqué** :
+  disparaître ferait croire qu'il n'existe pas.
 
 **Aucune requête.** L'arbre entier est déjà dans la prop `choices` (5 catégories, 15 thèmes) :
 le filtrage est côté client, dans `leitner_scope_search.ts`. Ni route, ni endpoint, ni debounce —
@@ -276,13 +276,13 @@ vide.
 Si tu touches à cette navigation, retire l'aide ou répare-la : annoncer un raccourci qu'on n'a pas
 est le défaut que la palette ⌘K traîne déjà.
 
-### Stats de portée vs stats globales — la distinction n'est pas devinable
+### Stats de paquet vs stats globales — la distinction n'est pas devinable
 
-| mesure | portée ? | pourquoi |
+| mesure | paquet ? | pourquoi |
 | ------ | -------- | -------- |
-| `dueCount`, grille des 5 boîtes | **suit la portée** | c'est ce qu'on est en train de réviser : la grille doit décrire *ça* |
+| `dueCount`, grille des 5 boîtes | **suit le paquet** | c'est ce qu'on est en train de réviser : la grille doit décrire *ça* |
 | `streak`, `reviewedToday`, `retention` | **globaux** | ce sont des mesures d'**habitude**, pas de thème. Une série de 40 jours qui retomberait à zéro parce qu'on a ouvert un autre thème serait absurde |
-| `totalCards` | **global** | un inventaire, dans la même rangée que les trois précédentes. Contrepartie assumée : la grille scopée ne somme pas au « total cartes » affiché |
+| `totalCards` | **global** | un inventaire, dans la même rangée que les trois précédentes. Contrepartie assumée : la grille d'un paquet ne somme pas au « total cartes » affiché |
 
 ## L'onglet « Stats » : la session est INFÉRÉE, jamais enregistrée
 
@@ -292,7 +292,7 @@ jour, rétention, inventaire). **Aucune colonne n'a été ajoutée pour ça** : 
 horodatages déjà en base, donc rétroactivement, sur l'historique existant.
 
 L'inférence tient à une propriété de l'écran de révision, et **à elle seule** : la page est **sans
-état** — noter une carte recharge `/revision` et affiche la suivante aussitôt (voir « La portée vit
+état** — noter une carte recharge `/revision` et affiche la suivante aussitôt (voir « Le paquet vit
 dans l'URL »). L'horodatage de la note N marque donc aussi le **début** de la carte N+1. D'où :
 
 - le **temps par carte** = l'écart entre deux `reviewed_at` consécutifs — disponible pour toutes les
@@ -315,9 +315,9 @@ elle est écrite ici plutôt que devinée depuis le code.
   que c'est plus simple » : une session à deux cartes suffirait à rendre la durée moyenne absurde.
 - **Une session à une seule carte dure 0, et s'affiche telle quelle.** La masquer ou la fondre dans
   une autre serait mentir sur l'effort : cette minute-là a bien eu lieu.
-- **Les stats d'effort sont globales, jamais scopées** — exactement comme `streak`, `reviewedToday`
-  et la rétention (voir le commentaire de `boxCounts` et le tableau « Stats de portée vs stats
-  globales »). Une session est un moment de **travail**, pas un moment de thème, et une même
+- **Les stats d'effort sont globales, jamais restreintes à un paquet** — exactement comme `streak`,
+  `reviewedToday` et la rétention (voir le commentaire de `boxCounts` et le tableau « Stats de
+  paquet vs stats globales »). Une session est un moment de **travail**, pas un moment de thème, et une même
   session en traverse volontiers plusieurs. **Pas de `?theme=` sur cet écran.**
 
 ### Deux pièges du calcul
@@ -378,7 +378,7 @@ second ne se voit pas à l'écran.
 | **égale au verso** (normalisée) | **court-circuit**, aucun appel | `juste` | `null` |
 | autre | le juge LLM | `juste`·`partiel`·`faux`, ou `null` si repli | la durée de l'appel |
 
-- Le **court-circuit** compare via `normalizeForSearch` (celle de la barre de recherche des portées :
+- Le **court-circuit** compare via `normalizeForSearch` (celle de la barre de recherche des paquets :
   NFD, sans diacritiques, minuscules, espaces réduits) — **pas une seconde copie**, elle divergerait.
   Limite acceptée : la **ponctuation finale n'est pas retirée** (`draftKey` le fait, pas elle), donc
   un verso « … et algorithmes. » répondu sans le point part au juge. Sans conséquence — c'est une
@@ -514,8 +514,8 @@ Chaque note a un effet distinct :
 laisse la boîte intacte, un tri par `box` rendrait la carte ratée **à la même place** qu'avant la
 note — elle se re-présenterait aussitôt, en boucle, et la session serait bloquée sur elle. C'est
 `updated_at` qui la renvoie en fin de file : la noter l'écrit, donc elle devient la plus récemment
-touchée, donc la dernière. **Le ciblage par thème n'y change rien** : la portée retire des cartes,
-elle ne réordonne pas.
+touchée, donc la dernière. **Le ciblage par thème n'y change rien** : le paquet retire des cartes,
+il ne réordonne pas.
 
 La requête vit dans le **service**, pas dans le contrôleur : c'est la règle métier, et c'est ce qui
 la rend testable unitairement (`tests/unit/leitner_due_cards.spec.ts`) — l'ordre n'était jusque-là
@@ -977,7 +977,7 @@ Trois corollaires, aussi importants que la liste elle-même :
 - **Le filtre par catégorie passe par une sous-requête** sur `leitner_themes` (une carte ne connaît
   que son thème, pas sa catégorie). Filtrer sur `leitner_category_id` depuis `leitner_cards` n'a
   aucun sens : la colonne n'existe pas. Elle s'écrit **une seule fois**, dans
-  `services/leitner_scope.ts` : la portée d'une session et le filtre du catalogue posent la même
+  `services/leitner_scope.ts` : le paquet d'une session et le filtre du catalogue posent la même
   question, et `LeitnerCatalogService.cards()` comme `LeitnerService.dueCards()` passent par
   `applyScope`. N'en fais pas une troisième copie.
 - Les stats (`reviewedToday`, `streakDays`) et le catalogue chargent les lignes et comptent en JS,
@@ -987,15 +987,15 @@ Trois corollaires, aussi importants que la liste elle-même :
 
 `npm test` — `tests/unit/leitner_service.spec.ts` couvre la règle des boîtes (une note = une
 assertion sur la boîte **et** sur `next_review`), `tests/unit/leitner_due_cards.spec.ts` couvre la
-**file et sa portée** (`all` · `theme` · `category` via ses thèmes · `unclassified`, l'ordre à
-l'intérieur d'une portée, une carte `again` qui y reste, et le **refus** d'un id inexistant — le
+**file et son paquet** (`all` · `theme` · `category` via ses thèmes · `unclassified`, l'ordre à
+l'intérieur d'un paquet, une carte `again` qui y reste, et le **refus** d'un id inexistant — le
 repli muet sur « tout » est le mode d'échec que ce lot existe pour éviter),
 `tests/functional/modules/leitner_scope.spec.ts` couvre l'écran de choix et ses **comptes dus**, la
-fin de portée (distincte d'une portée vide dès le départ) et surtout que **noter une carte conserve
-la portée** — le piège n° 1, celui du `withQs()`.
+fin d'un paquet (distincte d'un paquet vide dès le départ) et surtout que **noter une carte conserve
+le paquet** — le piège n° 1, celui du `withQs()`.
 `tests/unit/leitner_scope_search.spec.ts` couvre le **filtrage de la barre de recherche** de cet
 écran — dont `securite` qui trouve « Sécurité » (le test qui compte), le chemin `Catégorie · Thème`,
-et une portée à 0 trouvée mais **non sélectionnable**. Du code pur : ce dépôt n'a **aucun test de
+et un paquet à 0 trouvé mais **non sélectionnable**. Du code pur : ce dépôt n'a **aucun test de
 composant Vue**, et ce n'est pas un oubli — la question est ouverte, ne la tranche pas au détour d'un
 lot. Ce que ce test ne voit donc **pas** : le focus/blur, le chevron, ↑↓ Entrée Échap, et qu'un clic
 ouvre bien la session. Ça, il faut un vrai passage navigateur.

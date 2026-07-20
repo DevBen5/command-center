@@ -8,7 +8,7 @@ import LeitnerService from '#modules/leitner/services/leitner_service'
 
 // La file de révision vit dans `LeitnerService.dueCards(scope)` — pas dans le contrôleur.
 // C'est ce qui rend testable unitairement à la fois **l'ordre** de la file (que seul un
-// test fonctionnel verrouillait) et la **portée** : les deux tiennent ensemble, puisque
+// test fonctionnel verrouillait) et le **paquet** : les deux tiennent ensemble, puisque
 // restreindre la file ne doit rien changer à son ordre.
 test.group('Leitner / dueCards(scope)', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
@@ -40,7 +40,7 @@ test.group('Leitner / dueCards(scope)', (group) => {
 
   const fronts = (cards: LeitnerCard[]) => cards.map((card) => card.front)
 
-  test('portée `all` : toutes les cartes dues, classées ou non', async ({ assert }) => {
+  test('paquet `all` : toutes les cartes dues, classées ou non', async ({ assert }) => {
     const { docker } = await taxonomy()
     await makeCard('Classée', docker.id)
     await makeCard('Non classée', null)
@@ -48,7 +48,7 @@ test.group('Leitner / dueCards(scope)', (group) => {
     assert.sameMembers(fronts(await service.dueCards()), ['Classée', 'Non classée'])
   })
 
-  test('portée `theme` : une carte d’un autre thème n’apparaît pas', async ({ assert }) => {
+  test('paquet `theme` : une carte d’un autre thème n’apparaît pas', async ({ assert }) => {
     const { docker, kubernetes } = await taxonomy()
     await makeCard('Docker', docker.id)
     await makeCard('Kubernetes', kubernetes.id)
@@ -58,7 +58,7 @@ test.group('Leitner / dueCards(scope)', (group) => {
     assert.deepEqual(fronts(cards), ['Docker'])
   })
 
-  test('portée `category` : tous ses thèmes, et eux seuls', async ({ assert }) => {
+  test('paquet `category` : tous ses thèmes, et eux seuls', async ({ assert }) => {
     const { devops, docker, kubernetes, tls } = await taxonomy()
     await makeCard('Docker', docker.id)
     await makeCard('Kubernetes', kubernetes.id)
@@ -66,7 +66,7 @@ test.group('Leitner / dueCards(scope)', (group) => {
     await makeCard('Non classée', null)
 
     // Une carte ne connaît que son thème : la catégorie passe par une sous-requête sur
-    // `leitner_themes` — d'où le fait qu'un thème frère entre dans la portée.
+    // `leitner_themes` — d'où le fait qu'un thème frère entre dans le paquet.
     const cards = await service.dueCards({ kind: 'category', id: devops.id })
     assert.sameMembers(fronts(cards), ['Docker', 'Kubernetes'])
   })
@@ -81,7 +81,7 @@ test.group('Leitner / dueCards(scope)', (group) => {
     assert.isEmpty(await service.dueCards({ kind: 'theme', id: docker.id }))
   })
 
-  test('portée `unclassified` : les cartes sans thème, et elles seules', async ({ assert }) => {
+  test('paquet `unclassified` : les cartes sans thème, et elles seules', async ({ assert }) => {
     const { docker } = await taxonomy()
     await makeCard('Classée', docker.id)
     await makeCard('Non classée', null)
@@ -89,7 +89,7 @@ test.group('Leitner / dueCards(scope)', (group) => {
     assert.deepEqual(fronts(await service.dueCards({ kind: 'unclassified' })), ['Non classée'])
   })
 
-  test('une carte non due est hors de la file, portée ou pas', async ({ assert }) => {
+  test('une carte non due est hors de la file, paquet ou pas', async ({ assert }) => {
     const { docker } = await taxonomy()
     await makeCard('Due', docker.id)
     await LeitnerCard.create({
@@ -103,12 +103,12 @@ test.group('Leitner / dueCards(scope)', (group) => {
     assert.deepEqual(fronts(await service.dueCards({ kind: 'theme', id: docker.id })), ['Due'])
   })
 
-  test('l’ordre tient à l’intérieur d’une portée', async ({ assert }) => {
+  test('l’ordre tient à l’intérieur d’un paquet', async ({ assert }) => {
     const { docker, tls } = await taxonomy()
-    // Une carte d'un autre thème s'intercale par l'échéance : la portée doit la retirer
+    // Une carte d'un autre thème s'intercale par l'échéance : le paquet doit la retirer
     // sans déranger l'ordre des autres.
     await makeCard('En retard de 3 j', docker.id, 3)
-    await makeCard('Hors portée, très en retard', tls.id, 10)
+    await makeCard('Hors du paquet, très en retard', tls.id, 10)
     await makeCard('Due aujourd’hui', docker.id, 0)
     await makeCard('En retard de 1 j', docker.id, 1)
 
@@ -116,14 +116,14 @@ test.group('Leitner / dueCards(scope)', (group) => {
     assert.deepEqual(fronts(cards), ['En retard de 3 j', 'En retard de 1 j', 'Due aujourd’hui'])
   })
 
-  test('une carte notée `again` reste dans la portée, en fin de file', async ({ assert }) => {
+  test('une carte notée `again` reste dans le paquet, en fin de file', async ({ assert }) => {
     const { docker } = await taxonomy()
     const first = await makeCard('Première', docker.id, 1)
     await makeCard('Seconde', docker.id, 0)
 
     await service.review(first, 'again')
 
-    // `again` laisse la carte due le jour même : la portée ne se termine pas tant
+    // `again` laisse la carte due le jour même : le paquet ne se termine pas tant
     // qu'elle n'est pas passée. Elle repart en fin de file (échéance la plus tardive
     // des cartes dues, et écriture la plus récente) — jamais en tête, malgré sa boîte 1.
     const cards = await service.dueCards({ kind: 'theme', id: docker.id })
@@ -153,7 +153,7 @@ test.group('Leitner / resolveScope', (group) => {
     assert.deepEqual(resolved, { ok: true, scope: { kind: 'all' }, label: 'Toutes les cartes' })
   })
 
-  test('un thème rend sa portée et son libellé complet', async ({ assert }) => {
+  test('un thème rend son paquet et son libellé complet', async ({ assert }) => {
     const category = await LeitnerCategory.create({ name: 'DevOps' })
     const theme = await LeitnerTheme.create({ leitnerCategoryId: category.id, name: 'Docker' })
 

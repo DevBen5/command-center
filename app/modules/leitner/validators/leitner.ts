@@ -66,9 +66,9 @@ export const judgeValidator = vine.compile(
 )
 
 /**
- * La **portée** d'une session de révision, lue dans la query string de `GET /revision`
- * (`?scope=all` · `?scope=unclassified` · `?category=<id>` · `?theme=<id>`). Elle vient
- * de l'utilisateur — d'un signet, d'une URL partagée, d'une barre d'adresse : elle se
+ * Le **paquet** d'une session de révision, lu dans la query string de `GET /revision`
+ * (`?scope=all` · `?scope=unclassified` · `?category=<id>` · `?theme=<id>`). Il vient
+ * de l'utilisateur — d'un signet, d'une URL partagée, d'une barre d'adresse : il se
  * valide comme toute entrée de ce dépôt.
  *
  * Ce validateur ne garantit que la **forme**. Les deux règles qui comptent vraiment ne

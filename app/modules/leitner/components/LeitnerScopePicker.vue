@@ -7,11 +7,11 @@ import type { CategoryChoice } from './leitner_scope_search'
  * L'écran de choix : que réviser ce soir ? Chaque ligne montre son nombre de cartes
  * **dues**, jamais son total — c'est le nombre dû qui décide de ce qu'on ouvre.
  *
- * Une portée à 0 s'affiche (elle existe) mais n'est pas un lien : elle n'invite pas
+ * Un paquet à 0 s'affiche (il existe) mais n'est pas un lien : il n'invite pas
  * au clic.
  *
  * Deux accès, et le second ne remplace pas le premier : la **barre de recherche**
- * (`LeitnerScopeSearch`) en haut pour atteindre une portée en la nommant, l'**arbre**
+ * (`LeitnerScopeSearch`) en haut pour atteindre un paquet en le nommant, l'**arbre**
  * en dessous pour voir d'un coup d'œil ce qui est dû. Ne retire pas l'arbre au
  * profit de la barre : c'est la seule vue d'ensemble.
  */

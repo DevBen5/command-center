@@ -1,6 +1,6 @@
 /*
 |------------------------------------------------------------------------------
-| La recherche de l'écran de choix : l'arbre des portées → la liste qu'on propose
+| La recherche de l'écran de choix : l'arbre des paquets → la liste qu'on propose
 |------------------------------------------------------------------------------
 |
 | Séparé de `LeitnerScopeSearch.vue` parce que c'est le cœur du sujet, et la seule
@@ -28,7 +28,7 @@ export interface CategoryChoice {
   themes: ThemeChoice[]
 }
 
-/** Une portée retenue par la barre : de quoi l'afficher, et l'ouvrir. */
+/** Un paquet retenu par la barre : de quoi l'afficher, et l'ouvrir. */
 export interface ScopeMatch {
   /** Clé de rendu : une catégorie et un thème peuvent porter le même id. */
   key: string
@@ -42,7 +42,7 @@ export interface ScopeMatch {
   dueCount: number
   /** La session : une query string sur `GET /revision`, jamais une route nouvelle. */
   href: string
-  /** 0 carte due : la portée se trouve et s'affiche, mais ne s'ouvre pas. */
+  /** 0 carte due : le paquet se trouve et s'affiche, mais ne s'ouvre pas. */
   selectable: boolean
 }
 
@@ -92,7 +92,7 @@ function themeMatch(category: CategoryChoice, theme: ThemeChoice): ScopeMatch {
 }
 
 /**
- * Les portées que la saisie retient, dans l'ordre de l'arbre — celui du serveur
+ * Les paquets que la saisie retient, dans l'ordre de l'arbre — celui du serveur
  * (alphabétique, une catégorie puis ses thèmes) : la barre ne réordonne rien.
  *
  * - **Requête vide → tout l'arbre.** C'est ce que déplie le bouton de droite.
@@ -100,9 +100,9 @@ function themeMatch(category: CategoryChoice, theme: ThemeChoice): ScopeMatch {
  *   catégorie *et* ce qu'elle contient.
  * - Sinon, seuls les thèmes retenus paraissent : leur chemin `Catégorie · Thème`
  *   dit d'où ils viennent.
- * - ⚠️ **Une portée à 0 carte due n'est jamais masquée** : elle est rendue non
- *   sélectionnable (`selectable: false`). La faire disparaître ferait croire
- *   qu'elle n'existe pas — c'est la règle de l'écran, pas une règle de la barre.
+ * - ⚠️ **Un paquet à 0 carte due n'est jamais masqué** : il est rendu non
+ *   sélectionnable (`selectable: false`). Le faire disparaître ferait croire
+ *   qu'il n'existe pas — c'est la règle de l'écran, pas une règle de la barre.
  */
 export function filterScopes(categories: CategoryChoice[], query: string): ScopeMatch[] {
   const needle = normalizeForSearch(query)

@@ -27,18 +27,18 @@ export type Verdict = 'juste' | 'partiel' | 'faux'
 
 export type BoxIntervals = Record<number, number>
 
-/** La portée telle qu'elle arrive de la query string, une fois validée. */
+/** Le paquet tel qu'il arrive de la query string, une fois validé. */
 export interface ScopeInput {
   scope?: 'all' | 'unclassified'
   category?: number
   theme?: number
 }
 
-/** Pourquoi une portée est refusée. Chaque raison doit avoir son message côté contrôleur. */
+/** Pourquoi un paquet est refusé. Chaque raison doit avoir son message côté contrôleur. */
 export type ScopeRefusal = 'combined' | 'unknown-theme' | 'unknown-category'
 
 /**
- * Une portée résolue, ou le refus qui l'a remplacée. **Il n'y a pas de troisième
+ * Un paquet résolu, ou le refus qui l'a remplacé. **Il n'y a pas de troisième
  * cas** : c'est ce type qui interdit structurellement le repli muet sur « tout ».
  */
 export type ScopeResolution =
@@ -112,7 +112,7 @@ export default class LeitnerService {
 
   /*
   |----------------------------------------------------------------------------
-  | La portée d'une session
+  | Le paquet d'une session
   |----------------------------------------------------------------------------
   | Elle vit **dans l'URL** (`/revision?theme=3`) et nulle part ailleurs : ni en
   | base, ni en session. Ces méthodes ne la stockent donc jamais — elles la
@@ -120,14 +120,14 @@ export default class LeitnerService {
   */
 
   /**
-   * Les cartes à réviser dans une portée, dans **l'ordre de la file**.
+   * Les cartes à réviser dans un paquet, dans **l'ordre de la file**.
    *
    * Ordre : la plus en retard d'abord ; à égalité, la moins récemment touchée. Une
    * carte notée `again` reste due aujourd'hui (donc dernière au premier critère) et
    * vient d'être écrite (donc dernière au second) : elle repart en fin de file au
    * lieu de se re-présenter aussitôt. **Ne trie jamais par `box`** : un échec la
    * ramène en boîte 1, elle repasserait devant toutes les cartes de boîte ≥ 2 et
-   * se re-présenterait en boucle. La portée n'y change rien.
+   * se re-présenterait en boucle. Le paquet n'y change rien.
    *
    * ⚠️ `next_review` est une colonne `date` : `toSQLDate()`, jamais `toSQL()` —
    * l'intervertir passe le typecheck et casse le filtre en silence.
@@ -147,7 +147,7 @@ export default class LeitnerService {
   }
 
   /**
-   * Traduit la query string en portée — ou la **refuse**.
+   * Traduit la query string en paquet — ou le **refuse**.
    *
    * ⚠️ Un id inexistant ne retombe **jamais** sur « tout » : un thème supprimé depuis
    * un autre onglet, et l'utilisateur réviserait l'intégralité de ses cartes en
@@ -237,11 +237,11 @@ export default class LeitnerService {
   }
 
   /**
-   * A-t-on révisé une carte de cette portée aujourd'hui ? C'est ce qui distingue
-   * « portée terminée » de « portée vide dès le départ » — deux écrans que rien
+   * A-t-on révisé une carte de ce paquet aujourd'hui ? C'est ce qui distingue
+   * « paquet terminé » de « paquet vide dès le départ » — deux écrans que rien
    * d'autre ne sépare, puisque les deux sont une file vide.
    *
-   * **Un booléen, jamais un compteur** : le nombre de cartes revues dans la portée
+   * **Un booléen, jamais un compteur** : le nombre de cartes revues dans le paquet
    * n'est pas affiché, et `reviewedToday()` ne pourrait de toute façon pas le donner
    * (il est global — il annoncerait les cartes revues dans *tous* les thèmes).
    *
@@ -358,7 +358,7 @@ export default class LeitnerService {
   }
 
   /**
-   * La grille des 5 boîtes — **elle suit la portée** : elle décrit ce qu'on est en
+   * La grille des 5 boîtes — **elle suit le paquet** : elle décrit ce qu'on est en
    * train de réviser. À l'inverse de `reviewedToday`, `streakDays` et de la rétention,
    * qui restent globales : ce sont des mesures d'**habitude**, pas de thème. Une série
    * de 40 jours qui retomberait à zéro parce qu'on a ouvert un autre thème serait
@@ -374,7 +374,7 @@ export default class LeitnerService {
     return counts
   }
 
-  /** Global — mesure d'habitude, jamais restreinte à une portée (voir `boxCounts`). */
+  /** Global — mesure d'habitude, jamais restreinte à un paquet (voir `boxCounts`). */
   async reviewedToday(): Promise<number> {
     const startOfDay = DateTime.now().startOf('day')
     const reviews = await LeitnerReview.query().where('reviewed_at', '>=', startOfDay.toSQL()!)

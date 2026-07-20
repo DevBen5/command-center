@@ -12,8 +12,8 @@ import FakeLlmClient from '#tests/fakes/fake_llm_client'
 // aucun état de session. Ces tests vérifient qu'une carte ratée revient bien dans la
 // session en cours — et qu'elle y revient en FIN de file, sans se re-présenter en boucle.
 //
-// ⚠️ Ils visent `?scope=all` : `/revision` **nu** est désormais l'écran de choix d'une
-// portée. Leurs assertions n'ont pas bougé d'une ligne, et c'est le but — `?scope=all`
+// ⚠️ Ils visent `?scope=all` : `/revision` **nu** est désormais l'écran de choix d'un
+// paquet. Leurs assertions n'ont pas bougé d'une ligne, et c'est le but — `?scope=all`
 // se comporte exactement comme `/revision` d'avant le ciblage par thème.
 test.group('Leitner / file de révision', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())

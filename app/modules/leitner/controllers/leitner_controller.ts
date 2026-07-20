@@ -15,7 +15,7 @@ import {
 } from '#modules/leitner/validators/leitner'
 
 /**
- * Refus d'une portée. Ils atterrissent en flash sur l'écran de choix : le cas réel
+ * Refus d'un paquet. Ils atterrissent en flash sur l'écran de choix : le cas réel
  * n'est pas une URL bricolée mais un **thème supprimé depuis un autre onglet** — et
  * l'utilisateur doit alors se retrouver là où il peut agir, pas devant un 404.
  *
@@ -43,10 +43,10 @@ export default class LeitnerController {
    * `/revision` a deux visages, et c'est la query string qui tranche :
    *
    * - **sans paramètre** → l'écran de **choix** (que réviser ce soir ?) ;
-   * - **avec une portée** (`?scope=all|unclassified`, `?category=<id>`, `?theme=<id>`)
-   *   → la session, restreinte à cette portée.
+   * - **avec un paquet** (`?scope=all|unclassified`, `?category=<id>`, `?theme=<id>`)
+   *   → la session, restreinte à ce paquet.
    *
-   * ⚠️ **La portée ne vit que dans l'URL** : rien en base, rien en session. La page
+   * ⚠️ **Le paquet ne vit que dans l'URL** : rien en base, rien en session. La page
    * n'a aucun état — `dueCards` est re-requêtée à chaque chargement — donc il n'y a
    * rien à reprendre et rien à invalider. Ce qui la fait survivre à une note tient en
    * un appel, et **un seul** : le `withQs()` de `review()`. Va lire son commentaire
@@ -59,7 +59,7 @@ export default class LeitnerController {
     try {
       input = await request.validateUsing(reviewScopeValidator)
     } catch {
-      // Une portée mal formée retourne à l'écran de choix. Laisser filer l'exception
+      // Un paquet mal formé retourne à l'écran de choix. Laisser filer l'exception
       // redirigerait sur le `referer` — donc sur l'URL fautive elle-même.
       return this.rejectScope(session, response, SCOPE_ERRORS.malformed)
     }
@@ -94,7 +94,7 @@ export default class LeitnerController {
     const lastGrades = await service.lastGrades(dueCards.map((card) => card.id))
 
     // ⚠️ « Terminé » et « rien à réviser ici » sont **la même file vide** : seul le
-    // travail déjà fait aujourd'hui dans cette portée les sépare. La question ne se
+    // travail déjà fait aujourd'hui dans ce paquet les sépare. La question ne se
     // pose donc qu'une fois la file épuisée — et la réponse est un booléen, pas un
     // compteur : un chiffre faux serait pire que pas de chiffre.
     const finished =
@@ -107,7 +107,7 @@ export default class LeitnerController {
         ...card.serialize(),
         lastGrade: lastGrades.get(card.id) ?? null,
       })),
-      // La grille des 5 boîtes suit la portée : elle décrit ce qu'on révise.
+      // La grille des 5 boîtes suit le paquet : elle décrit ce qu'on révise.
       boxCounts: await service.boxCounts(resolved.scope),
       boxIntervals,
       stats: { ...stats, dueCount: dueCards.length },
@@ -115,10 +115,10 @@ export default class LeitnerController {
   }
 
   /**
-   * `streak`, `reviewedToday`, `retention` et `totalCards` **restent globaux**, portée
+   * `streak`, `reviewedToday`, `retention` et `totalCards` **restent globaux**, paquet
    * ou pas : ce sont des mesures d'habitude et un inventaire, pas des mesures de thème.
    * Une série de 40 jours qui retomberait à zéro parce qu'on a ouvert un autre thème
-   * serait absurde. Seuls `dueCount` et la grille des boîtes suivent la portée.
+   * serait absurde. Seuls `dueCount` et la grille des boîtes suivent le paquet.
    */
   private async globalStats(service: LeitnerService) {
     const today = DateTime.now().startOf('day')
@@ -156,19 +156,19 @@ export default class LeitnerController {
   }
 
   /**
-   * ⚠️ **`withQs()` n'est pas décoratif : c'est lui qui porte la portée.**
+   * ⚠️ **`withQs()` n'est pas décoratif : c'est lui qui porte le paquet.**
    *
    * `redirect().back()` renvoie sur le `referer` — mais **sur son seul `pathname`** :
    * il **jette la query string** (`Redirect.back()`, @adonisjs/http-server). Sans
    * `withQs()`, `/revision?theme=3` redeviendrait `/revision` **à chaque note**, en
    * silence : la session repartirait sur toutes les cartes dues, et rien — ni erreur,
    * ni log — ne le signalerait. `withQs()` sans argument dit « reprends la query string
-   * du referer », et c'est toute la mécanique de la portée.
+   * du referer », et c'est toute la mécanique du paquet.
    *
    * Ne le retire pas, et ne remplace pas ce `back()` par un `toRoute()`. C'est le
    * piège n° 1 de ce module, et il a son test :
-   * `tests/functional/modules/leitner_scope.spec.ts` → « noter une carte CONSERVE la
-   * portée ».
+   * `tests/functional/modules/leitner_scope.spec.ts` → « noter une carte CONSERVE le
+   * paquet ».
    */
   async review({ params, request, response }: HttpContext) {
     const { grade, answer, verdict, latencyMs } = await request.validateUsing(reviewValidator)

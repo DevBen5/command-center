@@ -124,7 +124,7 @@ test.group('Leitner / cartes saisies par l’utilisateur', (group) => {
       nextReview: DateTime.now(),
     })
 
-    // `?scope=all` : `/revision` nu est l'écran de choix d'une portée (voir CC-36).
+    // `?scope=all` : `/revision` nu est l'écran de choix d'un paquet (voir CC-36).
     const response = await client.get('/revision?scope=all').loginAs(user).withInertia()
 
     response.assertStatus(200)

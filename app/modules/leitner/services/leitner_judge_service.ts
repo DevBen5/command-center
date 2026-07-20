@@ -293,7 +293,7 @@ export default class LeitnerJudgeService {
    * La réponse **est** le verso, aux accents, à la casse et aux espaces près.
    *
    * `normalizeForSearch` fait déjà exactement ce travail (NFD, diacritiques retirés,
-   * minuscules, espaces réduits) : la barre de recherche des portées pose la même
+   * minuscules, espaces réduits) : la barre de recherche des paquets pose la même
    * question sur des noms de thèmes. Une seconde copie divergerait.
    *
    * Limite connue et acceptée : la **ponctuation finale** n'est pas retirée (`draftKey`

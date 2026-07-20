@@ -86,7 +86,7 @@ router
         router.put('/settings/intervals', [LeitnerSettingsController, 'updateIntervals'])
 
         // L'effort de révision, déduit des seuls horodatages de `leitner_reviews` :
-        // sessions, durées, cartes par session. Aucune portée ici — comme la série et
+        // sessions, durées, cartes par session. Aucun paquet ici — comme la série et
         // la rétention, ce sont des mesures d'habitude, pas de thème.
         router.get('/stats', [LeitnerStatsController, 'index'])
 

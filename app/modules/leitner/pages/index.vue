@@ -23,9 +23,9 @@ interface LeitnerCard {
 }
 
 interface Stats {
-  // Suit la portée : c'est ce qu'on est en train de réviser.
+  // Suit le paquet : c'est ce qu'on est en train de réviser.
   dueCount: number
-  // Globaux — mesures d'habitude et inventaire, jamais restreints à la portée.
+  // Globaux — mesures d'habitude et inventaire, jamais restreints au paquet.
   reviewedToday: number
   streak: number
   totalCards: number
@@ -45,10 +45,10 @@ interface ScopeChoices {
 
 /**
  * Deux visages, une seule page — c'est la query string qui tranche (`view`) :
- * `/revision` propose de **choisir** une portée, `/revision?theme=3` la révise.
+ * `/revision` propose de **choisir** un paquet, `/revision?theme=3` le révise.
  *
- * La portée ne vit que dans l'URL : la page n'en garde aucun état, et `dueCards` est
- * re-requêtée après chaque note. La fin d'une portée est donc une **file vide**, jamais
+ * Le paquet ne vit que dans l'URL : la page n'en garde aucun état, et `dueCards` est
+ * re-requêtée après chaque note. La fin d'un paquet est donc une **file vide**, jamais
  * un compteur de cartes vues — une carte notée « À revoir » reste due et y revient.
  */
 const props = defineProps<{
@@ -297,7 +297,7 @@ function grade(g: Grade): void {
   </div>
 
   <div class="mx-auto max-w-[880px]">
-    <!-- Portée refusée (thème supprimé, combinaison impossible) : on ne révise SURTOUT
+    <!-- Paquet refusé (thème supprimé, combinaison impossible) : on ne révise SURTOUT
          pas « tout » à la place — on le dit, ici, sur l'écran de choix. -->
     <div
       v-if="scopeError"
@@ -306,7 +306,7 @@ function grade(g: Grade): void {
       {{ scopeError }}
     </div>
 
-    <!-- Aucune carte nulle part : ni portée à choisir, ni session à mener. -->
+    <!-- Aucune carte nulle part : ni paquet à choisir, ni session à mener. -->
     <div
       v-if="stats.totalCards === 0"
       class="flex min-h-[230px] flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed border-line-2 bg-bg-2 p-9 text-center"
@@ -451,10 +451,10 @@ function grade(g: Grade): void {
         </button>
       </div>
     </div>
-    <!-- Portée épuisée. Deux gestes, et AUCUNE redirection automatique : l'utilisateur
+    <!-- Paquet épuisé. Deux gestes, et AUCUNE redirection automatique : l'utilisateur
          doit *voir* qu'il a fini — un retour auto à l'écran de choix se lirait comme un
          bug. « Terminé » et « rien à réviser ici » sont la même file vide : seul le
-         travail déjà fait aujourd'hui dans la portée les distingue (`scope.finished`) ;
+         travail déjà fait aujourd'hui dans le paquet les distingue (`scope.finished`) ;
          annoncer « bravo » à qui n'a rien fait serait faux. -->
     <div
       v-else

@@ -13,7 +13,7 @@ export interface CardFilters {
 }
 
 /**
- * Les filtres de classement de cet écran **sont** une portée de révision : la même
+ * Les filtres de classement de cet écran **sont** un paquet de révision : la même
  * question, posée par une autre page. La traduction SQL vit donc dans `leitner_scope`,
  * en un seul exemplaire — surtout la sous-requête catégorie → thèmes.
  *

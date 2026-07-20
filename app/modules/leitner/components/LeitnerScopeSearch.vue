@@ -7,7 +7,7 @@ import { filterScopes, type CategoryChoice, type ScopeMatch } from './leitner_sc
 /*
 | La barre de recherche de l'écran de choix : on tape un nom de catégorie ou de
 | thème, la liste s'affine ; le chevron déplie l'arbre entier ; un clic — ou Entrée
-| — ouvre la session sur cette portée.
+| — ouvre la session sur ce paquet.
 |
 | Elle **s'ajoute** à l'arbre, elle ne le remplace pas : la barre est l'accès rapide
 | quand on sait ce qu'on veut, l'arbre reste la seule vue d'ensemble de ce qui est dû.
@@ -40,19 +40,19 @@ const props = defineProps<{ categories: CategoryChoice[] }>()
 
 const query = ref('')
 const open = ref(false)
-/** L'index dans `matches` de la portée sous le curseur clavier ; -1 = aucune. */
+/** L'index dans `matches` du paquet sous le curseur clavier ; -1 = aucun. */
 const activeIndex = ref(-1)
 const input = ref<HTMLInputElement | null>(null)
 const list = ref<HTMLElement | null>(null)
 
 const matches = computed(() => filterScopes(props.categories, query.value))
 
-/** Les seuls index où ↑↓ ont le droit de s'arrêter : une portée à 0 ne s'ouvre pas. */
+/** Les seuls index où ↑↓ ont le droit de s'arrêter : un paquet à 0 ne s'ouvre pas. */
 const selectableIndexes = computed(() =>
   matches.value.flatMap((match, index) => (match.selectable ? [index] : []))
 )
 
-// La saisie change : on réarme sur la première portée ouvrable, pour qu'Entrée ait
+// La saisie change : on réarme sur le premier paquet ouvrable, pour qu'Entrée ait
 // toujours un sens sans avoir à passer par ↓.
 watch(matches, () => {
   activeIndex.value = selectableIndexes.value[0] ?? -1
@@ -74,7 +74,7 @@ function toggle(): void {
 }
 
 /**
- * ↑↓ ne parcourent que les portées ouvrables : s'arrêter sur une portée à 0
+ * ↑↓ ne parcourent que les paquets ouvrables : s'arrêter sur un paquet à 0
  * laisserait Entrée sans effet, sans que l'utilisateur sache pourquoi.
  */
 function move(delta: number): void {
@@ -105,7 +105,7 @@ async function scrollActiveIntoView(): Promise<void> {
 
 /** Le seul chemin d'ouverture : le clic et Entrée y passent tous les deux. */
 function choose(match: ScopeMatch): void {
-  // Une portée à 0 se montre mais ne s'ouvre pas — ni au clic, ni à l'Entrée.
+  // Un paquet à 0 se montre mais ne s'ouvre pas — ni au clic, ni à l'Entrée.
   if (!match.selectable) return
   open.value = false
   router.visit(match.href)

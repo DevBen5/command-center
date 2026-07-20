@@ -6,12 +6,12 @@ import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 
-// La portée d'une session vit **dans l'URL**, et nulle part ailleurs : rien en base,
-// rien en session. Ces tests vérifient les deux bouts de cette promesse — qu'elle se
-// choisit, et surtout qu'elle **survit à une note** (le piège n° 1 : `redirect().back()`
-// la porte par le `referer` ; un `redirect().toRoute()` la perdrait en silence, et la
+// Le paquet d'une session vit **dans l'URL**, et nulle part ailleurs : rien en base,
+// rien en session. Ces tests vérifient les deux bouts de cette promesse — qu'il se
+// choisit, et surtout qu'il **survit à une note** (le piège n° 1 : `redirect().back()`
+// le porte par le `referer` ; un `redirect().toRoute()` le perdrait en silence, et la
 // session repartirait sur toutes les cartes dues sans que rien ne le signale).
-test.group('Leitner / portée de révision', (group) => {
+test.group('Leitner / paquet de révision', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   function login() {
@@ -92,7 +92,7 @@ test.group('Leitner / portée de révision', (group) => {
       page.dueCards.map((card: any) => card.front),
       ['Docker']
     )
-    // `dueCount` et la grille des boîtes suivent la portée : elles décrivent ce qu'on révise.
+    // `dueCount` et la grille des boîtes suivent le paquet : elles décrivent ce qu'on révise.
     assert.strictEqual(page.stats.dueCount, 1)
     assert.strictEqual(page.boxCounts[1], 1)
     // La série, les révisions du jour et le total, eux, restent globaux.
@@ -129,7 +129,7 @@ test.group('Leitner / portée de révision', (group) => {
     )
   })
 
-  test('noter une carte CONSERVE la portée', async ({ client, assert }) => {
+  test('noter une carte CONSERVE le paquet', async ({ client, assert }) => {
     const user = await login()
     const { docker } = await taxonomy()
     const card = await makeCard('Docker', docker.id)
@@ -145,15 +145,15 @@ test.group('Leitner / portée de révision', (group) => {
 
     // ⚠️ Le piège n° 1, et il n'est pas théorique : `redirect().back()` seul rend ici
     // `/revision` — il ne reprend que le `pathname` du referer et **jette la query
-    // string**. C'est `withQs()` qui la conserve. Sans ce test, la portée se serait
-    // perdue à chaque note, en silence, et la session serait repartie sur toute la base.
+    // string**. C'est `withQs()` qui la conserve. Sans ce test, le paquet se serait
+    // perdu à chaque note, en silence, et la session serait repartie sur toute la base.
     //
     // L'assertion porte sur l'en-tête brut : `assertRedirectsTo` ne compare que le
     // chemin — il verrait passer exactement la régression qu'on veut arrêter.
     assert.equal(response.headers().location, scopedUrl)
   })
 
-  test('épuiser la portée rend l’écran de fin', async ({ client, assert }) => {
+  test('épuiser le paquet rend l’écran de fin', async ({ client, assert }) => {
     const user = await login()
     const { docker } = await taxonomy()
     const card = await makeCard('Docker', docker.id)
@@ -172,7 +172,7 @@ test.group('Leitner / portée de révision', (group) => {
     assert.isTrue(page.scope.finished)
   })
 
-  test('une carte notée `again` ne termine PAS la portée', async ({ client, assert }) => {
+  test('une carte notée `again` ne termine PAS le paquet', async ({ client, assert }) => {
     const user = await login()
     const { docker } = await taxonomy()
     const card = await makeCard('Docker', docker.id)
@@ -185,14 +185,14 @@ test.group('Leitner / portée de révision', (group) => {
       .withCsrfToken()
       .redirects(0)
 
-    // `again` laisse la carte due le jour même : la fin d'une portée n'arrive que
+    // `again` laisse la carte due le jour même : la fin d'un paquet n'arrive que
     // quand plus aucune de ses cartes n'est due, y compris celles qu'on vient de rater.
     const page = await props(client, user, `/revision?theme=${docker.id}`)
     assert.lengthOf(page.dueCards, 1)
     assert.isFalse(page.scope.finished)
   })
 
-  test('une portée vide dès le départ n’est PAS l’écran de fin', async ({ client, assert }) => {
+  test('un paquet vide dès le départ n’est PAS l’écran de fin', async ({ client, assert }) => {
     const user = await login()
     const { docker, kubernetes } = await taxonomy()
     await makeCard('Docker', docker.id)
@@ -251,7 +251,7 @@ test.group('Leitner / portée de révision', (group) => {
     assert.equal(response.headers().location, '/revision')
   })
 
-  test('une portée mal formée est refusée, pas 500', async ({ client, assert }) => {
+  test('un paquet mal formé est refusé, pas 500', async ({ client, assert }) => {
     const user = await login()
 
     const response = await client.get('/revision?theme=docker').loginAs(user).redirects(0)
