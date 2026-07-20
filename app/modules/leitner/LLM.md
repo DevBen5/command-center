@@ -74,7 +74,9 @@ comportement voulu (aucune donnée douteuse en base) mais reste une perte de tem
 
 Un modèle plus gros donne de meilleures cartes, plus lentement : le plafond, c'est
 `LLM_TIMEOUT_MS` **par morceau**. Un cours de 20 000 caractères = ~4 morceaux ; avec un modèle qui
-met 60 s par morceau, la requête HTTP tient ~4 minutes — c'est le prix de l'exécution synchrone.
+met 60 s par morceau, le travail tient ~4 minutes — mais **personne n'attend devant une requête
+HTTP** : l'ingestion tourne en tâche de fond, le POST rend la main aussitôt et redirige vers la page
+de suivi. Un modèle lent coûte donc du temps de travail, pas une requête qui expire.
 
 ## 4. Brancher le serveur
 
@@ -167,8 +169,15 @@ sont dédupliquées sur le couple (recto, thème) : ré-ingérer le même cours 
 
 ## 6. Quand ça casse
 
-L'échec n'est jamais silencieux : l'ingestion passe en **Échec**, son message s'affiche sur la page,
-et **aucun brouillon n'est écrit** (pas de moitié de cours en base).
+L'échec n'est jamais silencieux : l'ingestion passe en **Échec** et son message s'affiche sur la
+page.
+
+⚠️ **Les brouillons déjà produits restent en base.** Ils sont écrits morceau par morceau, pas en
+bloc à la fin : un échec au 5ᵉ morceau laisse ceux des quatre premiers, et le statut `failed` le
+dit. C'est voulu — c'est ce qui rend la barre de progression honnête et le compteur de cartes
+vivant. Relis-les et garde ce qui vaut : ce sont des **brouillons**, rien n'est entré dans les
+cartes sans ta validation. (L'import JSON, lui, reste en tout-ou-rien : voir le `CLAUDE.md` du
+module.)
 
 | Message                                                     | Cause probable                                                                                                       |
 | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -177,7 +186,7 @@ et **aucun brouillon n'est écrit** (pas de moitié de cours en base).
 | « a répondu 400 »                                            | Nom de modèle refusé. Vérifie-le avec `GET /v1/models`.                                                               |
 | « a renvoyé une réponse vide »                               | Aucun modèle chargé côté serveur (LM Studio serveur démarré, mais modèle non chargé).                                 |
 | « n'a pas rendu de JSON exploitable, même après réparation » | Le modèle ne tient pas la consigne de format : il est trop petit, ou ce n'est pas une variante *instruct*.             |
-| « Le cours dépasse le plafond de 20 000 caractères »         | Découpe le cours, ou soumets-le en plusieurs fois (l'asynchrone lèvera ce plafond).                                   |
+| « Le cours dépasse le plafond de 100 000 caractères »        | Découpe le cours par chapitre. Ce plafond borne un **travail** (~15 appels), plus une attente.                        |
 
 Deux réglages seulement, et ils sont dans `.env` : le **modèle** et le **timeout**. Le reste
 (découpage, fusion, réparation, boîte 1, déduplication) est du code, et n'a pas à être touché.

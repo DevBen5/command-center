@@ -783,8 +783,15 @@ sur un pipeline qui existe** ; elle n'en écrit pas un second. Une carte existan
 coupé par titres Markdown, à défaut par paragraphes, en dernier recours à la hache — puis les petites
 sections sont regroupées (dix titres de trois lignes ne valent pas dix appels). Chaque morceau reprend
 la fin du précédent (`CHUNK_OVERLAP_CHARS`) pour qu'un principe à cheval sur une coupure reste
-énonçable. `mergeDrafts` fusionne ensuite les morceaux et **déduplique** (casse, accents, ponctuation
-finale ignorés) : un principe énoncé en introduction et rappelé en conclusion ne donne pas deux cartes.
+énonçable. La **déduplication** (casse, accents, ponctuation finale ignorés — `draftKey`) évite qu'un
+principe énoncé en introduction et rappelé en conclusion ne donne deux cartes.
+
+⚠️ Elle se fait **morceau par morceau, contre les brouillons déjà écrits** (`keepNewDrafts`, avec un
+`Set` de clés alimenté au fil de l'eau), et **non plus en fin de course sur l'ensemble**. C'est la
+conséquence directe de l'écriture au fil de l'eau, décrite plus bas : il n'y a plus de « fin de
+course » où fusionner quoi que ce soit. La fonction `mergeDrafts` qui faisait ce travail **n'existe
+plus** — ne la cherche pas, et ne rétablis pas une fusion finale : elle réécrirait des brouillons
+déjà relus.
 
 **Le JSON qui n'en est pas** (`extractJson` / `parseLlmCards`). Un petit modèle rend volontiers du
 JSON entouré de prose, ou dans un bloc ` ```json ` — c'est le régime normal, pas une panne : le

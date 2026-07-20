@@ -39,11 +39,20 @@ Chaque feature est une tranche verticale complète. Les dossiers AdonisJS par d�
 app/core/     auth · dashboard · i18n · shared      → import via #core/*
 app/modules/  services · agents · veille · leitner  → import via #modules/*
   └── controllers/ models/ migrations/ seeders/ services/ validators/ pages/
+providers/    leitner_provider                      → import via #providers/*
 ```
 
-- **Seuls `#core/*` et `#modules/*` sont valides.** `package.json` conserve des alias morts
-  (`#models/*`, `#controllers/*`, `#services/*`, `#middleware/*`, `#validators/*`, `#database/*`)
-  qui pointent vers des dossiers supprimés : un import `#models/foo` *paraît* correct mais est faux.
+- **Les alias de `package.json` décrivent exactement l'arborescence réelle** : `#core/*`,
+  `#modules/*`, `#providers/*`, plus `#tests/*`, `#start/*`, `#config/*`. Les douze alias hérités du
+  scaffold (`#models/*`, `#controllers/*`, `#services/*`, `#middleware/*`, `#validators/*`,
+  `#database/*`…) pointaient vers des dossiers supprimés et ont été **retirés** : un import
+  `#models/foo` échoue désormais tout de suite, au lieu de *paraître* correct.
+- **`providers/` est à la racine, et c'est le chemin qu'AdonisJS impose** — `adonisrc.ts` y déclare
+  `#providers/leitner_provider`, qui balaie au démarrage les ingestions interrompues. Ce n'est pas
+  une entorse au découpage par feature : un provider est chargé par le framework au boot, avant
+  toute notion de module. La règle « une feature est une tranche verticale » reste vraie pour tout
+  le reste ; ce dossier-là est la seule exception, et elle est structurelle. Le module Leitner le
+  documente comme le 5ᵉ fichier vivant hors de son dossier.
 - **N'utilise pas `node ace make:*` tel quel** : ces commandes génèrent aux chemins par défaut et
   recréent l'ancienne arborescence. Crée les fichiers directement dans le module.
 

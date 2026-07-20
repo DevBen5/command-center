@@ -6,9 +6,14 @@ import { resolve } from 'node:path'
 /*
 | Sauvegarde de la base dans un fichier SQL, sur le disque de la machine.
 |
-| Le volume Docker `postgres_data` reste la source vivante — mais il vit DANS Docker :
-| un `docker compose down -v` l'emporte. Ce dump, lui, est un fichier ordinaire de
-| `backups/` : c'est la seule copie qui survit au volume.
+| La source vivante est `./pgdata`, un bind mount : Postgres écrit dans un dossier du
+| dépôt, sur le disque de la machine. Un `docker compose down -v` ne l'emporte PAS —
+| le `-v` ne supprime que les volumes gérés par Docker.
+|
+| Ce dump reste néanmoins le vrai filet, et les deux ne se remplacent pas : `pgdata`
+| est le fichier VIVANT de Postgres, binaire, lié à la version majeure (PG 16). Une
+| corruption, un `rm -rf` ou un changement de machine l'emporte, lui. Le dump est du
+| SQL portable, horodaté, et il emporte tout : contenu, réglages, comptes.
 |
 | `spawn` reçoit un TABLEAU d'arguments, jamais une chaîne interpolée dans un shell
 | (même règle que `SystemStatsService`).
