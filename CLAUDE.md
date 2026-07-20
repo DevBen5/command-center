@@ -117,3 +117,9 @@ providers/    leitner_provider                      → import via #providers/*
   `create-adonisjs` segfaulte à la terminaison du process de test dès que le graphe de modules
   dépasse un certain volume : `npm test` affiche `PASSED` mais sort en **code 1**. Range `^1.15.43`.
 - Ne t'ajoutes jamais en tant que co-author sur les commit, si tu vois des commit ou tu es co-author, supprimes toi.
+
+### Habitudes de travail Youtrack
+
+Si on travailles avec ou que un skill fais appel a Youtrack :
+- Les noms de sessions doivent correspondre au nom du ticket qui est travaillé (ex : `Ticket CC-42 - $Nom du ticket`)
+- Il faut également une session par Epic, si on créer une session pour gérer une Epic le nom sera (ex : `Epic CC-42 - $Nom de l'epic`)
