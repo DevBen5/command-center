@@ -33,6 +33,11 @@ services/leitner_service.ts                règle métier (boîtes, intervalles,
 services/leitner_judge_service.ts          le JUGE de la réponse écrite : court-circuit sans réseau,
                                            verdict, repli obligatoire — il PROPOSE une note, il ne
                                            la choisit jamais
+services/leitner_fluency.ts                la FLUENCE de rappel : seuils relatifs, choix de la
+                                           référence, mesure exploitable ou non — du CODE PUR, sans
+                                           base ni horloge, donc le test qui compte de son lot
+services/leitner_fluency_service.ts        sa partie base : médiane de la carte, médiane de la boîte,
+                                           et « cette carte a-t-elle déjà été notée aujourd'hui ? »
 services/leitner_scope.ts                  la PORTÉE : le type `CardScope` et `applyScope` — l'unique
                                            copie de la sous-requête catégorie → thèmes
 services/leitner_sessions.ts               l'INFÉRENCE de session depuis `reviewed_at` +
@@ -378,6 +383,9 @@ second ne se voit pas à l'écran.
 | **égale au verso** (normalisée) | **court-circuit**, aucun appel | `juste` | `null` |
 | autre | le juge LLM | `juste`·`partiel`·`faux`, ou `null` si repli | la durée de l'appel |
 
+Le court-circuit **est affiné comme les autres** : verdict `juste` répondu vite reste `juste` répondu
+vite. Voir « Le timer fantôme » plus bas.
+
 - Le **court-circuit** compare via `normalizeForSearch` (celle de la barre de recherche des paquets :
   NFD, sans diacritiques, minuscules, espaces réduits) — **pas une seconde copie**, elle divergerait.
   Limite acceptée : la **ponctuation finale n'est pas retirée** (`draftKey` le fait, pas elle), donc
@@ -409,21 +417,24 @@ lui, ne s'affiche que si un juge l'a vraiment dit.
 
 ### Ce que l'historique retient, et pourquoi `null` n'est pas `faux`
 
-`leitner_reviews` porte `answer`, `verdict`, `latency_ms` — **tous nullables, et la nullabilité est
-du sens** : `verdict = null` veut dire « aucun juge n'a tranché », jamais « jugé faux ». C'est ce qui
-permettra de rejuger a posteriori ce qui a été écrit pendant une panne. La réponse est conservée même
-sans verdict.
+`leitner_reviews` porte `answer`, `verdict`, `latency_ms`, `thinking_ms`, `total_ms` — **tous
+nullables, et la nullabilité est du sens** : `verdict = null` veut dire « aucun juge n'a tranché »,
+jamais « jugé faux ». C'est ce qui permettra de rejuger a posteriori ce qui a été écrit pendant une
+panne. La réponse est conservée même sans verdict.
 
-⚠️ **`latency_ms` n'est lu par personne dans ce lot, et c'est délibéré** : le suivant en dépend, et un
-historique ne se reconstitue pas — il faudrait attendre des semaines de révisions. Il mesure **le seul
-appel au LLM** (`null` sur court-circuit et sur repli) : mesurer tout le cycle mélangerait deux
-populations dans une colonne et rendrait toute moyenne trompeuse.
+⚠️ **`latency_ms` mesure le seul appel au LLM — la vitesse de LM Studio, pas celle du souvenir**
+(`null` sur court-circuit et sur repli). Mesurer tout le cycle mélangerait deux populations dans une
+colonne et rendrait toute moyenne trompeuse. Personne ne le lit, et c'est resté vrai : le lot suivant
+(la fluence) **ne pouvait pas s'en servir**, il a fallu `thinking_ms`. Ne confonds pas les deux.
 
 ⚠️ **`verdict` et `latencyMs` sont DÉCLARATIFS**, comme `source`/`sourceName` de l'ingestion : juger
 et noter sont deux requêtes, la seconde porte ce que le client annonce. C'est acceptable pour la même
 raison — ils sont bornés, jamais interprétés, **et ne calculent rien**. Le dégât maximal est une ligne
-qui ment dans son propre historique. **Ne bâtis jamais de règle métier dessus** : c'est là que ça
-deviendrait un vrai problème.
+qui ment dans son propre historique.
+
+⚠️ **`thinking_ms`, lui, calcule — et c'est la seule entorse à cette doctrine.** Voir la section
+suivante : ce qui le rend acceptable est plus étroit que pour les autres, et il faut le savoir avant
+d'en ajouter un sixième.
 
 ### Les deux temps, et le piège de l'état qui survit
 
@@ -470,9 +481,119 @@ client et veulent l'inverse (noter vs synthétiser). Le test qui le tient est
 `tests/unit/leitner_llm_client.spec.ts`, qui inspecte le **corps réel** de la requête — et
 `?? DEFAULT_TEMPERATURE`, jamais `||` : `0` est falsy, un `||` ferait improviser le juge en silence.
 
-**L'export JSON ne contient ni `answer` ni `verdict`** : il restaure un *état* (série, rétention,
-règle du 2ᵉ `hard`), et aucune règle ne lit ces colonnes. Contrepartie assumée : une restauration sur
-machine neuve perd les réponses écrites.
+**L'export JSON ne contient ni `answer` ni `verdict`, ni les deux mesures de fluence** : il restaure
+un *état* (série, rétention, règle du 2ᵉ `hard`), et aucune règle de boîte ne lit ces colonnes.
+Contrepartie assumée : une restauration sur machine neuve perd les réponses écrites **et remet la
+référence de fluence à zéro** — le raffinement redevient silencieusement inerte le temps de la
+reconstituer.
+
+## Le timer fantôme : la fluence AFFINE la proposition
+
+Le juge dit la **justesse**, et il laisse donc `hard`, `good` et `easy` indistincts — les trois sont
+« juste » pour lui. Le **temps jusqu'à la première frappe** récupère la nuance : juste + très rapide
+→ `easy` · juste + normal → `good` · juste + lent → `hard`.
+
+⚠️ **Le chrono ne s'affiche JAMAIS, et c'est le sens du mot « fantôme ».** Un chrono visible change
+le comportement qu'il prétend mesurer : il stresse et fait bâcler la réponse. Ne l'expose pas « pour
+que l'utilisateur comprenne la suggestion ».
+
+⚠️ **On mesure jusqu'à la première frappe, pas le temps total** — et c'est le piège central du lot.
+Le temps total est dominé par la **longueur de la réponse à taper**, pas par la difficulté du
+rappel : un verso en prose coûte quarante secondes même parfaitement su. Le facteur parasite croît
+avec exactement la variable qu'on veut isoler. Une fois qu'on tape, on sait. `total_ms` est stocké
+quand même, en **donnée d'observation**, et aucune règle ne le lit.
+
+⚠️ **Deux services, et ils ne se fondent pas.** `LeitnerJudgeService` (justesse, appelle le LLM,
+aucune base) puis `LeitnerFluencyService` (effort, aucune base LLM, lit l'historique). Le contrôleur
+compose les deux. Fusionner ferait perdre au juge sa testabilité contre un faux client.
+
+### Trois conditions sans lesquelles la mesure ment
+
+Elles gouvernent **à la fois la proposition et l'écriture**, et les deux ne peuvent pas diverger :
+
+1. **Première présentation du jour uniquement.** `again` redonne la carte quelques minutes plus tard
+   (voir « La règle métier ») : la seconde réponse est rapide par **mémoire de travail**, pas par
+   apprentissage — proposer `easy` reviendrait à promouvoir une carte qu'on vient de rater. ⚠️ C'est
+   le **serveur** qui tranche (`wasPresentedToday`), jamais la page : elle n'en sait rien.
+2. **Interruption.** Le document masqué ou la fenêtre défocalisée avant la première frappe écarte la
+   mesure — et `document.hidden` est **lu à l'arrivée de la carte**, pas seulement écouté : une
+   carte présentée dans un onglet déjà en arrière-plan n'émettrait aucun événement. ⚠️ **Le plafond
+   de 120 s (`MAX_THINKING_MS`) reste le filet des distractions longues** : `visibilitychange` ne
+   se déclenche pas quand on bascule vers une autre application, et *rien* ne se déclenche quand on
+   se détourne simplement de l'écran. ⚠️ **Une bande reste donc découverte, 20 à 120 s** — la
+   distraction la plus courante, et la seule qui produise un `hard` *plausible*, donc invisible.
+   C'est la limite réelle du lot ; ne la fais pas passer pour couverte.
+3. **Aucune référence → aucune proposition affinée, en silence.** Le seuil est **relatif** : 10 s
+   sont rapides pour « explique le théorème CAP » et très lentes pour « quel port pour Postgres ».
+   Médiane de la carte si elle a ≥ 5 mesures, de sa **boîte** si ≥ 20, sinon rien — et « rien » doit
+   être **indiscernable de l'absence de ce lot** : pas de badge, pas de message.
+
+Un quatrième garde-fou ne vient pas du ticket mais de l'arithmétique : `MIN_REFERENCE_MS` (2 s). Sur
+une carte répondue en 1,5 s, les seuils tomberaient à 0,9 s et 2,4 s — on classerait `easy` ou `hard`
+sur du bruit de frappe.
+
+⚠️ **Seul un verdict `juste` est affiné.** `faux → again` et `partiel → hard` ne bougent pas : la
+vitesse ne dit rien de la justesse d'une réponse fausse, et `again` doit rester hors d'atteinte du
+timer — le contraire ferait rétrograder une carte sur un chrono.
+
+⚠️ **La fluence ne rend jamais la note automatique.** Une réponse **devinée** est rapide et juste :
+le timer dira `easy`, le juge dira `juste`, et seul l'utilisateur sait qu'il a deviné. C'est
+l'argument irréductible — la confirmation de CC-43 reste, et elle porte toujours aussi la
+neutralisation de l'injection de prompt.
+
+### Ce que le couplage écriture/lecture achète
+
+`thinking_ms` n'est **écrit** que sur une mesure exploitable — donc la colonne ne contient, par
+construction, que des mesures comparables entre elles. C'est ce qui permet de lire la référence par
+un simple `median(thinking_ms IS NOT NULL)`, **sans jamais filtrer**. Si tu relâches l'écriture, il
+faut filtrer à la lecture : sinon les mesures de re-présentation feraient dériver la médiane d'une
+carte vers le bas, et une carte mal sue finirait par se voir proposer `easy`.
+
+⚠️ **L'ordre dans `LeitnerService.review()` n'est pas négociable** : « déjà présentée aujourd'hui ? »
+compte les révisions **existantes**, donc la question se pose **avant** le `LeitnerReview.create()`.
+Posée après, elle répondrait toujours « oui », et cette colonne resterait éternellement vide — sans
+erreur, sans log, avec un lot qui paraît livré.
+
+⚠️ **`thinking_ms` est DÉCLARATIF, et la doctrine des champs déclaratifs s'arrête ici.**
+`source`/`sourceName`, puis `verdict`/`latencyMs`, étaient sûrs parce qu'ils **ne calculaient rien**.
+Celui-ci calcule : il choisit le bouton mis en avant, et il alimente la référence des propositions
+futures. Ce qui le rend acceptable est plus étroit — la proposition n'est **jamais appliquée sans
+confirmation**, la valeur est bornée au validateur, et un client qui mentirait ne dégraderait que
+**ses propres** suggestions, sur un tableau de bord mono-utilisateur. Le jour où une règle lirait
+cette colonne pour décider d'une **boîte**, c'est ce raisonnement-là qu'il faudrait rouvrir, pas
+contourner.
+
+⚠️ **`MEASURE_MAX_MS` (1 h) n'est pas un plafond de vraisemblance mais de transport** — il existe
+pour qu'une mesure absurde ne fasse jamais **échouer une note**. Un onglet laissé ouvert trois heures
+produit un temps total de onze millions de millisecondes : sous une borne plus serrée, `POST /review`
+partirait en 422 et l'utilisateur cliquerait un bouton sans que rien ne se passe. La page écrête
+**avant** l'envoi ; le seuil réellement exploitable (120 s) s'applique plus loin, dans la règle.
+
+### Deux biais assumés
+
+- **La référence de boîte est biaisée sur deux axes.** *La longueur du recto* — le temps jusqu'à la
+  première frappe inclut la lecture de la question, et une carte verbeuse est structurellement plus
+  lente ; contre sa *propre* médiane le biais s'annule, contre sa boîte non. *L'âge des mesures* —
+  `leitner_reviews` ne porte pas de boîte, donc la requête attribue chaque mesure à la boîte où sa
+  carte est **aujourd'hui**, pas à celle où elle était le jour de la mesure : le vivier d'une boîte
+  haute est dominé par des mesures prises plus bas, quand ces cartes étaient moins sues, donc plus
+  lentes. Les deux poussent vers un `easy` sur-proposé en boîte haute. Accepté et borné — ce repli
+  ne sert que tant qu'une carte n'a pas 5 mesures à elle. Le corriger demanderait une colonne `box`
+  sur `leitner_reviews`, vide pour tout l'historique existant : un lot à part.
+- **Les ratios 0,6 / 1,6 sont des conventions**, au même titre que `SESSION_GAP_MINUTES` : ils ne se
+  vérifient qu'à l'usage, sur plusieurs semaines de mesures réelles.
+
+⚠️ **Le chronométrage lui-même (`pages/index.vue`) n'est couvert par aucun test** — ce dépôt n'a
+aucun test de composant Vue. D'où le fait que la page ne décide de **rien** : elle chronomètre,
+écrête, transmet. Toute la règle est côté serveur, où elle se prouve. Et les **quatre** `ref` du
+chrono (`presentedAt`, `firstInputAt`, `revealedAt`, `interrupted`) sont dans le `watch` sur la
+**référence de `dueCards`** comme tout le reste — un `firstInputAt` qui survivrait à une note
+donnerait une durée quasi nulle, donc `easy` proposé sur la carte qu'on vient de rater.
+
+⚠️ **Une durée négative se rend `null`, jamais `0`.** Une correction NTP ou une reprise de machine
+virtuelle entre l'affichage et la frappe recule l'horloge : la ramener à zéro donnerait la
+**meilleure valeur possible** — `easy` proposé, et un `0` écrit qui tirerait la médiane de la carte
+vers le bas durablement. Une mesure qu'on n'a pas ne vaut pas zéro.
 
 ## La règle métier
 
@@ -1040,12 +1161,24 @@ le mapping verdict → bouton, et surtout **le repli** — serveur éteint *et* 
 jamais lever. `tests/unit/leitner_llm_client.spec.ts` couvre ce qui part **réellement sur le fil**
 (`fetch` remplacé, aucun réseau) : `0.2` par défaut, `0` quand le juge le demande — le faux client
 enregistre les options reçues, il ne prouve pas ce que le vrai en fait.
+`tests/unit/leitner_fluency.spec.ts` couvre **la fluence de rappel** — du code pur, sans base ni
+horloge, donc le test qui compte de son lot : les deux bornes relatives, le choix carte-vs-boîte, et
+surtout les trois cas qui font la valeur du ticket — une carte **re-présentée** n'est jamais proposée
+`easy` sur sa vitesse, une **interruption** (comme un dépassement du plafond) écarte la mesure au
+lieu de proposer `hard`, et **sans référence** on rend exactement ce que le juge proposait. Plus la
+borne du lot : la fluence **ne remonte jamais** un verdict `partiel` ou `faux`. Ce qu'il ne voit
+**pas** : le chronométrage lui-même (`Date.now()`, `visibilitychange`, `blur`, et la remise à zéro
+entre deux cartes) — angle mort des tests de composant Vue, à vérifier au navigateur.
 `tests/functional/modules/leitner_review.spec.ts`
 couvre la file de révision (une carte ratée reste due le jour même et repart en fin de file) — il
 vise `?scope=all`, qui doit se comporter **exactement** comme `/revision` d'avant le ciblage — ainsi
 que les deux garanties du juge : un `verdict: 'faux'` **n'empêche pas** un clic sur `easy` d'appliquer
 `easy` (+2 boîtes), et un juge éteint rend **200** avec `verdict: null` au lieu de casser le
-dévoilement,
+dévoilement — plus le **branchement** de la fluence, que l'unitaire ne peut pas voir : la référence
+lue en base fait bien proposer `easy` sur une réponse juste et rapide, la même mesure sur une carte
+notée `again` le jour même retombe sur `good`, une mesure écartée s'écrit `null` là où `total_ms`
+s'écrit toujours, et une **première** présentation historise bien la sienne — le test qui tient
+l'ordre « compter les révisions du jour AVANT d'insérer la nouvelle »,
 `tests/unit/leitner_catalog_service.spec.ts` couvre les filtres, la suppression multiple, le
 reclassement et les cascades de la taxonomie, et `tests/functional/modules/leitner_backup.spec.ts`
 couvre la sauvegarde — dont **l'aller-retour** (export → base vidée → import → base identique), le

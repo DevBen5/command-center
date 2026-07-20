@@ -14,9 +14,12 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  *   exacte, aucun réseau) comme sur repli. Mesurer tout le cycle mélangerait deux
  *   populations dans une même colonne et rendrait toute moyenne trompeuse.
  *
- * ⚠️ **`latency_ms` n'est lu par personne dans ce lot, et c'est délibéré** : le lot
- * suivant en dépend, et un historique ne se reconstitue pas après coup — il faudrait
- * attendre des semaines de révisions pour retrouver une référence.
+ * ⚠️ **`latency_ms` n'est lu par personne, et ne l'a jamais été.** Il a été posé ici en
+ * pensant que le lot suivant — la fluence de rappel — s'en servirait : c'était une
+ * erreur, et elle vaut d'être écrite. Il mesure la vitesse de **LM Studio**, pas celle
+ * du souvenir ; la fluence a donc dû introduire ses propres colonnes (`thinking_ms`,
+ * `total_ms`, migration …009). Les deux ne se remplacent pas. Ce qui reste vrai du
+ * raisonnement d'origine : un historique ne se reconstitue pas après coup.
  *
  * `verdict` est un `text`, pas un `enum` : contrairement à `grade`, il ne pilote aucune
  * règle métier (la note reste le seul moteur de Leitner). Le figer en base coûterait une
