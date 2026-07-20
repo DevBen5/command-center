@@ -42,6 +42,17 @@ test.group('Leitner / export JSON', (group) => {
       leitnerCardId: card.id,
       grade: 'good',
       reviewedAt: DateTime.fromISO('2026-07-13T09:02:00.000Z'),
+      answer: 'Négocier les clés de session.',
+      verdict: 'partiel',
+      latencyMs: 4_200,
+      thinkingMs: 8_500,
+      totalMs: 31_000,
+    })
+    // Juge éteint, mesure inexploitable : tout ce qui accompagne la note est `null`.
+    await LeitnerReview.create({
+      leitnerCardId: card.id,
+      grade: 'hard',
+      reviewedAt: DateTime.fromISO('2026-07-14T09:02:00.000Z'),
     })
 
     return card
@@ -84,11 +95,41 @@ test.group('Leitner / export JSON', (group) => {
     assert.equal(card.theme, 'Docker')
     assert.deepEqual(
       card.reviews.map((review: { grade: string }) => review.grade),
-      ['good']
+      ['good', 'hard']
     )
     // Sans les horodatages, l'ordre de la file de révision serait perdu à la restauration.
     assert.isString(card.createdAt)
     assert.isString(card.updatedAt)
+  })
+
+  /**
+   * Les cinq colonnes de trace de `leitner_reviews`. `thinking_ms` n'est pas de
+   * l'historique décoratif : c'est la référence à laquelle une nouvelle mesure se
+   * compare pour proposer `easy`, `good` ou `hard`. Sans elle dans le fichier, une
+   * restauration remet le raffinement à zéro et le rend **silencieusement inerte**
+   * le temps de reconstituer 5 mesures par carte.
+   */
+  test('porte la réponse écrite, le verdict et les trois durées', async ({ client, assert }) => {
+    const user = await login()
+    await seedCard()
+
+    const response = await client.get('/revision/export').loginAs(user)
+    const [card] = JSON.parse(response.text()).cards
+    const [jugee, nonJugee] = card.reviews
+
+    assert.equal(jugee.answer, 'Négocier les clés de session.')
+    assert.equal(jugee.verdict, 'partiel')
+    assert.equal(jugee.latencyMs, 4_200)
+    assert.equal(jugee.thinkingMs, 8_500)
+    assert.equal(jugee.totalMs, 31_000)
+
+    // Ce qui vaut `null` est omis plutôt qu'écrit : le fichier se relit à la main, et
+    // l'absence porte le même sens que le `null` de la colonne.
+    assert.notProperty(nonJugee, 'answer')
+    assert.notProperty(nonJugee, 'verdict')
+    assert.notProperty(nonJugee, 'latencyMs')
+    assert.notProperty(nonJugee, 'thinkingMs')
+    assert.notProperty(nonJugee, 'totalMs')
   })
 
   test("une carte non classée n'emporte ni catégorie ni thème", async ({ client, assert }) => {
@@ -146,11 +187,24 @@ test.group('Leitner / import JSON', (group) => {
       .redirects(0)
   }
 
-  /** L'état complet de la base, tel qu'une restauration doit le rendre à l'identique. */
+  /**
+   * L'état complet de la base, tel qu'une restauration doit le rendre à l'identique.
+   *
+   * ⚠️ **C'est cette fonction qui fait la valeur du test, pas l'aller-retour lui-même.**
+   * Une colonne qu'elle ne lit pas peut être perdue par l'export sans qu'un seul test
+   * ne rougisse : c'est exactement ce qui a laissé passer CC-51 (`answer`, `verdict`,
+   * `latency_ms`, `thinking_ms`, `total_ms` sortaient de la base sans jamais y revenir,
+   * suite verte). Une colonne ajoutée à `leitner_cards` ou `leitner_reviews` s'ajoute
+   * **ici** dans le même lot, ou elle n'est pas sauvegardée.
+   *
+   * Le tri des révisions reprend celui de l'export (`reviewed_at`, puis `id`) : sur
+   * deux révisions au même horodatage, `reviewed_at` seul rendrait un ordre arbitraire
+   * et la comparaison serait instable.
+   */
   async function snapshot() {
     const cards = await LeitnerCard.query()
       .preload('theme', (theme) => theme.preload('category'))
-      .preload('reviews', (reviews) => reviews.orderBy('reviewed_at', 'asc'))
+      .preload('reviews', (reviews) => reviews.orderBy('reviewed_at', 'asc').orderBy('id', 'asc'))
       .orderBy('front', 'asc')
 
     const categories = await LeitnerCategory.query().preload('themes').orderBy('name')
@@ -172,6 +226,13 @@ test.group('Leitner / import JSON', (group) => {
         reviews: card.reviews.map((review) => ({
           grade: review.grade,
           reviewedAt: review.reviewedAt.toISO(),
+          // La trace de la réponse écrite. `null` est une valeur à part entière : il
+          // doit se relire `null`, jamais `0` ni `''`.
+          answer: review.answer,
+          verdict: review.verdict,
+          latencyMs: review.latencyMs,
+          thinkingMs: review.thinkingMs,
+          totalMs: review.totalMs,
         })),
       })),
     }
@@ -202,15 +263,35 @@ test.group('Leitner / import JSON', (group) => {
       createdAt: DateTime.fromISO('2026-07-01T08:00:00.000Z'),
       updatedAt: DateTime.fromISO('2026-07-10T09:30:00.000Z'),
     })
+    // Une révision JUGÉE : réponse écrite, verdict, et les trois durées.
     await LeitnerReview.create({
       leitnerCardId: revisee.id,
       grade: 'good',
       reviewedAt: DateTime.fromISO('2026-07-05T09:02:00.000Z'),
+      answer: 'Négocier les clés de session.',
+      verdict: 'partiel',
+      latencyMs: 4_200,
+      thinkingMs: 8_500,
+      totalMs: 31_000,
     })
+    // Une révision JAMAIS jugée : juge éteint, aucune mesure exploitable. Tout est
+    // `null`, et `null` doit se relire `null` — un `0` restauré tirerait la médiane
+    // de la carte vers le bas et lui vaudrait `easy`.
     await LeitnerReview.create({
       leitnerCardId: revisee.id,
       grade: 'hard',
       reviewedAt: DateTime.fromISO('2026-07-10T09:30:00.000Z'),
+    })
+    // Les deux valeurs FALSY qui ne sont pas des absences : une réponse vide (le verso
+    // dévoilé sans rien écrire, mais soumis) et une frappe immédiate. Un export qui
+    // filtrerait sur la vérité plutôt que sur `!== null` les perdrait toutes les deux.
+    await LeitnerReview.create({
+      leitnerCardId: revisee.id,
+      grade: 'again',
+      reviewedAt: DateTime.fromISO('2026-07-12T18:00:00.000Z'),
+      answer: '',
+      thinkingMs: 0,
+      totalMs: 0,
     })
     await LeitnerCard.create({
       front: 'Carte non classée',
@@ -390,6 +471,63 @@ test.group('Leitner / import JSON', (group) => {
     assert.lengthOf(await LeitnerCard.all(), 1)
   })
 
+  /**
+   * L'import n'ajoute que ce qui manque, et « ce qui manque » s'entend **carte par
+   * carte** : une carte déjà présente est ignorée entièrement, ses révisions comprises.
+   * Ses colonnes de trace vides ne sont donc **jamais** complétées depuis le fichier.
+   *
+   * C'est un choix, pas un oubli — apparier deux révisions demanderait une clé qu'on
+   * n'a pas (`reviewed_at` n'est pas unique), et un mauvais appariement écrirait des
+   * mesures sur la mauvaise carte : une référence de fluence fausse, en silence. Le
+   * scénario réel, restaurer dans une base vide, n'est pas concerné.
+   */
+  test("une carte déjà présente n'est pas rétro-remplie depuis le fichier", async ({
+    client,
+    assert,
+  }) => {
+    const user = await login()
+    const existante = await LeitnerCard.create({
+      front: 'Rôle du handshake TLS ?',
+      back: 'Négocier clés et algorithmes.',
+      box: 2,
+      nextReview: DateTime.fromISO('2026-07-20'),
+    })
+    await LeitnerReview.create({
+      leitnerCardId: existante.id,
+      grade: 'good',
+      reviewedAt: DateTime.fromISO('2026-07-05T09:02:00.000Z'),
+    })
+
+    const response = await upload(client, user, {
+      cards: [
+        {
+          front: 'Rôle du handshake TLS ?',
+          back: 'Négocier clés et algorithmes.',
+          reviews: [
+            {
+              grade: 'good',
+              reviewedAt: '2026-07-05T09:02:00.000Z',
+              answer: 'Une réponse venue du fichier.',
+              verdict: 'juste',
+              thinkingMs: 3_000,
+            },
+          ],
+        },
+      ],
+    })
+
+    const report = response.flashMessages().importReport as ImportReport
+    assert.equal(report.cardsSkipped, 1)
+    // Aucune révision créée : la boucle vit après le `continue` de déduplication.
+    assert.equal(report.reviewsCreated, 0)
+
+    const revisions = await LeitnerReview.query().where('leitner_card_id', existante.id)
+    assert.lengthOf(revisions, 1)
+    assert.isNull(revisions[0].answer)
+    assert.isNull(revisions[0].verdict)
+    assert.isNull(revisions[0].thinkingMs)
+  })
+
   test('une boîte hors de 1..5 est refusée : sans ce garde-fou, la carte serait éternellement due', async ({
     client,
     assert,
@@ -425,6 +563,35 @@ test.group('Leitner / import JSON', (group) => {
       ['date bidon', { cards: [{ front: 'A', back: 'B', nextReview: '2026-02-31' }] }],
       ['horodatage bidon', { cards: [{ front: 'A', back: 'B', createdAt: 'hier matin' }] }],
       ['recto vide', { cards: [{ front: '   ', back: 'B' }] }],
+      // La trace d'une révision est bornée comme le `POST /review` qui l'écrit : un
+      // fichier n'est pas une source plus fiable qu'une requête. `thinkingMs` alimente
+      // une règle — accepter n'importe quoi ici dégraderait les suggestions futures.
+      [
+        'verdict hors énumération',
+        {
+          cards: [
+            {
+              front: 'A',
+              back: 'B',
+              reviews: [{ grade: 'good', reviewedAt: '2026-07-13T09:00:00Z', verdict: 'correct' }],
+            },
+          ],
+        },
+      ],
+      [
+        'mesure au-delà du plafond de transport',
+        {
+          cards: [
+            {
+              front: 'A',
+              back: 'B',
+              reviews: [
+                { grade: 'good', reviewedAt: '2026-07-13T09:00:00Z', thinkingMs: 7_200_000 },
+              ],
+            },
+          ],
+        },
+      ],
       ['thème sans catégorie', { cards: [{ front: 'A', back: 'B', theme: 'Docker' }] }],
       ['version inconnue', { version: 2, cards: [{ front: 'A', back: 'B' }] }],
     ]

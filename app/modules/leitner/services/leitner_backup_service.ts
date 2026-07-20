@@ -5,19 +5,43 @@ import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
-import type { Grade } from '#modules/leitner/services/leitner_service'
+import type { Grade, Verdict } from '#modules/leitner/services/leitner_service'
 
 /**
  * Version du format d'échange. Un fichier qui déclare une autre version est
  * refusé à l'import : mieux vaut un refus net qu'un import « au mieux » qui
  * écrirait des données fausses en silence. Un fichier **sans** `version` est
  * un fichier écrit à la main : il est lu comme la version courante.
+ *
+ * ⚠️ **Ajouter un champ optionnel ne bump PAS cette valeur, et c'est un choix.**
+ * Les cinq colonnes de trace d'une révision (CC-51) sont arrivées ainsi : l'ajout
+ * est strictement **additif**, donc un fichier antérieur reste intégralement
+ * lisible — le déclarer « autre format » serait faux. Ce que le bump aurait acheté
+ * est l'inverse : qu'un build **antérieur** refuse net un fichier neuf au lieu de
+ * le tronquer. Coût assumé, et c'est le seul : un checkout d'avant CC-51 qui
+ * importerait un fichier d'aujourd'hui en perdrait les cinq champs **sans un mot**.
+ * Bump-la le jour où un champ change de sens ou devient obligatoire — là, un
+ * ancien fichier serait vraiment illisible.
  */
 export const BACKUP_VERSION = 1
 
+/**
+ * Une révision : sa note, son horodatage, et **la trace de ce qui l'a précédée**.
+ *
+ * Les cinq derniers champs sont **omis quand ils valent `null`**, comme le sont
+ * `category`/`theme` d'une carte non classée : le fichier se relit et se retouche à
+ * la main, et un objet à deux clés vaut mieux qu'un objet à sept dont cinq disent
+ * « rien ». L'import relit l'absence **comme `null`**, jamais comme `0` ni `''` —
+ * voir la nullabilité, plus bas.
+ */
 export interface BackupReview {
   grade: Grade
   reviewedAt: string
+  answer?: string
+  verdict?: Verdict
+  latencyMs?: number
+  thinkingMs?: number
+  totalMs?: number
 }
 
 export interface BackupCard {
@@ -60,7 +84,15 @@ export interface BackupCardInput {
   nextReview?: string
   createdAt?: string
   updatedAt?: string
-  reviews?: { grade: Grade; reviewedAt: string }[]
+  reviews?: {
+    grade: Grade
+    reviewedAt: string
+    answer?: string | null
+    verdict?: Verdict | null
+    latencyMs?: number | null
+    thinkingMs?: number | null
+    totalMs?: number | null
+  }[]
 }
 
 export interface BackupInput {
@@ -99,6 +131,18 @@ function themeKey(category: string, theme: string): string {
 /** Identité d'une carte pour la déduplication : son recto, *dans son thème*. */
 function cardKey(front: string, themeId: number | null): string {
   return JSON.stringify([themeId, front])
+}
+
+/**
+ * Retire les clés qui valent `null`, pour que le fichier ne porte que ce qui existe.
+ * ⚠️ `0` et `''` sont **conservés** (`=== null`, jamais falsy) : une réponse vide et
+ * une absence de réponse ne sont pas la même chose, et un `thinkingMs` de 0 est une
+ * mesure — celle d'une frappe immédiate.
+ */
+function omitNull<T extends object>(fields: T): { [K in keyof T]?: Exclude<T[K], null> } {
+  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== null)) as {
+    [K in keyof T]?: Exclude<T[K], null>
+  }
 }
 
 /**
@@ -145,6 +189,15 @@ export default class LeitnerBackupService {
         reviews: card.reviews.map((review) => ({
           grade: review.grade,
           reviewedAt: review.reviewedAt.toISO()!,
+          // Ce qui vaut `null` est omis, jamais écrit : « aucun juge n'a tranché » et
+          // « mesure inexploitable » se relisent comme une absence, pas comme un zéro.
+          ...omitNull({
+            answer: review.answer,
+            verdict: review.verdict,
+            latencyMs: review.latencyMs,
+            thinkingMs: review.thinkingMs,
+            totalMs: review.totalMs,
+          }),
         })),
       })),
     }
@@ -155,6 +208,14 @@ export default class LeitnerBackupService {
    * supprime jamais rien : une carte dont le recto existe déjà sous le même thème
    * est ignorée. Il n'y a pas d'autre mode — restaurer, c'est importer dans une
    * base vide (nouvelle machine, base perdue), et une fusion la recharge à l'identique.
+   *
+   * ⚠️ **Une carte ignorée l'est entièrement : ses révisions ne sont pas retouchées**,
+   * donc ses colonnes de trace vides ne sont **jamais rétro-remplies** depuis le
+   * fichier. La boucle des révisions vit après le `continue` de déduplication, et
+   * c'est voulu : apparier deux révisions demanderait une clé qu'on n'a pas
+   * (`reviewedAt` n'est pas unique), et un mauvais appariement écrirait des mesures
+   * sur la mauvaise carte — donc une référence de fluence fausse, en silence. Le
+   * scénario réel — restaurer dans une base vide — n'est de toute façon pas concerné.
    *
    * **Tout ou rien** : une seule transaction, donc un fichier qui casse à la 300ᵉ
    * carte ne laisse pas 299 cartes derrière lui. Le cas le plus probable est la
@@ -225,6 +286,17 @@ export default class LeitnerBackupService {
               leitnerCardId: created.id,
               grade: review.grade,
               reviewedAt: DateTime.fromISO(review.reviewedAt),
+              // ⚠️ `?? null` explicite, jamais `undefined` : la nullabilité est du sens
+              // et doit survivre à l'aller-retour. `verdict: null` veut dire « aucun juge
+              // n'a tranché », jamais « jugé faux » ; `thinkingMs: null` veut dire « mesure
+              // inexploitable », jamais « instantané » — un `0` restauré tirerait la médiane
+              // de la carte vers le bas durablement et lui vaudrait `easy`. Passer
+              // `undefined` à Lucid laisserait knex décider du binding : on tranche ici.
+              answer: review.answer ?? null,
+              verdict: review.verdict ?? null,
+              latencyMs: review.latencyMs ?? null,
+              thinkingMs: review.thinkingMs ?? null,
+              totalMs: review.totalMs ?? null,
             },
             { client: trx }
           )

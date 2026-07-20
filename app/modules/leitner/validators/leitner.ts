@@ -197,6 +197,43 @@ const timestamp = vine.createRule((value: unknown, _options: undefined, field: F
 const taxonomyName = () => vine.string().trim().minLength(1).maxLength(60)
 
 /**
+ * Ce qu'une révision porte **en plus de sa note** : la réponse écrite, le verdict du
+ * juge et les trois durées. Bornés **exactement** comme dans `reviewValidator` — un
+ * fichier vient de l'utilisateur au même titre qu'un `POST /review`, et rien ne
+ * justifierait deux jeux de bornes pour les mêmes colonnes.
+ *
+ * ⚠️ **`thinkingMs` alimente une règle** (la référence à laquelle une nouvelle mesure
+ * se compare pour proposer `easy`, `good` ou `hard` — voir `leitner_fluency.ts`) : un
+ * fichier écrit à la main peut donc dégrader ses propres suggestions. C'est la même
+ * doctrine que `verdict`/`latencyMs`, et elle tient pour la même raison — la
+ * proposition n'est **jamais appliquée sans confirmation**, la valeur est bornée ici,
+ * et le tableau de bord est mono-utilisateur. La note cliquée reste le seul moteur de
+ * Leitner : aucune boîte ne bouge sur ces champs.
+ *
+ * ⚠️ **`interrupted` n'y est PAS**, contrairement à `fluencyMeasureFields()` : ce n'est
+ * pas une colonne mais un drapeau de transport, qui dit à la règle d'écarter la mesure
+ * du moment. Une révision déjà en base a **déjà** été filtrée par lui. Ne fusionne pas
+ * les deux jeux de champs.
+ *
+ * ⚠️ **Le plafond est `MEASURE_MAX_MS` (1 h), pas `MAX_THINKING_MS` (120 s)** : c'est
+ * celui auquel la page écrête avant d'envoyer, donc celui que la colonne peut
+ * légitimement porter. Plus serré, on refuserait l'import d'un fichier honnêtement
+ * exporté.
+ */
+function backupReviewTraceFields() {
+  return {
+    answer: vine.string().trim().maxLength(ANSWER_MAX_CHARS).nullable().optional(),
+    verdict: vine
+      .enum(['juste', 'partiel', 'faux'] as const)
+      .nullable()
+      .optional(),
+    latencyMs: vine.number().withoutDecimals().min(0).max(600_000).nullable().optional(),
+    thinkingMs: vine.number().withoutDecimals().min(0).max(MEASURE_MAX_MS).nullable().optional(),
+    totalMs: vine.number().withoutDecimals().min(0).max(MEASURE_MAX_MS).nullable().optional(),
+  }
+}
+
+/**
  * Contenu du fichier importé. Seuls `front` et `back` sont obligatoires : un fichier
  * écrit à la main se réduit au recto, au verso et au thème, le reste prenant les
  * valeurs d'une carte créée depuis l'UI (boîte 1, due aujourd'hui).
@@ -236,6 +273,7 @@ export const backupValidator = vine.compile(
             vine.object({
               grade: vine.enum(['again', 'hard', 'good', 'easy'] as const),
               reviewedAt: vine.string().use(timestamp()),
+              ...backupReviewTraceFields(),
             })
           )
           .optional(),
