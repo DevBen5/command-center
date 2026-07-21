@@ -35,7 +35,11 @@ export default class VeilleMediaController {
   constructor(private client: ImmichClient) {}
 
   async thumbnail({ params, response }: HttpContext) {
-    const item = await VeilleItem.find(params.id)
+    // ⚠️ `visible()` (CC-63) : l'autorisation reste un effet de bord de la recherche, et un item
+    // supprimé n'est plus dans la table *visible*. Son asset est à la corbeille d'Immich, qui
+    // répondrait de toute façon en erreur — mais l'autorisation ne doit pas dépendre de ce que
+    // l'autre système veut bien refuser.
+    const item = await VeilleItem.visible().where('id', params.id).first()
 
     // Un item inconnu, une capture manuelle, un article : aucun n'a d'asset derrière lui.
     // `assetIdFromDedupKey` rend `null` dans les trois cas, et vérifie la forme de l'UUID.

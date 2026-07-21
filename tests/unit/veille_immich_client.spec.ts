@@ -279,6 +279,104 @@ test.group('Veille / client Immich — ce qu’il fait de la réponse', () => {
     }
   })
 
+  // -------------------------------------------------------------------------------------------
+  // CC-63 — la corbeille : ce qui est réellement envoyé, et ce qui ne l'est jamais
+  // -------------------------------------------------------------------------------------------
+
+  test('LE test de CC-63 : la suppression envoie force: false, et rien d’autre', async ({
+    assert,
+  }) => {
+    /**
+     * ⚠️ **`force: true` détruirait définitivement**, sans que Command Center ait de quoi
+     * réparer — il ne garde aucune copie des octets. Ce test lit le corps réellement émis :
+     * c'est le seul endroit du dépôt où cette valeur se prouve, et il rougit si quelqu'un
+     * ajoute un paramètre pour « forcer quand c'est vraiment voulu ».
+     */
+    const fetchStub = stubFetch(() => new Response(null, { status: 204 }))
+
+    try {
+      await new ImmichClient(CONFIG).trashAssets([ID, OTHER_ID])
+
+      assert.equal(fetchStub.inits[0].method, 'DELETE')
+      assert.include(fetchStub.urls[0], '/api/assets')
+
+      const body = JSON.parse(String(fetchStub.inits[0].body))
+      assert.deepEqual(body.ids, [ID, OTHER_ID])
+      assert.isFalse(body.force)
+    } finally {
+      fetchStub.restore()
+    }
+  })
+
+  test('un 204 sans corps est un succès, pas une réponse illisible', async ({ assert }) => {
+    /**
+     * ⚠️ `DELETE /api/assets` rend **204 sans corps**. Passer par le lecteur JSON ferait échouer
+     * l'assertion de `content-type` sur un appel **réussi** : les assets partiraient à la
+     * corbeille, le code lèverait, rien ne serait marqué en base — la suppression paraîtrait
+     * échouer à chaque clic tout en ayant lieu à chaque fois.
+     */
+    const fetchStub = stubFetch(() => new Response(null, { status: 204 }))
+
+    try {
+      // Ne lève pas — et la requête est bien partie : un succès silencieux qui n'appellerait
+      // rien passerait ce test sans cette seconde assertion.
+      await new ImmichClient(CONFIG).trashAssets([ID])
+      assert.lengthOf(fetchStub.urls, 1)
+    } finally {
+      fetchStub.restore()
+    }
+  })
+
+  test('une liste vide n’émet aucune requête', async ({ assert }) => {
+    const fetchStub = stubFetch(() => new Response(null, { status: 204 }))
+
+    try {
+      await new ImmichClient(CONFIG).trashAssets([])
+      assert.lengthOf(fetchStub.urls, 0)
+    } finally {
+      fetchStub.restore()
+    }
+  })
+
+  test('un refus de la clé nomme la permission qui manque', async ({ assert }) => {
+    // Une clé réduite mais mal réduite est le cas le plus probable après ce lot : le message
+    // doit nommer `asset.delete`, pas parler d'une instance injoignable.
+    const fetchStub = stubFetch(() => new Response(null, { status: 403 }))
+
+    try {
+      await assert.rejects(
+        () => new ImmichClient(CONFIG).trashAssets([ID]),
+        ImmichUnavailableError,
+        /asset\.delete/
+      )
+    } finally {
+      fetchStub.restore()
+    }
+  })
+
+  test('trashDays se lit, et tout ce qui n’est pas un nombre vaut 0', async ({ assert }) => {
+    /**
+     * ⚠️ **Échec fermé.** Un champ absent, renommé par une version future ou rendu en chaîne ne
+     * doit jamais se lire « corbeille active » : ce serait la seule erreur du lot qui détruit
+     * pour de bon. Refuser ne coûte qu'un message.
+     */
+    for (const [payload, attendu] of [
+      [{ trashDays: 30 }, 30],
+      [{ trashDays: 0 }, 0],
+      [{ trashDays: '30' }, 0],
+      [{}, 0],
+    ] as const) {
+      const fetchStub = stubFetch(() => json(payload))
+
+      try {
+        assert.equal(await new ImmichClient(CONFIG).trashDays(), attendu)
+        assert.include(fetchStub.urls[0], '/api/server/config')
+      } finally {
+        fetchStub.restore()
+      }
+    }
+  })
+
   test('ne tente rien quand Immich n’est pas configuré', async ({ assert }) => {
     // Sans les trois variables, la collecte doit dire pourquoi — pas partir chercher
     // `undefined/api/...` et rapporter une erreur réseau qui n'explique rien.

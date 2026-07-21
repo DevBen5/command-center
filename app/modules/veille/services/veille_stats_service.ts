@@ -31,6 +31,10 @@ export default class VeilleStatsService {
         count(DISTINCT tag)                              AS tags
       FROM veille_items
       LEFT JOIN LATERAL unnest(tags) AS tag ON true
+      -- ⚠️ CC-63 : un item supprimé sort des compteurs comme il sort de la liste. Sans ce filtre,
+      -- la bande d'indicateurs annoncerait des éléments que l'écran ne montre nulle part — et
+      -- rien, à part le désaccord entre deux nombres, ne dirait pourquoi.
+      WHERE deleted_at IS NULL
     `)
 
     const row = result.rows[0] ?? {}
@@ -52,6 +56,9 @@ export default class VeilleStatsService {
     const result = await db.rawQuery(`
       SELECT DISTINCT unnest(tags) AS tag
       FROM veille_items
+      -- ⚠️ CC-63 : sans ce filtre, un tag ne vivant que sur des items supprimés resterait dans la
+      -- barre — et le cliquer donnerait une liste vide, sans explication.
+      WHERE deleted_at IS NULL
       ORDER BY tag
     `)
 

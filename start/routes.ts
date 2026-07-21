@@ -87,6 +87,14 @@ router
           .post('/sources/:id/refresh', [VeilleSourcesController, 'refresh'])
           .where('id', router.matchers.number())
 
+        // La suppression, simple ou en lot (CC-63). ⚠️ Déclarée **avant** `/items/:id/...` :
+        // dans l'autre ordre, « delete » serait capté comme un `:id` — que le `where(number)`
+        // rejetterait, mais en 404 muette plutôt qu'en atteignant cette route.
+        //
+        // ⚠️ La suppression d'un média met l'asset à la **corbeille d'Immich** : c'est la seule
+        // route du module qui écrive dans un système tiers. Voir `VeilleDeletionService`.
+        router.post('/items/delete', [VeilleController, 'destroyMany'])
+
         // La vignette d'un asset Immich (CC-55). ⚠️ Le paramètre est l'id d'item de **notre**
         // base, jamais l'identifiant Immich : c'est ce qui empêche le proxy de servir n'importe
         // quel asset de la bibliothèque personnelle. Voir `VeilleMediaController`.

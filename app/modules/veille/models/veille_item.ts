@@ -76,6 +76,21 @@ export default class VeilleItem extends BaseModel {
   @column.dateTime()
   declare unavailableAt: DateTime | null
 
+  /**
+   * L'utilisateur a supprimé cet item (CC-63). **La ligne reste, elle est masquée.**
+   *
+   * ⚠️ **Une vraie suppression ferait revenir l'item.** `dedup_key` est sous index UNIQUE et
+   * c'est la seule chose qui empêche un doublon : ligne supprimée = clé libérée = réinsertion à
+   * la passe suivante. La pierre tombale garde la clé occupée sans que le collecteur change.
+   *
+   * ⚠️ **Rien ne défait ça côté collecte**, à la différence d'`unavailableAt` qui est un constat
+   * réversible. Un asset remis dans l'album ne ressuscite pas un item volontairement supprimé —
+   * y compris s'il est restauré depuis la corbeille d'Immich. C'est une limite assumée : les
+   * 30 jours d'Immich récupèrent les octets, pas cette ligne.
+   */
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 
@@ -84,4 +99,22 @@ export default class VeilleItem extends BaseModel {
 
   @belongsTo(() => VeilleSource)
   declare source: BelongsTo<typeof VeilleSource>
+
+  /**
+   * Les items que l'utilisateur n'a pas supprimés — **le point d'entrée de toute lecture Lucid**
+   * de ce module (CC-63).
+   *
+   * ⚠️ **Ce n'est pas du confort : c'est ce qui rend le filtre auditable.** La pierre tombale
+   * n'a de valeur que si *chaque* lecture l'honore, et un filtre oublié ne se voit nulle part
+   * — l'item réapparaît simplement, dans une liste, un compteur ou une page. Un nom unique donne
+   * une réponse greppable à « toutes les lectures filtrent-elles ? ».
+   *
+   * ⚠️ **Les lectures en SQL brut ne passent pas par ici** et portent le filtre en clair :
+   * les deux agrégats de `VeilleStatsService` et les deux requêtes de `ImmichCollector.reconcile`.
+   * La liste complète des endroits vit dans le `CLAUDE.md` du module — tiens-la à jour en même
+   * temps que le code.
+   */
+  static visible() {
+    return this.query().whereNull('deleted_at')
+  }
 }

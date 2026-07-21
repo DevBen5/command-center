@@ -11,6 +11,12 @@ import {
   thumbnailHref,
   type ItemType,
 } from '../shared/media_item.js'
+import {
+  confirmationMessage,
+  summarizeSelection,
+  toggleAll,
+  toggleSelected,
+} from '../shared/item_selection.js'
 
 defineOptions({ layout: AppLayout })
 
@@ -72,6 +78,8 @@ const props = defineProps<{
   filters: Filters
   /** ⚠️ `webBaseUrl` seulement : `IMMICH_API_KEY` ne descend jamais au navigateur. */
   immich: { configured: boolean; webBaseUrl: string | null }
+  /** Le retour d'une suppression — dont un échec Immich, rendu tel quel. */
+  notification: { type: string; message: string } | null
 }>()
 
 const searchInput = ref(props.filters.search ?? '')
@@ -79,11 +87,56 @@ const searchInput = ref(props.filters.search ?? '')
 const queueItems = computed(() => props.items.filter((item) => item.readingQueue))
 
 /**
+ * Les identifiants cochés (CC-63).
+ *
+ * ⚠️ **Vidée à tout changement de filtre et de page.** Une sélection qui survivrait afficherait
+ * un compteur portant sur des items qui ne sont plus à l'écran — et le dialogue de confirmation
+ * annoncerait un nombre invérifiable. `summarizeSelection` recoupe de toute façon avec les items
+ * affichés, mais l'état ne doit pas mentir non plus.
+ */
+const selected = ref<number[]>([])
+
+const selection = computed(() => summarizeSelection(props.items, selected.value))
+
+const isSelected = (item: VeilleItem): boolean => selected.value.includes(item.id)
+
+function toggleItem(item: VeilleItem): void {
+  selected.value = toggleSelected(selected.value, item.id)
+}
+
+function toggleEveryItem(): void {
+  selected.value = toggleAll(selected.value, props.items)
+}
+
+/**
+ * La suppression. **Rien ne part sans confirmation** — et le message dit combien d'assets Immich
+ * sont concernés, pas seulement combien de lignes disparaissent de l'écran.
+ */
+function deleteSelected(): void {
+  const message = confirmationMessage(selection.value)
+  if (message === null || !confirm(message)) return
+
+  router.post(
+    '/veille/items/delete',
+    { ids: selected.value },
+    {
+      preserveScroll: true,
+      // La sélection ne survit pas au geste : les lignes visées n'existent plus, et celles qui
+      // ont échoué doivent être re-choisies sciemment plutôt que resoumises par un second clic.
+      onFinish: () => {
+        selected.value = []
+      },
+    }
+  )
+}
+
+/**
  * Tout changement de filtre repart à la page 1 : rester en page 4 d'un résultat qui n'en compte
  * plus qu'une afficherait une liste vide sans rien expliquer.
  */
 function applyFilters(patch: Partial<Filters>): void {
   const next = { ...props.filters, ...patch, page: 1 }
+  selected.value = []
 
   router.get(
     '/veille',
@@ -97,6 +150,8 @@ function applyFilters(patch: Partial<Filters>): void {
 }
 
 function goToPage(page: number): void {
+  selected.value = []
+
   router.get(
     '/veille',
     Object.fromEntries(
@@ -118,6 +173,13 @@ function toggleQueue(item: VeilleItem): void {
 
 function toggleRead(item: VeilleItem): void {
   router.post(`/veille/${item.id}/read`, {}, { preserveScroll: true, preserveState: true })
+}
+
+/** Les trois tons du bandeau de retour. `info` sert aussi de repli sur un type inconnu. */
+const NOTIFICATION_STYLES: Record<string, string> = {
+  success: 'border-ok/40 bg-panel text-ok',
+  error: 'border-bad/40 bg-panel text-bad',
+  info: 'border-line-2 bg-panel text-txt-2',
 }
 
 const TYPE_LABELS: Record<VeilleItem['type'], string> = {
@@ -169,6 +231,17 @@ function submitCapture(): void {
 
 <template>
   <Head title="Veille" />
+
+  <!-- Le retour d'une suppression. Un échec Immich s'affiche **tel quel** : « instance éteinte »,
+       « clé sans la permission asset.delete » et « asset inconnu » doivent rester distinguables.
+       Trois tons, parce qu'un clic sans effet n'est ni un succès ni une erreur. -->
+  <div
+    v-if="notification"
+    class="mb-4 rounded-[9px] border px-3.5 py-2.5 text-[12.5px]"
+    :class="NOTIFICATION_STYLES[notification.type] ?? NOTIFICATION_STYLES.info"
+  >
+    {{ notification.message }}
+  </div>
 
   <div class="mb-4 flex items-center gap-3">
     <input
@@ -307,6 +380,16 @@ function submitCapture(): void {
     <!-- Flux -->
     <div class="flex min-w-0 flex-col">
       <div class="flex items-center gap-2 border-b border-line p-4 text-[12px] font-semibold">
+        <!-- Tout cocher — **de la page affichée seulement**. Aucun geste n'atteint les autres
+             pages : le rayon d'action reste ce que la confirmation sait annoncer. -->
+        <input
+          v-if="items.length > 0"
+          type="checkbox"
+          class="accent-accent"
+          :checked="selection.total === items.length"
+          title="Tout sélectionner sur cette page"
+          @change="toggleEveryItem"
+        />
         Flux agrégé
         <span
           class="rounded-full border border-line-2 bg-panel-2 px-2.5 py-0.5 text-[11px] font-normal text-txt-2"
@@ -315,12 +398,48 @@ function submitCapture(): void {
         </span>
       </div>
 
+      <!-- La barre d'action, seulement quand quelque chose est coché. Elle annonce le nombre
+           d'assets Immich concernés : c'est la seule chose que le bouton ne peut pas dire seul. -->
+      <div
+        v-if="selection.total > 0"
+        class="flex items-center gap-3 border-b border-line bg-panel-2 px-4 py-2.5 text-[12px]"
+      >
+        <span class="font-semibold">
+          {{ selection.total }} sélectionné{{ selection.total > 1 ? 's' : '' }}
+        </span>
+        <span v-if="selection.media > 0" class="text-txt-3">
+          dont {{ selection.media }} média{{ selection.media > 1 ? 's' : '' }} à envoyer à la
+          corbeille d’Immich
+        </span>
+        <button
+          type="button"
+          class="ml-auto rounded-md border border-line-2 bg-panel px-3 py-1.5 text-txt-2 hover:text-txt"
+          @click="selected = []"
+        >
+          Annuler
+        </button>
+        <button
+          type="button"
+          class="rounded-md border border-bad/50 bg-panel px-3 py-1.5 text-bad hover:border-bad"
+          @click="deleteSelected"
+        >
+          Supprimer
+        </button>
+      </div>
+
       <div
         v-for="item in items"
         :key="item.id"
         class="flex items-start gap-3 border-b border-line px-4 py-3.5"
         :class="item.readAt ? 'opacity-55' : ''"
       >
+        <input
+          type="checkbox"
+          class="mt-0.5 shrink-0 accent-accent"
+          :checked="isSelected(item)"
+          :title="`Sélectionner « ${item.title} »`"
+          @change="toggleItem(item)"
+        />
         <button
           type="button"
           class="mt-1 shrink-0 rounded-full border transition-colors"

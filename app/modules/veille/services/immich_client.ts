@@ -143,6 +143,93 @@ export default class ImmichClient {
   }
 
   /**
+   * Le nombre de jours pendant lesquels Immich conserve un asset mis à la corbeille.
+   *
+   * ⚠️ **C'est ce qui autorise la suppression, et rien d'autre** (CC-63). `DELETE /api/assets`
+   * en `force: false` envoie à la corbeille — mais *seulement si la corbeille est activée*. Sur
+   * une instance qui la désactive (`trashDays: 0`), le même appel **détruit immédiatement**, et
+   * Command Center n'a aucune copie des octets à opposer : « Immich possède les octets » veut
+   * aussi dire qu'on ne peut rien réparer.
+   *
+   * ⚠️ **Lu avant chaque suppression, jamais mis en cache au démarrage.** Une valeur relevée au
+   * boot devient fausse si la corbeille est désactivée pendant que le serveur tourne — et cette
+   * fausseté-là est irréversible.
+   *
+   * ⚠️ **`GET /api/server/config` est une route publique** (aucun `@Authenticated` côté Immich) :
+   * elle ne demande aucune permission, et fonctionne donc même avec une clé réduite au strict
+   * nécessaire. La clé part quand même dans l'en-tête — même hôte, aucune raison de faire une
+   * exception au transport.
+   */
+  async trashDays(): Promise<number> {
+    const config = await this.getJson('/api/server/config')
+    const raw = config.trashDays
+
+    /**
+     * ⚠️ **Échec fermé.** Un champ absent, renommé par une version future, ou rendu en chaîne ne
+     * doit **jamais** se lire « corbeille active » : ce serait la seule erreur du lot qui détruit
+     * pour de bon. Refuser ne coûte qu'un message ; laisser passer est irréversible. La valeur
+     * `-1` sort du domaine d'un compte de jours et fait donc refuser comme un `0`.
+     */
+    return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
+  }
+
+  /**
+   * Met des assets à la corbeille d'Immich.
+   *
+   * ⚠️ **`force: false`, toujours, et il n'y a aucun chemin vers `true`** — pas de paramètre, pas
+   * de réglage, pas de surcharge. `force: true` détruirait définitivement, sans que Command Center
+   * ait de quoi réparer. Le seul filet est la corbeille d'Immich, et `trashDays()` vérifie qu'elle
+   * existe avant qu'on arrive ici.
+   *
+   * ⚠️ **Immich rend 204 sans corps**, et c'est pour ça que cet appel ne passe pas par `readJson`.
+   * Y passer ferait échouer l'assertion de `content-type` sur un appel **réussi** : les assets
+   * partiraient à la corbeille, notre code lèverait, rien ne serait marqué en base — la
+   * suppression paraîtrait échouer à chaque clic tout en ayant lieu à chaque fois.
+   */
+  async trashAssets(assetIds: string[]): Promise<void> {
+    if (assetIds.length === 0) return
+
+    const response = await this.request('/api/assets', 'DELETE', {
+      ids: assetIds,
+      force: false,
+    })
+
+    // Rien à lire : on draine pour rendre la connexion au pool, quel que soit le statut.
+    await this.drain(response)
+
+    if (response.status === 401 || response.status === 403) {
+      throw new ImmichUnavailableError(
+        `Immich a refusé la clé d'API (${response.status}) pour la mise à la corbeille : ` +
+          'vérifie que la clé porte la permission « asset.delete ».'
+      )
+    }
+
+    if (!response.ok) {
+      /**
+       * ⚠️ **Le 400 sur un lot est ambigu, et le message doit dire quoi faire.** Immich rend 400
+       * aussi bien pour un asset inconnu que pour une requête qu'il refuse — et on ne sait pas
+       * s'il plafonne la taille d'un lot (non vérifiable sans l'instance). Sur un lot de
+       * plusieurs assets, la seule action utile côté utilisateur est de réessayer plus petit :
+       * si ça passe, c'était la taille ; si un asset précis échoue seul, c'est lui.
+       *
+       * Sans cette phrase, le message dit ce qui s'est passé mais pas quoi en faire — et un
+       * message qu'on ne peut pas suivre revient à ne rien dire.
+       */
+      const piste =
+        response.status === 400 && assetIds.length > 1
+          ? ' Réessaie par plus petits lots : si ça passe, la taille du lot était en cause ; ' +
+            'si un asset échoue seul, le problème vient de lui.'
+          : ''
+
+      throw new ImmichUnavailableError(
+        `Immich a répondu ${response.status} à la mise à la corbeille de ${assetIds.length} ` +
+          'asset(s). ⚠️ Un asset inconnu rend 400, pas 404. Rien n’a été marqué comme ' +
+          `supprimé.${piste}`
+      )
+    }
+  }
+
+  /**
    * La vignette d'un asset, pour le proxy.
    *
    * ⚠️ **`assetId` doit venir de notre base, jamais d'une requête.** Il est interpolé dans un
@@ -239,7 +326,11 @@ export default class ImmichClient {
     }
   }
 
-  private async request(path: string, method: 'GET' | 'POST', body: unknown): Promise<Response> {
+  private async request(
+    path: string,
+    method: 'GET' | 'POST' | 'DELETE',
+    body: unknown
+  ): Promise<Response> {
     if (!this.config.enabled) {
       throw new ImmichUnavailableError(
         'Immich n’est pas configuré : IMMICH_BASE_URL, IMMICH_API_KEY et IMMICH_ALBUM_ID ' +
@@ -248,7 +339,7 @@ export default class ImmichClient {
     }
 
     const headers: Record<string, string> = {
-      'accept': method === 'POST' ? 'application/json' : '*/*',
+      'accept': method === 'GET' ? '*/*' : 'application/json',
       'user-agent': USER_AGENT,
       // ⚠️ La clé ne sort d'ici que vers l'hôte configuré, et ne repart jamais vers le client.
       'x-api-key': this.config.apiKey,

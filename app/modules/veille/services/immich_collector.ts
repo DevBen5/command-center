@@ -182,6 +182,14 @@ export default class ImmichCollector {
    * une liste partielle, elle marquerait « plus dans l'album » des dizaines d'assets présents —
    * la panne silencieuse la plus coûteuse de ce lot, puisqu'elle *ressemble* à un fonctionnement
    * normal. C'est `ImmichClient.albumAssets()` qui garantit le tout-ou-rien ; ne l'affaiblis pas.
+   *
+   * ⚠️ **Les items supprimés sont hors du calcul, dans les deux sens** (CC-63). Supprimer un asset
+   * le fait sortir de l'album : sans ce filtre, la passe suivante le verrait « disparu » et
+   * poserait un badge sur une ligne que plus personne ne regarde — pendant que le compteur
+   * `disappeared` annoncerait des pertes qui sont en réalité des suppressions voulues. Le sens
+   * inverse compte tout autant : un asset restauré depuis la corbeille d'Immich **ne doit pas**
+   * ressusciter un item supprimé, sinon la décision de l'utilisateur serait défaite par une
+   * mécanique de fond.
    */
   private async reconcile(source: VeilleSource, assets: ImmichAsset[]): Promise<number> {
     const present = assets.map((asset) => immichDedupKey(asset.id))
@@ -190,6 +198,7 @@ export default class ImmichCollector {
     const gone = db
       .from('veille_items')
       .where('veille_source_id', source.id)
+      .whereNull('deleted_at')
       .whereNull('unavailable_at')
 
     // ⚠️ Le cas de l'album vide est traité **explicitement**, pas laissé à `whereNotIn([])` — dont
@@ -204,6 +213,7 @@ export default class ImmichCollector {
       await db
         .from('veille_items')
         .where('veille_source_id', source.id)
+        .whereNull('deleted_at')
         .whereNotNull('unavailable_at')
         .whereIn('dedup_key', present)
         .update({ unavailable_at: null })

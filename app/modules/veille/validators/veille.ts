@@ -24,6 +24,20 @@ export const captureValidator = vine.compile(
   })
 )
 
+/**
+ * La suppression, simple ou en lot (CC-63) — rien que des identifiants.
+ *
+ * ⚠️ **Le plafond n'est pas décoratif.** Les identifiants deviennent une liste d'assets dans un
+ * seul `DELETE /api/assets` : c'est ce qui borne le geste le plus destructeur du module, et ce
+ * qu'un client forgé ne peut pas contourner. 200 laisse toute la marge à une page de 50 items,
+ * et refuse une requête qui voudrait vider la table d'un coup.
+ */
+export const itemIdsValidator = vine.compile(
+  vine.object({
+    ids: vine.array(vine.number().positive().withoutDecimals()).minLength(1).maxLength(200),
+  })
+)
+
 // ---------------------------------------------------------------------------------------------
 // Garde SSRF — le miroir inverse de celle du client LLM
 // ---------------------------------------------------------------------------------------------
