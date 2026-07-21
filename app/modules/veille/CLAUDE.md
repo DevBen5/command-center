@@ -24,12 +24,40 @@ validators/veille.ts                     captureValidator · sourceValidator · 
 shared/interval.ts                       PUR · toMinutes / fromMinutes / unitBounds
                                          + parseTimeOfDay / normalizeTimeOfDay / formatSchedule
                                          partagé par le serveur ET la page Vue
+shared/schedule_draft.ts                 PUR · la logique du brouillon de cadence de sources.vue :
+                                         isDraftValid / schedulePayload / isScheduleDirty
+                                         / switchUnit / boundsHint
 ```
 
 ⚠️ Ce module touche **trois** fichiers hors de son dossier : `start/routes.ts`,
 `providers/veille_provider.ts` (déclaré dans `adonisrc.ts` sous `environment: ['web']`, comme le
 provider Leitner) et **`config/veille.ts`** (le fuseau des collectes à heure fixe, voir plus bas).
 Voir « Le déclenchement ».
+
+## Où vit la logique d'une page — `shared/`, jamais le `<script setup>`
+
+⚠️ **Une fonction qui *décide* ne reste pas dans un `.vue`.** Japa importe des `.ts` et n'a aucun
+compilateur Vue : ce qui vit dans un `<script setup>` est **structurellement** hors de portée de la
+suite — pas « mal testé », inatteignable. La règle du module (CC-60) :
+
+| ce que fait la fonction | où elle vit |
+| --- | --- |
+| un prédicat, une dérivation, la forme d'un payload | `shared/*.ts`, testé dans `tests/unit/` |
+| appeler `router.post`, ouvrir une modale, piloter un `ref` | dans le `.vue`, c'est sa place |
+
+La page garde alors une **enveloppe d'une ligne** portant le même nom : c'est ce qui laisse le
+template inchangé. `isScheduleDirty(source)` reste la signature vue du template ; elle ne fait que
+résoudre le brouillon de la ligne avant d'appeler la version prouvée.
+
+⚠️ **Un fichier de `shared/` n'importe JAMAIS par un alias `#modules/*`.** L'alias mappe vers
+`./app/modules/*.js`, des fichiers qui n'existent qu'après un build : Vite ne les résout pas, et la
+page casse. Seuls le relatif (`./interval.js`) et les paquets npm purs sont permis. Le garde-fou est
+**`npm run build`** — `tsc` ne lit pas les `.vue` et ne peut pas le dire. C'est la raison pour
+laquelle le build est un gate à part entière sur tout diff qui touche ces fichiers.
+
+⚠️ **L'extraction crée une couture qui n'existait pas** : l'enveloppe. Un module vert et une
+enveloppe fausse donnent une page cassée. D'où la règle — l'enveloppe reste d'**une ligne**, et tout
+état passé à un module part en **objet nommé** dès qu'il y a plus d'un champ du même type.
 
 ## `type` dit ce que c'est, `kind` dit d'où ça vient
 
@@ -444,6 +472,14 @@ pilotait. D'où le helper `asBool`.
   cinq dépareillages mode/heure refusés, la bascule aller-retour qui ne perd ni la cadence ni
   l'heure, et **la contrainte en base vérifiée pour elle-même** — un cas par test, une écriture
   refusée avortant la transaction du test.
+- `tests/unit/veille_schedule_draft.spec.ts` — **CC-60**, la logique de `pages/sources.vue` sortie du
+  `.vue`. Le test qui porte le lot est **l'heure du driver `pg` face à celle du champ** : une source
+  à `'07:00:00'` et un brouillon à `'07:00'` sont la **même** cadence, donc rien à enregistrer.
+  Retire le `normalizeTimeOfDay` de `isScheduleDirty` et il rougit ; mets-le des deux côtés et c'est
+  le test voisin (« une heure réellement changée est bien vue ») qui rougit. Les deux ensemble
+  tiennent la fonction. Plus les bornes par unité, le payload qui ne poste que les champs de son
+  mode, et la conversion d'unité sans arrondi. ⚠️ Ce qu'il ne voit **pas** : le template, et
+  l'enveloppe `isScheduleDirty` de la page — la couture que l'extraction crée.
 - `tests/unit/veille_interval.spec.ts` — **CC-57** : les deux propriétés d'aller-retour (l'universelle
   et celle qui ne vaut que pour les couples canoniques), la table de lecture (30 · 60 · 90 · 1440 ·
   2880 · 10080), les bornes par unité, et le wording affiché — qui régresse en silence. Plus, pour

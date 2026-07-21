@@ -86,6 +86,11 @@ components/leitner_scope_search.ts         son filtrage : accents ignorés, chem
 components/TaxonomyCombobox.vue            le sélecteur catégorie/thème de la relecture des
                                            brouillons — rend une CHAÎNE, texte libre autorisé
                                            (PAS dans pages/)
+shared/review_page.ts                      PUR · MEASURE_MAX_MS (l'UNIQUE déclaration, partagée
+                                           avec le validateur) + duration / fluencyMeasure
+                                           + boxIntervalLabel / dueLabel
+shared/draft_review.ts                     PUR · la relecture des brouillons d'ingest_show.vue :
+                                           halfClassified / themesFor / correctionOf / isDirty
 pages/index.vue                            choix d'un paquet OU session de révision (`view`) · fin de
                                            paquet · grille des 5 boîtes
 pages/settings.vue                         tableau des cartes · création/édition · sélection
@@ -127,6 +132,38 @@ de machine, si. L'export reste donc le filet, et `npm run db:backup` le complèt
 - `providers/leitner_provider.ts` — le **balayage au démarrage** des ingestions interrompues
   (déclaré dans `adonisrc.ts`, sous `environment: ['web']`). C'est le prix de la tâche de fond :
   voir « Le cycle de vie d'un travail » plus bas.
+
+## Où vit la logique d'une page — `shared/`, jamais le `<script setup>`
+
+⚠️ **Une fonction qui *décide* ne reste pas dans un `.vue`.** Japa importe des `.ts` et n'a aucun
+compilateur Vue : ce qui vit dans un `<script setup>` est **structurellement** hors de portée de la
+suite. La règle du module (CC-60) :
+
+| ce que fait la fonction | où elle vit |
+| --- | --- |
+| un prédicat, une dérivation, un écrêtage, un libellé qui régresse en silence | `shared/*.ts`, testé dans `tests/unit/` |
+| appeler `router.post`, ouvrir une modale, piloter un `ref` | dans le `.vue`, c'est sa place |
+
+C'est la raison pour laquelle **`settings.vue` n'a rien à extraire** malgré ses 899 lignes : ses
+vingt fonctions sont des gestionnaires d'action, pures ni en entrée ni en sortie.
+
+La page garde une **enveloppe d'une ligne** portant le même nom, ce qui laisse le template
+inchangé — `dueLabel(box)` reste `dueLabel(box)` à l'écran, et n'injecte que `props.boxIntervals`.
+
+⚠️ **Un fichier de `shared/` n'importe JAMAIS par un alias `#modules/*`.** L'alias mappe vers
+`./app/modules/*.js`, des fichiers qui n'existent qu'après un build : Vite ne les résout pas, et la
+page casse. C'est exactement ce qui interdisait à `index.vue` d'importer `leitner_fluency.ts` — un
+fichier pourtant **pur**, dont la seule faute est d'importer `median` par l'alias. Ne prends donc
+pas « c'est du code pur » pour « c'est importable depuis une page » : ce sont deux propriétés
+différentes. Le garde-fou est **`npm run build`** ; `tsc` ne lit pas les `.vue` et ne peut rien en
+dire.
+
+⚠️ **L'extraction crée une couture qui n'existait pas** : l'enveloppe. Un module vert et une
+enveloppe fausse donnent une page cassée, en silence. D'où la règle — l'enveloppe reste d'**une
+ligne**, et l'état part en **objet nommé** dès qu'il y a plus d'un champ du même type.
+`fluencyMeasure` en est le cas limite : quatre timestamps positionnels rendraient une inversion
+invisible, et un `firstInputAt` mis à la place de `revealedAt` proposerait `easy` sur la carte qu'on
+vient de rater — précisément ce que la fluence existe pour empêcher.
 
 ## Un seul point de saisie : `/revision/settings`
 
@@ -576,6 +613,15 @@ produit un temps total de onze millions de millisecondes : sous une borne plus s
 partirait en 422 et l'utilisateur cliquerait un bouton sans que rien ne se passe. La page écrête
 **avant** l'envoi ; le seuil réellement exploitable (120 s) s'applique plus loin, dans la règle.
 
+⚠️ **Il vit dans `shared/review_page.ts`, et c'est sa seule déclaration** (CC-60). Il en existait
+**deux** : celle-ci et une copie dans `pages/index.vue`, parce que l'alias `#modules/*` n'est pas
+résolvable depuis un `.vue`. Baisser le plafond serveur sans toucher la copie faisait exactement le
+422 ci-dessus — la page écrêtait à 60 min, postait 45 min, le validateur refusait. Rien à l'écran,
+rien de rouge. `tests/unit/leitner_review_page.spec.ts` **relit `index.vue`** et rougit si le
+littéral y réapparaît ; ne le recopie donc pas, **même en commentaire**, le test ne fait pas la
+différence. Il n'attrape en revanche que la recopie littérale — un `60 * 60 * 1000` passerait, et
+ce n'est pas prétendu couvert.
+
 ### Deux biais assumés
 
 - **La référence de boîte est biaisée sur deux axes.** *La longueur du recto* — le temps jusqu'à la
@@ -590,9 +636,12 @@ partirait en 422 et l'utilisateur cliquerait un bouton sans que rien ne se passe
 - **Les ratios 0,6 / 1,6 sont des conventions**, au même titre que `SESSION_GAP_MINUTES` : ils ne se
   vérifient qu'à l'usage, sur plusieurs semaines de mesures réelles.
 
-⚠️ **Le chronométrage lui-même (`pages/index.vue`) n'est couvert par aucun test** — cette page n'a
-pas de test de composant, même depuis CC-33. D'où le fait que la page ne décide de **rien** : elle chronomètre,
-écrête, transmet. Toute la règle est côté serveur, où elle se prouve. Et les **quatre** `ref` du
+⚠️ **L'écrêtage est prouvé depuis CC-60, le chronométrage ne l'est toujours pas** — et la nuance
+compte. `duration` et `fluencyMeasure` vivent dans `shared/review_page.ts` et ont leurs tests ; ce
+qui reste sans filet est ce qui les **alimente** : `Date.now()`, `visibilitychange`, `blur`, la
+remise à zéro entre deux cartes, et l'enveloppe qui rabote les quatre `ref`. `pages/index.vue` n'a
+toujours pas de test de composant, même depuis CC-33. D'où le fait que la page ne décide de
+**rien** : elle chronomètre et transmet. Toute la règle est côté serveur, où elle se prouve. Et les **quatre** `ref` du
 chrono (`presentedAt`, `firstInputAt`, `revealedAt`, `interrupted`) sont dans le `watch` sur la
 **référence de `dueCards`** comme tout le reste — un `firstInputAt` qui survivrait à une note
 donnerait une durée quasi nulle, donc `easy` proposé sur la carte qu'on vient de rater.
@@ -1238,6 +1287,15 @@ lieu de proposer `hard`, et **sans référence** on rend exactement ce que le ju
 borne du lot : la fluence **ne remonte jamais** un verdict `partiel` ou `faux`. Ce qu'il ne voit
 **pas** : le chronométrage lui-même (`Date.now()`, `visibilitychange`, `blur`, et la remise à zéro
 entre deux cartes) — `pages/index.vue` n'ayant pas de test de composant, ça se vérifie au navigateur.
+`tests/unit/leitner_review_page.spec.ts` couvre ce que CC-60 a sorti de cette page : l'écrêtage
+(dont **une durée négative rendue `null`, jamais `0`** — la ramener à zéro donnerait la meilleure
+valeur possible, donc `easy` sur une horloge qui recule), le dévoilement qui **fige** le temps
+total, les libellés d'échéance qui régressent en silence, et le **garde-fou anti-copie** de
+`MEASURE_MAX_MS` — il relit `index.vue` et rougit si le littéral y réapparaît, y compris en
+commentaire. `tests/unit/leitner_draft_review.spec.ts` couvre les prédicats de relecture des
+brouillons, dont le pendant exact du piège `isScheduleDirty` de veille : la base stocke `null` là où
+la copie éditable manipule `''`, et comparer les deux valeurs brutes laisserait le bouton
+*Enregistrer* allumé en permanence sur tout brouillon non classé.
 `tests/functional/modules/leitner_review.spec.ts`
 couvre la file de révision (une carte ratée reste due le jour même et repart en fin de file) — il
 vise `?scope=all`, qui doit se comporter **exactement** comme `/revision` d'avant le ciblage — ainsi
