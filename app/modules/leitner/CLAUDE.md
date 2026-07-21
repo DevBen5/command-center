@@ -471,9 +471,10 @@ Inertia renouvelle la référence de `dueCards` à chaque réponse : la surveill
 après **chaque note**, que la carte change ou non. N'ajoute jamais un `ref` de jugement sans l'ajouter
 à ce `watch`. La réponse du `fetch` vérifie **aussi** que la carte n'a pas changé pendant l'appel.
 
-⚠️ Rien de tout cela n'est couvert par un test : ce dépôt n'a aucun test de composant Vue. Ça se
-vérifie au navigateur — noter « À revoir » sur la **dernière** carte due, et voir l'écran repartir
-vierge.
+⚠️ Rien de tout cela n'est couvert par un test : `pages/index.vue` n'a pas de test de composant. Le
+dépôt sait en écrire depuis CC-33 (Vitest, voir le `CLAUDE.md` racine), mais cette page-là n'est pas
+couverte — et elle est de loin la plus stateful du module. Ça se vérifie donc au navigateur : noter
+« À revoir » sur la **dernière** carte due, et voir l'écran repartir vierge.
 
 ⚠️ **`temperature: 0` est demandé appel par appel**, et `DEFAULT_TEMPERATURE` (0.2) reste celui de
 l'ingestion. N'abaisse pas ce défaut « puisque le juge veut 0 » : les deux appelants partagent ce
@@ -589,8 +590,8 @@ partirait en 422 et l'utilisateur cliquerait un bouton sans que rien ne se passe
 - **Les ratios 0,6 / 1,6 sont des conventions**, au même titre que `SESSION_GAP_MINUTES` : ils ne se
   vérifient qu'à l'usage, sur plusieurs semaines de mesures réelles.
 
-⚠️ **Le chronométrage lui-même (`pages/index.vue`) n'est couvert par aucun test** — ce dépôt n'a
-aucun test de composant Vue. D'où le fait que la page ne décide de **rien** : elle chronomètre,
+⚠️ **Le chronométrage lui-même (`pages/index.vue`) n'est couvert par aucun test** — cette page n'a
+pas de test de composant, même depuis CC-33. D'où le fait que la page ne décide de **rien** : elle chronomètre,
 écrête, transmet. Toute la règle est côté serveur, où elle se prouve. Et les **quatre** `ref` du
 chrono (`presentedAt`, `firstInputAt`, `revealedAt`, `interrupted`) sont dans le `watch` sur la
 **référence de `dueCards`** comme tout le reste — un `firstInputAt` qui survivrait à une note
@@ -1187,6 +1188,16 @@ Trois corollaires, aussi importants que la liste elle-même :
 
 ## Avant de rendre la main
 
+⚠️ **`npm test` lance deux runners** depuis CC-33 : Japa puis Vitest. Les tests de composant du
+module vivent dans `components/__tests__/` — `leitner_tabs.spec.ts` (l'onglet actif : query string,
+slash final, `/revision/ingest/42`, et surtout **un seul** onglet allumé — `/revision` étant préfixe
+des quatre autres), `ingestion_title.spec.ts` (les deux gardes de `save()` : titre vide et titre
+inchangé n'envoient **aucune** requête) et `taxonomy_combobox.spec.ts` (l'invariant `filtering` :
+rouvrir la liste après avoir tapé remontre **toute** la taxonomie). ⚠️ Ce dernier ne prouve quelque
+chose que parce qu'il **tape d'abord** : `filtering` vaut déjà `false` au montage, donc ouvrir sans
+saisie passerait même si la remise à zéro disparaissait. C'est le piège de tout test de composant —
+voir le `CLAUDE.md` racine.
+
 `npm test` — `tests/unit/leitner_service.spec.ts` couvre la règle des boîtes (une note = une
 assertion sur la boîte **et** sur `next_review`), `tests/unit/leitner_due_cards.spec.ts` couvre la
 **file et son paquet** (`all` · `theme` · `category` via ses thèmes · `unclassified`, l'ordre à
@@ -1197,10 +1208,12 @@ fin d'un paquet (distincte d'un paquet vide dès le départ) et surtout que **no
 le paquet** — le piège n° 1, celui du `withQs()`.
 `tests/unit/leitner_scope_search.spec.ts` couvre le **filtrage de la barre de recherche** de cet
 écran — dont `securite` qui trouve « Sécurité » (le test qui compte), le chemin `Catégorie · Thème`,
-et un paquet à 0 trouvé mais **non sélectionnable**. Du code pur : ce dépôt n'a **aucun test de
-composant Vue**, et ce n'est pas un oubli — la question est ouverte, ne la tranche pas au détour d'un
-lot. Ce que ce test ne voit donc **pas** : le focus/blur, le chevron, ↑↓ Entrée Échap, et qu'un clic
-ouvre bien la session. Ça, il faut un vrai passage navigateur.
+et un paquet à 0 trouvé mais **non sélectionnable**. Du code pur — et il reste du code pur : ce que
+ce test ne voit **pas**, c'est le focus/blur, le chevron, ↑↓ Entrée Échap, et qu'un clic ouvre bien
+la session. ⚠️ **`LeitnerScopeSearch.vue` lui-même n'a pas de test de composant** : le dépôt en a
+désormais (CC-33 a tranché — Vitest, voir le `CLAUDE.md` racine), mais seuls `LeitnerTabs`,
+`IngestionTitle` et `TaxonomyCombobox` sont couverts dans ce module. Câbler celui-ci est possible et
+souhaitable ; en attendant, son interaction se vérifie au navigateur.
 `tests/unit/leitner_sessions.spec.ts` couvre l'**inférence de session** — du code pur, sans base ni
 horloge, donc le test qui compte du lot statistiques : 31 min d'écart → deux sessions, 29 min → une
 seule, exactement 30 → une seule (la coupure est sur « **plus de** »), une carte isolée → durée 0,
@@ -1208,8 +1221,8 @@ le temps par carte sur une grappe, et surtout **une entrée désordonnée qui do
 qu'une entrée triée** — le mode d'échec silencieux du lot. Plus la médiane : son tri numérique
 (`[9, 10, 100]`, qui attrape le tri lexicographique) et son `null` sur l'absence de mesure. Ce qu'il
 ne voit **pas** : l'agrégation par fenêtre du service, glu triviale au-dessus de ces deux fonctions,
-et tout le rendu (le formatage des durées, le `—` sur base vide) — angle mort des tests de composant
-Vue, à vérifier au navigateur.
+et tout le rendu (le formatage des durées, le `—` sur base vide) — `pages/stats.vue` n'ayant pas de
+test de composant, ça se vérifie au navigateur.
 `tests/unit/leitner_judge_service.spec.ts` couvre **le juge de la réponse écrite** — le test qui
 compte de ce lot : le court-circuit (l'assertion qui porte le test est `calls.length === 0`, pas le
 verdict : c'est l'**absence d'appel** qui est l'objet), les accents, la réponse vide qui ne juge rien,
@@ -1224,7 +1237,7 @@ surtout les trois cas qui font la valeur du ticket — une carte **re-présenté
 lieu de proposer `hard`, et **sans référence** on rend exactement ce que le juge proposait. Plus la
 borne du lot : la fluence **ne remonte jamais** un verdict `partiel` ou `faux`. Ce qu'il ne voit
 **pas** : le chronométrage lui-même (`Date.now()`, `visibilitychange`, `blur`, et la remise à zéro
-entre deux cartes) — angle mort des tests de composant Vue, à vérifier au navigateur.
+entre deux cartes) — `pages/index.vue` n'ayant pas de test de composant, ça se vérifie au navigateur.
 `tests/functional/modules/leitner_review.spec.ts`
 couvre la file de révision (une carte ratée reste due le jour même et repart en fin de file) — il
 vise `?scope=all`, qui doit se comporter **exactement** comme `/revision` d'avant le ciblage — ainsi
@@ -1278,9 +1291,10 @@ Ce que la suite fonctionnelle ne verra **pas** : la **qualité** d'une extractio
 y a du texte, pas qu'il veut dire quelque chose — un PDF à deux colonnes lui paraît parfait. Ça, il
 faut un vrai passage navigateur avec de vrais PDF. Même frontière pour le juge : la **qualité** de ses
 verdicts sur de vraies cartes demande LM Studio allumé, et le **rendu** de la présélection (le
-surlignage, le verrouillage du champ, le badge de repli, la remise à zéro entre deux cartes) tombe
-dans l'angle mort des tests de composant Vue — d'où le choix de faire calculer `suggestedGrade` par
-le **serveur** : le mapping est prouvé unitairement, seul le surlignage ne l'est pas.
+surlignage, le verrouillage du champ, le badge de repli, la remise à zéro entre deux cartes) reste
+non couvert, `pages/index.vue` n'ayant pas de test de composant — d'où le choix de faire calculer
+`suggestedGrade` par le **serveur** : le mapping est prouvé unitairement, seul le surlignage ne l'est
+pas.
 
 Le faux client (`tests/fakes/fake_llm_client.ts`) simule aussi le **diagnostic** (`ping`,
 `listModels`) : sans lui, les tests de `/revision/llm` iraient sonder de vrais ports de la machine

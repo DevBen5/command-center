@@ -81,6 +81,52 @@ providers/    leitner_provider                      → import via #providers/*
 - **N'utilise pas `node ace make:*` tel quel** : ces commandes génèrent aux chemins par défaut et
   recréent l'ancienne arborescence. Crée les fichiers directement dans le module.
 
+## Les tests : deux runners, et ce que chacun ne voit pas
+
+`npm test` lance **les deux** suites, dans cet ordre : Japa (`node ace test`) puis Vitest
+(`vitest run`). Isolément : `npm run test:back` et `npm run test:front`.
+
+| | Japa | Vitest |
+|---|---|---|
+| couvre | routes, services, base, contrats HTTP | composants Vue |
+| vit dans | `tests/unit/` · `tests/functional/` (globs de `adonisrc.ts`) | **à côté du `.vue`**, dans `__tests__/` |
+| config | `adonisrc.ts` | `vitest.config.ts` |
+
+**Les tests de composant sont co-localisés**, pas rassemblés dans `tests/`. Deux raisons : la
+feature reste une tranche verticale (le test suit son composant s'il déménage), et surtout un
+dossier `tests/frontend/` ne serait ramassé par **aucune** suite Japa — on fabriquerait au niveau
+du runner le faux-négatif silencieux que ces tests existent pour supprimer.
+
+**Quand écrire un test de composant : quand il porte de la *logique*, jamais pour du décor.** Un
+filtrage, un état actif, une garde avant requête, un raccourci clavier — oui. Un composant qui ne
+fait que disposer des `<div>` — non, le test ne dirait rien que la relecture ne dit mieux.
+
+⚠️ **Ce que Vitest ne voit pas, et ne verra pas.** jsdom ne fait aucun layout : ni CSS, ni tokens de
+couleur, ni « cette icône est-elle la bonne, est-elle bien colorée ». Le constat de
+`TICKET-icones-interface.md:98-100` reste vrai — **l'apparence se vérifie au navigateur, et nulle
+part ailleurs**. Ce qui a changé, c'est que la *logique* d'un composant est désormais prouvable.
+
+⚠️ **Un test de composant doit échouer quand le code casse — vérifie-le.** Un composant part souvent
+dans l'état que le test observe : monter puis assertir peut ne rien prouver du tout. Le test de
+`TaxonomyCombobox` en est l'exemple — `filtering` vaut déjà `false` au montage, donc ouvrir la liste
+sans avoir tapé passe même si la remise à zéro disparaît. Il faut reproduire le **geste réel** (taper,
+fermer, rouvrir). En cas de doute, casse la ligne concernée et vérifie que le test rougit.
+
+⚠️ **Ne fige jamais un bug connu dans un test.** La palette ⌘K est inerte (CC-26) et annonce des
+raccourcis qu'elle n'implémente pas (CC-27) : `app_layout.spec.ts` ne teste ni l'un ni l'autre, et
+dit pourquoi en tête de fichier. Un test qui asserterait le comportement actuel rendrait le bug
+incorrigible sans rougir.
+
+⚠️ **`vitest.config.ts` est séparé de `vite.config.ts`, et doit le rester.** Sans lui, Vitest
+chargerait la config applicative, donc les plugins `inertia()` et `adonisjs({ entrypoints })` — qui
+résolvent des points d'entrée et un manifeste de build dont un runner n'a que faire.
+
+⚠️ **`vue-shim.d.ts` existe pour `tsc`, pas pour Vite.** `tsconfig.json` n'exclut que `inertia/**` :
+les specs co-localisés sous `app/**` entrent dans le graphe du typecheck, et leur import de `.vue`
+lèverait TS2307. Contrepartie : les composants y sont typés `any` — le typecheck ne valide donc pas
+les props passées à `mount()`, un test qui se trompe échoue à l'exécution. La lever demanderait
+`vue-tsc` pour tout le dépôt.
+
 ## Trois choses qui cassent sans lever d'erreur
 
 1. **Nouveau module → l'enregistrer dans `config/database.ts`**, dans `migrations.paths` *et*
