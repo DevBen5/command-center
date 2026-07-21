@@ -506,6 +506,10 @@ délibérée : le test de redirection ci-dessus.
 
 Ce que la suite ne voit **pas** : la boucle `setInterval` réelle (le provider est en
 `environment: ['web']`, donc absent des tests — `collectDue()` est appelée directement), la
-résolution DNS réelle (la garde est testée sur des littéraux), et le rendu Vue — ce dépôt n'a aucun
-test de composant. Le lu/non-lu, la pagination à l'écran et l'affichage de `last_error` se vérifient
-au navigateur.
+résolution DNS réelle (la garde est testée sur des littéraux), et le rendu Vue.
+
+⚠️ **Le dépôt sait écrire des tests de composant depuis CC-33** (Vitest, voir le `CLAUDE.md`
+racine) — mais **aucune page de ce module n'en a**, et c'est différent de « le dépôt n'en a
+pas », ce que cette section affirmait à tort jusqu'à CC-60. Le lu/non-lu, la pagination à l'écran
+et l'affichage de `last_error` se vérifient donc toujours au navigateur ; ce qui a changé, c'est
+que les câbler est désormais possible, pas qu'ils le soient.

@@ -3,10 +3,17 @@
 | La recherche de l'écran de choix : l'arbre des paquets → la liste qu'on propose
 |------------------------------------------------------------------------------
 |
-| Séparé de `LeitnerScopeSearch.vue` parce que c'est le cœur du sujet, et la seule
-| partie qui se prouve **sans navigateur** : aucun test de composant Vue n'existe
-| dans ce dépôt (la décision reste ouverte), celui-ci est donc unitaire —
+| Séparé de `LeitnerScopeSearch.vue` parce que c'est le cœur du sujet, et la partie
+| qui se prouve **sans navigateur** — son test est unitaire,
 | `tests/unit/leitner_scope_search.spec.ts`.
+|
+| ⚠️ La raison écrite ici jusqu'à CC-60 (« aucun test de composant Vue n'existe dans
+| ce dépôt, la décision reste ouverte ») est **périmée** : CC-33 a tranché, Vitest est
+| en place et trois composants du module sont couverts. Ce qui reste vrai est plus
+| étroit — `LeitnerScopeSearch.vue` lui-même n'est toujours pas couvert, donc le
+| focus/blur, le chevron et ↑↓ Entrée Échap se vérifient encore à l'écran. Séparer ce
+| fichier garde sa valeur pour une autre raison, elle intacte : un filtrage se prouve
+| mieux en appelant la fonction qu'en fouillant un DOM monté.
 |
 | Du code pur : ni requête, ni état. L'arbre entier est déjà dans les props de
 | l'écran de choix (5 catégories, 15 thèmes) — filtrer côté client est instantané,
