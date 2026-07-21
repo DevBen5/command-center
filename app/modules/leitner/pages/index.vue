@@ -5,6 +5,13 @@ import AppLayout from '~/layouts/AppLayout.vue'
 import LeitnerScopePicker from '../components/LeitnerScopePicker.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
 import { xsrfToken } from '../components/leitner_csrf'
+// L'écrêtage, la mesure et les libellés d'échéance vivent hors du `.vue` : Japa n'a aucun
+// compilateur Vue, et `MEASURE_MAX_MS` doit être la MÊME valeur que celle du validateur.
+import {
+  boxIntervalLabel as labelForBox,
+  dueLabel as labelForDue,
+  fluencyMeasure as measureFluency,
+} from '../shared/review_page.js'
 
 defineOptions({ layout: AppLayout })
 
@@ -63,17 +70,10 @@ const props = defineProps<{
   stats: Stats
 }>()
 
-/** « tous les jours » / « tous les 4 j » — libellé de la grille des boîtes. */
-function boxIntervalLabel(box: number): string {
-  const days = props.boxIntervals[box] ?? 0
-  return days === 1 ? 'tous les jours' : `tous les ${days} j`
-}
-
-/** « demain » / « dans 4 j » — échéance annoncée par un bouton de note. */
-function dueLabel(box: number): string {
-  const days = props.boxIntervals[box] ?? 0
-  return days === 1 ? 'demain' : `dans ${days} j`
-}
+// Deux enveloppes : elles n'injectent que les intervalles reçus du serveur. Le libellé
+// lui-même vit dans `shared/review_page.ts`, où il est prouvé.
+const boxIntervalLabel = (box: number): string => labelForBox(props.boxIntervals, box)
+const dueLabel = (box: number): string => labelForDue(props.boxIntervals, box)
 
 const currentCard = computed(() => props.dueCards?.[0] ?? null)
 const revealed = ref(false)
@@ -126,18 +126,17 @@ const latencyMs = ref<number | null>(null)
 | aujourd'hui ?
 */
 
-/**
- * Plafond de **transport**, dupliqué depuis `services/leitner_fluency.ts` — et la
- * duplication est subie, pas choisie : un `.ts` de `app/modules/` s'importe par l'alias
- * `#modules/*`, que Vite ne résout pas en dev (il pointe vers des `.js` compilés). C'est
- * la même raison qui fait importer `leitner_csrf` relativement.
+/*
+ * ⚠️ **Le plafond de transport n'est plus déclaré ici** (CC-60). Il vivait en double — une
+ * copie ici, l'original dans `services/leitner_fluency.ts` — parce que l'alias `#modules/*`
+ * pointe vers des `.js` compilés que Vite ne résout pas. Baisser le plafond serveur sans
+ * toucher cette copie faisait poster une mesure hors borne : `POST /review` en 422, et
+ * l'utilisateur cliquait une note sans que rien ne se passe. Aucun test ne rougissait.
  *
- * ⚠️ **L'invariant à tenir : cette valeur reste ≤ celle du validateur.** Au-dessus, une
- * mesure passerait ici et serait refusée là-bas — `POST /review` partirait en 422, et
- * l'utilisateur cliquerait une note sans que rien ne se passe. En dessous, on perd
- * seulement de la précision sur une donnée d'observation : sans conséquence.
+ * L'écrêtage vit désormais dans `shared/review_page.ts`, atteignable par les deux côtés — et
+ * `leitner_review_page.spec.ts` relit CE fichier pour rougir si le littéral y réapparaît.
+ * Ne le recopie donc pas, même en commentaire : le test ne fait pas la différence.
  */
-const MEASURE_MAX_MS = 3_600_000
 
 const presentedAt = ref(Date.now())
 /**
@@ -196,31 +195,24 @@ onUnmounted(() => {
 })
 
 /**
- * Une durée écrêtée, ou **`null` si elle n'a pas de sens**.
+ * L'enveloppe de la mesure : elle ne fait que lire les quatre `ref` du chrono et donner
+ * l'instant courant. L'écrêtage et la règle du « négatif vaut `null`, jamais `0` » vivent dans
+ * `shared/review_page.ts`, où ils sont prouvés.
  *
- * ⚠️ **Une durée négative se rend `null`, surtout pas `0`.** Une correction NTP, une
- * reprise de machine virtuelle ou un changement d'heure manuel entre l'affichage et la
- * frappe recule l'horloge : ramener ça à zéro donnerait la **meilleure valeur possible**,
- * donc `easy` proposé et un `0` écrit en base qui tirerait la médiane de la carte vers le
- * bas durablement. Une mesure qu'on n'a pas ne vaut pas zéro.
- *
- * ⚠️ **L'écrêtage haut n'est pas cosmétique non plus.** Un onglet laissé ouvert trois
- * heures donne onze millions de millisecondes ; envoyé tel quel, le validateur refuserait
- * et `POST /review` partirait en 422 — l'utilisateur cliquerait une note sans que rien ne
- * se passe.
+ * ⚠️ **Les quatre valeurs partent nommées, jamais positionnelles.** C'est cette couture-là que
+ * l'extraction crée : quatre timestamps dans le désordre y seraient invisibles — module vert,
+ * page fausse, `easy` proposé sur la carte qu'on vient de rater.
  */
-function duration(from: number, to: number): number | null {
-  const elapsed = to - from
-  return elapsed < 0 ? null : Math.min(MEASURE_MAX_MS, elapsed)
-}
-
-/** Les mesures à transmettre : c'est le serveur qui juge de leur validité, et lui seul. */
 function fluencyMeasure() {
-  return {
-    thinkingMs: firstInputAt.value === null ? null : duration(presentedAt.value, firstInputAt.value),
-    totalMs: duration(presentedAt.value, revealedAt.value ?? Date.now()),
-    interrupted: interrupted.value,
-  }
+  return measureFluency(
+    {
+      presentedAt: presentedAt.value,
+      firstInputAt: firstInputAt.value,
+      revealedAt: revealedAt.value,
+      interrupted: interrupted.value,
+    },
+    Date.now()
+  )
 }
 
 /**

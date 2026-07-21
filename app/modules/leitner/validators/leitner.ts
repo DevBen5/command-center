@@ -1,7 +1,9 @@
 import vine from '@vinejs/vine'
 import type { FieldContext } from '@vinejs/vine/types'
 import { DateTime } from 'luxon'
-import { MEASURE_MAX_MS } from '#modules/leitner/services/leitner_fluency'
+// Le plafond de transport vient de `shared/`, la seule copie que la page atteint aussi :
+// deux déclarations divergentes faisaient partir `POST /review` en 422, en silence (CC-60).
+import { MEASURE_MAX_MS } from '#modules/leitner/shared/review_page'
 
 /**
  * Création / édition d'une carte. `leitnerThemeId` est optionnel : une carte

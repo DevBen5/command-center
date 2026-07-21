@@ -5,6 +5,14 @@ import AppLayout from '~/layouts/AppLayout.vue'
 import IngestionTitle from '../components/IngestionTitle.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
 import TaxonomyCombobox from '../components/TaxonomyCombobox.vue'
+// Les prédicats de relecture vivent hors du `.vue` : Japa n'a aucun compilateur Vue, et ce
+// sont eux qui décident si le bouton *Enregistrer* existe. Voir `shared/draft_review.ts`.
+import {
+  correctionOf as correctionFrom,
+  halfClassified as isHalfClassified,
+  isDirty as hasCorrection,
+  themesFor as themesUnder,
+} from '../shared/draft_review.js'
 
 defineOptions({ layout: AppLayout })
 
@@ -174,54 +182,27 @@ function toggleAll(): void {
   selected.value = allSelected.value ? [] : pendingDrafts.value.map((draft) => draft.id)
 }
 
-/** Le thème seul n'a pas de sens : il appartient toujours à une catégorie. */
-function halfClassified(id: number): boolean {
-  const draft = edited[id]
-  return Boolean(draft.category.trim()) !== Boolean(draft.theme.trim())
-}
-
-/**
- * Les thèmes déjà existants sous une catégorie donnée, par son nom (casse ignorée).
- *
- * C'est ce qui fait « dépendre » le thème de la catégorie : tant qu'aucune catégorie
- * connue n'est choisie, il n'y a rien à suggérer ; une catégorie inventée n'a, par
- * définition, aucun thème existant — il sera créé à la volée à la validation.
+/*
+ * Quatre enveloppes : elles ne font que résoudre l'id vers la copie locale (`edited`) ou vers
+ * le brouillon d'origine. Les prédicats eux-mêmes vivent dans `shared/draft_review.ts`.
  */
-function themesFor(categoryName: string): string[] {
-  const name = categoryName.trim().toLowerCase()
-  if (name === '') return []
 
-  const match = props.categories.find((category) => category.name.toLowerCase() === name)
-  return match ? match.themes.map((theme) => theme.name) : []
-}
+/** Le thème seul n'a pas de sens : il appartient toujours à une catégorie. */
+const halfClassified = (id: number): boolean => isHalfClassified(edited[id])
+
+/** Les thèmes déjà existants sous une catégorie donnée, par son nom (casse ignorée). */
+const themesFor = (categoryName: string): string[] => themesUnder(props.categories, categoryName)
 
 /** Les catégories existantes, proposées au sélecteur — sans en imposer aucune. */
 const categoryNames = computed(() => props.categories.map((category) => category.name))
 
 /** Le brouillon tel qu'il est **à l'écran** — la correction, pas ce qu'en dit la base. */
-function correctionOf(id: number) {
-  const draft = edited[id]
-  return {
-    id,
-    front: draft.front,
-    back: draft.back,
-    category: draft.category.trim() || null,
-    theme: draft.theme.trim() || null,
-  }
-}
+const correctionOf = (id: number) => correctionFrom(id, edited[id])
 
 /** Y a-t-il quelque chose à enregistrer ? Sinon le bouton n'a rien à faire. */
 function isDirty(id: number): boolean {
   const original = props.drafts.find((draft) => draft.id === id)
-  if (!original) return false
-
-  const current = correctionOf(id)
-  return (
-    current.front !== original.front ||
-    current.back !== original.back ||
-    current.category !== original.category ||
-    current.theme !== original.theme
-  )
+  return original ? hasCorrection(original, edited[id]) : false
 }
 
 /** Enregistrer les modifications : le brouillon reste un brouillon. Aucune carte créée. */

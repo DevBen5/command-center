@@ -43,21 +43,14 @@ import type { Grade, Verdict } from '#modules/leitner/services/leitner_service'
  */
 export const MAX_THINKING_MS = 120_000
 
-/**
- * Le plafond **de transport**, sans rapport avec le précédent : il borne ce que la
- * page a le droit d'envoyer, pas ce qui est exploitable.
- *
- * ⚠️ **Il existe pour que `total_ms` ne fasse jamais échouer une note.** Un onglet
- * laissé ouvert trois heures produit un temps total de onze millions de
- * millisecondes ; envoyé tel quel à un validateur plus serré, `POST /review` partirait
- * en 422 et l'utilisateur cliquerait une note sans que rien ne se passe. La page
- * écrête **avant** l'envoi, le validateur borne à la même valeur.
- *
- * ⚠️ **La valeur est dupliquée dans `pages/index.vue`**, faute de pouvoir l'importer :
- * l'alias `#modules/*` pointe vers des `.js` compilés, que Vite ne résout pas en dev.
- * Si tu l'abaisses ici, abaisse-la là-bas d'abord — l'inverse produit le 422 ci-dessus.
+/*
+ * ⚠️ **`MEASURE_MAX_MS` ne vit plus ici** — il est dans `shared/review_page.ts` (CC-60).
+ * Ce fichier est du code pur, mais il s'importe par l'alias `#modules/*`, que Vite ne résout
+ * pas : la page en gardait donc une **copie**, et baisser le plafond d'un seul côté envoyait
+ * `POST /review` en 422 sans qu'aucun test ne rougisse. `shared/` est le seul endroit que le
+ * serveur et la page atteignent tous les deux. Ne le redéclare pas ici « pour le rapprocher de
+ * `MAX_THINKING_MS` » : les deux plafonds n'ont rien à voir, seul le second borne la règle.
  */
-export const MEASURE_MAX_MS = 3_600_000
 
 /** Mesures nécessaires sur la carte elle-même pour qu'elle soit sa propre référence. */
 export const MIN_CARD_SAMPLES = 5
