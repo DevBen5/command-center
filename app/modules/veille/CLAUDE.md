@@ -1,4 +1,4 @@
-# Module Veille — sources · articles collectés · signets · notes
+# Module Veille — sources · articles collectés · médias Immich · signets · notes
 
 Routes `/veille` et `/veille/sources` · pages Inertia `modules/veille/index` et
 `modules/veille/sources` · tables `veille_items`, `veille_sources`.
@@ -8,15 +8,25 @@ controllers/veille_controller.ts         index (filtres type/tag/source/readingQ
                                          + pagination) · store · toggleQueue · toggleRead
 controllers/veille_sources_controller.ts index · store · update (activer/désactiver)
                                          · refresh (UNE source, SYNCHRONE) · refreshAll (async)
-services/feed_fetcher.ts                 le SEUL point qui parle au réseau : garde SSRF, timeout,
-                                         plafond de taille, etag/304, redirections re-validées
+controllers/veille_media_controller.ts   le PROXY de vignette Immich — réponse HTTP nue, indexée
+                                         par l'id d'item, jamais par l'identifiant Immich
+services/feed_fetcher.ts                 le seul point qui parle au réseau POUR LES FLUX : garde
+                                         SSRF, timeout, plafond, etag/304, redirections revalidées
 services/feed_parser.ts                  rss-parser (RSS 2.0 ET Atom) · HTML → texte · URL
                                          canonique · clé de dédup
-services/veille_collector_service.ts     une passe : par source, isolée, insert ON CONFLICT
+services/immich_client.ts                le seul point qui parle à IMMICH : pagination, refus des
+                                         3xx, ASSERTION DE CONTENT-TYPE, plafonds
+services/immich_asset.ts                 PUR · type · durée (deux formes) · tag réseau · clé de
+                                         dédup · isImmichAssetId
+services/immich_collector.ts             la passe Immich : ensureSource · insert · reconcile
+services/veille_item_writer.ts           l'ÉCRITURE des items collectés — l'unique liste de
+                                         colonnes et l'unique ON CONFLICT, partagés
+services/veille_collector_service.ts     une passe : par source, isolée, AIGUILLÉE PAR `kind`
 services/veille_scheduler.ts             la boucle en processus (démarrée par le provider)
 services/veille_stats_service.ts         les agrégats SQL de la bande d'indicateurs et des tags
-models/veille_source.ts                  le robinet · isDue()
-models/veille_item.ts                    ce qui en sort · types article · bookmark · note
+models/veille_source.ts                  le robinet · isDue() · kind rss | immich
+models/veille_item.ts                    ce qui en sort · types article · bookmark · note · image
+                                         · video · unavailableAt
 validators/veille.ts                     captureValidator · sourceValidator · sourceUpdateValidator
                                          + isPublicFeedUrl / isBlockedAddress (GARDE SSRF)
                                          + intervalWithinBounds / resolveIntervalMinutes
@@ -27,12 +37,15 @@ shared/interval.ts                       PUR · toMinutes / fromMinutes / unitBo
 shared/schedule_draft.ts                 PUR · la logique du brouillon de cadence de sources.vue :
                                          isDraftValid / schedulePayload / isScheduleDirty
                                          / switchUnit / boundsHint
+shared/media_item.ts                     PUR · la logique média d'index.vue : isMediaItem /
+                                         thumbnailHref / immichHref / durationLabel
 ```
 
-⚠️ Ce module touche **trois** fichiers hors de son dossier : `start/routes.ts`,
+⚠️ Ce module touche **six** fichiers hors de son dossier : `start/routes.ts`,
 `providers/veille_provider.ts` (déclaré dans `adonisrc.ts` sous `environment: ['web']`, comme le
-provider Leitner) et **`config/veille.ts`** (le fuseau des collectes à heure fixe, voir plus bas).
-Voir « Le déclenchement ».
+provider Leitner), **`config/veille.ts`** (le fuseau des collectes à heure fixe), et depuis CC-55
+**`config/immich.ts`**, **`start/env.ts`** et **`.env.example`** (les variables de l'instance
+Immich). Voir « Le déclenchement » et « Immich ».
 
 ## Où vit la logique d'une page — `shared/`, jamais le `<script setup>`
 
@@ -65,19 +78,31 @@ C'est le cœur du schéma, et la confusion qu'il existe pour dissiper. Avant CC-
 valait `rss | bookmark | note` : il mélangeait la **provenance** (`rss`) et la **nature**
 (`bookmark`, `note`), et imposait une migration par source nouvelle.
 
-- **`veille_sources.kind`** porte la provenance (`rss` pour ce lot — qui couvre RSS 2.0 **et** Atom :
-  même collecteur, même parseur).
-- **`veille_items.type`** vaut `article | bookmark | note`. `rss` a été renommé `article`
-  (migration `…191401`), `bookmark` et `note` n'ont pas bougé : **la capture manuelle continue
-  d'exister**, elle n'a pas de source et ne doit jamais régresser.
+- **`veille_sources.kind`** porte la provenance : `rss` (qui couvre RSS 2.0 **et** Atom — même
+  collecteur, même parseur) et `immich` depuis CC-55.
+- **`veille_items.type`** vaut `article | bookmark | note | image | video`. `rss` a été renommé
+  `article` (migration `…191401`), `bookmark` et `note` n'ont pas bougé : **la capture manuelle
+  continue d'exister**, elle n'a pas de source et ne doit jamais régresser. `image` et `video`
+  (migration `…191403`) sont les assets Immich — un asset n'est pas « un item Immich », c'est une
+  image ou une vidéo qui se trouve venir d'Immich.
 
 ⚠️ **`type` n'est pas un enum Postgres natif**, malgré le `table.enum()` de la migration d'origine.
 Sans `useNative: true`, knex produit une colonne `text` plus une contrainte `CHECK` nommée
-`veille_items_type_check`. Ajouter une valeur (`video`, `podcast` aux lots suivants) demande donc un
-`DROP CONSTRAINT` / `ADD CONSTRAINT`, **pas** un `ALTER TYPE … ADD VALUE`.
+`veille_items_type_check`. Ajouter une valeur (`podcast` à un lot suivant) demande donc un
+`DROP CONSTRAINT` / `ADD CONSTRAINT`, **pas** un `ALTER TYPE … ADD VALUE`. C'est ce que fait la
+migration `…191403`, et c'est le cas de figure que cette section prévoyait depuis le lot 1.
+
+⚠️ **`kind` n'a aucune contrainte en base** — `string(16)` avec un défaut `'rss'` (migration
+`…191400`). Ajouter une provenance ne demande donc **pas** de migration. Ce qui est nécessaire, en
+revanche, c'est un **aiguillage dans `VeilleCollectorService`** : sans lui, la source part au
+`FeedFetcher`, qui va chercher son `url` comme un flux et échoue à chaque passe avec un message
+parlant d'URL publique — un faux problème, et le vrai invisible.
 
 ⚠️ La liste des types est écrite à **trois** endroits : `VeilleItemType` (modèle), la contrainte
-CHECK (migration), `captureValidator` (VineJS). Les trois bougent ensemble.
+CHECK (migration), `captureValidator` (VineJS). Les trois bougent ensemble — **à une exception,
+délibérée** : `captureValidator` ne porte **ni `image` ni `video`**. Ces deux-là ne sont créables
+que par une collecte, le formulaire de capture n'ayant aucun moyen de téléverser un média. Les y
+autoriser créerait des items média sans asset derrière, dont la vignette n'existerait pas.
 
 ## La déduplication — une contrainte en base, jamais un `if`
 
@@ -103,7 +128,14 @@ et par Hacker News. L'URL couvre **les deux** situations, y compris la republica
 url:https://exemple.dev/article        ← le cas normal
 guid:<sourceId>:<guid>                 ← entrée sans lien exploitable
 title:<sourceId>:<titre normalisé>     ← ni lien ni guid : dégénéré, mais il FAUT une clé
+immich:<uuid>                          ← un asset Immich (CC-55)
 ```
+
+⚠️ **La clé Immich n'est pas cadrée par sa source**, contrairement au `guid` : l'UUID est unique
+dans l'instance. Et elle a un **second rôle** — c'est l'index d'autorisation du proxy de vignette.
+`dedup_key` étant déjà sous index UNIQUE, « cet asset fait-il partie de la veille ? » est une
+recherche exacte et indexée. Le jour où un second module référencerait des assets Immich, c'est
+là qu'il faudrait une colonne dédiée plutôt qu'un second préfixe.
 
 Le préfixe empêche un `guid` qui ressemble à une URL de collisionner avec une vraie URL. Le `guid` et
 le titre sont cadrés par leur source : ils ne sont uniques qu'à l'intérieur d'un flux.
@@ -224,6 +256,160 @@ le processus, et l'agrégateur avec.
 ⚠️ **`rss-parser` sait télécharger tout seul (`parseURL`) : ne l'utilise JAMAIS.** Sa méthode réseau
 contourne toute cette garde et suit les redirections sans rien vérifier. Le parseur ne voit que du
 XML déjà rapatrié par `feed_fetcher`. On n'appelle que `parseString`.
+
+## Immich — les vidéos du téléphone (CC-55)
+
+**Relevé contre une instance v2.6.1.** Ce n'est pas une note de version : c'est la seule chose qui
+empêche ce connecteur d'être écrit de mémoire. L'API d'Immich a connu des ruptures (`/api/asset` →
+`/api/assets` vers la v1.106), et la majeure est passée à **2**. Avant de toucher au client,
+relève la version réelle — `GET /api/server/about` — plutôt que de faire confiance à ce fichier.
+
+Les quatre formes réellement observées, et qui ne se devinent pas :
+
+| | ce que rend l'instance |
+|---|---|
+| liste paginée | `POST /api/search/metadata` `{albumIds, page, size}` → `assets.items` + `assets.nextPage` |
+| vignette | `GET /api/assets/:id/thumbnail?size=thumbnail` → `image/webp` (~20 Ko) ; `size=preview` → `image/jpeg` (~290 Ko) |
+| album ou asset inconnu | **HTTP 400**, pas 404 (`"Not found or no asset.read access"`) |
+| durée | `"00:01:04.362"` sur une vidéo, `"0:00:00.00000"` sur une image — **deux formes** |
+
+⚠️ **`nextPage` est une chaîne (`"2"`), pas un nombre.** Un `typeof === 'number'` arrêterait la
+pagination à la première page — en silence, et l'album paraîtrait tronqué : tous les assets des
+pages suivantes seraient marqués « plus dans l'album ».
+
+⚠️ **`search/metadata` ne rend pas `exifInfo`** (contrairement à `/albums/:id`). C'est gratuit et
+bienvenu : aucune coordonnée GPS, aucune ville ne transite ni ne se stocke. À garder en tête au
+lot 3, quand ces items partiront vers un LLM.
+
+### Référencer, ne jamais copier
+
+**Immich possède les octets, Command Center possède le sens.** On stocke l'identifiant de l'asset
+et ce que le module produit lui-même : titre, tags, et le résumé au lot suivant. C'est ce qui fait
+**disparaître** un problème au lieu de le déplacer — `npm run db:backup` ne dumpe que du SQL, il
+n'aurait jamais emporté des dizaines de Go de vidéos. Ne « simplifie » jamais ça en rapatriant les
+fichiers.
+
+⚠️ **Le proxy de vignette n'est pas une copie** : les octets traversent le serveur et sont oubliés
+— rien sur le disque, rien en base.
+
+### Le mode d'échec n° 1 : un 200 qui ment
+
+⚠️ **Immich sert son interface web en repli sur tout chemin inconnu.** Une route d'API disparue ne
+rend pas une 404 : elle rend **200 avec du `text/html`**. Constaté, pas déduit — un slash final de
+trop dans `IMMICH_BASE_URL` suffit à le produire (`<base>//api/...`).
+
+Sans contrôle, la chaîne est : statut OK → `assets` vaut `undefined` → album vide → **la
+réconciliation marque tout l'album « plus dans l'album »**. Une passe suffit à vider la veille, et
+rien à l'écran ne dit que c'est faux. D'où **deux** gardes, et il faut les deux :
+
+1. `config/immich.ts` retire le slash final (`.replace(/\/+$/, '')`), comme `config/llm.ts` ;
+2. `ImmichClient` **vérifie le `content-type`** — `application/json` sur l'API, `image/` sur une
+   vignette. Le test qui le tient est « un 200 en text/html est une erreur explicite ».
+
+### Le marquage des disparus : tout ou rien, jamais partiel
+
+`reconcile()` calcule une **différence** entre ce que l'album contient et ce que la base porte. La
+propriété qui la rend sûre n'est pas dans `reconcile()` mais dans `ImmichClient.albumAssets()` :
+**une page en échec fait lever, et aucune liste partielle n'est jamais rendue**. Une page 2 en
+timeout, une clé révoquée en cours de pagination, une réponse HTML — dans les trois cas
+`reconcile()` n'est simplement pas atteint.
+
+⚠️ **Ne mets jamais un `try/catch` autour de `albumAssets()` dans le collecteur.** C'est
+exactement le geste qui rouvre la panne : la passe paraîtrait réussir, et marquerait tout. Le test
+qui l'interdit est « une erreur d'API ne marque AUCUN asset disparu » — il rougit dès qu'on avale
+l'erreur, c'est vérifié.
+
+La réconciliation va dans les **deux sens** : un asset remis dans l'album redevient normal. Sans
+ce retour, une sortie accidentelle serait définitive et il faudrait passer par la base.
+
+⚠️ **« Plus dans l'album » n'est pas « supprimé », et l'écran dit le premier.** La différence ne
+distingue pas un asset retiré de l'album d'un asset effacé d'Immich, et **ne le prétend pas** : les
+distinguer demanderait un appel par disparu, dont le 400 signifie aussi « pas d'accès ». La vraie
+suppression se révèle ailleurs — le proxy rend 404, et l'image casse à l'écran.
+
+⚠️ **Un album réellement vidé marque tout**, et c'est correct. Ce qui empêche que ce soit
+silencieux est le compteur du lot 1 : `last_item_count = 0` déclenche le bandeau d'anomalie. Une
+*erreur*, elle, n'arrive jamais jusque-là.
+
+### La configuration — `.env`, et une ligne qui n'en est que le reflet
+
+`IMMICH_BASE_URL`, `IMMICH_API_KEY`, `IMMICH_ALBUM_ID`, `IMMICH_TIMEOUT_MS` → `config/immich.ts`,
+sur le modèle exact de `config/llm.ts`. **Jamais un formulaire, jamais la base** : une URL de
+serveur persistée depuis une requête HTTP est une SSRF permanente, écrite une fois et rejouée à
+chaque collecte.
+
+⚠️ **`IMMICH_ALBUM_ID` désigne UN album, jamais la bibliothèque.** Elle contient des photos
+personnelles, et au lot 3 elles partiraient vers un LLM. Le filtre est chez l'utilisateur, dans
+Immich : il dépose dans l'album ce qui relève de la veille. Aucun réglage à inventer ici.
+
+`ImmichCollector.ensureSource()` (appelé par `providers/veille_provider.ts` au boot) crée la ligne
+`veille_sources` correspondante — `kind: 'immich'`, `url: immich:album:<uuid>`. Elle existe pour que
+la collecte Immich **hérite de tout ce que le lot 1 a construit** : cadence, `last_fetched_at`,
+`last_error`, `last_item_count`, rafraîchissement manuel, affichage sur l'écran des sources. Sans
+elle, « une erreur d'API ne passe pas en silence » n'aurait aucun endroit où s'afficher.
+
+⚠️ **Cette ligne n'est créable par aucun formulaire** : `sourceValidator` impose `isPublicFeedUrl`,
+qui refuse `immich:album:…` — ce n'est même pas une URL http. Son `url` n'est donc jamais une cible
+réseau, et le collecteur ne la lit pas : il lit la configuration.
+
+⚠️ **La réactivation est conditionnée à un marqueur exact** (`DISABLED_BY_CONFIG`). Sans lui, il
+faudrait choisir entre deux mauvaises options : réactiver à chaque démarrage — et voir la collecte
+repartir toute seule après une désactivation volontaire — ou ne jamais réactiver, et laisser la
+source muette après une correction de `.env`, sans dire pourquoi.
+
+⚠️ **Changer `IMMICH_ALBUM_ID` marque tous les items de l'ancien album en une passe.** Défendable
+(ils n'en font plus partie), mais surprenant : c'est journalisé, et réversible.
+
+### Le proxy de vignette — la décision de sécurité du lot
+
+`GET /veille/items/:id/thumbnail` — **le paramètre est l'id d'item de notre base, jamais
+l'identifiant Immich.** Ce n'est pas un détail d'implémentation :
+
+- une route `/veille/immich/:assetId/thumbnail` serait un **proxy de lecture ouvert sur toute la
+  bibliothèque personnelle** — n'importe quel asset, photos de famille comprises, servi par un
+  serveur qui porte la clé d'API. Le paramètre *étant* l'identifiant Immich, il n'y aurait rien à
+  vérifier contre quoi que ce soit ;
+- ici le seul paramètre venu du client est un **entier**. L'UUID est relu dans `dedup_key` — une
+  valeur que nous avons écrite — et l'autorisation est un effet de bord de la recherche : ce qui
+  n'est pas dans la table n'est pas servi.
+
+⚠️ **`IMMICH_API_KEY` ne repart jamais vers le client**, exactement comme `LLM_API_KEY`. La page
+reçoit `{ configured, webBaseUrl }` — `webBaseUrl` **doit** descendre (c'est le navigateur qui
+ouvrira le lien), la clé jamais.
+
+⚠️ **Réponse HTTP nue, pas de l'Inertia** (comme l'export JSON de Leitner) : côté page c'est un
+`<img src>` natif, jamais `<Link>` ni `router.get()`.
+
+⚠️ **Un échec rend 404 au navigateur mais `logger.warn` côté serveur.** Sans ce log, « Immich
+éteint », « clé révoquée » et « asset supprimé » sont indiscernables — et le premier réflexe est
+d'accuser le proxy.
+
+### Ce qui n'a PAS été fait, et pourquoi
+
+⚠️ **La garde SSRF de Leitner n'est pas extraite, contrairement à ce que demandait CC-55.** Le
+ticket supposait Immich « sur le réseau local » et `isLocalLlmUrl` comme « exactement la bonne
+forme ». **C'est faux contre l'instance réelle**, qui répond en `https` sur un nom de domaine
+public : `isLocalLlmUrl` n'accepte que `localhost` et les IP littérales privées, et la refuserait.
+
+Et le besoin lui-même n'existe pas. La liste blanche de Leitner protège un écran qui teste des URL
+**saisies** ; ici **aucune URL ne vient jamais d'une requête HTTP** — l'hôte est figé par `.env`,
+l'album aussi, l'identifiant d'asset est relu de notre base. Il n'y a pas de cible à filtrer, il
+n'y a qu'une cible. Ce qui la remplace, et qui est réellement nécessaire :
+
+1. **refus des 3xx** (`redirect: 'manual'`) — comme le client LLM, contrairement au collecteur RSS.
+   Une API n'a aucune redirection légitime, et suivre un `Location` ferait sortir de l'hôte
+   configuré **avec la clé d'API dans les en-têtes** ;
+2. l'assertion de `content-type` ci-dessus ;
+3. deux plafonds (16 Mo de JSON, 10 Mo de vignette), un timeout, et un plafond de **pages** — un
+   `nextPage` qui n'avancerait pas ferait tourner la collecte indéfiniment.
+
+**Le lecteur vidéo est hors périmètre** : un clic ouvre l'asset dans Immich, qui gère déjà lecteur,
+seek et transcodage. Aucun flux vidéo ne traverse Command Center — seulement des vignettes de 20 Ko.
+
+⚠️ **`/photos/<id>` est la seule chose de ce lot qui n'ait pas pu être vérifiée par l'API.** Immich
+sert son interface en repli sur *tout* chemin, avec un 200 et un corps identique : aucune requête
+ne distingue une route web valide d'une route morte. Ça se vérifie au navigateur, en cliquant une
+vignette — et nulle part ailleurs.
 
 ## Le déclenchement — une boucle en processus, pas une file
 
@@ -446,7 +632,16 @@ pilotait. D'où le helper `asBool`.
   n'efface jamais l'historique déjà lu**. Le lot 1 n'expose d'ailleurs pas la suppression, seulement
   la désactivation (`active`).
 - `metadata` porte `{ sourceTitle, guid }` pour les items collectés — la colonne, restée vide depuis
-  la création du module, sert enfin.
+  la création du module, sert enfin. Les items Immich y portent `{ sourceTitle, durationSeconds }` ;
+  **l'identifiant de l'asset n'y est PAS** — il ne vit que dans `dedup_key`, unique et indexé. Le
+  recopier en ferait une seconde source de vérité à garder synchronisée pour rien.
+- **`veille_items.url` est nul pour un média**, et ce n'est pas un oubli : le lien vers Immich se
+  construit à l'affichage depuis `IMMICH_BASE_URL`. Figé en base, il pointerait sur l'ancien domaine
+  le jour d'un déménagement d'instance et **tous** les liens casseraient en silence.
+- **Le retour arrière de la migration `…191403` DÉTRUIT les items média**, faute de pouvoir les
+  représenter sous l'ancienne contrainte. Le dégât est borné par la décision qui porte le lot : une
+  collecte les reconstruit tous, seul ce que le module a produit lui-même (lu/non-lu, file de
+  lecture, tags) est réellement perdu.
 
 ## Avant de rendre la main
 
@@ -500,9 +695,41 @@ pilotait. D'où le helper `asBool`.
   `toggleRead`, la pagination sans chevauchement, et que **la capture manuelle survit à la
   migration**.
 
+- `tests/unit/veille_immich_asset.spec.ts` — **CC-55**, la lecture d'un asset : du code pur, donc le
+  test qui compte du lot. Les **deux** formes de durée (une regex trop stricte ferait disparaître la
+  durée sans erreur), le tag réseau **par jeton entier** (`retikTokage.mp4` ne donne rien — c'est
+  aussi pourquoi `x` n'est pas dans la liste), l'aller-retour de la clé de dédup, et surtout ce qui
+  **ne rend rien** : `AUDIO`/`OTHER`, un identifiant qui n'est pas un UUID, `immich:../../secret`.
+- `tests/unit/veille_immich_client.spec.ts` — ce que le client fait **réellement** d'une réponse
+  (`fetch` remplacé, aucun réseau). Le test qui porte le lot est **« un 200 en text/html est une
+  erreur explicite, pas un album vide »** : vérifié mordant — désactive l'assertion de
+  `content-type` et il rougit seul. Plus la pagination qui suit un `nextPage` **en chaîne**, le refus
+  des 3xx, la clé en en-tête et jamais dans l'URL, `albumIds` toujours présent (sans lui, toute la
+  bibliothèque personnelle entrerait dans la veille), et les messages distincts 401 / 400.
+- `tests/unit/veille_media_item.spec.ts` — **CC-55**, la logique média sortie de `index.vue` : le
+  lien construit à l'affichage (jamais stocké), la vignette pointée sur **notre** proxy, et une
+  durée qui ne s'affiche pas quand il n'y en a pas. Ce qu'il ne voit **pas** : le template et les
+  enveloppes de la page.
+- `tests/functional/modules/veille_immich.spec.ts` — la collecte. **« Une erreur d'API ne marque
+  AUCUN asset disparu »** est le test qui porte le lot, et il est vérifié mordant : entoure
+  `albumAssets()` d'un `try/catch` et lui plus « last_error » rougissent. Plus la deuxième collecte
+  qui n'ajoute rien, le même asset deux fois dans une passe, l'asset sorti **puis remis**, l'album
+  vidé qui se voit, l'aiguillage par `kind`, l'alignement de la source sur `.env` (dont **la source
+  désactivée à la main qui n'est jamais réactivée**), et le proxy — item non-média, item inconnu,
+  asset disparu, et la clé d'API absente de la réponse.
+
 **Aucun test ne touche le réseau** — `tests/fakes/fake_feed_fetcher.ts` remplace `FeedFetcher` dans le
-conteneur (`app.container.swap`), les flux viennent de `tests/fixtures/feeds/*.xml`. Seule exception,
-délibérée : le test de redirection ci-dessus.
+conteneur (`app.container.swap`), les flux viennent de `tests/fixtures/feeds/*.xml` ;
+`tests/fakes/fake_immich_client.ts` fait de même pour `ImmichClient`. Seule exception, délibérée : le
+test de redirection ci-dessus.
+
+⚠️ **Pour Immich, c'est en plus une propriété du dispositif, pas une promesse** : `.env.test` **vide
+les trois variables** `IMMICH_*`. Sans ça, `.env.test` surchargeant `.env`, les tests hériteraient de
+l'instance réelle du poste — clé d'API comprise — et un `swap` oublié suffirait à faire partir de
+vraies requêtes vers une vraie bibliothèque de photos pendant `npm test`. Vidées,
+`immichConfig.enabled` vaut `false` et le vrai client refuse de partir avant même de construire une
+URL. Les tests qui ont besoin d'une configuration en passent une explicitement
+(`ensureSource(config)`) — ne rétablis pas une lecture directe de `immichConfig` dans cette méthode.
 
 Ce que la suite ne voit **pas** : la boucle `setInterval` réelle (le provider est en
 `environment: ['web']`, donc absent des tests — `collectDue()` est appelée directement), la
