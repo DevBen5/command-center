@@ -5,15 +5,22 @@ import AppLayout from '~/layouts/AppLayout.vue'
 import {
   DEFAULT_DAILY_AT,
   fromMinutes,
-  formatQuantity,
   formatSchedule,
   normalizeTimeOfDay,
-  parseTimeOfDay,
-  toMinutes,
   unitBounds,
   type IntervalUnit,
   type ScheduleMode,
 } from '../shared/interval.js'
+// Les prédicats et la forme du payload vivent hors du `.vue` : Japa n'a aucun compilateur Vue,
+// et ce sont eux qui décident si un enregistrement part. Voir `shared/schedule_draft.ts`.
+import {
+  boundsHint,
+  isDraftValid,
+  isScheduleDirty as isDraftDirty,
+  schedulePayload,
+  switchUnit,
+  type ScheduleDraft,
+} from '../shared/schedule_draft.js'
 
 defineOptions({ layout: AppLayout })
 
@@ -30,19 +37,6 @@ interface VeilleSource {
   lastErrorAt: string | null
   lastItemCount: number | null
   active: boolean
-}
-
-/**
- * La cadence en cours d'édition — jamais convertie côté page.
- *
- * Les deux modes coexistent dans le brouillon même si un seul s'applique : basculer de l'un à
- * l'autre ne doit pas effacer ce qui était saisi dans le premier.
- */
-interface ScheduleDraft {
-  scheduleMode: ScheduleMode
-  interval: number
-  intervalUnit: IntervalUnit
-  dailyAt: string
 }
 
 const props = defineProps<{
@@ -118,55 +112,6 @@ watch(
   { immediate: true }
 )
 
-/** Le brouillon est-il enregistrable ? Chaque mode a sa propre règle, et une seule s'applique. */
-function isDraftValid(draft: ScheduleDraft): boolean {
-  if (draft.scheduleMode === 'daily') {
-    return parseTimeOfDay(draft.dailyAt) !== null
-  }
-  const { min, max } = unitBounds(draft.intervalUnit)
-  return Number.isInteger(draft.interval) && draft.interval >= min && draft.interval <= max
-}
-
-/**
- * Ce qui part au serveur. Le mode voyage **toujours**, et seuls les champs du mode retenu
- * l'accompagnent : poster une heure sur une source en mode intervalle enregistrerait un réglage
- * qui ne s'applique pas.
- */
-function schedulePayload(draft: ScheduleDraft): Record<string, unknown> {
-  if (draft.scheduleMode === 'daily') {
-    return { scheduleMode: 'daily', dailyAt: draft.dailyAt }
-  }
-  return {
-    scheduleMode: 'interval',
-    interval: draft.interval,
-    intervalUnit: draft.intervalUnit,
-  }
-}
-
-/** « de 1 à 7 jours » — dit la règle avant qu'on la viole, plutôt qu'après. */
-function boundsHint(unit: IntervalUnit): string {
-  const { min, max } = unitBounds(unit)
-  return `de ${min} à ${formatQuantity(max, unit)}`
-}
-
-/**
- * Changement d'unité : on convertit la durée **si elle tombe juste** (60 minutes → 1 heure),
- * sinon on garde le nombre tel quel (90 minutes → 90 heures). Jamais d'arrondi : « 1,5 heure »
- * se saisit en 90 minutes.
- *
- * ⚠️ Le `<select>` n'est donc pas en `v-model` — il faut lire l'ancienne unité avant qu'elle
- * ne soit écrasée.
- */
-function switchUnit(draft: ScheduleDraft, next: IntervalUnit): void {
-  const minutes = toMinutes(draft.interval, draft.intervalUnit)
-  const factor = toMinutes(1, next)
-
-  if (minutes > 0 && minutes % factor === 0) {
-    draft.interval = minutes / factor
-  }
-  draft.intervalUnit = next
-}
-
 function submit(): void {
   if (!form.value.url.trim() || !form.value.title.trim()) return
   if (!isDraftValid(form.value)) return
@@ -187,16 +132,13 @@ function submit(): void {
   )
 }
 
-/** La cadence est-elle différente de ce qui est enregistré ? Le mode compte autant que la valeur. */
+/**
+ * L'enveloppe de `isDraftDirty` : elle ne fait qu'aller chercher le brouillon de cette ligne.
+ * La comparaison elle-même vit dans `shared/schedule_draft.ts`, où elle est prouvée.
+ */
 function isScheduleDirty(source: VeilleSource): boolean {
   const draft = drafts.value[source.id]
-  if (!draft) return false
-
-  if (draft.scheduleMode !== source.scheduleMode) return true
-  if (draft.scheduleMode === 'daily') {
-    return draft.dailyAt !== normalizeTimeOfDay(source.dailyAt)
-  }
-  return toMinutes(draft.interval, draft.intervalUnit) !== source.fetchIntervalMinutes
+  return draft ? isDraftDirty(draft, source) : false
 }
 
 function saveSchedule(source: VeilleSource): void {
