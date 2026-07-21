@@ -2,20 +2,34 @@
 import { computed, ref } from 'vue'
 import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
+// ⚠️ Import **relatif**, jamais `#modules/*` : l'alias vise des `.js` qui n'existent qu'après un
+// build, Vite ne les résout pas et la page casse. Le `.js` bascule sur le `.ts` côté Vite.
+import {
+  durationLabel,
+  immichHref,
+  isMediaItem,
+  thumbnailHref,
+  type ItemType,
+} from '../shared/media_item.js'
 
 defineOptions({ layout: AppLayout })
 
 interface VeilleItem {
   id: number
-  type: 'article' | 'bookmark' | 'note'
+  type: ItemType
   veilleSourceId: number | null
   url: string | null
   title: string
   content: string | null
   tags: string[]
+  metadata: Record<string, unknown> | null
   readingQueue: boolean
   publishedAt: string | null
   readAt: string | null
+  /** L'asset a quitté l'album de veille (CC-55). Toujours nul pour un article. */
+  unavailableAt: string | null
+  /** Dérivé de `dedup_key` côté serveur. Nul pour tout ce qui ne vient pas d'Immich. */
+  immichAssetId: string | null
   createdAt: string
 }
 
@@ -56,6 +70,8 @@ const props = defineProps<{
   tags: string[]
   sources: VeilleSource[]
   filters: Filters
+  /** ⚠️ `webBaseUrl` seulement : `IMMICH_API_KEY` ne descend jamais au navigateur. */
+  immich: { configured: boolean; webBaseUrl: string | null }
 }>()
 
 const searchInput = ref(props.filters.search ?? '')
@@ -108,7 +124,23 @@ const TYPE_LABELS: Record<VeilleItem['type'], string> = {
   article: 'Article',
   bookmark: 'Signet',
   note: 'Note',
+  image: 'Image',
+  video: 'Vidéo',
 }
+
+/**
+ * Les enveloppes des fonctions de `shared/media_item.ts` — **une ligne chacune**, pour que le
+ * template reste lisible et que la logique reste prouvable (CC-60).
+ */
+const isMedia = (item: VeilleItem): boolean => isMediaItem(item.type)
+const thumbnail = (item: VeilleItem): string => thumbnailHref(item.id)
+const duration = (item: VeilleItem): string | null => durationLabel(item.metadata)
+const mediaLink = (item: VeilleItem): string | null =>
+  immichHref(props.immich.webBaseUrl, item.immichAssetId)
+
+/** Le lien à ouvrir : Immich pour un média, l'URL du flux sinon. */
+const itemLink = (item: VeilleItem): string | null =>
+  isMedia(item) ? mediaLink(item) : item.url
 
 function formatDate(item: VeilleItem): string {
   const raw = item.publishedAt ?? item.createdAt
@@ -298,10 +330,40 @@ function submitCapture(): void {
           :title="item.readAt ? 'Marquer comme non lu' : 'Marquer comme lu'"
           @click="toggleRead(item)"
         />
+        <!-- La vignette d'un média. `<img>` natif vers notre proxy : la clé d'API reste au
+             serveur, et rien n'est copié — les octets traversent et sont oubliés. -->
+        <a
+          v-if="isMedia(item) && !item.unavailableAt"
+          :href="mediaLink(item) ?? undefined"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="relative shrink-0 overflow-hidden rounded-[8px] border border-line-2 bg-panel-2"
+        >
+          <img
+            :src="thumbnail(item)"
+            :alt="item.title"
+            loading="lazy"
+            class="h-[54px] w-[86px] object-cover"
+          />
+          <span
+            v-if="duration(item)"
+            class="absolute right-1 bottom-1 rounded-[4px] bg-bg/80 px-1 py-0.5 font-mono text-[10px] text-txt"
+          >
+            {{ duration(item) }}
+          </span>
+        </a>
+        <!-- L'asset n'est plus dans l'album : pas de vignette à demander, et on le dit. -->
+        <div
+          v-else-if="isMedia(item)"
+          class="flex h-[54px] w-[86px] shrink-0 items-center justify-center rounded-[8px] border border-dashed border-line-2 bg-panel-2 text-[10px] text-txt-3"
+        >
+          absent
+        </div>
+
         <div class="min-w-0 flex-1">
           <a
-            v-if="item.url"
-            :href="item.url"
+            v-if="itemLink(item)"
+            :href="itemLink(item) ?? undefined"
             target="_blank"
             rel="noopener noreferrer"
             class="text-[13px] font-semibold hover:text-accent"
@@ -321,6 +383,15 @@ function submitCapture(): void {
             <span>{{ TYPE_LABELS[item.type] }}</span>
             <span>·</span>
             <span class="font-mono">{{ formatDate(item) }}</span>
+            <!-- ⚠️ « plus dans l'album », pas « supprimé » : la collecte ne distingue pas un
+                 asset retiré de l'album d'un asset effacé d'Immich, et ne le prétend pas. -->
+            <span
+              v-if="item.unavailableAt"
+              class="rounded-full border border-warn/40 bg-panel-2 px-2 py-0.5 text-[10.5px] text-warn"
+              title="L’asset n’est plus dans l’album de veille : retiré de l’album, ou supprimé d’Immich."
+            >
+              plus dans l’album
+            </span>
             <span
               v-for="tag in item.tags"
               :key="tag"

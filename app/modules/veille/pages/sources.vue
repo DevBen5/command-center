@@ -252,7 +252,15 @@ const NOTIFICATION_CLASSES: Record<string, string> = {
               </span>
               <span v-if="!source.active" class="text-[11px] text-txt-3">désactivée</span>
             </div>
-            <div class="mt-0.5 truncate font-mono text-[11px] text-txt-3">{{ source.url }}</div>
+            <!-- L'`url` d'une source Immich est un identifiant d'album (`immich:album:<uuid>`),
+                 pas une adresse : l'afficher brute ne dit rien à personne. La pastille `kind`
+                 juste au-dessus porte déjà la provenance. -->
+            <div
+              class="mt-0.5 truncate text-[11px] text-txt-3"
+              :class="source.kind === 'immich' ? '' : 'font-mono'"
+            >
+              {{ source.kind === 'immich' ? 'Album de veille Immich' : source.url }}
+            </div>
             <div class="mt-1 flex flex-wrap items-center gap-2 text-[11.5px] text-txt-3">
               <span>{{ formatSchedule(source) }}</span>
               <span>·</span>

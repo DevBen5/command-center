@@ -5,8 +5,23 @@ import veilleConfig from '#config/veille'
 import VeilleItem from '#modules/veille/models/veille_item'
 import { parseTimeOfDay, type ScheduleMode } from '#modules/veille/shared/interval'
 
-/** Provenance du flux. Le lot 1 ne connaît que `rss` — qui couvre RSS 2.0 *et* Atom. */
-export type SourceKind = 'rss'
+/**
+ * Provenance. `rss` couvre RSS 2.0 *et* Atom (même collecteur, même parseur) ; `immich` est
+ * l'album de veille d'une instance Immich (CC-55).
+ *
+ * ⚠️ **Aucune contrainte en base** : `kind` est un `string(16)` avec un défaut `'rss'`
+ * (migration `…191400`). Ajouter une provenance ne demande donc pas de migration — mais
+ * `VeilleCollectorService` doit savoir l'aiguiller, faute de quoi la source partirait au
+ * collecteur RSS et échouerait à chaque passe.
+ */
+export type SourceKind = 'rss' | 'immich'
+
+/**
+ * La source Immich est **auto-provisionnée depuis l'environnement**, jamais créée par un
+ * formulaire : `sourceValidator` impose `isPublicFeedUrl`, qui refuse cette forme d'`url`.
+ * Voir `ImmichCollector.ensureSource()`.
+ */
+export const IMMICH_SOURCE_URL_PREFIX = 'immich:album:'
 
 export default class VeilleSource extends BaseModel {
   @column({ isPrimary: true })

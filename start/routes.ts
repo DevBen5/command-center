@@ -18,6 +18,7 @@ const AgentsController = () => import('#modules/agents/controllers/agents_contro
 const VeilleController = () => import('#modules/veille/controllers/veille_controller')
 const VeilleSourcesController = () =>
   import('#modules/veille/controllers/veille_sources_controller')
+const VeilleMediaController = () => import('#modules/veille/controllers/veille_media_controller')
 const LeitnerController = () => import('#modules/leitner/controllers/leitner_controller')
 const LeitnerSettingsController = () =>
   import('#modules/leitner/controllers/leitner_settings_controller')
@@ -84,6 +85,13 @@ router
           .where('id', router.matchers.number())
         router
           .post('/sources/:id/refresh', [VeilleSourcesController, 'refresh'])
+          .where('id', router.matchers.number())
+
+        // La vignette d'un asset Immich (CC-55). ⚠️ Le paramètre est l'id d'item de **notre**
+        // base, jamais l'identifiant Immich : c'est ce qui empêche le proxy de servir n'importe
+        // quel asset de la bibliothèque personnelle. Voir `VeilleMediaController`.
+        router
+          .get('/items/:id/thumbnail', [VeilleMediaController, 'thumbnail'])
           .where('id', router.matchers.number())
 
         router

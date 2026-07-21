@@ -1,9 +1,11 @@
 import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
 import { DateTime } from 'luxon'
+import immichConfig from '#config/immich'
 import VeilleItem from '#modules/veille/models/veille_item'
 import VeilleSource from '#modules/veille/models/veille_source'
 import VeilleStatsService from '#modules/veille/services/veille_stats_service'
+import { assetIdFromDedupKey } from '#modules/veille/services/immich_asset'
 import { captureValidator } from '#modules/veille/validators/veille'
 
 /** Combien d'items par page. Au-delà, la page devient lourde à afficher autant qu'à parcourir. */
@@ -54,13 +56,38 @@ export default class VeilleController {
     ])
 
     return inertia.render('modules/veille/index', {
-      items: paginator.all(),
+      items: paginator.all().map((item) => this.serialize(item)),
       pagination: paginator.getMeta(),
       stats,
       tags,
       sources,
       filters: { type, tag, readingQueue, unread, search, sourceId },
+      /**
+       * ⚠️ **`webBaseUrl` part au client, `IMMICH_API_KEY` jamais** — même doctrine que
+       * `hasApiKey` sur l'écran LLM. L'URL de base est indispensable au navigateur : c'est lui
+       * qui suivra le lien vers l'asset. La clé, elle, ne sort que du serveur vers Immich.
+       */
+      immich: {
+        configured: immichConfig.enabled,
+        webBaseUrl: immichConfig.enabled ? immichConfig.baseUrl : null,
+      },
     })
+  }
+
+  /**
+   * L'item tel que la page le voit, plus l'identifiant de son asset Immich.
+   *
+   * ⚠️ **Le lien vers Immich se construit à l'affichage, il n'est pas stocké.** `veille_items.url`
+   * reste nul pour un média : une URL figée en base pointerait sur l'ancien domaine le jour d'un
+   * déménagement d'instance, et **tous** les liens casseraient en silence. Ici, changer
+   * `IMMICH_BASE_URL` suffit.
+   *
+   * L'identifiant est dérivé de `dedup_key` côté serveur plutôt que laissé à la page : c'est la
+   * seule copie, et le préfixe est un détail d'implémentation qui n'a rien à faire dans un
+   * template.
+   */
+  private serialize(item: VeilleItem) {
+    return { ...item.serialize(), immichAssetId: assetIdFromDedupKey(item.dedupKey) }
   }
 
   async store({ request, response }: HttpContext) {

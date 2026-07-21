@@ -1,93 +1,69 @@
 import { inject } from '@adonisjs/core'
-import db from '@adonisjs/lucid/services/db'
 import { DateTime } from 'luxon'
 import VeilleSource from '#modules/veille/models/veille_source'
 import FeedFetcher from '#modules/veille/services/feed_fetcher'
+import ImmichCollector from '#modules/veille/services/immich_collector'
 import { dedupKeyFor, parseFeed, type ParsedEntry } from '#modules/veille/services/feed_parser'
+import { insertNewItems, type NewItem } from '#modules/veille/services/veille_item_writer'
 
 export type CollectOutcome = {
   sourceId: number
   ok: boolean
-  /** Entrées reconnues dans le flux. `0` sur un flux qui répond bien est une anomalie. */
+  /** Entrées reconnues dans la source. `0` sur une source qui répond bien est une anomalie. */
   found: number
   /** Entrées réellement écrites — les autres étaient déjà là. */
   inserted: number
   notModified: boolean
+  /** Assets qui ont quitté l'album (Immich seulement ; toujours `0` pour un flux). */
+  disappeared: number
   error: string | null
 }
 
-/** Nombre de flux interrogés en même temps. Assez pour ne pas traîner, assez peu pour rester poli. */
-const CONCURRENCY = 4
+/** Ce qu'un collecteur rapporte avant que la source ne soit marquée. */
+type SourceResult = {
+  found: number
+  inserted: number
+  notModified: boolean
+  disappeared: number
+  /** Cache HTTP à mémoriser — flux seulement, et **seulement** après insertion réussie. */
+  etag?: string | null
+  lastModified?: string | null
+}
 
-/**
- * Les colonnes écrites par la collecte. Littéral figé dans le code — **jamais** une entrée
- * utilisateur : c'est ce qui rend l'interpolation ci-dessous sûre. Les valeurs, elles, passent
- * toutes par des bindings.
- */
-const INSERT_COLUMNS = [
-  'type',
-  'veille_source_id',
-  'dedup_key',
-  'url',
-  'title',
-  'content',
-  'tags',
-  'metadata',
-  'reading_queue',
-  'published_at',
-  'created_at',
-  'updated_at',
-] as const
+/** Nombre de sources interrogées en même temps. Assez pour ne pas traîner, assez peu pour rester poli. */
+const CONCURRENCY = 4
 
 @inject()
 export default class VeilleCollectorService {
-  constructor(private fetcher: FeedFetcher) {}
+  constructor(
+    private fetcher: FeedFetcher,
+    private immich: ImmichCollector
+  ) {}
 
   /**
-   * Collecte une source. **Ne lève jamais** : un flux cassé rend un `CollectOutcome` en échec,
-   * il n'interrompt pas la passe. C'est la garantie centrale du lot — sans elle, un seul flux
-   * mort suffit à éteindre tout l'agrégateur.
+   * Collecte une source. **Ne lève jamais** : une source cassée rend un `CollectOutcome` en
+   * échec, elle n'interrompt pas la passe. C'est la garantie centrale du module — sans elle, un
+   * seul flux mort suffit à éteindre tout l'agrégateur.
+   *
+   * ⚠️ **L'aiguillage sur `kind` n'est pas cosmétique** : sans lui, une source `immich` partirait
+   * au `FeedFetcher`, qui irait chercher `immich:album:<uuid>` comme une URL de flux. Elle
+   * échouerait à chaque passe avec un message parlant d'URL publique — un faux problème, et le
+   * vrai invisible.
    */
   async collectSource(source: VeilleSource): Promise<CollectOutcome> {
     try {
-      const response = await this.fetcher.fetch(source.url, {
-        etag: source.etag,
-        lastModified: source.lastModified,
-      })
+      const result =
+        source.kind === 'immich' ? await this.collectImmich(source) : await this.collectFeed(source)
 
-      if (response.status === 'not-modified') {
-        await this.markSuccess(source, {})
-        return {
-          sourceId: source.id,
-          ok: true,
-          found: source.lastItemCount ?? 0,
-          inserted: 0,
-          notModified: true,
-          error: null,
-        }
-      }
-
-      const feed = await parseFeed(response.body)
-      const inserted = await this.insertEntries(source, feed.entries)
-
-      // ⚠️ `etag` / `last_modified` ne sont écrits qu'ICI, une fois les items en base.
-      // Les mémoriser dès la réponse HTTP puis échouer au parse ou à l'insert ferait recevoir
-      // un 304 à la passe suivante : les entrées seraient sautées **définitivement**, le flux
-      // ne les republiera pas. L'accusé de réception vient après l'effet, jamais avant.
+      // ⚠️ Le marquage vient **après** l'effet, jamais avant — voir `markSuccess`.
       await this.markSuccess(source, {
-        etag: response.etag,
-        lastModified: response.lastModified,
-        itemCount: feed.entries.length,
+        etag: result.etag,
+        lastModified: result.lastModified,
+        // Un 304 ne rapporte rien : on garde le compte de la dernière collecte réelle.
+        itemCount: result.notModified ? undefined : result.found,
       })
 
-      return {
-        sourceId: source.id,
-        ok: true,
-        found: feed.entries.length,
-        inserted,
-        notModified: false,
-        error: null,
-      }
+      return { sourceId: source.id, ok: true, error: null, ...result }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       await this.markFailure(source, message)
@@ -98,8 +74,48 @@ export default class VeilleCollectorService {
         found: 0,
         inserted: 0,
         notModified: false,
+        disappeared: 0,
         error: message,
       }
+    }
+  }
+
+  /** L'album Immich (CC-55). Tout ou rien : `ImmichCollector` lève, il ne rend rien de partiel. */
+  private async collectImmich(source: VeilleSource): Promise<SourceResult> {
+    const { found, inserted, disappeared } = await this.immich.collect(source)
+    return { found, inserted, disappeared, notModified: false }
+  }
+
+  /** Un flux RSS 2.0 ou Atom — le collecteur du lot 1, inchangé. */
+  private async collectFeed(source: VeilleSource): Promise<SourceResult> {
+    const response = await this.fetcher.fetch(source.url, {
+      etag: source.etag,
+      lastModified: source.lastModified,
+    })
+
+    if (response.status === 'not-modified') {
+      return {
+        found: source.lastItemCount ?? 0,
+        inserted: 0,
+        notModified: true,
+        disappeared: 0,
+      }
+    }
+
+    const feed = await parseFeed(response.body)
+    const inserted = await insertNewItems(feed.entries.map((entry) => this.toItem(source, entry)))
+
+    return {
+      found: feed.entries.length,
+      inserted,
+      notModified: false,
+      disappeared: 0,
+      // ⚠️ `etag` / `last_modified` ne remontent qu'ICI, une fois les items en base. Les mémoriser
+      // dès la réponse HTTP puis échouer au parse ou à l'insert ferait recevoir un 304 à la passe
+      // suivante : les entrées seraient sautées **définitivement**, le flux ne les republiera pas.
+      // L'accusé de réception vient après l'effet, jamais avant.
+      etag: response.etag,
+      lastModified: response.lastModified,
     }
   }
 
@@ -137,6 +153,7 @@ export default class VeilleCollectorService {
           found: 0,
           inserted: 0,
           notModified: false,
+          disappeared: 0,
           error: String(result.reason),
         })
       }
@@ -146,57 +163,24 @@ export default class VeilleCollectorService {
   }
 
   /**
-   * Écrit les entrées, sans doublon.
+   * Ce qu'une entrée de flux devient en base.
    *
-   * Deux niveaux, et les deux sont nécessaires :
-   * - le `Set` élimine les répétitions **à l'intérieur d'une même passe** (un flux qui liste
-   *   deux fois la même entrée) ;
-   * - `ON CONFLICT DO NOTHING` tranche **contre la base**, y compris entre deux collectes
-   *   concurrentes — un rafraîchissement manuel pendant un tick automatique. Un simple `if`
-   *   applicatif ne les couvrirait pas : les deux lisent avant que l'une n'écrive.
+   * L'écriture elle-même — et donc **toute** la déduplication — vit dans `veille_item_writer`,
+   * partagé avec le collecteur Immich : deux listes de colonnes et deux `ON CONFLICT` auraient
+   * fini par diverger, et une divergence sur la dédup ne se voit pas.
    */
-  private async insertEntries(source: VeilleSource, entries: ParsedEntry[]): Promise<number> {
-    const now = DateTime.now().toSQL()
-    const seen = new Set<string>()
-    const rows: unknown[][] = []
-
-    for (const entry of entries) {
-      const key = dedupKeyFor(entry, source.id)
-      if (seen.has(key)) continue
-      seen.add(key)
-
-      rows.push([
-        'article',
-        source.id,
-        key,
-        entry.url,
-        entry.title,
-        entry.content,
-        // `tags` est un `text[]` Postgres : le driver `pg` prend le tableau JS tel quel.
-        [],
-        JSON.stringify({ sourceTitle: source.title, guid: entry.guid }),
-        false,
-        entry.publishedAt?.toSQL() ?? null,
-        now,
-        now,
-      ])
+  private toItem(source: VeilleSource, entry: ParsedEntry): NewItem {
+    return {
+      type: 'article',
+      sourceId: source.id,
+      dedupKey: dedupKeyFor(entry, source.id),
+      url: entry.url,
+      title: entry.title,
+      content: entry.content,
+      tags: [],
+      metadata: { sourceTitle: source.title, guid: entry.guid },
+      publishedAt: entry.publishedAt,
     }
-
-    if (rows.length === 0) return 0
-
-    const placeholders = rows.map(() => `(${INSERT_COLUMNS.map(() => '?').join(', ')})`).join(', ')
-    const bindings = rows.flat()
-
-    const result = await db.rawQuery(
-      `INSERT INTO veille_items (${INSERT_COLUMNS.join(', ')})
-       VALUES ${placeholders}
-       ON CONFLICT (dedup_key) DO NOTHING
-       RETURNING id`,
-      bindings
-    )
-
-    // `RETURNING` ne rend que les lignes réellement insérées : les doublons ignorés n'y sont pas.
-    return result.rows.length
   }
 
   private async markSuccess(

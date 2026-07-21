@@ -23,6 +23,21 @@ export default class VeilleProvider {
   async ready() {
     const logger = await this.app.container.make('logger')
 
+    /**
+     * La source Immich est **le reflet de l'environnement**, alignée à chaque démarrage (CC-55) :
+     * créée si `.env` la configure, désactivée avec un message explicite sinon, et réalignée si
+     * l'album change. C'est ici qu'elle vit parce que l'environnement n'est lu qu'au boot — et
+     * c'est indépendant de la boucle : une erreur d'alignement ne doit pas empêcher les flux RSS
+     * d'être collectés.
+     */
+    try {
+      const { default: ImmichCollector } = await import('#modules/veille/services/immich_collector')
+      const collector = await this.app.container.make(ImmichCollector)
+      await collector.ensureSource()
+    } catch (error) {
+      logger.error({ err: error }, "Veille : la source Immich n'a pas pu être alignée sur `.env`.")
+    }
+
     try {
       const { startScheduler } = await import('#modules/veille/services/veille_scheduler')
       startScheduler()

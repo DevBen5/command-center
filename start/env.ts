@@ -65,4 +65,24 @@ export default await Env.create(new URL('../', import.meta.url), {
   LLM_MODEL: Env.schema.string.optional(),
   LLM_API_KEY: Env.schema.string.optional(),
   LLM_TIMEOUT_MS: Env.schema.number.optional(),
+
+  /*
+  |----------------------------------------------------------
+  | Instance Immich — source média de la veille (CC-55)
+  |----------------------------------------------------------
+  |
+  | ⚠️ Même frontière de confiance que le LLM : la configuration vient **de
+  | l'environnement, jamais de la base**, faute de quoi l'hôte que le serveur
+  | interroge serait modifiable par une requête HTTP. Il n'existe donc, à dessein,
+  | aucun formulaire pour ces valeurs.
+  |
+  | `IMMICH_ALBUM_ID` désigne l'album qui sert de source — un seul, jamais la
+  | bibliothèque entière (photos personnelles). Les trois sont optionnelles : sans
+  | elles, la collecte Immich reste simplement inactive. Défauts et validation dans
+  | `config/immich.ts`.
+  */
+  IMMICH_BASE_URL: Env.schema.string.optional(),
+  IMMICH_API_KEY: Env.schema.string.optional(),
+  IMMICH_ALBUM_ID: Env.schema.string.optional(),
+  IMMICH_TIMEOUT_MS: Env.schema.number.optional(),
 })
