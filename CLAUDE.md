@@ -127,17 +127,32 @@ lèverait TS2307. Contrepartie : les composants y sont typés `any` — le typec
 les props passées à `mount()`, un test qui se trompe échoue à l'exécution. La lever demanderait
 `vue-tsc` pour tout le dépôt.
 
-## Trois choses qui cassent sans lever d'erreur
+## Quatre choses qui cassent sans lever d'erreur
 
 1. **Nouveau module → l'enregistrer dans `config/database.ts`**, dans `migrations.paths` *et*
    `seeders.paths`. Rien n'est auto-découvert : un path oublié = migration jamais jouée, en silence.
    L'ordre des tableaux est l'ordre d'exécution (contraintes FK).
 
-2. **Pages Inertia : le nom dérive du chemin du fichier**, résolu à la main dans `inertia/app/app.ts`
+2. **Migration neuve → la jouer sur la base de dev** (`node ace migration:run`). Le cousin du
+   précédent, et il mord même quand tout est correct : la migration écrite, le path enregistré,
+   les tests verts.
+
+   ⚠️ **Une suite verte ne dit RIEN du schéma de `app`.** `npm test` migre `app_test` à neuf puis
+   la déroule à chaque exécution — la base de dev n'est jamais touchée. Les deux peuvent donc
+   diverger indéfiniment, et l'écart ne se manifeste qu'au premier appel de la colonne manquante.
+   Si cet appel vit dans une boucle de fond (collecte de veille, ingestion Leitner), l'erreur part
+   dans une colonne `last_error` que personne ne consulte spontanément : on croit à une panne du
+   service distant. C'est arrivé sur CC-63 — le message accusait Immich, la cause était un
+   `deleted_at` jamais créé.
+
+   `node ace migration:status` tranche en une seconde. À faire **avant** de conclure qu'un bug
+   vient d'ailleurs, et après tout `git pull` qui ramène une migration.
+
+3. **Pages Inertia : le nom dérive du chemin du fichier**, résolu à la main dans `inertia/app/app.ts`
    (on retire `/app/` et `/pages/`). `inertia.render('modules/veille/index')` ⇄
    `app/modules/veille/pages/index.vue`. Un écart échoue au runtime, pas au build.
 
-3. **Couleurs : uniquement les tokens `@theme` de `inertia/css/app.css`**
+4. **Couleurs : uniquement les tokens `@theme` de `inertia/css/app.css`**
    (`bg`, `panel`, `panel-2`, `line`, `txt`/`txt-2`/`txt-3`, `accent`, `aqua`, `ok`/`bad`/`warn`).
    Aucune couleur en dur. Tout le style est utility-first dans les `.vue`.
 
