@@ -6,6 +6,7 @@ Routes `/veille` et `/veille/sources` · pages Inertia `modules/veille/index` et
 ```
 controllers/veille_controller.ts         index (filtres type/tag/source/readingQueue/unread/search
                                          + pagination) · store · toggleQueue · toggleRead
+                                         · destroyMany (suppression, simple ou en lot)
 controllers/veille_sources_controller.ts index · store · update (activer/désactiver)
                                          · refresh (UNE source, SYNCHRONE) · refreshAll (async)
 controllers/veille_media_controller.ts   le PROXY de vignette Immich — réponse HTTP nue, indexée
@@ -21,12 +22,14 @@ services/immich_asset.ts                 PUR · type · durée (deux formes) · 
 services/immich_collector.ts             la passe Immich : ensureSource · insert · reconcile
 services/veille_item_writer.ts           l'ÉCRITURE des items collectés — l'unique liste de
                                          colonnes et l'unique ON CONFLICT, partagés
+services/veille_deletion_service.ts      la SUPPRESSION : corbeille Immich d'abord, pierre
+                                         tombale ensuite · refus si trashDays ≤ 0
 services/veille_collector_service.ts     une passe : par source, isolée, AIGUILLÉE PAR `kind`
 services/veille_scheduler.ts             la boucle en processus (démarrée par le provider)
 services/veille_stats_service.ts         les agrégats SQL de la bande d'indicateurs et des tags
 models/veille_source.ts                  le robinet · isDue() · kind rss | immich
 models/veille_item.ts                    ce qui en sort · types article · bookmark · note · image
-                                         · video · unavailableAt
+                                         · video · unavailableAt · deletedAt + visible()
 validators/veille.ts                     captureValidator · sourceValidator · sourceUpdateValidator
                                          + isPublicFeedUrl / isBlockedAddress (GARDE SSRF)
                                          + intervalWithinBounds / resolveIntervalMinutes
@@ -39,7 +42,12 @@ shared/schedule_draft.ts                 PUR · la logique du brouillon de caden
                                          / switchUnit / boundsHint
 shared/media_item.ts                     PUR · la logique média d'index.vue : isMediaItem /
                                          thumbnailHref / immichHref / durationLabel
+shared/item_selection.ts                 PUR · la sélection multiple d'index.vue :
+                                         toggleSelected / toggleAll / summarizeSelection
+                                         / confirmationMessage
 ```
+
+Route de suppression : `POST /veille/items/delete` (CC-63) — voir « Supprimer ».
 
 ⚠️ Ce module touche **six** fichiers hors de son dossier : `start/routes.ts`,
 `providers/veille_provider.ts` (déclaré dans `adonisrc.ts` sous `environment: ['web']`, comme le
@@ -411,6 +419,156 @@ sert son interface en repli sur *tout* chemin, avec un 200 et un corps identique
 ne distingue une route web valide d'une route morte. Ça se vérifie au navigateur, en cliquant une
 vignette — et nulle part ailleurs.
 
+## Supprimer — la pierre tombale, et la corbeille d'Immich (CC-63)
+
+Deux gestes derrière un seul bouton : un article n'a que Command Center derrière lui, une image ou
+une vidéo a un asset Immich. Le second est celui qui demande du soin.
+
+### `deleted_at`, parce qu'une vraie suppression fait revenir l'item
+
+⚠️ **Supprimer la ligne ne supprimerait rien.** La collecte écrit avec
+`ON CONFLICT (dedup_key) DO NOTHING`, et c'est cette clé — elle seule — qui empêche un doublon.
+Ligne supprimée = clé libérée = **la passe suivante réinsère l'item**. Un flux publie ses 10 à 50
+dernières entrées en permanence : un article supprimé reviendrait dans l'heure, un asset tant qu'il
+est dans l'album. Le bouton *paraîtrait* marcher, et l'item réapparaîtrait plus tard sans que rien
+ne relie les deux.
+
+La suppression est donc **logique** : la ligne reste, `deleted_at` la masque, le collecteur ne
+change pas d'une ligne. L'alternative — une table de pierres tombales et une vraie suppression —
+éviterait le filtre partout mais imposerait une anti-jointure à l'insertion, dans le seul endroit
+du module où la déduplication est tranchée. **Le filtre est plus sûr que la jointure** : un filtre
+oublié se voit à l'écran, une anti-jointure ratée fait revenir les items en silence.
+
+⚠️ **`deleted_at` n'est pas `unavailable_at`, et les deux coexistent.** `unavailable_at` est un
+**constat** de la collecte (« plus dans l'album »), réversible tout seul. `deleted_at` est une
+**décision de l'utilisateur**, que rien dans la collecte ne défait. Les fusionner ferait qu'un asset
+remis dans l'album ressusciterait un item volontairement supprimé.
+
+### Le prix, et il se paie partout à la fois
+
+⚠️ **Toute lecture filtre `deleted_at IS NULL`.** Un seul oubli et les supprimés remontent. Voici la
+liste **complète** — tiens-la à jour en même temps que le code :
+
+| endroit | comment |
+|---|---|
+| `VeilleController.index` (liste, recherche, tags, pagination, filtres) | `VeilleItem.visible()` |
+| `VeilleController.toggleQueue` / `toggleRead` | `VeilleItem.visible()` |
+| `VeilleMediaController.thumbnail` | `VeilleItem.visible()` |
+| `VeilleStatsService.fetchStats` | `WHERE deleted_at IS NULL` en clair |
+| `VeilleStatsService.fetchTags` | `WHERE deleted_at IS NULL` en clair |
+| `ImmichCollector.reconcile` — marquage **et** rétablissement | `.whereNull('deleted_at')` |
+
+`VeilleItem.visible()` existe pour que « toutes les lectures filtrent-elles ? » ait une réponse
+**greppable**. Les lectures en SQL brut ne passent pas par là et portent le filtre en clair.
+
+⚠️ **Chacun de ces endroits a son propre test**, et ils ont été vérifiés mordants un par un : casse
+un filtre, un seul test rougit, et c'est le sien. Cinq de ces tests se ressemblent assez pour qu'un
+faux-positif y passe inaperçu — ne les allège pas.
+
+### L'ordre des opérations : Immich d'abord, la base ensuite
+
+La fenêtre entre les deux écritures n'est **pas symétrique**, et c'est ce qui fixe l'ordre :
+
+- **Immich puis la base.** Un crash entre les deux laisse un asset à la corbeille et un item encore
+  visible : la passe suivante le marque « plus dans l'album », l'utilisateur resupprime. Visible,
+  rattrapable.
+- **L'inverse** laisserait un item marqué supprimé et un asset toujours dans l'album — pour
+  toujours, alors que l'utilisateur croit l'avoir supprimé. Silencieux.
+
+⚠️ **Un échec côté Immich ne marque RIEN en base.** C'est ce qui produit l'invariant du lot :
+*une ligne marquée supprimée = un asset réellement à la corbeille*.
+
+⚠️ **Un raccourci a été écarté, ne le réintroduis pas** : sauter l'appel Immich pour un item déjà
+`unavailable_at`. Ça adoucirait le rattrapage, mais un asset seulement *sorti de l'album* resterait
+dans la bibliothèque pendant que l'utilisateur le croit supprimé — exactement la divergence que
+l'ordre existe pour empêcher. Un média passe **toujours** par Immich.
+
+**Le partiel est assumé** : les items sans asset (article, signet, note) partent même quand Immich
+échoue. Ils n'ont aucune dépendance externe, rien ne peut diverger, et un tout-ou-rien les punirait
+pour une panne qui ne les regarde pas.
+
+### `trashDays` — le seul filet, vérifié à chaque fois
+
+`DELETE /api/assets` en **`force: false`** envoie à la corbeille… *si la corbeille est activée*.
+Sur une instance à `trashDays: 0`, le même appel **détruit immédiatement** — et Command Center n'a
+aucune copie des octets. `ImmichClient.trashDays()` lit `GET /api/server/config` **avant chaque
+suppression**, jamais au démarrage : une valeur mise en cache devient fausse si la corbeille est
+désactivée pendant que le serveur tourne, et cette fausseté-là est irréversible.
+
+⚠️ **La règle échoue fermée** : champ absent, renommé, ou rendu en chaîne → `0` → refus. Refuser ne
+coûte qu'un message ; laisser passer est définitif.
+
+⚠️ **`force: true` n'existe nulle part** — pas de paramètre, pas de réglage, pas de surcharge. Le
+test qui lit le corps réellement émis est ce qui l'interdit ; il rougit dès qu'on ajoute une option
+pour « forcer quand c'est vraiment voulu ».
+
+⚠️ **`GET /api/server/config` est une route publique** côté Immich (aucun `@Authenticated`) : elle
+marche même avec une clé réduite au strict nécessaire.
+
+⚠️ **La réponse est un 204 sans corps**, d'où un chemin qui ne passe pas par le lecteur JSON. Y
+passer ferait échouer l'assertion de `content-type` sur un appel **réussi** : les assets partiraient
+à la corbeille, le code lèverait, rien ne serait marqué — la suppression paraîtrait échouer à chaque
+clic tout en ayant lieu à chaque fois.
+
+### Les permissions de la clé d'API — relevées, pas devinées
+
+Ce lot fait passer Command Center **en écriture** sur Immich. La clé doit donc être réduite au
+strict nécessaire — et la liste exacte se relève, comme les routes de CC-55 :
+
+| appel du module | route | permission |
+|---|---|---|
+| `serverVersion()` — **avant chaque passe** | `GET /api/server/about` | `server.about` |
+| `albumAssets()` | `POST /api/search/metadata` | `asset.read` |
+| proxy de vignette | `GET /api/assets/:id/thumbnail` | `asset.view` |
+| corbeille | `DELETE /api/assets` | `asset.delete` |
+| `trashDays()` | `GET /api/server/config` | **aucune — route publique** |
+
+⚠️ **`album.read` n'est PAS nécessaire** : aucune route `/api/albums` n'est appelée, le filtrage
+passe par `albumIds` dans `search/metadata`. Le ticket CC-63 le demandait — c'était faux.
+
+⚠️ **`server.about` est indispensable**, et c'est le piège : `ImmichCollector.collect()` l'appelle
+en **première ligne** de chaque passe. Une clé réduite sans lui prend un 401 avant tout, et la
+collecte s'éteint entièrement — avec un message qui ressemble à « Immich est éteint ».
+
+⚠️ Relevé contre le dépôt `immich-app/immich` (branche `main`), pas contre la v2.6.1 exactement.
+L'UI de l'instance fait foi.
+
+### La suppression en lot, et ce qui la borne
+
+Le besoin est de **vider**, pas d'enlever un item à la fois. Ce module est fait de contenu
+**collecté** — reconstructible par une passe — dont le problème est l'accumulation ; c'est ce qui
+rend le geste en lot justifié ici. Ce qui le borne :
+
+- **confirmation obligatoire**, et elle annonce **combien d'assets partent à la corbeille d'Immich**,
+  pas seulement combien de lignes disparaissent. Le message est construit par
+  `confirmationMessage` (`shared/item_selection.ts`), donc testé ;
+- **pas de « tout sélectionner » inter-pages** : le rayon d'action reste les 50 items sous les yeux ;
+- **plafond de 200 ids** au validateur, qu'un client forgé ne contourne pas ;
+- **idempotence** par le filtre `deleted_at IS NULL` : un double-clic ne rappelle pas Immich.
+
+**Le retour à l'écran, trois tons et jamais le silence.** Succès, échec Immich (message **tel
+quel** — « instance éteinte », « clé sans `asset.delete` » et « asset inconnu » doivent rester
+distinguables), et **`info` quand rien n'a été supprimé**. Ce dernier cas arrive pour de vrai : un
+second onglet resté sur une liste périmée, ou un rejeu de requête. Sans message, le bouton paraît
+cassé — et le réflexe est de recliquer, ce qui ne changera rien non plus.
+
+⚠️ **Sur un 400 portant plusieurs assets, le message dit quoi faire** : réessayer par plus petits
+lots. On ne sait pas si Immich plafonne la taille d'un lot (non vérifiable sans l'instance), et un
+400 vaut aussi pour un asset inconnu. Réessayer plus petit tranche entre les deux — un message
+qu'on ne peut pas suivre revient à ne rien dire.
+
+### Ce que ce lot ne fait pas
+
+- **Aucune vue « corbeille » côté Command Center**, aucune restauration. La vraie corbeille est
+  celle d'Immich pour un média ; un article est reconstructible par nature.
+- ⚠️ **Restaurer un asset depuis la corbeille d'Immich ne fait PAS revenir l'item.** La
+  réconciliation ignore les supprimés dans les deux sens — sans quoi une mécanique de fond
+  déferait une décision de l'utilisateur. Les 30 jours récupèrent les octets, pas la ligne :
+  la rétablir demande de passer par la base. C'est la limite réelle du lot, et elle a son test.
+- **Aucune suppression de source.** ⚠️ Si elle était ajoutée un jour : la FK est
+  `ON DELETE SET NULL`, donc les items perdraient leur source et deviendraient irréconciliables —
+  leur clé `immich:` bloquerait toute réinsertion.
+
 ## Le déclenchement — une boucle en processus, pas une file
 
 Ce projet n'a **aucune infrastructure de job**, et le lot 1 n'en introduit pas. Comme l'ingestion
@@ -598,6 +756,15 @@ y a trois jours mais collecté aujourd'hui remonterait en tête.
 Pagination Lucid, 50 par page. Tout changement de filtre repart à la page 1 (rester en page 4 d'un
 résultat qui n'en compte plus qu'une afficherait une liste vide sans rien expliquer).
 
+⚠️ **La page demandée est bornée à la dernière page réelle, côté serveur** (CC-63). Le même
+problème se pose sans changer de filtre : supprimer les derniers items d'une page laisse une page
+qui n'existe plus, et l'écran afficherait « Aucun résultat » — le message qui fait croire que le
+filtre est en cause, ou que la suppression a emporté plus que prévu. Le bornage est dans `index`
+et **pas dans la page** parce que le retour d'une suppression est un `redirect().back()`, donc vers
+l'URL qui porte encore `?page=4` ; il couvre du même coup une collecte qui change le total et une
+URL tapée à la main. Le **filtre**, lui, n'est jamais touché : vider « Image » en plusieurs passes
+est le geste normal de cet écran.
+
 ## Deux bugs corrigés par CC-54, à ne pas réintroduire
 
 **1. Les tags et les compteurs sont calculés en SQL** (`VeilleStatsService`), plus par un
@@ -630,7 +797,8 @@ pilotait. D'où le helper `asBool`.
   caractères : c'était un 500 en pleine collecte. Ne les re-borne pas côté base.
 - La suppression d'une source est `ON DELETE SET NULL` sur les items : **supprimer une source
   n'efface jamais l'historique déjà lu**. Le lot 1 n'expose d'ailleurs pas la suppression, seulement
-  la désactivation (`active`).
+  la désactivation (`active`) — et ça n'a pas changé depuis, y compris à CC-63 qui ne supprime que
+  des items.
 - `metadata` porte `{ sourceTitle, guid }` pour les items collectés — la colonne, restée vide depuis
   la création du module, sert enfin. Les items Immich y portent `{ sourceTitle, durationSeconds }` ;
   **l'identifiant de l'asset n'y est PAS** — il ne vit que dans `dedup_key`, unique et indexé. Le
@@ -705,7 +873,11 @@ pilotait. D'où le helper `asBool`.
   erreur explicite, pas un album vide »** : vérifié mordant — désactive l'assertion de
   `content-type` et il rougit seul. Plus la pagination qui suit un `nextPage` **en chaîne**, le refus
   des 3xx, la clé en en-tête et jamais dans l'URL, `albumIds` toujours présent (sans lui, toute la
-  bibliothèque personnelle entrerait dans la veille), et les messages distincts 401 / 400.
+  bibliothèque personnelle entrerait dans la veille), et les messages distincts 401 / 400. Depuis
+  **CC-63** : **`force: false` lu dans le corps réellement émis** — le seul endroit du dépôt où
+  cette valeur se prouve —, le 204 sans corps traité comme un succès, `trashDays` où tout ce qui
+  n'est pas un nombre vaut `0`, et le refus qui nomme `asset.delete` plutôt que de parler d'une
+  instance injoignable.
 - `tests/unit/veille_media_item.spec.ts` — **CC-55**, la logique média sortie de `index.vue` : le
   lien construit à l'affichage (jamais stocké), la vignette pointée sur **notre** proxy, et une
   durée qui ne s'affiche pas quand il n'y en a pas. Ce qu'il ne voit **pas** : le template et les
@@ -717,6 +889,26 @@ pilotait. D'où le helper `asBool`.
   vidé qui se voit, l'aiguillage par `kind`, l'alignement de la source sur `.env` (dont **la source
   désactivée à la main qui n'est jamais réactivée**), et le proxy — item non-média, item inconnu,
   asset disparu, et la clé d'API absente de la réponse.
+
+- `tests/functional/modules/veille_deletion.spec.ts` — **CC-63**. Le test qui porte le lot est
+  **« un article supprimé ne revient pas à la collecte suivante »** : le faux flux republie les
+  mêmes entrées, et sans pierre tombale la seconde passe les réinsère. Vérifié mordant — remplace
+  le marquage par un vrai `delete()` et il rougit, avec quatre autres. Puis les deux garde-fous
+  d'Immich : **un échec ne marque rien**, et **`trashDays: 0` n'émet même pas l'appel** —
+  l'assertion qui porte ce dernier est `trashed` vide, pas `deletedAt` nul, parce que « rien en
+  base » serait aussi vrai si l'appel partait et échouait. Plus **un test par lecture** (liste ·
+  compteurs · tags · recherche · pagination · type/source · proxy de vignette), la réconciliation
+  qui ignore les supprimés, l'asset revenu dans l'album qui ne ressuscite rien, la sélection mixte
+  dont seuls les articles partent, l'idempotence du double-clic, Immich retiré de la configuration,
+  **la page vidée qui recule sans perdre le filtre**, le clic sans effet qui le dit, et le plafond
+  de 200 ids qui refuse **le lot entier**.
+- `tests/unit/veille_item_selection.spec.ts` — **CC-63**, la logique de sélection sortie
+  d'`index.vue`. Le test qui compte est **la confirmation qui annonce le nombre d'assets partant à
+  la corbeille** : sans ce nombre, le dialogue laisserait croire qu'on ne touche qu'à Command
+  Center. Plus le résumé qui ne compte que les items **affichés** (une sélection survivant à un
+  changement de page annoncerait un nombre invérifiable), et le silence sur Immich quand aucun
+  média n'est concerné — un avertissement affiché à tort ne se lit plus quand il compte.
+  ⚠️ Ce qu'il ne voit **pas** : le template, les cases, et le `confirm()` lui-même.
 
 **Aucun test ne touche le réseau** — `tests/fakes/fake_feed_fetcher.ts` remplace `FeedFetcher` dans le
 conteneur (`app.container.swap`), les flux viennent de `tests/fixtures/feeds/*.xml` ;
