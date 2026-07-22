@@ -20,6 +20,16 @@ export default class AuthMiddleware {
     } = {}
   ) {
     await ctx.auth.authenticateUsing(options.guards, { loginRoute: this.redirectTo })
+
+    // ⚠️ Désactiver un compte doit le sortir **immédiatement**, pas à l'expiration de sa
+    // session. Le guard d'AdonisJS ne connaît que « cet identifiant existe » : sans cette
+    // vérification, un compte désactivé continuerait de naviguer avec le cookie qu'il avait
+    // déjà — c'est-à-dire précisément dans le cas où on désactive quelqu'un en urgence.
+    if (!ctx.auth.user?.isActive) {
+      await ctx.auth.use('web').logout()
+      return ctx.response.redirect(this.redirectTo)
+    }
+
     return next()
   }
 }

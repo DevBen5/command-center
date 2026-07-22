@@ -1,7 +1,8 @@
 import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { DateTime } from 'luxon'
-import User from '#core/auth/models/user'
+import type User from '#core/auth/models/user'
+import { createUserWith } from '#tests/helpers/users'
 import VeilleItem from '#modules/veille/models/veille_item'
 import VeilleSource from '#modules/veille/models/veille_source'
 
@@ -15,11 +16,7 @@ test.group('Veille / liste, filtres et recherche', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   async function login() {
-    return User.create({
-      fullName: 'Utilisateur Test',
-      email: 'test@example.com',
-      password: 'secret123',
-    })
+    return createUserWith(['veille.view', 'veille.items.write'])
   }
 
   async function item(attrs: Partial<VeilleItem> = {}) {
@@ -234,11 +231,7 @@ test.group('Veille / capture manuelle et bascules', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   async function login() {
-    return User.create({
-      fullName: 'Utilisateur Test',
-      email: 'test@example.com',
-      password: 'secret123',
-    })
+    return createUserWith(['veille.view', 'veille.items.write'])
   }
 
   test('la capture manuelle fonctionne après la migration', async ({ assert, client }) => {

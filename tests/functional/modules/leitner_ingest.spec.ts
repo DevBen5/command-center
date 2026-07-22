@@ -4,7 +4,8 @@ import { test } from '@japa/runner'
 import app from '@adonisjs/core/services/app'
 import testUtils from '@adonisjs/core/services/test_utils'
 import type { ModelAttributes } from '@adonisjs/lucid/types/model'
-import User from '#core/auth/models/user'
+import type User from '#core/auth/models/user'
+import { createUserWith } from '#tests/helpers/users'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerDraftCard from '#modules/leitner/models/leitner_draft_card'
@@ -56,11 +57,7 @@ test.group('Leitner / ingestion d’un cours par un LLM local', (group) => {
   }
 
   async function login() {
-    return User.create({
-      fullName: 'Utilisateur Test',
-      email: 'test@example.com',
-      password: 'secret123',
-    })
+    return createUserWith(['leitner.ingest'])
   }
 
   /**
@@ -364,11 +361,7 @@ test.group('Leitner / extraction du texte d’un fichier', (group) => {
   const FIXTURES = fileURLToPath(new URL('../../fixtures/', import.meta.url))
 
   async function login() {
-    return User.create({
-      fullName: 'Utilisateur Test',
-      email: 'test@example.com',
-      password: 'secret123',
-    })
+    return createUserWith(['leitner.ingest'])
   }
 
   /** Téléverse un fichier sur la route d'extraction, et rend sa réponse JSON. */
@@ -537,11 +530,7 @@ test.group('Leitner / la page de suivi d’un travail', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   async function login() {
-    return User.create({
-      fullName: 'Utilisateur Test',
-      email: 'test@example.com',
-      password: 'secret123',
-    })
+    return createUserWith(['leitner.ingest'])
   }
 
   /** Un travail en base, sans passer par le LLM : c'est la page qu'on teste ici. */

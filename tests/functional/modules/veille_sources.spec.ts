@@ -3,7 +3,7 @@ import { test } from '@japa/runner'
 import app from '@adonisjs/core/services/app'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { DateTime } from 'luxon'
-import User from '#core/auth/models/user'
+import { createUserWith } from '#tests/helpers/users'
 import VeilleItem from '#modules/veille/models/veille_item'
 import VeilleSource from '#modules/veille/models/veille_source'
 import FeedFetcher, { FeedUnavailableError } from '#modules/veille/services/feed_fetcher'
@@ -288,11 +288,7 @@ test.group('Veille / écran des sources', (group) => {
   group.each.teardown(() => app.container.restore(FeedFetcher))
 
   async function login() {
-    return User.create({
-      fullName: 'Utilisateur Test',
-      email: 'test@example.com',
-      password: 'secret123',
-    })
+    return createUserWith(['veille.view', 'veille.sources.write'])
   }
 
   test('ajoute une source', async ({ assert, client }) => {

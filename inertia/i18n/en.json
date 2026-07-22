@@ -15,7 +15,8 @@
     "veille": "Watch",
     "revision": "Review",
     "journaux": "Logs",
-    "reglages": "Settings"
+    "reglages": "Settings",
+    "administration": "Administration"
   },
   "sidebar": {
     "host": "Host: {host}",

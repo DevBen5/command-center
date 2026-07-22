@@ -15,7 +15,8 @@
     "veille": "Veille",
     "revision": "Révision",
     "journaux": "Journaux",
-    "reglages": "Réglages"
+    "reglages": "Réglages",
+    "administration": "Administration"
   },
   "sidebar": {
     "host": "Hôte : {host}",

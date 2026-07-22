@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
-import User from '#core/auth/models/user'
+import { createUserWith } from '#tests/helpers/users'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
@@ -13,11 +13,7 @@ test.group('Leitner / cartes saisies par l’utilisateur', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   async function login() {
-    return User.create({
-      fullName: 'Utilisateur Test',
-      email: 'test@example.com',
-      password: 'secret123',
-    })
+    return createUserWith(['leitner.view', 'leitner.cards.read', 'leitner.cards.write'])
   }
 
   test('crée une carte non classée, en boîte 1 et due immédiatement', async ({

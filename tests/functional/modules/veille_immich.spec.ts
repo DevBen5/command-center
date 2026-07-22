@@ -3,7 +3,7 @@ import app from '@adonisjs/core/services/app'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { DateTime } from 'luxon'
 import type { ImmichConfig } from '#config/immich'
-import User from '#core/auth/models/user'
+import { createUserWith } from '#tests/helpers/users'
 import VeilleItem from '#modules/veille/models/veille_item'
 import VeilleSource from '#modules/veille/models/veille_source'
 import ImmichClient, { ImmichUnavailableError } from '#modules/veille/services/immich_client'
@@ -399,7 +399,7 @@ test.group('Veille / proxy de vignette', (group) => {
   const ID_A = '219187d7-5320-498f-9c59-47a03bbdb491'
 
   async function login() {
-    return User.create({ email: 'veille@test.dev', password: 'secret123', fullName: 'Veille' })
+    return createUserWith(['veille.view'])
   }
 
   test('sert la vignette d’un item média', async ({ client, assert }) => {

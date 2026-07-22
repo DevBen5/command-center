@@ -1,7 +1,7 @@
 import { test } from '@japa/runner'
 import app from '@adonisjs/core/services/app'
 import testUtils from '@adonisjs/core/services/test_utils'
-import User from '#core/auth/models/user'
+import { createUserWith } from '#tests/helpers/users'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerDraftCard from '#modules/leitner/models/leitner_draft_card'
 import LeitnerIngestion from '#modules/leitner/models/leitner_ingestion'
@@ -44,11 +44,7 @@ test.group('Leitner / configuration du LLM', (group) => {
   }
 
   async function login() {
-    return User.create({
-      fullName: 'Utilisateur Test',
-      email: 'test@example.com',
-      password: 'secret123',
-    })
+    return createUserWith(['leitner.settings'])
   }
 
   test('la page rend le composant et la configuration chargée, sans la clé d’API', async ({

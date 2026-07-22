@@ -13,20 +13,45 @@ import {
   Search,
   Server,
   Settings,
+  Users,
 } from 'lucide-vue-next'
 
 interface NavStats {
-  services: { total: number; down: number }
-  agents: { total: number; failed: number }
-  veille: { queue: number }
-  leitner: { due: number }
+  services: { total: number; down: number } | null
+  agents: { total: number; failed: number } | null
+  veille: { queue: number } | null
+  leitner: { due: number } | null
   host: string
+}
+
+interface CurrentUser {
+  fullName: string | null
+  email: string
+  isAdmin: boolean
+  capabilities: string[]
 }
 
 const { t } = useI18n()
 const page = usePage()
 // `nav` vaut null sur les pages non authentifiées (login, erreur) : aucune stat n'y est chargée.
 const nav = computed(() => page.props.nav as NavStats | null)
+const currentUser = computed(() => (page.props.user as CurrentUser | null) ?? null)
+
+/**
+ * ⚠️ **Masquer une entrée n'est pas un droit.** La route est fermée par son middleware de
+ * capacité, que ce menu l'affiche ou non ; ce filtre sert seulement à ne pas proposer des
+ * liens qui répondraient 403. Les deux, jamais l'un sans l'autre.
+ *
+ * `isAdmin` est composé ici plutôt que d'être aplati côté serveur : il n'existe pas de
+ * capacité « tout », donc rien à énumérer dans le payload.
+ */
+function can(capability: string): boolean {
+  const user = currentUser.value
+  if (!user) return false
+  return user.isAdmin || user.capabilities.includes(capability)
+}
+
+const isAdmin = computed(() => currentUser.value?.isAdmin === true)
 const locale = computed(() => (page.props.locale as string | undefined) ?? 'fr')
 const supportedLocales = computed(
   () => (page.props.supportedLocales as string[] | undefined) ?? ['fr']
@@ -42,41 +67,65 @@ interface NavItem {
   alert?: boolean
 }
 
-const navItems = computed<NavItem[]>(() => [
-  { key: 'accueil', href: '/', icon: LayoutDashboard },
-  {
-    key: 'services',
-    href: '/services',
-    icon: Server,
-    badge: nav.value?.services.down,
-    alert: (nav.value?.services.down ?? 0) > 0,
-  },
-  {
-    key: 'agents',
-    href: '/agents',
-    icon: Bot,
-    badge: nav.value?.agents.failed,
-    alert: (nav.value?.agents.failed ?? 0) > 0,
-  },
-  {
-    key: 'veille',
-    href: '/veille',
-    icon: Rss,
-    badge: nav.value?.veille.queue,
-  },
-  {
-    key: 'revision',
-    href: '/revision',
-    icon: Layers,
-    badge: nav.value?.leitner.due,
-    alert: (nav.value?.leitner.due ?? 0) > 0,
-  },
-])
+const navItems = computed<NavItem[]>(() => {
+  const items: NavItem[] = []
 
-const systemItems: NavItem[] = [
-  { key: 'journaux', href: '/', icon: ScrollText },
-  { key: 'reglages', href: '/', icon: Settings },
-]
+  if (can('dashboard.view')) {
+    items.push({ key: 'accueil', href: '/', icon: LayoutDashboard })
+  }
+  if (isAdmin.value) {
+    items.push(
+      {
+        key: 'services',
+        href: '/services',
+        icon: Server,
+        badge: nav.value?.services?.down,
+        alert: (nav.value?.services?.down ?? 0) > 0,
+      },
+      {
+        key: 'agents',
+        href: '/agents',
+        icon: Bot,
+        badge: nav.value?.agents?.failed,
+        alert: (nav.value?.agents?.failed ?? 0) > 0,
+      }
+    )
+  }
+  if (can('veille.view')) {
+    items.push({
+      key: 'veille',
+      href: '/veille',
+      icon: Rss,
+      badge: nav.value?.veille?.queue,
+    })
+  }
+  if (can('leitner.view')) {
+    items.push({
+      key: 'revision',
+      href: '/revision',
+      icon: Layers,
+      badge: nav.value?.leitner?.due,
+      alert: (nav.value?.leitner?.due ?? 0) > 0,
+    })
+  }
+
+  return items
+})
+
+const systemItems = computed<NavItem[]>(() => {
+  const items: NavItem[] = [
+    { key: 'journaux', href: '/', icon: ScrollText },
+    { key: 'reglages', href: '/', icon: Settings },
+  ]
+
+  // L'écran qui distribue les droits n'est ouvert qu'aux administrateurs — et il ne
+  // s'ouvre pas non plus par une capacité, sinon un rôle pourrait y donner accès.
+  if (isAdmin.value) {
+    items.unshift({ key: 'administration', href: '/admin/users', icon: Users })
+  }
+
+  return items
+})
 
 function isActive(href: string): boolean {
   return href === '/' ? page.url === '/' : page.url.startsWith(href)
@@ -239,8 +288,8 @@ function switchLocale(next: string): void {
           <div class="text-[11px]">
             {{
               t('sidebar.counts', {
-                services: nav?.services.total ?? 0,
-                agents: nav?.agents.total ?? 0,
+                services: nav?.services?.total ?? 0,
+                agents: nav?.agents?.total ?? 0,
               })
             }}
           </div>

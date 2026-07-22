@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
-import User from '#core/auth/models/user'
+import { createUserWith } from '#tests/helpers/users'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerService from '#modules/leitner/services/leitner_service'
 
@@ -11,11 +11,7 @@ test.group('Leitner / intervalles des boîtes', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   function login() {
-    return User.create({
-      fullName: 'Utilisateur Test',
-      email: 'test@example.com',
-      password: 'secret123',
-    })
+    return createUserWith(['leitner.cards.read', 'leitner.settings', 'leitner.review'])
   }
 
   const DEFAULTS = { box1Days: 1, box2Days: 2, box3Days: 4, box4Days: 7, box5Days: 30 }

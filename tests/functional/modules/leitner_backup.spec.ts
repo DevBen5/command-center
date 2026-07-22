@@ -2,7 +2,8 @@ import { DateTime } from 'luxon'
 import { test } from '@japa/runner'
 import type { ApiClient } from '@japa/api-client'
 import testUtils from '@adonisjs/core/services/test_utils'
-import User from '#core/auth/models/user'
+import type User from '#core/auth/models/user'
+import { createUserWith } from '#tests/helpers/users'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
@@ -18,11 +19,7 @@ test.group('Leitner / export JSON', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   async function login() {
-    return User.create({
-      fullName: 'Utilisateur Test',
-      email: 'test@example.com',
-      password: 'secret123',
-    })
+    return createUserWith(['leitner.cards.read', 'leitner.cards.write'])
   }
 
   /** Une carte révisée, classée sous DevOps · Docker. */
@@ -168,11 +165,7 @@ test.group('Leitner / import JSON', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   async function login() {
-    return User.create({
-      fullName: 'Utilisateur Test',
-      email: 'test@example.com',
-      password: 'secret123',
-    })
+    return createUserWith(['leitner.cards.read', 'leitner.cards.write'])
   }
 
   /** Poste un fichier JSON comme le ferait le formulaire de `/revision/settings`. */

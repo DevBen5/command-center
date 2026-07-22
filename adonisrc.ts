@@ -79,7 +79,13 @@ export default defineConfig({
   | List of modules to import before starting the application.
   |
   */
-  preloads: [() => import('#start/routes'), () => import('#start/kernel')],
+  preloads: [
+    // Avant les routes : elles citent des capacités que le registre doit déjà connaître
+    // pour que le test d'énumération puisse vérifier qu'aucune n'est une faute de frappe.
+    () => import('#start/capabilities'),
+    () => import('#start/routes'),
+    () => import('#start/kernel'),
+  ],
 
   /*
   |--------------------------------------------------------------------------

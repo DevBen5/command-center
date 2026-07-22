@@ -28,15 +28,20 @@ const NAV = {
 
 const mockedPage = { url: '/', props: {} as Record<string, unknown> }
 
+// Depuis CC-71, la barre ne montre que ce à quoi le compte a droit : sans `user` partagé,
+// aucune entrée n'est rendue. L'administrateur est le cas « voit tout », qui correspond à
+// ce que la barre affichait avant le lot ; le filtrage a ses propres tests plus bas.
+const ADMIN = { fullName: 'Admin', email: 'admin@example.com', isAdmin: true, capabilities: [] }
+
 vi.mock('@inertiajs/vue3', () => ({
   usePage: () => mockedPage,
   router: { post: vi.fn() },
   Link: { props: ['href'], template: '<a :href="href"><slot /></a>' },
 }))
 
-function monter(url: string) {
+function monter(url: string, user: unknown = ADMIN) {
   mockedPage.url = url
-  mockedPage.props = { nav: NAV, locale: 'fr', supportedLocales: ['fr', 'en'] }
+  mockedPage.props = { nav: NAV, user, locale: 'fr', supportedLocales: ['fr', 'en'] }
 
   return mount(AppLayout, {
     global: {
@@ -125,6 +130,59 @@ describe('Core / AppLayout', () => {
     expect(wrapper.text()).toContain(NAV.host)
 
     wrapper.unmount()
+  })
+
+  test('la barre ne montre que ce à quoi le compte a droit', () => {
+    // ⚠️ Ce filtrage est du **confort**, pas un droit : chaque route est fermée par son
+    // middleware de capacité, que la barre l'affiche ou non. Il sert à ne pas proposer des
+    // liens qui répondraient 403.
+    const lecteur = monter('/', {
+      fullName: 'Lecteur',
+      email: 'lecteur@example.com',
+      isAdmin: false,
+      capabilities: ['dashboard.view', 'leitner.view'],
+    })
+
+    const liens = lecteur.findAll('a').map((a) => a.attributes('href'))
+    expect(liens).toContain('/revision')
+    expect(liens).not.toContain('/veille')
+    expect(liens).not.toContain('/services')
+    expect(liens).not.toContain('/agents')
+    // L'écran d'administration ne s'ouvre pas non plus par une capacité.
+    expect(liens).not.toContain('/admin/users')
+
+    lecteur.unmount()
+  })
+
+  test('l’administration n’apparaît que pour un administrateur', () => {
+    const admin = monter('/')
+    expect(admin.findAll('a').map((a) => a.attributes('href'))).toContain('/admin/users')
+    admin.unmount()
+
+    // Même en portant toutes les capacités déclarées, un non-admin ne la voit pas : aucune
+    // capacité ne couvre Services, Agents ni l'administration.
+    const complet = monter('/', {
+      fullName: 'Complet',
+      email: 'complet@example.com',
+      isAdmin: false,
+      capabilities: [
+        'dashboard.view',
+        'veille.view',
+        'veille.items.write',
+        'veille.sources.write',
+        'leitner.view',
+        'leitner.review',
+        'leitner.cards.read',
+        'leitner.cards.write',
+        'leitner.ingest',
+        'leitner.settings',
+      ],
+    })
+    const liens = complet.findAll('a').map((a) => a.attributes('href'))
+    expect(liens).not.toContain('/admin/users')
+    expect(liens).not.toContain('/services')
+    expect(liens).toContain('/veille')
+    complet.unmount()
   })
 
   test('sans shared props, le layout se monte quand même (pages non authentifiées)', () => {
