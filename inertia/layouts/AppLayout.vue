@@ -1,19 +1,57 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import type { Component } from 'vue'
 import { Link, router, usePage } from '@inertiajs/vue3'
 import { useI18n } from 'vue-i18n'
+// Icônes importées nommément : le barrel entier casserait le tree-shaking.
+import {
+  Bot,
+  Layers,
+  LayoutDashboard,
+  Rss,
+  ScrollText,
+  Search,
+  Server,
+  Settings,
+  Users,
+} from 'lucide-vue-next'
 
 interface NavStats {
-  services: { total: number; down: number }
-  agents: { total: number; failed: number }
-  veille: { queue: number }
-  leitner: { due: number }
+  services: { total: number; down: number } | null
+  agents: { total: number; failed: number } | null
+  veille: { queue: number } | null
+  leitner: { due: number } | null
   host: string
+}
+
+interface CurrentUser {
+  fullName: string | null
+  email: string
+  isAdmin: boolean
+  capabilities: string[]
 }
 
 const { t } = useI18n()
 const page = usePage()
-const nav = computed(() => page.props.nav as NavStats | undefined)
+// `nav` vaut null sur les pages non authentifiées (login, erreur) : aucune stat n'y est chargée.
+const nav = computed(() => page.props.nav as NavStats | null)
+const currentUser = computed(() => (page.props.user as CurrentUser | null) ?? null)
+
+/**
+ * ⚠️ **Masquer une entrée n'est pas un droit.** La route est fermée par son middleware de
+ * capacité, que ce menu l'affiche ou non ; ce filtre sert seulement à ne pas proposer des
+ * liens qui répondraient 403. Les deux, jamais l'un sans l'autre.
+ *
+ * `isAdmin` est composé ici plutôt que d'être aplati côté serveur : il n'existe pas de
+ * capacité « tout », donc rien à énumérer dans le payload.
+ */
+function can(capability: string): boolean {
+  const user = currentUser.value
+  if (!user) return false
+  return user.isAdmin || user.capabilities.includes(capability)
+}
+
+const isAdmin = computed(() => currentUser.value?.isAdmin === true)
 const locale = computed(() => (page.props.locale as string | undefined) ?? 'fr')
 const supportedLocales = computed(
   () => (page.props.supportedLocales as string[] | undefined) ?? ['fr']
@@ -22,46 +60,72 @@ const supportedLocales = computed(
 interface NavItem {
   key: string
   href: string
-  shortcut: string
+  // L'icône se déclare avec l'entrée : le template n'a pas à connaître les clés.
+  icon: Component
+  // `undefined` = stat non chargée (pas de pastille) ; 0 = stat chargée et nulle (pastille neutre).
   badge?: number
   alert?: boolean
 }
 
-const navItems = computed<NavItem[]>(() => [
-  { key: 'accueil', href: '/', shortcut: 'g a' },
-  {
-    key: 'services',
-    href: '/services',
-    shortcut: 'g s',
-    badge: nav.value?.services.down || undefined,
-    alert: (nav.value?.services.down ?? 0) > 0,
-  },
-  {
-    key: 'agents',
-    href: '/agents',
-    shortcut: 'g g',
-    badge: nav.value?.agents.failed || undefined,
-    alert: (nav.value?.agents.failed ?? 0) > 0,
-  },
-  {
-    key: 'veille',
-    href: '/veille',
-    shortcut: 'g v',
-    badge: nav.value?.veille.queue || undefined,
-  },
-  {
-    key: 'revision',
-    href: '/revision',
-    shortcut: 'g r',
-    badge: nav.value?.leitner.due || undefined,
-    alert: (nav.value?.leitner.due ?? 0) > 0,
-  },
-])
+const navItems = computed<NavItem[]>(() => {
+  const items: NavItem[] = []
 
-const systemItems = [
-  { key: 'journaux', href: '/', shortcut: '' },
-  { key: 'reglages', href: '/', shortcut: 'g ,' },
-]
+  if (can('dashboard.view')) {
+    items.push({ key: 'accueil', href: '/', icon: LayoutDashboard })
+  }
+  if (isAdmin.value) {
+    items.push(
+      {
+        key: 'services',
+        href: '/services',
+        icon: Server,
+        badge: nav.value?.services?.down,
+        alert: (nav.value?.services?.down ?? 0) > 0,
+      },
+      {
+        key: 'agents',
+        href: '/agents',
+        icon: Bot,
+        badge: nav.value?.agents?.failed,
+        alert: (nav.value?.agents?.failed ?? 0) > 0,
+      }
+    )
+  }
+  if (can('veille.view')) {
+    items.push({
+      key: 'veille',
+      href: '/veille',
+      icon: Rss,
+      badge: nav.value?.veille?.queue,
+    })
+  }
+  if (can('leitner.view')) {
+    items.push({
+      key: 'revision',
+      href: '/revision',
+      icon: Layers,
+      badge: nav.value?.leitner?.due,
+      alert: (nav.value?.leitner?.due ?? 0) > 0,
+    })
+  }
+
+  return items
+})
+
+const systemItems = computed<NavItem[]>(() => {
+  const items: NavItem[] = [
+    { key: 'journaux', href: '/', icon: ScrollText },
+    { key: 'reglages', href: '/', icon: Settings },
+  ]
+
+  // L'écran qui distribue les droits n'est ouvert qu'aux administrateurs — et il ne
+  // s'ouvre pas non plus par une capacité, sinon un rôle pourrait y donner accès.
+  if (isAdmin.value) {
+    items.unshift({ key: 'administration', href: '/admin/users', icon: Users })
+  }
+
+  return items
+})
 
 function isActive(href: string): boolean {
   return href === '/' ? page.url === '/' : page.url.startsWith(href)
@@ -114,7 +178,7 @@ function switchLocale(next: string): void {
     <aside class="flex w-[252px] shrink-0 flex-col border-r border-line bg-side">
       <div class="flex items-center gap-3 px-[22px] pt-6 pb-[18px]">
         <div
-          class="grid h-8 w-8 place-items-center rounded-[9px] bg-linear-to-br from-accent to-[#8a1a8a] text-sm font-bold text-white shadow-[0_0_18px_var(--color-accent-soft)]"
+          class="grid h-8 w-8 place-items-center rounded-[9px] bg-linear-to-br from-accent to-accent-deep text-sm font-bold text-white shadow-[0_0_18px_var(--color-accent-soft)]"
         >
           C
         </div>
@@ -150,13 +214,17 @@ function switchLocale(next: string): void {
               : 'text-txt-2 hover:bg-panel hover:text-txt'
           "
         >
-          <span
-            class="h-[18px] w-[18px] rounded-[5px] border-[1.5px] border-current opacity-70"
+          <component
+            :is="item.icon"
+            :size="18"
+            :stroke-width="1.5"
+            aria-hidden="true"
+            class="shrink-0 opacity-70"
             :class="isActive(item.href) ? 'text-accent opacity-100' : ''"
-          ></span>
+          />
           {{ t(`nav.${item.key}`) }}
           <span
-            v-if="item.badge"
+            v-if="item.badge !== undefined"
             class="ml-auto grid h-[19px] min-w-[22px] place-items-center rounded-full px-1.5 font-mono text-[11px]"
             :class="
               item.alert ? 'bg-accent text-white' : 'border border-line bg-panel-2 text-txt-2'
@@ -164,7 +232,6 @@ function switchLocale(next: string): void {
           >
             {{ item.badge }}
           </span>
-          <span v-else class="ml-auto font-mono text-[11px] text-txt-3">{{ item.shortcut }}</span>
         </Link>
       </nav>
 
@@ -178,13 +245,14 @@ function switchLocale(next: string): void {
           :href="item.href"
           class="flex items-center gap-3 rounded-[10px] px-[13px] py-[10px] text-[13.5px] font-medium text-txt-2 opacity-55 transition hover:bg-panel hover:text-txt"
         >
-          <span
-            class="h-[18px] w-[18px] rounded-[5px] border-[1.5px] border-current opacity-70"
-          ></span>
+          <component
+            :is="item.icon"
+            :size="18"
+            :stroke-width="1.5"
+            aria-hidden="true"
+            class="shrink-0 opacity-70"
+          />
           {{ t(`nav.${item.key}`) }}
-          <span v-if="item.shortcut" class="ml-auto font-mono text-[11px] text-txt-3">{{
-            item.shortcut
-          }}</span>
         </Link>
       </nav>
 
@@ -220,8 +288,8 @@ function switchLocale(next: string): void {
           <div class="text-[11px]">
             {{
               t('sidebar.counts', {
-                services: nav?.services.total ?? 0,
-                agents: nav?.agents.total ?? 0,
+                services: nav?.services?.total ?? 0,
+                agents: nav?.agents?.total ?? 0,
               })
             }}
           </div>
@@ -256,7 +324,7 @@ function switchLocale(next: string): void {
         class="w-[640px] max-w-[90%] overflow-hidden rounded-[14px] border border-line-2 bg-panel shadow-2xl"
       >
         <div class="flex items-center gap-3 border-b border-line px-[19px] py-[17px]">
-          <span class="h-[17px] w-[17px] rounded-full border-[1.5px] border-txt-3"></span>
+          <Search :size="17" :stroke-width="1.5" aria-hidden="true" class="shrink-0 text-txt-3" />
           <input
             v-model="paletteQuery"
             autofocus

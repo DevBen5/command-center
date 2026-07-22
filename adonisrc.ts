@@ -54,6 +54,21 @@ export default defineConfig({
     () => import('@adonisjs/auth/auth_provider'),
     () => import('@adonisjs/inertia/inertia_provider'),
     () => import('@adonisjs/i18n/i18n_provider'),
+    // L'ingestion Leitner tourne en tâche de fond dans le processus : un redémarrage
+    // laisse des travaux coincés en `running`. Ce provider les balaie au boot.
+    // `web` seulement : ni `node ace`, ni les tests, n'ont de tâche de fond à récupérer.
+    {
+      file: () => import('#providers/leitner_provider'),
+      environment: ['web'],
+    },
+    // La collecte des flux de veille tourne elle aussi en tâche de fond dans le processus.
+    // Ce provider démarre la boucle au boot et l'arrête à l'extinction. `web` seulement :
+    // en test, la collecte est appelée directement avec un faux fetcher — une boucle de fond
+    // irait chercher de vrais flux sur le réseau pendant que la suite s'exécute.
+    {
+      file: () => import('#providers/veille_provider'),
+      environment: ['web'],
+    },
   ],
 
   /*
@@ -64,7 +79,13 @@ export default defineConfig({
   | List of modules to import before starting the application.
   |
   */
-  preloads: [() => import('#start/routes'), () => import('#start/kernel')],
+  preloads: [
+    // Avant les routes : elles citent des capacités que le registre doit déjà connaître
+    // pour que le test d'énumération puisse vérifier qu'aucune n'est une faute de frappe.
+    () => import('#start/capabilities'),
+    () => import('#start/routes'),
+    () => import('#start/kernel'),
+  ],
 
   /*
   |--------------------------------------------------------------------------

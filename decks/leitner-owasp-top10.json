@@ -1,0 +1,173 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "name": "Sécurité",
+      "themes": ["OWASP"]
+    }
+  ],
+  "cards": [
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "Que classe l'OWASP Top 10 ?",
+      "back": "Les dix risques de sécurité applicative web les plus critiques. C'est un document de **sensibilisation**, construit sur des données réelles — pas un standard de certification. Le standard vérifiable, c'est l'ASVS."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "Comment le Top 10 est-il construit ?",
+      "back": "Huit catégories sur dix viennent des **données** (taux d'incidence mesuré sur des centaines de milliers d'applications), deux du **sondage communautaire** — pour attraper ce que les tests automatisés ne voient pas encore."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "Couvrir les dix risques rend-il une application sûre ?",
+      "back": "Non, et l'OWASP le dit lui-même : le Top 10 est un point de départ, pas une checklist de conformité. Pour vérifier, l'ASVS (standard) et le WSTG (guide de test)."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "Quelles catégories sont **nouvelles** dans le Top 10 2021 ?",
+      "back": "Trois : **A04** Insecure Design, **A08** Software and Data Integrity Failures, **A10** SSRF. Les deux premières viennent de l'analyse des données, la troisième du sondage communautaire."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "A01:2021 — quel risque ?",
+      "back": "**Broken Access Control** (contrôle d'accès défaillant). Passé n°5 → n°1 en 2021 : 94 % des applications testées présentaient au moins une forme de contrôle d'accès cassé."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "Contrôle d'accès : quelle règle par défaut appliquer ?",
+      "back": "**Deny by default** — tout refuser sauf les ressources explicitement publiques. Et le contrôle se fait **côté serveur**, jamais dans le client : masquer un bouton n'est pas un contrôle d'accès."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "Qu'est-ce qu'une IDOR ?",
+      "back": "*Insecure Direct Object Reference* : l'application expose la référence d'un objet (`/facture/1043`) sans vérifier qui en est propriétaire. Changer l'id donne accès à la donnée d'autrui. C'est le cas le plus courant d'A01."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "A02:2021 — quel risque, et sous quel ancien nom ?",
+      "back": "**Cryptographic Failures**, anciennement « Sensitive Data Exposure ». Le renommage est délibéré : l'ancien nom décrivait le *symptôme*, le nouveau décrit la *cause*."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "Pourquoi ne pas hacher un mot de passe avec SHA-256 ?",
+      "back": "SHA-256 est conçu pour être **rapide** : un GPU en teste des milliards par seconde. Un mot de passe veut une fonction **lente et salée** — Argon2id, scrypt, ou bcrypt."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "A03:2021 — quel risque, et qu'y a-t-on fusionné ?",
+      "back": "**Injection** : SQL, NoSQL, commande OS, LDAP — et le **XSS**, fusionné dedans en 2021. Descendu n°1 → n°3."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "Pourquoi le XSS a-t-il rejoint la catégorie Injection ?",
+      "back": "Parce que c'est le même défaut : une donnée non fiable interprétée comme du **code**. Seul l'interpréteur change — le navigateur au lieu du SGBD."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "La défense n°1 contre l'injection SQL ?",
+      "back": "Les **requêtes paramétrées** : la donnée ne traverse jamais le parseur SQL, elle ne peut donc pas devenir du code. L'échappement manuel est un repli, pas une défense — il se contourne."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "Pourquoi valider par liste blanche plutôt que par liste noire ?",
+      "back": "Une liste noire énumère ce qu'on connaît de mauvais : **ce qu'on n'a pas prévu passe**. Une liste blanche énumère ce qui est permis : l'inconnu est refusé par défaut."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "A04:2021 — quel risque, et pourquoi est-il à part ?",
+      "back": "**Insecure Design** : un défaut de **conception**, pas d'implémentation. Une implémentation parfaite d'un design fautif reste vulnérable — aucun correctif de code ne la rattrape."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "Insecure Design vs Security Misconfiguration — la différence ?",
+      "back": "Le **design** est ce qu'on a omis de concevoir (aucune limite de tentatives, aucun modèle de menace). La **misconfiguration** est un contrôle qui existe mais qu'on a mal réglé."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "A05:2021 — quel risque, et qu'y a-t-on fusionné ?",
+      "back": "**Security Misconfiguration** : comptes par défaut, services inutiles activés, erreurs bavardes, en-têtes manquants, permissions cloud trop larges. Le **XXE** y a été fusionné en 2021."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "A06:2021 — quel risque, et sa particularité ?",
+      "back": "**Vulnerable and Outdated Components**. Le seul risque du Top 10 sans CVE propre : la faille est chez autrui, mais elle est dans **ton** application."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "A07:2021 — quel risque, et pourquoi a-t-il reculé ?",
+      "back": "**Identification and Authentication Failures** (ex « Broken Authentication »). Descendu n°2 → n°7 : les frameworks d'authentification standardisés ont fait leur travail."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "Qu'est-ce que le *credential stuffing* ?",
+      "back": "Rejouer en masse des couples identifiant/mot de passe volés **ailleurs**, en pariant sur leur réutilisation. Défenses : MFA, limitation de débit, et comparaison à une liste de mots de passe déjà compromis."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "A08:2021 — quel risque, et d'où vient-il ?",
+      "back": "**Software and Data Integrity Failures**. Nouvelle catégorie en 2021, née des attaques sur la chaîne d'approvisionnement (SolarWinds). Elle absorbe aussi la désérialisation non fiable, ex-A08:2017."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "À quoi sert l'attribut `integrity=` sur une balise `<script>` ?",
+      "back": "*Subresource Integrity* : le navigateur vérifie le hash du fichier **avant** de l'exécuter. Un CDN compromis qui sert un script modifié est refusé."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "A09:2021 — quel risque, et pourquoi compte-t-il ?",
+      "back": "**Security Logging and Monitoring Failures**. Il ne provoque pas la compromission : il l'empêche d'être **vue**. Le délai moyen de détection d'une brèche se compte en mois."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "Que ne doit jamais contenir un log ?",
+      "back": "Mots de passe, jetons, numéros de carte, données personnelles en clair. Un log est copié, expédié, indexé et lu par des gens qui n'ont pas accès à la base."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "A10:2021 — quel risque, et comment est-il entré ?",
+      "back": "**Server-Side Request Forgery (SSRF)**. Entré par le **sondage communautaire**, pas par les données : son incidence mesurée est faible, mais son impact et l'inquiétude des praticiens sont élevés."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "En quoi consiste une SSRF ?",
+      "back": "On fait émettre au serveur une requête vers une URL qu'on contrôle. Le serveur est **dans** le réseau interne : il atteint ce que l'attaquant ne peut pas — métadonnées cloud (`169.254.169.254`), services non exposés, `localhost`."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "Comment se défendre d'une SSRF ?",
+      "back": "Liste blanche de destinations, validée **après** résolution DNS. Valider avant se contourne par un domaine qui résout vers `127.0.0.1` — c'est le *DNS rebinding*."
+    },
+    {
+      "category": "Sécurité",
+      "theme": "OWASP",
+      "front": "Que fait une Content-Security-Policy, et que ne fait-elle pas ?",
+      "back": "Elle déclare au navigateur les sources autorisées de scripts, styles et images. C'est une **défense en profondeur** : elle ne corrige pas l'injection, elle empêche le script injecté de s'exécuter."
+    }
+  ]
+}

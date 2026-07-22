@@ -1,0 +1,72 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 6 0 R >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 7 0 R >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+6 0 obj
+<< /Length 665 >>
+stream
+BT
+/F1 11 Tf
+15 TL
+56 780 Td
+(Le handshake TLS) Tj T*
+() Tj T*
+(Le handshake TLS poursuit deux buts distincts. Il authentifie le serveur) Tj T*
+(par son certificat, signe par une autorite de certification, puis negocie) Tj T*
+(une cle de session symetrique. Cette cle chiffre ensuite la totalite du) Tj T*
+(trafic applicatif echange entre le client et le serveur.) Tj T*
+() Tj T*
+(Le chiffrement asymetrique ne sert qu'a cette negociation initiale : il est) Tj T*
+(beaucoup trop lent pour chiffrer les donnees elles-memes. Sa compre-) Tj T*
+(hension est la cle de tout le reste du cours, et la source d'erreur la plus) Tj T*
+(frequente chez les debutants.) Tj T*
+ET
+endstream
+endobj
+7 0 obj
+<< /Length 529 >>
+stream
+BT
+/F1 11 Tf
+15 TL
+56 780 Td
+(Le resolveur DNS) Tj T*
+() Tj T*
+(Un resolveur DNS traduit un nom de domaine en adresse IP. Il interroge) Tj T*
+(successivement les serveurs racine, les serveurs de la zone de premier) Tj T*
+(niveau, puis les serveurs faisant autorite sur le domaine demande.) Tj T*
+() Tj T*
+(Chaque reponse porte une duree de vie \(TTL\) qui borne la mise en cache.) Tj T*
+(Un TTL long soulage les serveurs mais retarde la propagation des chan-) Tj T*
+(gements ; un TTL court fait exactement le contraire.) Tj T*
+ET
+endstream
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000127 00000 n 
+0000000253 00000 n 
+0000000379 00000 n 
+0000000476 00000 n 
+0000001192 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+1772
+%%EOF
