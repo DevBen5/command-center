@@ -1,0 +1,270 @@
+{
+  "version": 1,
+  "categories": [{ "name": "Linux", "themes": ["Commandes — expert"] }],
+  "cards": [
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "set -euo pipefail : que fait chacune des trois options ?",
+      "back": "set -e           le script s'arrête à la première commande qui échoue\nset -u           utiliser une variable non définie devient une erreur\nset -o pipefail  un pipeline échoue si N'IMPORTE quelle étape échoue\n\n⚠️ Sans pipefail, false | true rend 0 : le code de sortie d'un pipeline est celui de la DERNIÈRE commande. C'est ainsi qu'un curl mort suivi d'un grep fait croire à un succès."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "Les limites de set -e qu'il faut connaître",
+      "back": "set -e NE déclenche PAS :\n  • dans une condition : if cmd; then, while cmd, cmd && autre\n  • pour toute commande sauf la dernière d'un pipeline (sauf pipefail)\n  • dans une fonction appelée depuis une condition\n\nD'où : set -e est un filet, pas une garantie. Les vérifications critiques se testent explicitement."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "trap : nettoyer quoi qu'il arrive",
+      "back": "cleanup() { rm -rf \"$TMPDIR\"; }\ntrap cleanup EXIT\ntrap 'echo interrompu; exit 130' INT TERM\n\ntrap ... EXIT s'exécute à TOUTE sortie : fin normale, exit, ou erreur sous set -e.\n\n⚠️ SIGKILL (-9) ne peut pas être intercepté : aucun trap ne s'exécutera."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "mktemp : le fichier temporaire fait correctement",
+      "back": "tmp=$(mktemp)\ndir=$(mktemp -d)\ntrap 'rm -rf \"$dir\"' EXIT\n\nmktemp crée le fichier ATOMIQUEMENT, avec un nom imprévisible et des droits 600.\n\n⚠️ /tmp/monfichier.$$ est une faille classique : le nom est devinable, et un attaquant peut y placer un lien symbolique avant vous (attaque par symlink)."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "Les expansions de paramètres qui remplacent basename et dirname",
+      "back": "${var#motif}    retire le plus COURT préfixe correspondant\n${var##motif}   retire le plus LONG préfixe    → ${f##*/}  = basename\n${var%motif}    retire le plus COURT suffixe   → ${f%.txt} = sans extension\n${var%%motif}   retire le plus LONG suffixe\n${var/a/b}      remplace la 1re occurrence\n${var//a/b}     remplace toutes les occurrences\n\nAucun processus lancé : c'est le shell lui-même, donc bien plus rapide dans une boucle."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "Valeurs par défaut et variables obligatoires",
+      "back": "${VAR:-defaut}    utilise « defaut » si VAR est vide ou absente\n${VAR:=defaut}    idem, ET affecte la valeur à VAR\n${VAR:?message}   ÉCHOUE avec ce message si VAR est vide\n${VAR:+autre}     rend « autre » seulement si VAR EST définie\n\n  : \"${DATABASE_URL:?DATABASE_URL est requise}\"\n\nUne ligne, et le script s'arrête tout de suite avec un message clair au lieu d'échouer trois étapes plus loin."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "La substitution de processus <(...)",
+      "back": "diff <(sort a.txt) <(sort b.txt)\ncomm -12 <(cmd1) <(cmd2)\nwhile read l; do ...; done < <(find . -type f)\n\n<(cmd) donne un descripteur de fichier (/dev/fd/63) que la commande lit comme un vrai fichier : plus de fichier temporaire à créer NI à nettoyer.\n\n>(cmd) fait l'inverse (écrire dedans). Bash/zsh seulement — pas POSIX sh."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "Heredoc : <<EOF et <<'EOF', la différence qui compte",
+      "back": "cat <<EOF      → les $variables et $(commandes) SONT interprétées\nBonjour $USER\nEOF\n\ncat <<'EOF'    → tout est LITTÉRAL (les quotes autour du marqueur)\nBonjour $USER\nEOF\n\n<<-EOF permet d'indenter le contenu avec des TABULATIONS (pas des espaces).\n\nRègle : 'EOF' quoté dès qu'on écrit un script, une regex ou une config — sinon le shell hôte mange les $."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "Here-string : <<<",
+      "back": "grep motif <<< \"$variable\"\nread a b c <<< \"1 2 3\"\njq . <<< \"$json\"\n\nEnvoie une CHAÎNE sur l'entrée standard, sans echo ni pipe. Plus court et sans sous-shell :\n  echo \"$v\" | grep x     →  grep x <<< \"$v\""
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "exec : rediriger tout le script d'un coup",
+      "back": "exec > >(tee -a script.log) 2>&1\n\nÀ partir de cette ligne, TOUTE la sortie du script part à l'écran et dans le fichier — sans avoir à suffixer chaque commande.\n\nexec 3< fichier ouvre le descripteur 3 ; exec 3>&- le ferme.\nexec cmd (sans redirection) REMPLACE le shell par cmd : c'est l'idiome des entrypoints Docker, pour que le PID 1 soit l'application et reçoive les signaux."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "Les noms de fichiers avec espaces : find -print0 | xargs -0",
+      "back": "find . -name \"*.log\" -print0 | xargs -0 rm\n\nPar défaut, xargs découpe sur les espaces ET les sauts de ligne : « mon fichier.log » devient deux arguments, et rm supprime… autre chose.\n\n-print0 sépare par un octet NUL, seul caractère interdit dans un nom de fichier ; -0 le lit. C'est la seule forme réellement sûre."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "xargs -P : paralléliser sans écrire de code",
+      "back": "cat urls.txt | xargs -P 8 -n 1 curl -sO\nfind . -name \"*.png\" -print0 | xargs -0 -P 4 -I {} optipng {}\n\n-P 8  huit processus simultanés\n-n 1  un argument par appel\n\n⚠️ Les sorties s'entremêlent : ne pas paralléliser des commandes qui écrivent dans le même fichier sans verrou."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "IFS : le séparateur de champs, et pourquoi on le neutralise",
+      "back": "while IFS= read -r ligne; do ...; done < fichier\n\nIFS=  (vide) empêche read de rogner les espaces de début et de fin.\n-r    empêche read d'interpréter les antislashs.\n\nC'est LA forme canonique pour lire un fichier ligne par ligne. IFS=$'\\\\n' ou IFS=, servent à découper sur un autre séparateur — à restaurer ensuite."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "Tableaux bash : \"${arr[@]}\" et pourquoi les guillemets sont obligatoires",
+      "back": "arr=(un \"deux mots\" trois)\nfor x in \"${arr[@]}\"; do echo \"$x\"; done   → 3 éléments\nfor x in ${arr[@]};   do echo \"$x\"; done   → 4 « éléments » (deux mots éclaté)\n\n\"${arr[@]}\"  → un mot par élément (ce qu'on veut)\n\"${arr[*]}\"  → UN seul mot, joint par le premier caractère d'IFS\n${#arr[@]}   → le nombre d'éléments"
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "awk : BEGIN, END et les tableaux associatifs",
+      "back": "awk '{somme[$1] += $2} END {for (k in somme) print k, somme[k]}' f\n\nBEGIN { }  avant la première ligne (en-têtes, FS)\nEND   { }  après la dernière (totaux)\n\nUn tableau associatif awk est un dictionnaire natif : c'est ce qui permet d'agréger un fichier de plusieurs Go en un seul passage, sans tri ni mémoire de la taille des données."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "awk : joindre deux fichiers avec l'idiome FNR==NR",
+      "back": "awk 'FNR==NR {cle[$1]; next} $2 in cle' liste.txt donnees.txt\n\nNR   = numéro de ligne global (tous fichiers confondus)\nFNR  = numéro de ligne DANS le fichier courant\n\nFNR==NR n'est vrai que pendant le premier fichier : on le charge en mémoire, puis on filtre le second avec. C'est le « join » d'awk, et il ne demande aucun tri préalable."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "getopts : parser les options d'un script",
+      "back": "while getopts \"hv:f:\" opt; do\n  case $opt in\n    h) usage; exit 0 ;;\n    v) verbose=$OPTARG ;;\n    f) fichier=$OPTARG ;;\n    *) usage; exit 1 ;;\n  esac\ndone\nshift $((OPTIND-1))\n\nLe « : » après une lettre signifie « prend un argument ». shift $((OPTIND-1)) laisse les arguments positionnels restants dans $@.\n\nLimite : getopts ne gère PAS les options longues (--verbose)."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "flock : empêcher deux exécutions simultanées d'un cron",
+      "back": "flock -n /var/lock/mon.lock -c './traitement.sh'\n\nou dans le script lui-même :\n  exec 200>/var/lock/mon.lock\n  flock -n 200 || exit 0\n\n-n : ne pas attendre, sortir tout de suite si le verrou est pris.\n\nRésout le problème réel : un traitement de 10 minutes lancé toutes les 5 minutes finit par se marcher dessus. Le verrou est libéré automatiquement à la mort du processus."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "timeout : borner la durée d'une commande",
+      "back": "timeout 30s curl URL\ntimeout -k 5s 30s ./traitement.sh\n\n-k 5s : envoie SIGTERM à 30 s, puis SIGKILL 5 s plus tard si le processus n'est pas mort.\n\nCode de sortie 124 = le délai a été atteint. À tester explicitement, sinon on ne distingue pas un timeout d'un échec normal."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "strace : voir ce qu'un processus demande vraiment au noyau",
+      "back": "strace -f -e trace=openat ./programme      quels fichiers il tente d'ouvrir\nstrace -p 12345 -f                        s'attacher à un processus vivant\nstrace -c ./programme                     résumé statistique des appels\n\n-f suit les processus fils.\n\nRépond à la question que les logs ne répondent jamais : « il cherche la config OÙ ? » — la ligne ENOENT le dit à coup sûr."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "Disque plein alors que du ne trouve rien : pourquoi ?",
+      "back": "lsof +L1\nlsof | grep deleted\n\nUn fichier SUPPRIMÉ mais encore OUVERT par un processus n'apparaît plus dans l'arborescence (du ne le voit pas) mais occupe toujours le disque : le noyau ne libère les blocs qu'à la fermeture du dernier descripteur.\n\nCas typique : un log tourné pendant que le service l'écrit encore. Solution : redémarrer ou recharger le service, pas rm."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "/proc/<PID>/ : les quatre entrées qui sauvent une enquête",
+      "back": "/proc/PID/cmdline   la ligne de commande exacte (séparée par des NUL)\n/proc/PID/environ   les variables d'environnement AU LANCEMENT\n/proc/PID/cwd       lien vers le répertoire courant du processus\n/proc/PID/fd/       tous les fichiers et sockets ouverts\n\n  tr '\\\\0' '\\\\n' < /proc/12345/environ\n\nRépond à « avec quelle configuration ce processus tourne-t-il RÉELLEMENT ? » — souvent différente du fichier qu'on est en train de lire."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "Récupérer un fichier supprimé encore ouvert par un processus",
+      "back": "ls -l /proc/12345/fd/ | grep deleted\ncp /proc/12345/fd/3 fichier-recupere\n\nTant qu'un processus garde le descripteur ouvert, le contenu est intact et accessible via /proc/PID/fd/N.\n\nLa fenêtre se referme dès que le processus se termine : à faire AVANT de redémarrer le service."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "tcpdump : capturer du trafic pour l'analyser",
+      "back": "sudo tcpdump -i any -nn port 443\nsudo tcpdump -i eth0 -nn host 10.0.0.5 -w capture.pcap\n\n-nn  aucune résolution DNS ni de nom de service (rapide, et sans requêtes parasites)\n-i any  toutes les interfaces\n-w   écrit un .pcap, à ouvrir dans Wireshark\n\nLa syntaxe de filtre (BPF) est la même que celle de Wireshark côté capture."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "Résolution DNS : dig, et pourquoi getent est parfois plus juste",
+      "back": "dig +short exemple.com\ndig @8.8.8.8 exemple.com A\ndig +trace exemple.com\n\n⚠️ dig interroge le DNS DIRECTEMENT : il ignore /etc/hosts, nsswitch.conf et le cache local.\n\ngetent hosts exemple.com passe par la même résolution que les applications — c'est celui-là qui dit ce que votre programme verra réellement."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "nice, renice, ionice : arbitrer CPU et disque",
+      "back": "nice -n 19 ./gros-traitement.sh    priorité CPU la plus basse\nrenice -n 10 -p 12345             change celle d'un processus vivant\nionice -c 3 -p 12345              classe « idle » pour les E/S disque\n\nDe -20 (prioritaire) à 19 (courtois). Seul root peut baisser en dessous de 0.\n\nionice est souvent le bon levier : c'est le disque, pas le CPU, qui rend une machine inutilisable pendant une sauvegarde."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "ulimit : les limites qui font tomber un serveur",
+      "back": "ulimit -n         nombre max de fichiers ouverts (souvent 1024 par défaut)\nulimit -a         toutes les limites\nulimit -n 65535   pour ce shell et ses enfants\n\n« Too many open files » sur un serveur web = cette limite, pas un bug applicatif.\n\nDurablement : /etc/security/limits.conf, ou LimitNOFILE= dans l'unité systemd — la limite du shell ne s'applique PAS à un service géré par systemd."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "Limiter la mémoire d'une commande avec systemd-run",
+      "back": "systemd-run --scope -p MemoryMax=512M -p CPUQuota=50% ./traitement.sh\n\nCrée un cgroup temporaire : au-delà de 512 Mo, l'OOM killer frappe CE processus, pas un autre.\n\nBien plus fiable qu'ulimit -v, qui limite l'espace d'adressage virtuel — une notion que les allocateurs modernes rendent presque ininterprétable."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "nsenter : entrer dans les namespaces d'un conteneur",
+      "back": "sudo nsenter -t $(docker inspect -f '{{.State.Pid}}' mon-conteneur) -n ss -tulpn\n\n-n réseau  -m montages  -p PID  -u hostname\n\nPermet d'inspecter le RÉSEAU d'un conteneur avec les outils de l'hôte — précieux quand l'image est minimale et ne contient ni ss, ni ip, ni curl.\n\nunshare fait l'inverse : créer de nouveaux namespaces."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "dd : copie bloc à bloc, et les précautions",
+      "back": "dd if=/dev/sda of=disque.img bs=4M status=progress conv=fsync\n\nif = input file, of = OUTPUT FILE, bs = taille de bloc\nstatus=progress affiche l'avancement (sans lui, dd est muet des heures)\nconv=fsync force l'écriture réelle avant de rendre la main\n\n⚠️ Inverser if et of écrase le disque source. dd ne demande jamais confirmation — son surnom « disk destroyer » n'est pas une plaisanterie."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "Lien dur ou lien symbolique : quelle différence réelle ?",
+      "back": "ln cible dur          même INODE : deux noms pour les mêmes données\nln -s cible symbolique  un fichier qui CONTIENT un chemin\n\nSupprimer la cible :\n  lien dur       → les données survivent (le compteur de liens décrémente)\n  lien symbolique → lien cassé\n\nls -i montre l'inode ; stat donne le nombre de liens. Un lien dur ne peut pas traverser un système de fichiers ni viser un dossier."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "comm : comparer deux fichiers triés",
+      "back": "comm -12 a.txt b.txt    lignes présentes dans LES DEUX\ncomm -23 a.txt b.txt    lignes seulement dans a\ncomm -13 a.txt b.txt    lignes seulement dans b\n\nLes chiffres SUPPRIMENT les colonnes correspondantes.\n\n⚠️ Les deux fichiers doivent être triés avec le même ordre de tri — d'où comm -12 <(sort a) <(sort b), et LC_ALL=C partout pour éviter qu'une locale ne change le classement."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "LC_ALL=C : pourquoi l'ajouter devant sort et grep",
+      "back": "LC_ALL=C sort gros-fichier.txt\n\nLa locale change l'ORDRE de tri (é entre e et f en français, ailleurs en C) et le sens des classes de caractères comme [a-z].\n\nDeux gains : un résultat reproductible d'une machine à l'autre, et un tri souvent plusieurs fois plus rapide, la comparaison se faisant octet par octet."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "stdbuf : la sortie qui n'apparaît pas dans un pipe",
+      "back": "stdbuf -oL commande | grep motif\n\nUn programme détecte s'il écrit vers un TERMINAL (buffer ligne par ligne) ou vers un PIPE (buffer de 4 Ko). D'où : ./programme | grep erreur ne montre rien pendant des minutes, puis tout d'un coup.\n\n-oL force le buffering ligne. unbuffer (paquet expect) fait de même en simulant un terminal."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "tee >(...) : envoyer un flux à plusieurs traitements à la fois",
+      "back": "./programme | tee >(grep ERROR > erreurs.log) >(wc -l > compte.txt) > tout.log\n\ntee duplique son entrée vers plusieurs destinations, et la substitution de processus permet que ces destinations soient des COMMANDES, pas seulement des fichiers.\n\nUn seul passage sur les données, plusieurs analyses en parallèle."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "mkfifo : un tube nommé",
+      "back": "mkfifo /tmp/tube\ncommande_lente > /tmp/tube &\nautre_commande < /tmp/tube\n\nUn FIFO est un pipe qui a un NOM dans le système de fichiers : deux processus lancés séparément peuvent s'y connecter, ce qu'un pipe | ne permet pas.\n\n⚠️ L'ouverture BLOQUE jusqu'à ce que les deux extrémités soient présentes — c'est le comportement attendu, pas un blocage."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "inotifywait : réagir à la modification d'un fichier",
+      "back": "inotifywait -m -r -e modify,create,delete ./src\n\nwhile inotifywait -qq -e modify fichier.conf; do systemctl reload nginx; done\n\n-m surveille en continu (monitor)  -r récursif  -e les événements\n\nC'est ce que le noyau expose, et ce sur quoi reposent les « watch » des outils de dev. Attention à la limite fs.inotify.max_user_watches sur les gros arbres."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "Déboguer un script : set -x et PS4",
+      "back": "set -x                trace chaque commande après expansion\nset +x                arrête la trace\nbash -x script.sh     sans modifier le script\n\nexport PS4='+ ${BASH_SOURCE}:${LINENO}: '\n\nPS4 rend la trace exploitable : sans lui, on voit les commandes mais pas d'où elles viennent."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "command -v plutôt que which : pourquoi ?",
+      "back": "if command -v docker >/dev/null 2>&1; then ...\n\ncommand -v est intégré au shell, POSIX, et connaît les alias, fonctions et builtins.\n\nwhich est un binaire externe, absent de certaines images minimales, et dont le code de sortie varie selon les implémentations — donc peu fiable dans un test."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "Les outils de diagnostic système : que regarde-t-on, et avec quoi ?",
+      "back": "vmstat 1        CPU, mémoire, swap, E/S — la vue d'ensemble en une ligne/s\niostat -xz 1    par disque : %util, await (latence réelle)\npidstat -d 1    quel PROCESSUS fait les E/S\nmpstat -P ALL 1 par cœur — révèle un seul cœur saturé\nfree -h         mémoire ; regarder « available », pas « free »\n\nLa colonne « si/so » de vmstat (swap in/out) : si elle bouge, tout le reste est une conséquence."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "La charge moyenne (load average) : que mesure-t-elle vraiment ?",
+      "back": "uptime → load average: 4.20, 3.85, 2.10   (1, 5 et 15 minutes)\n\n⚠️ Sous Linux, ce n'est PAS que le CPU : le compte inclut les processus en attente d'E/S DISQUE non interruptible (état D).\n\nD'où une charge de 30 sur une machine dont le CPU est à 5 % : le disque est saturé, pas le processeur. Comparer la valeur au nombre de cœurs (nproc)."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "OOM killer : comment savoir que c'est lui qui a tué le processus ?",
+      "back": "dmesg -T | grep -i \"killed process\"\njournalctl -k --since \"1 hour ago\" | grep -i oom\n\nUn processus qui disparaît sans trace dans ses propres logs, sans code d'erreur, avec un code de sortie 137 (128+9) : c'est le noyau qui l'a tué à court de mémoire.\n\n/proc/PID/oom_score_adj ajuste sa vulnérabilité (-1000 = intouchable)."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "Pourquoi un processus lancé en arrière-plan meurt à la fermeture du terminal",
+      "back": "Fermer le terminal envoie SIGHUP à tout le groupe de processus attaché.\n\nTrois parades, de la plus faible à la plus solide :\n  nohup cmd &          ignore SIGHUP\n  disown -h %1         retire la tâche de la table du shell (après coup)\n  tmux / screen        le processus appartient à une autre session, qu'on RETROUVE\n  systemd-run --user   un vrai service, qui survit à la déconnexion"
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — expert",
+      "front": "Analyser un log par tranche horaire, en une ligne",
+      "back": "awk '{print substr($4, 2, 14)}' access.log | uniq -c\n\nsubstr extrait « 22/Jul/2026:14 » de l'horodatage, uniq -c compte — et comme le log est déjà chronologique, aucun tri n'est nécessaire.\n\nLa leçon générale : exploiter l'ordre déjà présent dans les données évite un sort, seule étape du pipeline qui doive tout charger en mémoire."
+    }
+  ]
+}

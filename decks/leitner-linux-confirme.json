@@ -1,0 +1,276 @@
+{
+  "version": 1,
+  "categories": [{ "name": "Linux", "themes": ["Commandes — confirmé"] }],
+  "cards": [
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "grep : afficher les lignes AUTOUR du résultat",
+      "back": "grep -A 3 motif f   3 lignes après (After)\ngrep -B 3 motif f   3 lignes avant (Before)\ngrep -C 3 motif f   3 lignes de chaque côté (Context)\n\nIndispensable sur une stack trace : le message d'erreur seul ne dit presque rien."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "grep : les options qui changent la NATURE de la sortie",
+      "back": "grep -l motif *.ts   n'affiche que les NOMS de fichiers qui matchent\ngrep -c motif f      le nombre de lignes qui matchent\ngrep -o motif f      seulement la partie qui matche, pas la ligne entière\n\n-o + sort | uniq -c est l'idiome pour compter les occurrences d'un motif."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "grep -E : à quoi sert la regex « étendue » ?",
+      "back": "grep -E \"erreur|warning\" app.log\n\nSans -E, il faut échapper : grep \"erreur\\|warning\".\n-E active | ( ) + ? { } sans échappement. egrep est son ancien alias.\n\nSymétrique : grep -F traite le motif comme du texte BRUT (aucune regex), ce qui est plus rapide et plus sûr pour chercher une IP ou un chemin."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Chercher dans un projet en ignorant node_modules",
+      "back": "grep -rn --exclude-dir=node_modules \"motif\" .\n\n--exclude-dir se répète autant de fois que nécessaire (.git, dist…).\n--include=\"*.ts\" restreint aux fichiers voulus.\n\nAlternative moderne : ripgrep (rg), qui respecte le .gitignore par défaut."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "find : filtrer par type, par âge et par taille",
+      "back": "find . -type f          fichiers seulement\nfind . -type d          dossiers seulement\nfind . -mtime -7        modifiés il y a MOINS de 7 jours\nfind . -mtime +30       modifiés il y a PLUS de 30 jours\nfind . -size +100M      plus gros que 100 Mo\n\nLes critères s'enchaînent, et sont combinés par un ET implicite."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "find -exec : la différence entre \\; et +",
+      "back": "find . -name \"*.log\" -exec rm {} \\;\n  → un appel à rm PAR fichier (1000 fichiers = 1000 processus)\n\nfind . -name \"*.log\" -exec rm {} +\n  → regroupe les fichiers en un minimum d'appels\n\n{} est remplacé par le fichier trouvé. Le \\; doit être échappé, sinon le shell l'avale."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "sed : remplacer du texte dans un flux",
+      "back": "sed 's/ancien/nouveau/' f     remplace la 1re occurrence de CHAQUE ligne\nsed 's/ancien/nouveau/g' f    remplace TOUTES les occurrences (global)\nsed 's/ancien/nouveau/gi' f   + insensible à la casse\n\nOn peut changer le séparateur pour éviter d'échapper les / :\n  sed 's|/usr/local|/opt|g'"
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "sed -i : modifier le fichier en place, et sa sauvegarde",
+      "back": "sed -i 's/a/b/g' fichier.txt        écrase le fichier\nsed -i.bak 's/a/b/g' fichier.txt   écrase MAIS garde fichier.txt.bak\n\n⚠️ -i sans .bak est irréversible. Sur macOS/BSD, -i EXIGE un argument : sed -i '' 's/a/b/g'."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "sed : n'afficher qu'une plage de lignes",
+      "back": "sed -n '10,20p' fichier.txt\n\n-n : ne rien afficher par défaut\np  : afficher explicitement\n10,20 : l'adresse, ici les lignes 10 à 20\n\nOn peut adresser par motif :\n  sed -n '/DÉBUT/,/FIN/p' fichier.txt"
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "awk : extraire une colonne",
+      "back": "awk '{print $1}' fichier          la 1re colonne\nawk '{print $NF}' fichier        la DERNIÈRE colonne\nawk -F: '{print $1}' /etc/passwd  séparateur « : »\n\n$0 = la ligne entière, NF = nombre de champs, NR = numéro de ligne.\nPar défaut le séparateur est « une ou plusieurs espaces », ce qui règle 90 % des cas."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "awk : filtrer des lignes sur une condition",
+      "back": "awk '$3 > 100' fichier                 lignes dont la 3e colonne dépasse 100\nawk '$1 == \"ERROR\" {print $2}' log\nawk 'NR > 1' fichier                  saute l'en-tête\n\nLa syntaxe est motif { action } : sans action, awk affiche la ligne ; sans motif, il applique l'action à toutes."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "xargs : à quoi sert-il, et pourquoi pas un simple pipe ?",
+      "back": "find . -name \"*.log\" | xargs rm\n\nUn pipe alimente l'ENTRÉE STANDARD de la commande. Or rm ne lit pas son entrée : il attend des ARGUMENTS. xargs fait la conversion.\n\nRègle : si la commande de droite prend des arguments (rm, cp, grep), il faut xargs."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "xargs -I {} : placer l'argument ailleurs qu'à la fin",
+      "back": "ls *.txt | xargs -I {} cp {} /sauvegarde/{}.bak\n\n-I {} définit un marqueur remplacé par chaque ligne d'entrée, et force UN appel par ligne.\n\nSans -I, xargs colle tous les arguments à la fin de la commande."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "cut : découper une ligne par séparateur",
+      "back": "cut -d: -f1 /etc/passwd       champ 1, séparateur « : »\ncut -d, -f2,4 data.csv        champs 2 et 4\ncut -c1-10 fichier            les caractères 1 à 10\n\nPlus simple qu'awk, mais plus rigide : cut ne sait pas traiter des séparateurs multiples ni réordonner les champs."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "tr : transformer ou supprimer des caractères",
+      "back": "tr 'a-z' 'A-Z' < f       en majuscules\ntr -d '\\\\r' < f          supprime les retours chariot Windows\ntr -s ' ' < f            réduit les espaces répétés à un seul (squeeze)\n\ntr ne lit QUE l'entrée standard : il n'accepte pas de nom de fichier en argument."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "sort : trier sur une colonne précise",
+      "back": "sort -k2 fichier          tri sur la 2e colonne\nsort -k2 -n fichier       … numériquement\nsort -t: -k3 -n /etc/passwd  séparateur « : », 3e champ, numérique\nsort -u                   trie ET dédoublonne (évite le | uniq)\nsort -h                   tailles lisibles : 2K < 1M < 3G\n\ndu -sh * | sort -h est l'idiome « qui prend toute la place ? »."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "L'idiome « top des occurrences »",
+      "back": "cat access.log | awk '{print $1}' | sort | uniq -c | sort -rn | head\n\n1. extraire la colonne voulue\n2. trier (uniq exige des lignes adjacentes)\n3. uniq -c compte\n4. sort -rn trie par compte décroissant\n5. head garde le podium\n\nC'est le pipeline le plus réutilisable d'Unix : IP les plus fréquentes, erreurs les plus vues, auteurs les plus actifs."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "tee : voir la sortie ET l'enregistrer",
+      "back": "commande | tee sortie.log\ncommande | tee -a sortie.log     (ajoute au lieu d'écraser)\n\nLe pipe fait disparaître la sortie de l'écran ; tee la duplique : à l'écran et dans un fichier.\n\nUsage classique : echo 1 | sudo tee /proc/sys/... — parce que sudo cmd > fichier redirige avec VOS droits, pas ceux de root."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Les trois flux : stdin, stdout, stderr",
+      "back": "0 = stdin  (entrée)\n1 = stdout (sortie normale)\n2 = stderr (erreurs)\n\ncmd > f       redirige stdout seulement\ncmd 2> f      redirige stderr seulement\ncmd > f 2>&1  redirige les deux vers f\ncmd &> f      raccourci bash pour la même chose\n\nLes erreurs passent par un canal séparé pour rester visibles même quand la sortie est redirigée."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "2>&1 : pourquoi l'ORDRE compte",
+      "back": "cmd > f 2>&1   ✅ stdout va dans f, PUIS stderr suit stdout → tout dans f\ncmd 2>&1 > f   ❌ stderr copie stdout (= le terminal), PUIS stdout part dans f\n\n2>&1 signifie « envoie 2 là où va 1 EN CE MOMENT » : c'est une copie de destination, pas un alias permanent."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "/dev/null : le trou noir",
+      "back": "cmd 2>/dev/null      jette les erreurs\ncmd >/dev/null 2>&1  jette absolument tout\n\n/dev/null est un fichier spécial qui accepte tout et ne garde rien.\n\n⚠️ Jeter stderr masque aussi les erreurs qu'on ne s'attendait pas à voir : à réserver aux cas où le bruit est connu."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "$? : le code de sortie",
+      "back": "commande\necho $?\n\n0 = succès. Tout le reste = échec (chaque programme définit ses codes).\n\nC'est ce que testent && et || , et ce sur quoi CI et scripts se basent. « Aucune sortie et $? à 0 » est la manière Unix de dire « c'est bon »."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "$(...) : la substitution de commande",
+      "back": "echo \"Nous sommes le $(date +%F)\"\nfichiers=$(ls *.txt)\ncd $(dirname \"$0\")\n\nLa commande interne s'exécute d'abord, et sa SORTIE prend sa place.\n\nPréférer $(...) aux backticks : il s'imbrique et se lit mieux."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Guillemets simples ou doubles : quelle différence ?",
+      "back": "echo \"$HOME\"   → /home/alex     (double : le shell interprète $ et $(...))\necho '$HOME'   → $HOME           (simple : tout est littéral)\n\nRègle pratique : \"double\" quand on veut la valeur d'une variable, 'simple' pour une regex, un motif sed ou un mot de passe.\n\n⚠️ Et TOUJOURS entourer une variable de guillemets : sans eux, un chemin contenant un espace se transforme en deux arguments."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Variables d'environnement : export et la forme d'une ligne",
+      "back": "VAR=valeur            visible dans CE shell seulement\nexport VAR=valeur     transmise aux processus ENFANTS\nVAR=valeur commande   définie uniquement pour cette commande\n\n  NODE_ENV=production node app.js\n\nenv ou printenv liste tout ; unset VAR supprime."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "chmod en notation octale : que vaut 755 ?",
+      "back": "r=4  w=2  x=1, additionnés par groupe (propriétaire, groupe, autres).\n\n755 = rwxr-xr-x  → script ou dossier\n644 = rw-r--r--  → fichier de données\n600 = rw-------  → clé privée, .env\n\n7 = 4+2+1, 6 = 4+2, 5 = 4+1.\nchmod -R 755 dossier/ applique récursivement."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Changer le propriétaire d'un fichier",
+      "back": "sudo chown alex fichier\nsudo chown alex:developpeurs fichier    utilisateur:groupe\nsudo chown -R alex:alex dossier/\n\nLa cause n°1 des « Permission denied » après une copie en sudo ou une extraction d'archive : les fichiers appartiennent à root."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Trouver un processus sans passer par ps | grep",
+      "back": "pgrep -f \"node app.js\"     rend les PID\npgrep -a node              PID + ligne de commande\n\npkill -f \"node app.js\"     tue directement\n\nAvantage sur ps aux | grep node : pgrep ne se trouve jamais lui-même dans les résultats."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "kill -15 et kill -9 : que se passe-t-il vraiment ?",
+      "back": "kill -15 (SIGTERM, le défaut) : « termine-toi » — le programme PEUT l'intercepter, fermer ses fichiers, sauvegarder, puis sortir.\n\nkill -9 (SIGKILL) : le noyau le tue. Le processus ne le voit jamais, ne nettoie rien — fichiers temporaires, verrous, transactions restent en l'état.\n\nkill -1 (SIGHUP) : historiquement « ligne raccrochée » ; beaucoup de démons l'utilisent pour recharger leur configuration."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Reprendre la main sur un programme lancé au premier plan",
+      "back": "Ctrl+Z   suspend le programme et rend la main\njobs     liste les tâches de ce terminal\nbg       relance la tâche suspendue EN ARRIÈRE-PLAN\nfg       la ramène au premier plan\nfg %2    la tâche numéro 2\n\ncommande &  la lance directement en arrière-plan."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Lancer un programme qui survit à la fermeture du terminal",
+      "back": "nohup ./serveur.sh > sortie.log 2>&1 &\n\nnohup ignore SIGHUP, le signal envoyé à tous les processus quand le terminal se ferme.\n\nAlternatives plus confortables : tmux ou screen, qui permettent de RETROUVER la session plus tard — nohup, non."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Qui occupe le port 3000 ?",
+      "back": "lsof -i :3000\nss -tulpn | grep 3000\nfuser 3000/tcp\n\nLa vraie question derrière « EADDRINUSE » : un processus orphelin d'un lancement précédent tient encore le port. Le PID obtenu se tue avec kill."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Voir tous les ports en écoute",
+      "back": "ss -tulpn\n\n-t TCP  -u UDP  -l en écoute (listening)  -p le processus  -n numéros, pas de résolution DNS\n\nss remplace netstat, plus rapide et toujours installé sur les distributions récentes. -p demande souvent sudo pour voir les processus des autres utilisateurs."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "curl : les options qu'on utilise en pratique",
+      "back": "curl -s URL              silencieux (pas de barre de progression)\ncurl -L URL              suit les redirections\ncurl -I URL              les en-têtes seulement (HEAD)\ncurl -o f.zip URL        écrit dans un fichier\ncurl -X POST -H \"Content-Type: application/json\" -d '{\"a\":1}' URL\ncurl -w \"%{http_code}\" -o /dev/null -s URL   ne rend que le code HTTP"
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Copier un fichier vers une machine distante",
+      "back": "scp fichier.txt user@serveur:/chemin/\nscp -r dossier/ user@serveur:/chemin/\nscp user@serveur:/chemin/f.txt .      (dans l'autre sens)\n\nscp est simple mais bête : il recopie tout. Dès qu'il s'agit de synchroniser, rsync est meilleur."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "rsync : synchroniser deux dossiers — et le piège du slash",
+      "back": "rsync -avz source/ user@serveur:/dest/\n\n-a archive (droits, dates, récursif)  -v verbeux  -z compresse\n--delete   supprime à la destination ce qui n'est plus à la source\n--dry-run  simule, N'ÉCRIT RIEN\n\n⚠️ source/ (avec slash) copie le CONTENU ; source (sans slash) copie LE DOSSIER dans dest. C'est l'erreur classique.\n⚠️ --delete se lance toujours en --dry-run d'abord."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Se connecter en SSH avec une clé et un port particulier",
+      "back": "ssh user@serveur\nssh -p 2222 user@serveur\nssh -i ~/.ssh/ma_cle user@serveur\n\nssh-keygen -t ed25519           crée une paire de clés\nssh-copy-id user@serveur        installe la clé publique là-bas\n\n⚠️ La clé privée doit être en 600 : ssh refuse de l'utiliser si elle est lisible par d'autres."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Répéter une commande toutes les N secondes",
+      "back": "watch -n 2 'docker ps'\nwatch -d -n 1 'df -h'      -d surligne ce qui a changé\n\nPlus lisible qu'une boucle while true; do ...; sleep 2; done, et l'affichage ne défile pas."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Les raccourcis d'historique : !! et !$",
+      "back": "!!        la commande précédente, en entier\nsudo !!   la relance en sudo (le classique après un « Permission denied »)\n!$        le DERNIER ARGUMENT de la commande précédente\n!ls       la dernière commande qui commençait par ls\n\n  mkdir /opt/app/data\n  cd !$        → cd /opt/app/data"
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Gérer un service avec systemd",
+      "back": "sudo systemctl status nginx     état, dernières lignes de log\nsudo systemctl start|stop|restart nginx\nsudo systemctl reload nginx     recharge la conf SANS couper le service\nsudo systemctl enable nginx     démarrage automatique au boot\n\n⚠️ enable ≠ start : enable prépare le prochain démarrage, start agit maintenant."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Lire les logs d'un service avec journalctl",
+      "back": "journalctl -u nginx -f            en direct (comme tail -f)\njournalctl -u nginx --since \"1 hour ago\"\njournalctl -u nginx -n 100        les 100 dernières lignes\njournalctl -p err -b              erreurs depuis le dernier démarrage\n\n-b = boot courant. -p accepte err, warning, info…"
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Programmer une tâche récurrente avec cron",
+      "back": "crontab -e     éditer ses tâches\ncrontab -l     les lister\n\n  30 3 * * *  /chemin/script.sh\n  min heure jour-du-mois mois jour-de-semaine\n\n⚠️ Un cron s'exécute avec un PATH minimal et sans les variables de votre shell : toujours des chemins ABSOLUS, et rediriger la sortie (>> /var/log/x.log 2>&1) — sinon l'erreur part dans un mail que personne ne lit."
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Découper un chemin : basename, dirname, realpath",
+      "back": "basename /opt/app/config.yml       → config.yml\nbasename /opt/app/config.yml .yml  → config\ndirname  /opt/app/config.yml       → /opt/app\nrealpath ../app/./config.yml       → le chemin absolu, liens résolus\n\nL'idiome de tout script sérieux :\n  cd \"$(dirname \"$(realpath \"$0\")\")\""
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Voir les métadonnées complètes d'un fichier",
+      "back": "stat fichier.txt\n\nDonne la taille exacte, l'inode, le nombre de liens, les droits en octal ET en rwx, et les trois dates :\n  Access (dernière lecture)\n  Modify (dernier changement de CONTENU)\n  Change (dernier changement de métadonnées)"
+    },
+    {
+      "category": "Linux",
+      "theme": "Commandes — confirmé",
+      "front": "Créer un alias durable",
+      "back": "alias ll='ls -lah'\nalias gs='git status'\n\nUn alias tapé dans le terminal meurt avec lui : pour qu'il survive, l'écrire dans ~/.bashrc (ou ~/.zshrc), puis source ~/.bashrc.\n\ntype ll dit ce que ll est vraiment ; \\ll (avec antislash) contourne l'alias ponctuellement."
+    }
+  ]
+}
