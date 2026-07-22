@@ -67,7 +67,7 @@ function submit(): void {
       <button
         type="submit"
         :disabled="form.processing"
-        class="w-full rounded-[7px] bg-linear-to-r from-accent to-[#8a1a8a] py-[13px] text-[14px] font-semibold text-white shadow-[0_0_22px_var(--color-accent-soft)] disabled:opacity-60"
+        class="w-full rounded-[7px] bg-linear-to-r from-accent to-accent-deep py-[13px] text-[14px] font-semibold text-white shadow-[0_0_22px_var(--color-accent-soft)] disabled:opacity-60"
       >
         {{ t('login.submit') }}
       </button>

@@ -178,7 +178,7 @@ function switchLocale(next: string): void {
     <aside class="flex w-[252px] shrink-0 flex-col border-r border-line bg-side">
       <div class="flex items-center gap-3 px-[22px] pt-6 pb-[18px]">
         <div
-          class="grid h-8 w-8 place-items-center rounded-[9px] bg-linear-to-br from-accent to-[#8a1a8a] text-sm font-bold text-white shadow-[0_0_18px_var(--color-accent-soft)]"
+          class="grid h-8 w-8 place-items-center rounded-[9px] bg-linear-to-br from-accent to-accent-deep text-sm font-bold text-white shadow-[0_0_18px_var(--color-accent-soft)]"
         >
           C
         </div>

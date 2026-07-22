@@ -17,6 +17,10 @@
   --color-side: #070817;
   --color-accent: #ff1493;
   --color-accent-soft: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  /* La fin du dégradé de marque (logo, bouton de connexion). Elle traînait en dur dans
+     trois `.vue` — donc invisible à toute relecture de la palette, et impossible à
+     changer d'un seul endroit. Un dégradé n'a pas moins besoin d'un nom qu'un aplat. */
+  --color-accent-deep: #8a1a8a;
   --color-aqua: #00e0d2;
   --color-warn: #ffb38a;
   --color-bad: #ff3d7f;

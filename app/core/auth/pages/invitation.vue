@@ -26,7 +26,7 @@ function submit(): void {
   <div class="grid min-h-screen place-items-center bg-bg px-4 text-txt">
     <div class="w-full max-w-sm rounded-2xl border border-line-2 bg-panel p-7">
       <div
-        class="mb-5 grid h-9 w-9 place-items-center rounded-[10px] bg-linear-to-br from-accent to-[#8a1a8a] text-sm font-bold text-white"
+        class="mb-5 grid h-9 w-9 place-items-center rounded-[10px] bg-linear-to-br from-accent to-accent-deep text-sm font-bold text-white"
       >
         C
       </div>
