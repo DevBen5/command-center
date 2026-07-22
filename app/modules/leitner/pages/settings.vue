@@ -825,31 +825,37 @@ function deleteTheme(theme: ThemeNode): void {
   <!-- Modale de création / édition -->
   <div
     v-if="modalOpen"
-    class="fixed inset-0 z-50 flex items-start justify-center bg-[rgba(4,5,14,.6)] pt-[120px]"
+    class="fixed inset-0 z-50 flex items-start justify-center bg-[rgba(4,5,14,.6)] py-16"
     @click.self="modalOpen = false"
   >
+    <!--
+      En-tête et pied figés, corps défilant (CC-66). Aucune des classes de structure n'est
+      décorative — `max-h-[calc()]` et ses tirets bas, `min-h-0`, `shrink-0`, `overflow-hidden` :
+      en retirer une rend le pied inatteignable, sans rien casser de visible. Voir le CLAUDE.md
+      du module, « Sa structure est en trois bandes ».
+    -->
     <form
-      class="w-[560px] max-w-[90%] overflow-hidden rounded-[14px] border border-line-2 bg-panel shadow-2xl"
+      class="flex max-h-[calc(100vh_-_8rem)] w-[560px] max-w-[90%] flex-col overflow-hidden rounded-[14px] border border-line-2 bg-panel shadow-2xl"
       @submit.prevent="submitCard()"
     >
-      <div class="border-b border-line px-5 py-4 text-[13.5px] font-bold">
+      <div class="shrink-0 border-b border-line px-5 py-4 text-[13.5px] font-bold">
         {{ editing ? 'Éditer la carte' : 'Nouvelle carte' }}
       </div>
-      <div class="flex flex-col gap-2 p-5">
+      <div class="flex min-h-0 flex-col gap-2 overflow-y-auto p-5">
         <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase">Recto</label>
         <textarea
           ref="frontInput"
           v-model="cardForm.front"
           rows="2"
           autofocus
-          class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
+          class="shrink-0 resize-y rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
         ></textarea>
 
         <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">Verso</label>
         <textarea
           v-model="cardForm.back"
           rows="3"
-          class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
+          class="shrink-0 resize-y rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
         ></textarea>
 
         <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">Thème</label>
@@ -869,7 +875,7 @@ function deleteTheme(theme: ThemeNode): void {
           tard depuis cet écran.
         </p>
       </div>
-      <div class="flex justify-end gap-2 border-t border-line px-5 py-4">
+      <div class="flex shrink-0 justify-end gap-2 border-t border-line px-5 py-4">
         <button
           type="button"
           class="rounded-md border border-line-2 bg-panel-2 px-3 py-2 text-[12.5px] text-txt-2"
