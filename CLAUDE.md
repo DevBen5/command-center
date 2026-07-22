@@ -127,7 +127,7 @@ lèverait TS2307. Contrepartie : les composants y sont typés `any` — le typec
 les props passées à `mount()`, un test qui se trompe échoue à l'exécution. La lever demanderait
 `vue-tsc` pour tout le dépôt.
 
-## Quatre choses qui cassent sans lever d'erreur
+## Cinq choses qui cassent sans lever d'erreur
 
 1. **Nouveau module → l'enregistrer dans `config/database.ts`**, dans `migrations.paths` *et*
    `seeders.paths`. Rien n'est auto-découvert : un path oublié = migration jamais jouée, en silence.
@@ -156,6 +156,29 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
    (`bg`, `panel`, `panel-2`, `line`, `txt`/`txt-2`/`txt-3`, `accent`, `aqua`, `ok`/`bad`/`warn`).
    Aucune couleur en dur. Tout le style est utility-first dans les `.vue`.
 
+5. **Route neuve → lui déclarer sa condition d'accès** (CC-71), sinon elle répond **403**.
+   Trois formes, une seule par route, dans `start/routes.ts` :
+
+   ```ts
+   middleware.can('module.action')  // exige une capacité
+   middleware.admin()               // is_admin seul (Services, Agents, /admin/*)
+   middleware.openRoute()           // intentionnellement sans capacité (/login, /logout, /locale…)
+   ```
+
+   Celle-ci ne casse pas « en silence » au sens des quatre autres — elle **ferme**, et c'est le
+   but : l'oubli va vers le refus, jamais vers l'ouverture. Ce qui déroute, c'est le 403 sur une
+   route qu'on vient d'écrire et qui *paraît* correcte. `logger.error` nomme alors la route
+   fautive, et `tests/functional/core/capabilities_routes.spec.ts` rougit en la nommant aussi.
+
+   ⚠️ **Le noyau ne connaît le nom d'aucune capacité.** Chaque module déclare les siennes dans son
+   `capabilities.ts`, enregistré au démarrage par `start/capabilities.ts`. Une capacité citée par
+   une route mais absente du registre — une faute de frappe suffit — ferme la route pour tout
+   non-admin **sans que `is_admin` s'en aperçoive** ; le même test l'attrape.
+
+   ⚠️ **Il n'existe pas de capacité `*`.** L'accès total est le booléen `users.is_admin`, jamais
+   une liste qu'il faudrait tenir à jour à chaque ajout. Ne retourne jamais le modèle « pour
+   simplifier » : c'est ce qui rend sûres les routes que personne n'a encore écrites.
+
 ## Sécurité — ne pas régresser
 
 - **`agent.config.command` est une commande shell exécutée telle quelle** (`AgentRunnerService`).
@@ -163,6 +186,10 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
   formulaire**. Ne l'expose jamais dans une UI d'édition : ce serait une RCE.
 - **Docker : `execFile` + whitelist regex sur le nom de conteneur** (`SystemStatsService`).
   Jamais `exec()` avec interpolation de chaîne.
+- **Masquer un bouton n'est pas un droit.** Une route est un contrat public : `POST /revision/cards`
+  répond que le bouton soit affiché ou non, et un `curl` muni d'un cookie de session valide n'a que
+  faire du rendu Vue. Le middleware de capacité ferme ; le masquage dans l'UI évite seulement de
+  proposer une action qui échouerait. **Les deux, jamais l'un sans l'autre.**
 - **`whereRaw` toujours paramétré** (bindings `?`), jamais concaténé.
 - Toute entrée utilisateur passe par un validateur VineJS. CSRF actif (Shield) : les POST de test
   exigent `.withCsrfToken()`.

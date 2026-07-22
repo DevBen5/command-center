@@ -120,7 +120,7 @@ La base, elle, vit dans `./pgdata` (bind mount, voir le `CLAUDE.md` racine) : un
 `docker compose down -v` ne l'emporte **plus** — mais une corruption, un `rm -rf` ou un changement
 de machine, si. L'export reste donc le filet, et `npm run db:backup` le complète.
 
-⚠️ Ce module touche **cinq** fichiers hors de son dossier, et pas un seul :
+⚠️ Ce module touche **six** fichiers hors de son dossier, et pas un seul :
 
 - `start/routes.ts` — toutes ses routes (`PUT /revision/settings/intervals`, `GET /revision/export`,
   `POST /revision/import`, `GET|POST /revision/ingest`, `POST /revision/ingest/extract`,
@@ -132,6 +132,12 @@ de machine, si. L'export reste donc le filet, et `npm run db:backup` le complèt
 - `providers/leitner_provider.ts` — le **balayage au démarrage** des ingestions interrompues
   (déclaré dans `adonisrc.ts`, sous `environment: ['web']`). C'est le prix de la tâche de fond :
   voir « Le cycle de vie d'un travail » plus bas.
+- `start/capabilities.ts` — l'enregistrement de `capabilities.ts` au registre (CC-71). Le fichier
+  qui **liste** les capacités du module vit bien ici (`app/modules/leitner/capabilities.ts`) ; ce
+  qui vit dehors, c'est la ligne qui l'importe au démarrage. ⚠️ L'oublier ne casse rien tout de
+  suite : les capacités n'entrent simplement pas au registre, l'écran d'administration ne les
+  propose plus, personne ne peut les accorder — et le module devient inaccessible à tout
+  non-admin. Le test `capabilities_routes.spec.ts` attrape ce cas.
 
 ## Où vit la logique d'une page — `shared/`, jamais le `<script setup>`
 

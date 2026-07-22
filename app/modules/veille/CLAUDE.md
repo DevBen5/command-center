@@ -49,11 +49,15 @@ shared/item_selection.ts                 PUR · la sélection multiple d'index.v
 
 Route de suppression : `POST /veille/items/delete` (CC-63) — voir « Supprimer ».
 
-⚠️ Ce module touche **six** fichiers hors de son dossier : `start/routes.ts`,
+⚠️ Ce module touche **sept** fichiers hors de son dossier : `start/routes.ts`,
 `providers/veille_provider.ts` (déclaré dans `adonisrc.ts` sous `environment: ['web']`, comme le
-provider Leitner), **`config/veille.ts`** (le fuseau des collectes à heure fixe), et depuis CC-55
+provider Leitner), **`config/veille.ts`** (le fuseau des collectes à heure fixe), depuis CC-55
 **`config/immich.ts`**, **`start/env.ts`** et **`.env.example`** (les variables de l'instance
-Immich). Voir « Le déclenchement » et « Immich ».
+Immich), et depuis CC-71 **`start/capabilities.ts`** — la ligne qui enregistre au registre les
+capacités listées dans `capabilities.ts`. ⚠️ L'oublier ne casse rien tout de suite : les
+capacités n'entrent pas au registre, l'écran d'administration ne les propose plus, personne ne
+peut les accorder — et le module devient inaccessible à tout non-admin.
+Voir « Le déclenchement » et « Immich ».
 
 ## Où vit la logique d'une page — `shared/`, jamais le `<script setup>`
 
