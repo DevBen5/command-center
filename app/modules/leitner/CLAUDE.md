@@ -182,6 +182,57 @@ La modale de `settings.vue` sert à la fois à créer (`editing === null`) et à
 fait en général par séries sur un même sujet. `@submit.prevent="submitCard()"` s'écrit **avec les
 parenthèses** — sans elles, Vue passe l'événement en `keepOpen` et la modale ne se ferme jamais.
 
+### Sa structure est en trois bandes, et deux classes la tiennent
+
+En-tête et pied **figés**, corps **défilant** : `<form>` plafonné par `max-h-[calc(100vh_-_8rem)]` en
+`flex flex-col`, le bloc des champs en `overflow-y-auto`. La raison est unique — « Enregistrer » et
+« Annuler » ne quittent jamais l'écran, quelle que soit la taille à laquelle on tire la poignée du
+verso. Avant CC-66, l'overlay `fixed` sans défilement rendait le pied **inatteignable** : la seule
+sortie était `Échap` ou un clic sur le fond, qui perdent la saisie — sur le seul écran où une carte
+se saisit, dans une base qui est l'unique copie.
+
+⚠️ **`overflow-hidden` reste sur le `<form>`** : il découpe les enfants aux coins arrondis (l'en-tête
+et le pied ont un fond qui déborderait des angles). Il n'entre pas en conflit — le défilement est
+porté par le corps.
+
+⚠️ **Deux classes ne sont pas décoratives, et les retirer rétablit un bug sans rien casser de
+visible.** C'est le même mécanisme deux fois : la taille minimale automatique d'un item flex.
+
+- **`min-h-0` sur le corps.** Un enfant flex a `min-height: auto` et refuse de rétrécir sous son
+  contenu : sans lui, le plafond du `<form>` est **ignoré**, et le pied redevient inatteignable —
+  exactement le bug d'origine, à l'identique.
+- **`shrink-0` sur les deux textareas.** Le corps est lui-même `flex flex-col` : une fois sa hauteur
+  plafonnée, un textarea agrandi à la poignée (donc portant un `height` inline) serait ré-écrasé à
+  ses `rows`, la minimale automatique valant `min(taille spécifiée, taille du contenu)`. On tirerait
+  la poignée **sans que rien ne bouge**, au lieu de faire défiler.
+
+⚠️ **Les tirets bas de `calc(100vh_-_8rem)` ne sont pas un tic d'écriture — sans eux la classe
+n'existe pas.** CSS exige des espaces autour du `-` d'un `calc()` ; Tailwind convertit `_` en espace
+dans une valeur arbitraire. Écrit `max-h-[calc(100vh-8rem)]` — la forme qui *paraît* juste, et celle
+que le ticket CC-66 prescrivait — **aucune règle n'est générée** : le plafond de hauteur disparaît,
+le corps ne défile plus, et le pied redevient inatteignable. Le correctif entier est inerte.
+
+⚠️ **Et rien ne le dit.** Ni `lint`, ni `typecheck`, ni les 518 tests ne lisent le CSS produit :
+tous les trois étaient verts sur la version cassée. C'est **`npm run build`** qui tranche — grep le
+`.css` de `public/assets/` pour la règle attendue, la classe absente s'y voit en une seconde. C'est
+le cas d'école de la note du `CLAUDE.md` racine : `tsc` ne lit pas les `.vue`, et une suite verte ne
+dit rien d'une page. Premier `calc()` arbitraire du dépôt — il n'y avait aucun précédent à copier.
+
+Les textareas portent `resize-y` : la poignée verticale **reste** — le geste d'agrandir pour relire
+un long verso est légitime, c'est le bug qu'on corrige, pas l'utilisateur. Ce que `resize-y` ferme
+est le défaut `resize: both`, qui laissait tirer le champ **plus large que la modale**.
+
+⚠️ **Rien de tout cela n'est couvert par un test, et ne peut pas l'être.** jsdom ne fait aucun
+layout : ni hauteur résolue, ni `calc()`, ni défilement, ni `flex-shrink` — le mode d'échec du
+`shrink-0` est précisément celui qu'un test de composant ne verrait pas. Un test qui asserterait la
+présence de `overflow-y-auto` figerait l'implémentation sans rien prouver. Ça se vérifie au
+navigateur : agrandir le verso au maximum, et voir « Enregistrer » rester à l'écran.
+
+⚠️ **L'autre `fixed inset-0` du dépôt est la palette ⌘K** (`inertia/layouts/AppLayout.vue`), avec les
+mêmes classes d'origine. Elle n'a **pas** ce bug — son contenu est borné, sans champ
+redimensionnable — et elle relève de CC-26/CC-27. Ce n'est pas une incohérence à rattraper, et deux
+occurrences dont une inerte ne justifient pas d'extraire un composant `Modal`.
+
 ## Le paquet à réviser : `/revision` a deux visages
 
 ⚠️ **Un seul mot français : « paquet ».** C'est le mot des cartes mémoire, celui d'Anki, compris
