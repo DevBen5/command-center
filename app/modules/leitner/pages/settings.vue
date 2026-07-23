@@ -3,8 +3,24 @@ import { computed, reactive, ref, watch } from 'vue'
 import { Head, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
+import { useCan } from '../components/leitner_can'
 
 defineOptions({ layout: AppLayout })
+
+/**
+ * L'écran de gestion mêle lecture (catalogue, arbre de taxonomie) et écriture. En lecture
+ * seule (CC-72), un invité voit les cartes et leur classement, mais aucun contrôle d'écriture
+ * ne lui est proposé : un bouton qu'il ne peut actionner (403) est une frustration.
+ *
+ * ⚠️ Ces booléens masquent, ils ne ferment pas. La garde est le middleware de capacité sur
+ * chaque route ; le masquage évite seulement de proposer une action qui échouerait. Chaque
+ * bloc suit exactement la capacité de sa route (voir `start/routes.ts`).
+ */
+const { can } = useCan()
+const canWriteCards = computed(() => can('leitner.cards.write'))
+const canWriteTaxonomy = computed(() => can('leitner.taxonomy.write'))
+const canSettings = computed(() => can('leitner.settings'))
+const canBackup = computed(() => can('leitner.backup'))
 
 interface ThemeNode {
   id: number
@@ -384,6 +400,7 @@ function deleteTheme(theme: ThemeNode): void {
       </div>
     </div>
     <button
+      v-if="canWriteCards"
       type="button"
       class="ml-auto rounded-[10px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white transition hover:opacity-90"
       @click="openCreate"
@@ -443,9 +460,10 @@ function deleteTheme(theme: ThemeNode): void {
         </button>
       </div>
 
-      <!-- Barre d'actions groupées -->
+      <!-- Barre d'actions groupées — écriture, donc masquée en lecture seule. La colonne
+           de sélection l'est aussi (plus bas) : sans action possible, cocher ne sert à rien. -->
       <div
-        v-if="selected.length"
+        v-if="canWriteCards && selected.length"
         class="mb-3 flex flex-wrap items-center gap-2 rounded-[12px] border border-accent bg-accent-soft p-3"
       >
         <span class="text-[12.5px] font-semibold">
@@ -485,7 +503,7 @@ function deleteTheme(theme: ThemeNode): void {
         <table class="w-full border-collapse text-left">
           <thead>
             <tr class="border-b border-line text-[10.5px] tracking-[.1em] text-txt-3 uppercase">
-              <th class="w-9 py-2.5 pl-3">
+              <th v-if="canWriteCards" class="w-9 py-2.5 pl-3">
                 <input
                   type="checkbox"
                   class="accent-accent"
@@ -494,10 +512,12 @@ function deleteTheme(theme: ThemeNode): void {
                   @change="toggleAll"
                 />
               </th>
-              <th class="py-2.5 font-medium">Carte</th>
+              <th class="py-2.5 font-medium" :class="canWriteCards ? '' : 'pl-3'">Carte</th>
               <th class="w-[190px] py-2.5 font-medium">Classement</th>
               <th class="w-[70px] py-2.5 font-medium">Boîte</th>
-              <th class="w-[110px] py-2.5 pr-3 text-right font-medium">Actions</th>
+              <th v-if="canWriteCards" class="w-[110px] py-2.5 pr-3 text-right font-medium">
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -506,7 +526,7 @@ function deleteTheme(theme: ThemeNode): void {
               :key="card.id"
               class="border-b border-line last:border-b-0 hover:bg-panel-2"
             >
-              <td class="py-2.5 pl-3 align-top">
+              <td v-if="canWriteCards" class="py-2.5 pl-3 align-top">
                 <input
                   v-model="selected"
                   type="checkbox"
@@ -514,7 +534,7 @@ function deleteTheme(theme: ThemeNode): void {
                   :value="card.id"
                 />
               </td>
-              <td class="py-2.5 pr-3">
+              <td class="py-2.5 pr-3" :class="canWriteCards ? '' : 'pl-3'">
                 <div class="text-[13px] font-medium">{{ card.front }}</div>
                 <div class="mt-0.5 line-clamp-2 text-[12px] text-txt-3">{{ card.back }}</div>
               </td>
@@ -530,7 +550,7 @@ function deleteTheme(theme: ThemeNode): void {
               <td class="py-2.5 pr-3 align-top">
                 <span class="font-mono text-[12.5px]">{{ card.box }}</span>
               </td>
-              <td class="py-2.5 pr-3 text-right align-top whitespace-nowrap">
+              <td v-if="canWriteCards" class="py-2.5 pr-3 text-right align-top whitespace-nowrap">
                 <button
                   type="button"
                   class="rounded-md border border-line-2 bg-panel-2 px-2 py-1 text-[11.5px] text-txt-2 transition hover:border-accent hover:text-txt"
@@ -548,14 +568,15 @@ function deleteTheme(theme: ThemeNode): void {
               </td>
             </tr>
             <tr v-if="!cards.length">
-              <td colspan="5" class="py-8 text-center text-[12.5px] text-txt-3">
+              <td :colspan="canWriteCards ? 5 : 3" class="py-8 text-center text-[12.5px] text-txt-3">
                 <template v-if="totalCards">Aucune carte ne correspond à ces filtres.</template>
                 <template v-else>
                   <div class="text-[13px] font-semibold text-txt-2">Votre base est vide</div>
-                  <div class="mt-1">
+                  <div v-if="canWriteCards" class="mt-1">
                     Créez d'abord une catégorie et un thème ci-contre, puis ajoutez vos cartes.
                   </div>
                   <button
+                    v-if="canWriteCards"
                     type="button"
                     class="mt-3 rounded-md border border-accent bg-accent px-3 py-2 text-[12.5px] text-white transition hover:opacity-90"
                     @click="openCreate"
@@ -596,6 +617,7 @@ function deleteTheme(theme: ThemeNode): void {
               <span class="flex-1 truncate text-[13px] font-semibold">{{ category.name }}</span>
               <span class="font-mono text-[11px] text-txt-3">{{ category.cardCount }}</span>
               <button
+                v-if="canWriteTaxonomy"
                 type="button"
                 class="text-[11px] text-txt-3 transition hover:text-txt"
                 title="Renommer"
@@ -604,6 +626,7 @@ function deleteTheme(theme: ThemeNode): void {
                 ✎
               </button>
               <button
+                v-if="canWriteTaxonomy"
                 type="button"
                 class="text-[11px] text-txt-3 transition hover:text-bad"
                 title="Supprimer"
@@ -637,6 +660,7 @@ function deleteTheme(theme: ThemeNode): void {
                 <span class="flex-1 truncate">{{ theme.name }}</span>
                 <span class="font-mono text-[11px] text-txt-3">{{ theme.cardCount }}</span>
                 <button
+                  v-if="canWriteTaxonomy"
                   type="button"
                   class="text-[11px] text-txt-3 transition hover:text-txt"
                   title="Renommer"
@@ -645,6 +669,7 @@ function deleteTheme(theme: ThemeNode): void {
                   ✎
                 </button>
                 <button
+                  v-if="canWriteTaxonomy"
                   type="button"
                   class="text-[11px] text-txt-3 transition hover:text-bad"
                   title="Supprimer"
@@ -660,11 +685,18 @@ function deleteTheme(theme: ThemeNode): void {
           </div>
         </div>
 
-        <p v-if="!categories.length" class="mb-3 text-[12px] text-txt-3 italic">
+        <p v-if="!categories.length && canWriteTaxonomy" class="mb-3 text-[12px] text-txt-3 italic">
           Aucune catégorie. Créez-en une pour commencer à classer vos cartes.
         </p>
+        <p v-else-if="!categories.length" class="mb-3 text-[12px] text-txt-3 italic">
+          Aucune catégorie pour le moment.
+        </p>
 
-        <form class="mt-4 flex gap-1.5 border-t border-line pt-4" @submit.prevent="addCategory">
+        <form
+          v-if="canWriteTaxonomy"
+          class="mt-4 flex gap-1.5 border-t border-line pt-4"
+          @submit.prevent="addCategory"
+        >
           <input
             v-model="newCategory"
             placeholder="Nouvelle catégorie"
@@ -679,7 +711,7 @@ function deleteTheme(theme: ThemeNode): void {
           </button>
         </form>
 
-        <form class="mt-2 flex flex-col gap-1.5" @submit.prevent="addTheme">
+        <form v-if="canWriteTaxonomy" class="mt-2 flex flex-col gap-1.5" @submit.prevent="addTheme">
           <select
             v-model="newTheme.leitnerCategoryId"
             class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
@@ -706,8 +738,10 @@ function deleteTheme(theme: ThemeNode): void {
         </form>
       </div>
 
-      <!-- Intervalles des boîtes -->
-      <div class="rounded-[12px] border border-line bg-panel p-4">
+      <!-- Intervalles des boîtes — réglage d'installation (`leitner.settings`), masqué en
+           entier en lecture seule : un panneau d'inputs désactivés serait « grisé », pas
+           « masqué ». -->
+      <div v-if="canSettings" class="rounded-[12px] border border-line bg-panel p-4">
         <h2 class="text-[12px] font-bold tracking-[.12em] text-txt-2 uppercase">
           Intervalles des boîtes
         </h2>
@@ -740,8 +774,10 @@ function deleteTheme(theme: ThemeNode): void {
         </form>
       </div>
 
-      <!-- Sauvegarde -->
-      <div class="rounded-[12px] border border-line bg-panel p-4">
+      <!-- Sauvegarde — export ET import sous `leitner.backup`, masqués en lecture seule.
+           ⚠️ L'export est en lecture, mais il rend l'intégralité du contenu (réponses
+           écrites comprises) en un fichier : un invité n'a pas à repartir avec la base. -->
+      <div v-if="canBackup" class="rounded-[12px] border border-line bg-panel p-4">
         <h2 class="text-[12px] font-bold tracking-[.12em] text-txt-2 uppercase">Sauvegarde</h2>
         <p class="mt-1 mb-3 text-[11.5px] text-txt-3">
           Vos cartes ne vivent que dans cette base. L'export en donne une copie autonome —
@@ -822,9 +858,10 @@ function deleteTheme(theme: ThemeNode): void {
     </div>
   </div>
 
-  <!-- Modale de création / édition -->
+  <!-- Modale de création / édition. `modalOpen` n'est armé que par les boutons masqués en
+       lecture seule ; `canWriteCards` double la garde, au cas où l'état fuiterait. -->
   <div
-    v-if="modalOpen"
+    v-if="modalOpen && canWriteCards"
     class="fixed inset-0 z-50 flex items-start justify-center bg-[rgba(4,5,14,.6)] py-16"
     @click.self="modalOpen = false"
   >

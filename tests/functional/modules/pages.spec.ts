@@ -18,9 +18,13 @@ const PAGES: Array<{ route: string; component: string; capability: string | 'adm
   {
     route: '/revision/settings',
     component: 'modules/leitner/settings',
-    capability: 'leitner.cards.read',
+    capability: 'leitner.view',
   },
-  { route: '/revision/stats', component: 'modules/leitner/stats', capability: 'leitner.view' },
+  {
+    route: '/revision/stats',
+    component: 'modules/leitner/stats',
+    capability: 'leitner.stats.view',
+  },
   { route: '/revision/ingest', component: 'modules/leitner/ingest', capability: 'leitner.ingest' },
   { route: '/admin/users', component: 'core/auth/admin/users', capability: 'admin' },
   { route: '/admin/roles', component: 'core/auth/admin/roles', capability: 'admin' },

@@ -59,11 +59,14 @@ test.group('Core / capacités sur les routes', (group) => {
       'veille.items.write',
       'veille.sources.write',
       'leitner.view',
+      'leitner.stats.view',
       'leitner.review',
-      'leitner.cards.read',
       'leitner.cards.write',
-      'leitner.ingest',
+      'leitner.taxonomy.write',
       'leitner.settings',
+      'leitner.ingest',
+      'leitner.llm',
+      'leitner.backup',
     ])
 
     const services = await client.get('/services').loginAs(user)

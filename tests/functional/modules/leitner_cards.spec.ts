@@ -13,7 +13,7 @@ test.group('Leitner / cartes saisies par l’utilisateur', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   async function login() {
-    return createUserWith(['leitner.view', 'leitner.cards.read', 'leitner.cards.write'])
+    return createUserWith(['leitner.view', 'leitner.cards.write'])
   }
 
   test('crée une carte non classée, en boîte 1 et due immédiatement', async ({

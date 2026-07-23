@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Link, usePage } from '@inertiajs/vue3'
+import { useCan } from './leitner_can'
 
-// Les cinq écrans du module, en une barre unique.
+// Les cinq écrans du module, en une barre unique. Chaque onglet porte la capacité qui
+// ouvre son écran : un invité en lecture seule ne voit ni Ingestion ni Configuration —
+// il naviguerait sinon vers un refus (CC-72).
 //
 // ⚠️ Ce composant ne vit PAS dans `pages/` : la résolution Inertia fait un glob sur
 // les fichiers .vue de tout dossier `pages/` (voir `inertia/app/app.ts`), donc un
@@ -11,14 +14,19 @@ import { Link, usePage } from '@inertiajs/vue3'
 // ⚠️ L'onglet actif se décide par `startsWith` (plus bas) : n'ajoute jamais un href
 // qui soit le préfixe d'un autre, les deux s'allumeraient ensemble.
 const TABS = [
-  { href: '/revision', label: 'Révision' },
-  { href: '/revision/settings', label: 'Cartes' },
-  { href: '/revision/stats', label: 'Stats' },
-  { href: '/revision/ingest', label: 'Ingestion' },
-  { href: '/revision/llm', label: 'Configuration' },
+  { href: '/revision', label: 'Révision', cap: 'leitner.view' },
+  { href: '/revision/settings', label: 'Cartes', cap: 'leitner.view' },
+  { href: '/revision/stats', label: 'Stats', cap: 'leitner.stats.view' },
+  { href: '/revision/ingest', label: 'Ingestion', cap: 'leitner.ingest' },
+  { href: '/revision/llm', label: 'Configuration', cap: 'leitner.llm' },
 ] as const
 
 const page = usePage()
+const { can } = useCan()
+
+// Les onglets réellement accessibles au lecteur. Le masquage double la garde de la route,
+// il ne la remplace pas (voir `leitner_can.ts`).
+const visibleTabs = computed(() => TABS.filter((tab) => can(tab.cap)))
 
 /**
  * L'onglet courant. `/revision` est le préfixe de tous les autres : il n'est actif
@@ -38,7 +46,7 @@ const current = computed(() => {
 <template>
   <nav class="mb-4 flex gap-1 rounded-[12px] border border-line bg-panel p-1">
     <Link
-      v-for="tab in TABS"
+      v-for="tab in visibleTabs"
       :key="tab.href"
       :href="tab.href"
       class="rounded-[9px] px-3.5 py-1.5 text-[12.5px] transition"
