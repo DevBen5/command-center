@@ -10,6 +10,9 @@ backups
 # Secrets
 .env
 .env.local
+# ⚠️ .env.production porte les secrets réels lus par docker-compose.prod.yml (CC-73).
+# Seul .env.production.example (sans valeurs) est versionné.
+.env.production
 .env.production.local
 .env.development.local
 
