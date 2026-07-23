@@ -83,6 +83,9 @@ export default defineConfig({
     // Avant les routes : elles citent des capacités que le registre doit déjà connaître
     // pour que le test d'énumération puisse vérifier qu'aucune n'est une faute de frappe.
     () => import('#start/capabilities'),
+    // Les destinations citent les mêmes capacités, et désignent des routes : le test qui
+    // croise les trois registres a besoin que celui-ci soit peuplé.
+    () => import('#start/navigation'),
     () => import('#start/routes'),
     () => import('#start/kernel'),
   ],

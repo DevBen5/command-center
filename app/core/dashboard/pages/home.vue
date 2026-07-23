@@ -4,16 +4,24 @@ import AppLayout from '~/layouts/AppLayout.vue'
 
 defineOptions({ layout: AppLayout })
 
+/**
+ * ⚠️ **Les quatre sections sont nullables, et ce n'est pas une précaution de style.** Le serveur
+ * ne charge ni n'envoie ce que le lecteur n'a pas le droit de voir (`HomeController`) : Services
+ * et Agents valent `null` pour tout non-admin. Sans le `v-if` qui accompagne chaque bloc,
+ * `cards.services.down.length` lèverait — et **côté client**, donc invisible pour la suite
+ * serveur. C'est la conséquence forcée du filtrage, pas une seconde protection : le droit se
+ * joue au serveur, ici on évite seulement d'afficher un cadre vide.
+ */
 interface Cards {
   services: {
     up: number
     total: number
     down: string[]
     highRam: { name: string; ram: number | null }[]
-  }
-  agents: { active: number; running: string[]; failed: string[] }
-  veille: { total: number; queue: number; untagged: number }
-  leitner: { due: number; total: number }
+  } | null
+  agents: { active: number; running: string[]; failed: string[] } | null
+  veille: { total: number; queue: number; untagged: number } | null
+  leitner: { due: number; total: number } | null
 }
 
 defineProps<{ cards: Cards }>()
@@ -28,8 +36,8 @@ defineProps<{ cards: Cards }>()
   </div>
 
   <div class="grid grid-cols-2 gap-5">
-    <!-- Services -->
-    <div class="overflow-hidden rounded-[14px] border border-line bg-panel">
+    <!-- Services — `is_admin` uniquement : le serveur n'envoie rien aux autres -->
+    <div v-if="cards.services" class="overflow-hidden rounded-[14px] border border-line bg-panel">
       <div class="flex items-center gap-3 border-b border-line px-[18px] py-4">
         <div
           class="grid h-[30px] w-[30px] place-items-center rounded-lg border border-line-2 bg-accent-soft text-accent"
@@ -83,8 +91,8 @@ defineProps<{ cards: Cards }>()
       </div>
     </div>
 
-    <!-- Agents -->
-    <div class="overflow-hidden rounded-[14px] border border-line bg-panel">
+    <!-- Agents — `is_admin` uniquement, même raison -->
+    <div v-if="cards.agents" class="overflow-hidden rounded-[14px] border border-line bg-panel">
       <div class="flex items-center gap-3 border-b border-line px-[18px] py-4">
         <div
           class="grid h-[30px] w-[30px] place-items-center rounded-lg border border-line-2 bg-accent-soft text-accent"
@@ -138,8 +146,8 @@ defineProps<{ cards: Cards }>()
       </div>
     </div>
 
-    <!-- Veille -->
-    <div class="overflow-hidden rounded-[14px] border border-line bg-panel">
+    <!-- Veille — sous `veille.view` -->
+    <div v-if="cards.veille" class="overflow-hidden rounded-[14px] border border-line bg-panel">
       <div class="flex items-center gap-3 border-b border-line px-[18px] py-4">
         <div
           class="grid h-[30px] w-[30px] place-items-center rounded-lg border border-line-2 bg-accent-soft text-accent"
@@ -175,8 +183,8 @@ defineProps<{ cards: Cards }>()
       </div>
     </div>
 
-    <!-- Révision -->
-    <div class="overflow-hidden rounded-[14px] border border-line bg-panel">
+    <!-- Révision — sous `leitner.view` -->
+    <div v-if="cards.leitner" class="overflow-hidden rounded-[14px] border border-line bg-panel">
       <div class="flex items-center gap-3 border-b border-line px-[18px] py-4">
         <div
           class="grid h-[30px] w-[30px] place-items-center rounded-lg border border-line-2 bg-accent-soft text-accent"

@@ -2,6 +2,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import User from '#core/auth/models/user'
 import invitationService from '#core/auth/services/invitation_service'
 import { acceptInvitationValidator } from '#core/auth/validators/admin'
+import { landingUrlFor } from '#core/shared/navigation/landing'
 
 /**
  * L'acceptation d'une invitation : un compte se donne son premier mot de passe.
@@ -54,6 +55,10 @@ export default class InvitationController {
 
     await auth.use('web').login(user)
 
-    return response.redirect('/')
+    // ⚠️ **C'est ici que l'atterrissage compte le plus** : c'est le tout premier écran d'un
+    // collègue, à la seconde où il vient de choisir son mot de passe. Un `/` en dur lui rendait
+    // un JSON d'erreur s'il n'avait pas `dashboard.view` (CC-81) — et un compte fraîchement
+    // invité n'a souvent encore aucun droit du tout, d'où la page « aucun accès ».
+    return response.redirect(await landingUrlFor(user))
   }
 }

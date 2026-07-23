@@ -9,3 +9,11 @@
 # n'apparaîtrait qu'au clone suivant, sur une autre machine ou en CI, et `unpdf`
 # rendrait un « fichier corrompu » sur des fixtures pourtant valides.
 *.pdf binary
+
+# Même mécanique, autre victime : `core.autocrlf=true` rend les `.sh` en CRLF au
+# checkout, et `bash` prend alors le `\r` final comme un caractère de la commande —
+# le shebang devient introuvable, chaque ligne échoue. Le dépôt courant n'y voit
+# rien tant que le fichier n'a pas été re-checkouté ; c'est le clone suivant qui
+# casse, en silence pour `.claude/hooks/session-title.sh` (un hook qui échoue laisse
+# juste la session sans nom).
+*.sh text eol=lf

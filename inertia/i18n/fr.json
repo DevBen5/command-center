@@ -44,5 +44,17 @@
     "password": "Mot de passe",
     "submit": "Accéder au tableau de bord",
     "invalid": "Identifiants invalides."
+  },
+  "forbidden": {
+    "eyebrow": "Accès refusé",
+    "title": "Cette page ne vous est pas ouverte",
+    "lead": "Votre compte n'a pas accès à cet écran. Si vous pensez que c'est une erreur, demandez le droit correspondant à l'administrateur.",
+    "back": "Retour"
+  },
+  "noAccess": {
+    "eyebrow": "Bienvenue",
+    "title": "Aucun accès ne vous a encore été attribué",
+    "lead": "Votre compte est bien actif : il n'a simplement pas encore reçu de droits. Demandez à l'administrateur de vous ouvrir les écrans dont vous avez besoin — vous les verrez apparaître dès votre prochaine connexion.",
+    "logout": "Se déconnecter"
   }
 }

@@ -21,6 +21,11 @@ test.group('Auth / connexion', (group) => {
   })
 
   test('connecte un utilisateur avec de bons identifiants', async ({ client }) => {
+    // ⚠️ Ce compte est **nu** : aucun rôle, aucune capacité, pas administrateur. Il n'atterrit
+    // donc pas sur `/`, qui exige `dashboard.view` — c'était le défaut de CC-81 : le premier
+    // écran après connexion était `{"error":"Accès refusé."}`. L'atterrissage par capacité est
+    // couvert en entier par `tests/functional/core/landing.spec.ts` ; ici on vérifie que la
+    // connexion elle-même aboutit.
     await User.create({
       fullName: 'Utilisateur Test',
       email: 'test@example.com',
@@ -34,7 +39,7 @@ test.group('Auth / connexion', (group) => {
       .redirects(0)
 
     response.assertStatus(302)
-    response.assertHeader('location', '/')
+    response.assertHeader('location', '/aucun-acces')
   })
 
   test('refuse de mauvais identifiants et renvoie vers le formulaire', async ({ client }) => {
@@ -65,7 +70,9 @@ test.group('Auth / connexion', (group) => {
     const response = await client.get('/login').loginAs(user).redirects(0)
 
     response.assertStatus(302)
-    response.assertHeader('location', '/')
+    // Même règle qu'après une connexion : la destination suit ce que le compte peut ouvrir.
+    // Un `/` en dur renvoyait ce compte nu sur un refus (CC-81).
+    response.assertHeader('location', '/aucun-acces')
   })
 
   test('déconnecte et renvoie vers /login', async ({ client }) => {

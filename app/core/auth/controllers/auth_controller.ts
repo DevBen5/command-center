@@ -2,6 +2,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { errors as authErrors } from '@adonisjs/auth'
 import User from '#core/auth/models/user'
 import { loginValidator } from '#core/auth/validators/auth'
+import { landingUrlFor } from '#core/shared/navigation/landing'
 
 export default class AuthController {
   async show({ inertia }: HttpContext) {
@@ -10,10 +11,14 @@ export default class AuthController {
 
   async store({ request, auth, response, session, i18n }: HttpContext) {
     const { email, password } = await request.validateUsing(loginValidator)
+    let landing: string
 
     try {
       const user = await User.verifyCredentials(email, password)
       await auth.use('web').login(user)
+      // ⚠️ **Pas `/` en dur** : cette route exige `dashboard.view`, et un compte qui ne la
+      // porte pas recevait un JSON d'erreur comme premier écran après connexion (CC-81).
+      landing = await landingUrlFor(user)
     } catch (error) {
       // Seule l'erreur « identifiants invalides » est traitée ici ; toute autre
       // exception (ex. base de données injoignable) doit remonter au handler
@@ -28,7 +33,7 @@ export default class AuthController {
       return response.redirect().back()
     }
 
-    return response.redirect('/')
+    return response.redirect(landing)
   }
 
   async destroy({ auth, response }: HttpContext) {

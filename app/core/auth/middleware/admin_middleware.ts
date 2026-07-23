@@ -1,5 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import type { NextFn } from '@adonisjs/core/types/http'
+import ForbiddenException from '#core/shared/exceptions/forbidden_exception'
 
 /**
  * Réserve une route à `is_admin`.
@@ -16,8 +17,10 @@ export default class AdminMiddleware {
   async handle(ctx: HttpContext, next: NextFn) {
     const user = ctx.auth.user
 
+    // Levé, jamais retourné : c'est ce qui fait passer le refus devant les status pages,
+    // donc devant la page 403. Voir `ForbiddenException`.
     if (!user || !user.isActive || !user.isAdmin) {
-      return ctx.response.forbidden({ error: 'Accès refusé.' })
+      throw new ForbiddenException('Accès refusé.')
     }
 
     return next()

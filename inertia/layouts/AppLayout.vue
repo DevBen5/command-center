@@ -4,17 +4,7 @@ import type { Component } from 'vue'
 import { Link, router, usePage } from '@inertiajs/vue3'
 import { useI18n } from 'vue-i18n'
 // Icônes importées nommément : le barrel entier casserait le tree-shaking.
-import {
-  Bot,
-  Layers,
-  LayoutDashboard,
-  Rss,
-  ScrollText,
-  Search,
-  Server,
-  Settings,
-  Users,
-} from 'lucide-vue-next'
+import { Bot, Box, Layers, LayoutDashboard, Rss, Search, Server, Users } from 'lucide-vue-next'
 
 interface NavStats {
   services: { total: number; down: number } | null
@@ -31,25 +21,21 @@ interface CurrentUser {
   capabilities: string[]
 }
 
+/** Une destination envoyée par le serveur : le registre a déjà appliqué le filtrage. */
+interface SharedDestination {
+  key: string
+  href: string
+}
+
 const { t } = useI18n()
 const page = usePage()
 // `nav` vaut null sur les pages non authentifiées (login, erreur) : aucune stat n'y est chargée.
 const nav = computed(() => page.props.nav as NavStats | null)
 const currentUser = computed(() => (page.props.user as CurrentUser | null) ?? null)
-
-/**
- * ⚠️ **Masquer une entrée n'est pas un droit.** La route est fermée par son middleware de
- * capacité, que ce menu l'affiche ou non ; ce filtre sert seulement à ne pas proposer des
- * liens qui répondraient 403. Les deux, jamais l'un sans l'autre.
- *
- * `isAdmin` est composé ici plutôt que d'être aplati côté serveur : il n'existe pas de
- * capacité « tout », donc rien à énumérer dans le payload.
- */
-function can(capability: string): boolean {
-  const user = currentUser.value
-  if (!user) return false
-  return user.isAdmin || user.capabilities.includes(capability)
-}
+// Idem : null hors authentification, donc aucune entrée rendue.
+const destinations = computed(
+  () => (page.props.destinations as SharedDestination[] | null) ?? []
+)
 
 const isAdmin = computed(() => currentUser.value?.isAdmin === true)
 const locale = computed(() => (page.props.locale as string | undefined) ?? 'fr')
@@ -67,65 +53,71 @@ interface NavItem {
   alert?: boolean
 }
 
-const navItems = computed<NavItem[]>(() => {
-  const items: NavItem[] = []
+/**
+ * ⚠️ **Les entrées viennent du serveur, le layout ne décide plus qui voit quoi.** Elles sortent
+ * du registre de destinations (`#core/shared/navigation/registry`), qui sert aussi à calculer
+ * la page d'atterrissage après connexion. Avant CC-81 cette liste vivait ici, en double de ce
+ * que les routes exigeaient : deux endroits à mettre d'accord, et rien pour signaler qu'ils
+ * avaient divergé.
+ *
+ * ⚠️ **Masquer une entrée n'est toujours pas un droit** : la route reste fermée par son
+ * middleware de capacité, que la barre l'affiche ou non. Ce filtrage — désormais serveur —
+ * sert à ne pas proposer des liens qui répondraient 403. Les deux, jamais l'un sans l'autre.
+ *
+ * Ce qui reste au client : le libellé (`nav.<key>`), l'icône, et la pastille. Une icône est un
+ * composant Vue, elle n'a rien à faire dans un payload.
+ */
+const NAV_ICONS: Record<string, Component> = {
+  accueil: LayoutDashboard,
+  services: Server,
+  agents: Bot,
+  veille: Rss,
+  revision: Layers,
+}
 
-  if (can('dashboard.view')) {
-    items.push({ key: 'accueil', href: '/', icon: LayoutDashboard })
+/**
+ * La pastille d'une entrée, et **la distinction qui compte** : `undefined` = stat non chargée,
+ * donc aucune pastille ; `0` = stat chargée et nulle, donc pastille neutre. Un `?? 0` ajouté
+ * par mégarde peuplerait la barre de zéros.
+ */
+function badgeFor(key: string): { badge?: number; alert?: boolean } {
+  const stats = nav.value
+  switch (key) {
+    case 'services':
+      return { badge: stats?.services?.down, alert: (stats?.services?.down ?? 0) > 0 }
+    case 'agents':
+      return { badge: stats?.agents?.failed, alert: (stats?.agents?.failed ?? 0) > 0 }
+    case 'veille':
+      return { badge: stats?.veille?.queue }
+    case 'revision':
+      return { badge: stats?.leitner?.due, alert: (stats?.leitner?.due ?? 0) > 0 }
+    default:
+      return {}
   }
-  if (isAdmin.value) {
-    items.push(
-      {
-        key: 'services',
-        href: '/services',
-        icon: Server,
-        badge: nav.value?.services?.down,
-        alert: (nav.value?.services?.down ?? 0) > 0,
-      },
-      {
-        key: 'agents',
-        href: '/agents',
-        icon: Bot,
-        badge: nav.value?.agents?.failed,
-        alert: (nav.value?.agents?.failed ?? 0) > 0,
-      }
-    )
-  }
-  if (can('veille.view')) {
-    items.push({
-      key: 'veille',
-      href: '/veille',
-      icon: Rss,
-      badge: nav.value?.veille?.queue,
-    })
-  }
-  if (can('leitner.view')) {
-    items.push({
-      key: 'revision',
-      href: '/revision',
-      icon: Layers,
-      badge: nav.value?.leitner?.due,
-      alert: (nav.value?.leitner?.due ?? 0) > 0,
-    })
-  }
+}
 
-  return items
-})
+const navItems = computed<NavItem[]>(() =>
+  destinations.value.map((destination) => ({
+    ...destination,
+    // Une clé sans icône est un module qui a déclaré sa destination sans passer par ici :
+    // une icône neutre plutôt qu'une entrée sans repère visuel.
+    icon: NAV_ICONS[destination.key] ?? Box,
+    ...badgeFor(destination.key),
+  }))
+)
 
-const systemItems = computed<NavItem[]>(() => {
-  const items: NavItem[] = [
-    { key: 'journaux', href: '/', icon: ScrollText },
-    { key: 'reglages', href: '/', icon: Settings },
-  ]
-
-  // L'écran qui distribue les droits n'est ouvert qu'aux administrateurs — et il ne
-  // s'ouvre pas non plus par une capacité, sinon un rôle pourrait y donner accès.
-  if (isAdmin.value) {
-    items.unshift({ key: 'administration', href: '/admin/users', icon: Users })
-  }
-
-  return items
-})
+/**
+ * ⚠️ **« Journaux » et « Réglages » ont été retirées** : elles pointaient toutes deux vers `/`,
+ * une page qui exige `dashboard.view` — donc deux liens vers un refus pour un non-admin, et
+ * vers l'accueil (pas vers ce qu'elles annoncent) pour tout le monde. Ces écrans n'existent
+ * pas ; les afficher les promettait.
+ *
+ * L'administration reste : elle a une vraie page, et elle ne s'ouvre pas par une capacité —
+ * sinon un rôle pourrait donner accès à l'écran qui distribue les droits.
+ */
+const systemItems = computed<NavItem[]>(() =>
+  isAdmin.value ? [{ key: 'administration', href: '/admin/users', icon: Users }] : []
+)
 
 function isActive(href: string): boolean {
   return href === '/' ? page.url === '/' : page.url.startsWith(href)
@@ -199,7 +191,12 @@ function switchLocale(next: string): void {
         >
       </button>
 
-      <div class="px-[26px] pt-2 pb-2 text-[10px] tracking-[.14em] text-txt-3 uppercase">
+      <!-- Un titre de section sans entrée en dessous annoncerait une navigation qui n'existe
+           pas : les deux sections disparaissent avec leur contenu. -->
+      <div
+        v-if="navItems.length"
+        class="px-[26px] pt-2 pb-2 text-[10px] tracking-[.14em] text-txt-3 uppercase"
+      >
         {{ t('nav.sectionPilotage') }}
       </div>
       <nav class="flex flex-col gap-[3px] px-4">
@@ -235,7 +232,10 @@ function switchLocale(next: string): void {
         </Link>
       </nav>
 
-      <div class="px-[26px] pt-[18px] pb-2 text-[10px] tracking-[.14em] text-txt-3 uppercase">
+      <div
+        v-if="systemItems.length"
+        class="px-[26px] pt-[18px] pb-2 text-[10px] tracking-[.14em] text-txt-3 uppercase"
+      >
         {{ t('nav.sectionSysteme') }}
       </div>
       <nav class="flex flex-col gap-[3px] px-4">

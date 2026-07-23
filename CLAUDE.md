@@ -127,7 +127,7 @@ lèverait TS2307. Contrepartie : les composants y sont typés `any` — le typec
 les props passées à `mount()`, un test qui se trompe échoue à l'exécution. La lever demanderait
 `vue-tsc` pour tout le dépôt.
 
-## Cinq choses qui cassent sans lever d'erreur
+## Six choses qui cassent sans lever d'erreur
 
 1. **Nouveau module → l'enregistrer dans `config/database.ts`**, dans `migrations.paths` *et*
    `seeders.paths`. Rien n'est auto-découvert : un path oublié = migration jamais jouée, en silence.
@@ -178,6 +178,29 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
    ⚠️ **Il n'existe pas de capacité `*`.** L'accès total est le booléen `users.is_admin`, jamais
    une liste qu'il faudrait tenir à jour à chaque ajout. Ne retourne jamais le modèle « pour
    simplifier » : c'est ce qui rend sûres les routes que personne n'a encore écrites.
+
+6. **Module neuf → déclarer sa destination** dans son `destinations.ts`, enregistré par
+   `start/navigation.ts` (CC-81). C'est le pendant exact du point précédent, sur l'autre registre.
+
+   Une destination est une **porte d'entrée** de module — l'écran vers lequel on envoie quelqu'un
+   qui n'a rien demandé. Le registre en tire deux choses : les entrées de la barre latérale, et
+   **la page d'atterrissage** après connexion, après acceptation d'invitation, et quand un compte
+   connecté rouvre `/login`. Les trois redirigeaient vers `/` en dur, qui exige `dashboard.view` :
+   un collègue sans cette capacité recevait un JSON d'erreur comme tout premier écran.
+
+   ⚠️ **L'ordre de `start/navigation.ts` est l'ordre de la barre ET la page d'accueil des comptes.**
+   Déplacer une ligne change l'écran d'arrivée ; c'est le seul endroit où ça se décide.
+
+   ⚠️ **Un module oublié va vers le refus, mais en mentant** : son entrée disparaît de la barre, et
+   un compte qui n'aurait de droits que sur lui atterrit sur « aucun accès » alors qu'il en a.
+   `tests/functional/core/navigation_registry.spec.ts` asserte la liste attendue, croise chaque
+   capacité citée avec le registre de capacités, et vérifie que **la condition d'accès déclarée est
+   celle de la route** — sans quoi l'atterrissage enverrait droit sur un 403.
+
+   ⚠️ **Un refus se lève, il ne se retourne pas.** `throw new ForbiddenException(…)`, jamais
+   `response.forbidden({…})` : `statusPages` n'est consulté que par le gestionnaire d'**exceptions**,
+   donc une réponse écrite à la main court-circuite la page 403 et rend du JSON brut au navigateur.
+   Rien ne le signale — un 403 reste un 403.
 
 ## Sécurité — ne pas régresser
 
