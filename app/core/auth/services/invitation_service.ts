@@ -71,8 +71,9 @@ class InvitationService {
    * où il y en aura (CC-70 prévoit une progression Leitner par personne). Un compte jamais
    * utilisé échappe à cette question — aujourd'hui comme après CC-72.
    *
-   * ⚠️ **Exiger qu'une invitation existe n'est pas un détail.** Le compte seedé
-   * (`admin@bstenger.fr`) n'en a aucune et possède pourtant un vrai mot de passe : un critère
+   * ⚠️ **Exiger qu'une invitation existe n'est pas un détail.** Un compte peut avoir un vrai
+   * mot de passe sans qu'aucune invitation ne l'accompagne : c'est le cas du compte
+   * propriétaire, que le seeder crée directement depuis `ADMIN_PASSWORD` (CC-75). Un critère
    * « aucune invitation consommée » le rendrait supprimable. Ici, l'absence totale
    * d'invitation rend `false`.
    */

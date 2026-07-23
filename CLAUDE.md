@@ -55,6 +55,26 @@ puisque tout ce qui passe par ces ports tourne sur la même machine.
 Le module Leitner a en plus son propre export/import JSON (`/revision/settings`), qui ne couvre que
 son contenu et n'ajoute que ce qui manque — voir `app/modules/leitner/CLAUDE.md`.
 
+## Le premier compte — `ADMIN_PASSWORD`, et rien d'autre
+
+`node ace db:seed` sur une base neuve ne crée **aucun compte** tant que `ADMIN_PASSWORD` n'est pas
+renseignée dans `.env` (12 caractères minimum, la même exigence que le formulaire d'invitation).
+Renseignée, le seed crée le compte propriétaire avec ce mot de passe ; le seeder le dit à l'écran
+dans les deux cas.
+
+C'est le seul chemin vers un premier compte : l'écran d'administration exige déjà d'être
+administrateur, et aucune page ne fabrique de compte pour un visiteur. Un seed sans la variable
+n'ouvre donc rien, et c'est le but (CC-75) — le seeder posait auparavant un mot de passe écrit en
+clair dans le code, donc publié avec lui.
+
+⚠️ **Changer ce fichier ne désarme pas une base déjà seedée.** Une base créée avant CC-75 porte
+encore l'ancien mot de passe du dépôt, et c'est cette base-là qu'un `npm run db:restore` emporterait
+sur une machine exposée. Reposer `ADMIN_PASSWORD` et relancer `db:seed` **écrase** le mot de passe
+en place (`updateOrCreate`) : c'est l'outil de rotation, et le seul.
+
+⚠️ **La variable ne sert qu'au seed — retire la ligne ensuite.** Rien d'autre ne la lit ; la garder
+laisse un secret en clair sur la machine sans rien apporter.
+
 ## Architecture — feature-based
 
 Chaque feature est une tranche verticale complète. Les dossiers AdonisJS par défaut

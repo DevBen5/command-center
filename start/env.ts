@@ -34,6 +34,23 @@ export default await Env.create(new URL('../', import.meta.url), {
 
   /*
   |----------------------------------------------------------
+  | Mot de passe du compte propriétaire — lu par le seul seeder (CC-75)
+  |----------------------------------------------------------
+  |
+  | ⚠️ **Sans elle, `node ace db:seed` ne crée aucun compte.** C'est le point du
+  | ticket : le seeder posait `motdepasse` en clair dans le code, donc toute base
+  | neuve naissait avec une porte ouverte. Absente, la variable ne produit pas un
+  | compte affaibli — elle n'en produit aucun, et le seeder le dit.
+  |
+  | ⚠️ **Elle ne sert qu'au seed, et se retire ensuite.** Rien d'autre ne la lit :
+  | une fois le mot de passe posé en base, la garder dans `.env` ne fait que laisser
+  | un secret en clair sur la machine. La reposer et relancer `db:seed` est aussi la
+  | façon de **changer** le mot de passe du propriétaire — `updateOrCreate` écrase.
+  */
+  ADMIN_PASSWORD: Env.schema.string.optional(),
+
+  /*
+  |----------------------------------------------------------
   | Variables for configuring session package
   |----------------------------------------------------------
   */
