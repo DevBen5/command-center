@@ -23,7 +23,13 @@ Le module n'a volontairement **pas de dossier `validators/`** : aucune entrée u
 controllers/agents_controller.ts    index (?id= sélectionne l'agent affiché) · run · stop
 services/agent_runner_service.ts    run · stop · recentLogs(limit = 100)
 models/agent.ts                     config + logs en jsonb
+destinations.ts                     l'entrée `/agents` de la barre latérale — accès `admin`
 ```
+
+⚠️ **`destinations.ts` déclare `admin`, jamais une capacité**, et le module n'a toujours pas de
+`capabilities.ts` : c'est la même frontière que ci-dessus, vue depuis la navigation. Une capacité
+pourrait être accordée par un rôle, donc depuis un écran — sur un module qui exécute des commandes
+shell. Deux fichiers hors du module : `start/routes.ts` et `start/navigation.ts`.
 
 - Statuts : `active` · `idle` · `running` · `failed`.
 - `run()` met `active` si la commande réussit, et **`running` si elle échoue** — le `catch {}` simule

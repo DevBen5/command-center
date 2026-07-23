@@ -30,11 +30,14 @@ shared/media_item.ts                     PUR · la logique média d'index.vue
 shared/item_selection.ts                 PUR · la sélection multiple d'index.vue
 ```
 
-⚠️ **Sept fichiers hors du module** : `start/routes.ts`, `providers/veille_provider.ts` (déclaré
+⚠️ **Huit fichiers hors du module** : `start/routes.ts`, `providers/veille_provider.ts` (déclaré
 dans `adonisrc.ts`, `environment: ['web']`), `config/veille.ts` (fuseau des collectes horaires),
-`config/immich.ts` · `start/env.ts` · `.env.example`, et `start/capabilities.ts`. Oublier le dernier
-ne casse rien tout de suite : les capacités n'entrent pas au registre, plus personne ne peut les
-accorder, et le module devient inaccessible à tout non-admin.
+`config/immich.ts` · `start/env.ts` · `.env.example`, `start/capabilities.ts`, et
+`start/navigation.ts` (la ligne qui enregistre `destinations.ts`). Oublier l'avant-dernier ne casse
+rien tout de suite : les capacités n'entrent pas au registre, plus personne ne peut les accorder, et
+le module devient inaccessible à tout non-admin. Oublier le dernier retire `/veille` de la barre
+latérale et fait atterrir sur « aucun accès » un compte qui n'aurait de droits que sur ce module —
+`navigation_registry.spec.ts` l'attrape.
 
 ## Où vit la logique d'une page — `shared/`, jamais le `<script setup>`
 

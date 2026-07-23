@@ -65,13 +65,16 @@ Le filet n'est donc pas un seeder mais **l'export JSON** — les cartes n'existe
 autre copie. `./pgdata` survit à un `docker compose down -v` (voir le `CLAUDE.md` racine), pas à une
 corruption ni à un changement de machine.
 
-⚠️ **Six fichiers hors du module** : `start/routes.ts` · `start/env.ts` et `.env.example` (les
+⚠️ **Sept fichiers hors du module** : `start/routes.ts` · `start/env.ts` et `.env.example` (les
 variables LLM) · `config/llm.ts` · `providers/leitner_provider.ts` (le **balayage au démarrage** des
 ingestions interrompues, déclaré dans `adonisrc.ts` sous `environment: ['web']`) ·
-`start/capabilities.ts` (la ligne qui enregistre `capabilities.ts` au registre). ⚠️ Oublier le
-dernier ne casse rien tout de suite : les capacités n'entrent pas au registre, personne ne peut les
-accorder, et le module devient inaccessible à tout non-admin — `capabilities_routes.spec.ts`
-attrape ce cas.
+`start/capabilities.ts` (la ligne qui enregistre `capabilities.ts` au registre) ·
+`start/navigation.ts` (celle qui enregistre `destinations.ts`). ⚠️ Oublier l'avant-dernier ne casse
+rien tout de suite : les capacités n'entrent pas au registre, personne ne peut les accorder, et le
+module devient inaccessible à tout non-admin — `capabilities_routes.spec.ts` attrape ce cas.
+⚠️ Oublier le dernier est plus sournois : `/revision` disparaît de la barre latérale, et un compte
+qui n'aurait de droits que sur ce module atterrit sur « aucun accès » **alors qu'il y a accès** —
+`navigation_registry.spec.ts` attrape celui-là.
 
 ## Où vit la logique d'une page — `shared/`, jamais le `<script setup>`
 

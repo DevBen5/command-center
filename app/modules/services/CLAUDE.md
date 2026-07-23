@@ -6,7 +6,12 @@ Route `/services` · page Inertia `modules/services/index` · table `services`.
 controllers/services_controller.ts     index · start · stop · restart
 services/system_stats_service.ts       control(service, action) → docker
 models/service.ts                      statuts up · down · unknown
+destinations.ts                        l'entrée `/services` de la barre latérale — accès `admin`
 ```
+
+⚠️ **`destinations.ts` déclare `admin`, jamais une capacité**, et le module n'a toujours pas de
+`capabilities.ts` : une capacité pourrait être accordée par un rôle, donc depuis un écran — sur un
+module qui pilote Docker. Deux fichiers hors du module : `start/routes.ts` et `start/navigation.ts`.
 
 ## Sécurité — le pattern à ne pas casser
 
