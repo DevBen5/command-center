@@ -24,7 +24,7 @@ vi.mock('@inertiajs/vue3', () => ({
 
 const COMPLET = {
   services: { up: 3, total: 4, down: ['postgres-prod'], highRam: [] },
-  agents: { active: 2, running: [], failed: ['sauvegarde-nocturne'] },
+  agents: { active: 2, running: [], failed: [{ id: 7, name: 'sauvegarde-nocturne' }] },
   veille: { total: 12, queue: 3, untagged: 1 },
   leitner: { due: 5, total: 40 },
 }
@@ -35,7 +35,57 @@ describe('Core / tableau de bord', () => {
 
     expect(wrapper.text()).toContain('postgres-prod')
     expect(wrapper.text()).toContain('sauvegarde-nocturne')
-    expect(wrapper.findAll('a').map((a) => a.attributes('href'))).toContain('/services')
+
+    // Chaque module reste atteignable — l'en-tête pointe vers sa racine.
+    const liens = wrapper.findAll('a').map((a) => a.attributes('href'))
+    expect(liens).toContain('/services')
+    expect(liens).toContain('/agents')
+    expect(liens).toContain('/veille')
+    expect(liens).toContain('/revision')
+
+    wrapper.unmount()
+  })
+
+  test('CC-52 : les lignes internes mènent à des destinations distinctes de l’en-tête', () => {
+    // Le fond de la demande : cliquer une ligne doit mener AILLEURS que l'en-tête, là où une vraie
+    // cible existe. Un retour d'une ligne vers la racine du module (le comportement d'origine, où
+    // tout menait au même endroit) ferait disparaître ces `href` et rougir ce test.
+    const wrapper = mount(Home, { props: { cards: COMPLET } })
+
+    const liens = wrapper.findAll('a').map((a) => a.attributes('href'))
+    // Agent en échec → sa sélection + ses logs, pas la liste brute.
+    expect(liens).toContain('/agents?id=7')
+    // Veille « File de lecture » → la file filtrée, pas tout le flux.
+    expect(liens).toContain('/veille?readingQueue=1')
+    // Révision « à réviser » → la session sur toutes les dues ; « en mémoire » → le catalogue.
+    expect(liens).toContain('/revision?scope=all')
+    expect(liens).toContain('/revision/settings')
+
+    wrapper.unmount()
+  })
+
+  test('CC-52 : l’en-tête ouvre le module même sans aucune ligne interne', () => {
+    // Le cas nominal — tout va bien, donc Services et Agents n'affichent que leur état vide et
+    // AUCUNE ligne. Le seul `<a>` vers ces deux modules ne peut alors venir que de l'en-tête :
+    // ce test isole donc précisément la zone cliquable ajoutée par CC-52. Il rougirait si
+    // l'en-tête redevenait une `<div>` inerte (le bug d'origine : cliquer la carte saine ne
+    // menait nulle part).
+    const wrapper = mount(Home, {
+      props: {
+        cards: {
+          services: { up: 4, total: 4, down: [], highRam: [] },
+          agents: { active: 2, running: [], failed: [] },
+          veille: { total: 12, queue: 3, untagged: 1 },
+          leitner: { due: 5, total: 40 },
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('Tous les services sont sains.')
+    expect(wrapper.text()).toContain("Aucun agent ne requiert d'attention.")
+    const liens = wrapper.findAll('a').map((a) => a.attributes('href'))
+    expect(liens).toContain('/services')
+    expect(liens).toContain('/agents')
 
     wrapper.unmount()
   })

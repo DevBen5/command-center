@@ -77,7 +77,11 @@ test.group('Core / portée du tableau de bord', (group) => {
     const props = response.inertiaProps as Record<string, any>
 
     assert.deepEqual(props.cards.services.down, ['postgres-prod'])
-    assert.deepEqual(props.cards.agents.failed, ['sauvegarde-nocturne'])
+    // `failed` porte l'id en plus du nom (CC-52) : la carte d'accueil pointe chaque agent vers
+    // `/agents?id=<id>`. L'id est auto-généré, on asserte donc la forme, pas sa valeur.
+    assert.lengthOf(props.cards.agents.failed, 1)
+    assert.equal(props.cards.agents.failed[0].name, 'sauvegarde-nocturne')
+    assert.isNumber(props.cards.agents.failed[0].id)
     assert.equal(props.cards.veille.total, 1)
     assert.isNotNull(props.cards.leitner)
   })
