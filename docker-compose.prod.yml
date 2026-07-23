@@ -1,0 +1,90 @@
+# =============================================================================
+# Command Center — compose de PRODUCTION (NAS).
+#
+# Différences DÉLIBÉRÉES avec docker-compose.yml (dev), et pourquoi :
+#   - PAS d'Adminer : c'est un accès lecture ET écriture complet à la base qui
+#     porte l'unique exemplaire du contenu. Absent, pas seulement derrière un profil.
+#   - Postgres ne publie AUCUN port : seul le réseau du compose le joint. Publier
+#     5433 l'offrirait à tout le réseau local du NAS.
+#   - PAS de montage de /var/run/docker.sock : ce serait l'équivalent de root sur
+#     le NAS, cumulé à l'exec() shell d'AgentRunnerService. Conséquence assumée :
+#     le module Services est non fonctionnel dans ce déploiement (hors périmètre CC-73).
+#   - UN SEUL conteneur applicatif, jamais de replicas : les tâches de fond Leitner
+#     et le balayage des ingestions orphelines au boot tournent DANS le processus.
+#     Deux répliques se passeraient mutuellement leurs travaux en `failed`.
+#
+# Lancer (le drapeau --env-file est NÉCESSAIRE : il alimente l'interpolation
+# ${...} du bloc postgres ci-dessous ; sans lui, postgres refuse de démarrer) :
+#   docker compose --env-file .env.production -f docker-compose.prod.yml up -d
+#
+# Construire l'image pour le NAS (amd64) au préalable :
+#   docker build --platform linux/amd64 -t command-center:prod .
+# =============================================================================
+
+services:
+  app:
+    image: command-center:prod
+    build:
+      context: .
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    # Injecte APP_KEY, DB_*, LLM_*, IMMICH_*, etc. DANS le conteneur.
+    # (Distinct de --env-file, qui n'alimente que l'interpolation ${...} du compose.)
+    env_file:
+      - .env.production
+    # La seule surface publiée : l'application, protégée par authentification.
+    # Reverse-proxy / TLS du NAS = un autre ticket de CC-70.
+    ports:
+      - '8080:8080'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Réaper PID 1 (récolte les zombies) ; le serveur reçoit bien SIGTERM.
+    init: true
+    restart: unless-stopped
+    healthcheck:
+      # /login est openRoute + guest → 200 pour un client non authentifié.
+      # `node -e` + fetch : pas de dépendance à curl/wget dans l'image.
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:8080/login').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # Laisse le temps aux migrations puis au premier démarrage.
+      start_period: 40s
+    networks:
+      - command-center-network
+
+  postgres:
+    image: postgres:16-alpine
+    # ⚠️ Résolus par interpolation depuis --env-file .env.production. Sans le
+    # drapeau, ces variables sont vides et postgres REFUSE de démarrer (échec
+    # bruyant, pas silencieux).
+    environment:
+      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    # ⚠️ AUCUN `ports:` — voir l'en-tête. La base n'est jointe que par le réseau du compose.
+    volumes:
+      # Bind mount : les données vivent hors du cycle de vie des conteneurs. Sur le
+      # NAS, renseigner PGDATA_PATH vers un chemin absolu
+      # (ex. /volume1/docker/command-center/pgdata).
+      # ⚠️ Ce dossier appartient à Postgres, lié à PG 16 ; ce n'est PAS une sauvegarde.
+      - '${PGDATA_PATH:-./pgdata}:/var/lib/postgresql/data'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER} -d ${DB_DATABASE}']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - command-center-network
+
+networks:
+  command-center-network:
+    driver: bridge

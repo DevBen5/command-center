@@ -1,0 +1,29 @@
+# Contexte de build : ne laisser passer que ce que `node ace build` doit compiler.
+
+# Généré / dépendances — réinstallés dans l'image
+node_modules
+build
+pgdata
+
+# ⚠️ Secrets et données — NE JAMAIS cuire dans l'image.
+# `.env*` couvre .env, .env.example, .env.production.example, .env.test.
+# `pgdata` (déjà ci-dessus) porte l'unique exemplaire des données en dev.
+.env*
+backups
+
+# Historique, CI et outillage local
+.git
+.gitignore
+.github
+.claude
+.vscode
+
+# Docker lui-même (lu hors contexte)
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Divers non nécessaires au build
+*.log
+coverage
+tmp
