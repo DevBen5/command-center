@@ -44,7 +44,7 @@ test.group('Leitner / configuration du LLM', (group) => {
   }
 
   async function login() {
-    return createUserWith(['leitner.settings'])
+    return createUserWith(['leitner.llm'])
   }
 
   test('la page rend le composant et la configuration chargée, sans la clé d’API', async ({

@@ -11,7 +11,7 @@ test.group('Leitner / intervalles des boîtes', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   function login() {
-    return createUserWith(['leitner.cards.read', 'leitner.settings', 'leitner.review'])
+    return createUserWith(['leitner.view', 'leitner.settings', 'leitner.review'])
   }
 
   const DEFAULTS = { box1Days: 1, box2Days: 2, box3Days: 4, box4Days: 7, box5Days: 30 }

@@ -5,6 +5,7 @@ import AppLayout from '~/layouts/AppLayout.vue'
 import LeitnerScopePicker from '../components/LeitnerScopePicker.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
 import { xsrfToken } from '../components/leitner_csrf'
+import { useCan } from '../components/leitner_can'
 // L'écrêtage, la mesure et les libellés d'échéance vivent hors du `.vue` : Japa n'a aucun
 // compilateur Vue, et `MEASURE_MAX_MS` doit être la MÊME valeur que celle du validateur.
 import {
@@ -74,6 +75,18 @@ const props = defineProps<{
 // lui-même vit dans `shared/review_page.ts`, où il est prouvé.
 const boxIntervalLabel = (box: number): string => labelForBox(props.boxIntervals, box)
 const dueLabel = (box: number): string => labelForDue(props.boxIntervals, box)
+
+/**
+ * Noter écrit `box`, `next_review` et une ligne `leitner_reviews` — les colonnes de la
+ * carte, pas d'une progression par personne (CC-72). Un invité en lecture seule n'a pas
+ * `leitner.review` : il consulte la carte, la retourne, lit le verso, mais ne note pas.
+ *
+ * ⚠️ **Masquer n'est pas fermer.** La vraie garde est le middleware sur `POST /:id/review`
+ * et `POST /:id/judge` ; ce booléen évite seulement de proposer des boutons qui
+ * répondraient 403. Les deux, jamais l'un sans l'autre.
+ */
+const { can } = useCan()
+const canReview = computed(() => can('leitner.review'))
 
 const currentCard = computed(() => props.dueCards?.[0] ?? null)
 const revealed = ref(false)
@@ -394,14 +407,26 @@ function grade(g: Grade): void {
 
   <LeitnerTabs />
 
+  <!-- Lecture seule (CC-72) : l'invité voit la carte, la retourne, lit le verso — il ne
+       note pas, et l'écran ne prétend pas que la session progresse. Le bandeau le dit
+       plutôt que de laisser un décompte « X cartes dues » sans action possible. -->
+  <div
+    v-if="!canReview"
+    class="mb-4 rounded-[10px] border border-line bg-panel-2 px-3.5 py-2.5 text-[11.5px] text-txt-2"
+  >
+    Consultation seule — vous pouvez lire les cartes et leur verso ; votre progression n'est
+    pas enregistrée.
+  </div>
+
   <div class="mb-4 flex items-center gap-3">
     <div>
-      <div class="text-[18px] font-bold">
+      <div v-if="canReview" class="text-[18px] font-bold">
         {{ stats.dueCount }} carte{{ stats.dueCount > 1 ? 's' : '' }} due{{
           stats.dueCount > 1 ? 's' : ''
         }}
         aujourd'hui
       </div>
+      <div v-else class="text-[18px] font-bold">Consultation des cartes</div>
       <div v-if="scope" class="mt-0.5 flex items-center gap-2 text-[11.5px] text-txt-3">
         <span>Paquet : {{ scope.label }}</span>
         <Link href="/revision" class="text-accent transition hover:opacity-80">changer</Link>
@@ -488,7 +513,7 @@ function grade(g: Grade): void {
     >
       <div class="flex flex-wrap items-center justify-center gap-1.5">
         <span class="rounded-full border border-line-2 bg-panel-2 px-2.5 py-1 text-[11px] text-txt-2">
-          Boîte {{ currentCard.box }} · {{ stats.dueCount }} restantes
+          Boîte {{ currentCard.box }}<template v-if="canReview"> · {{ stats.dueCount }} restantes</template>
         </span>
         <span
           v-if="currentCard.theme"
@@ -500,8 +525,10 @@ function grade(g: Grade): void {
       <div class="max-w-[420px] text-[19px] font-semibold">{{ currentCard.front }}</div>
 
       <!-- On répond AVANT de voir : le dévoilement vaut soumission. Le champ se
-           verrouille dès qu'on a révélé — on ne peut pas lire puis écrire. -->
-      <div class="w-3/5">
+           verrouille dès qu'on a révélé — on ne peut pas lire puis écrire.
+           ⚠️ Masqué en lecture seule : le juge (`POST /:id/judge`) exige `leitner.review`,
+           un invité y prendrait un 403. Il retourne la carte et lit le verso, sans saisie. -->
+      <div v-if="canReview" class="w-3/5">
         <textarea
           v-model="answer"
           :disabled="revealed"
@@ -554,7 +581,10 @@ function grade(g: Grade): void {
         </div>
       </div>
 
-      <div v-if="revealed" class="flex flex-wrap justify-center gap-2">
+      <!-- Boutons de note : masqués en lecture seule (`grade()` poste sur `POST /:id/review`,
+           qui exige `leitner.review`). Un bouton mort qu'on ne peut actionner est une
+           frustration, pas une information. -->
+      <div v-if="revealed && canReview" class="flex flex-wrap justify-center gap-2">
         <!-- ⚠️ La présélection n'est qu'un SURLIGNAGE : les quatre boutons restent
              cliquables, et cliquer ailleurs applique bien l'autre note. Le juge sait
              si c'est juste, pas si ça a coûté — c'est ça que la note dit. -->

@@ -19,7 +19,7 @@ test.group('Leitner / export JSON', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   async function login() {
-    return createUserWith(['leitner.cards.read', 'leitner.cards.write'])
+    return createUserWith(['leitner.backup'])
   }
 
   /** Une carte révisée, classée sous DevOps · Docker. */
@@ -165,7 +165,7 @@ test.group('Leitner / import JSON', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   async function login() {
-    return createUserWith(['leitner.cards.read', 'leitner.cards.write'])
+    return createUserWith(['leitner.backup'])
   }
 
   /** Poste un fichier JSON comme le ferait le formulaire de `/revision/settings`. */

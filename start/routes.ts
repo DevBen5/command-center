@@ -219,9 +219,11 @@ router
         // Écran de gestion : catalogue des cartes + taxonomie catégorie → thème
         // + intervalles des boîtes.
         // Toute la saisie de cartes passe par là ; /revision ne fait que réviser.
+        // Le catalogue en LECTURE tombe sous `leitner.view` — voir les cartes et leur
+        // classement, c'est de la consultation. L'écriture, plus bas, ne l'est pas.
         router
           .get('/settings', [LeitnerSettingsController, 'index'])
-          .use(middleware.can('leitner.cards.read'))
+          .use(middleware.can('leitner.view'))
         router
           .put('/settings/intervals', [LeitnerSettingsController, 'updateIntervals'])
           .use(middleware.can('leitner.settings'))
@@ -229,18 +231,23 @@ router
         // L'effort de révision, déduit des seuls horodatages de `leitner_reviews` :
         // sessions, durées, cartes par session. Aucun paquet ici — comme la série et
         // la rétention, ce sont des mesures d'habitude, pas de thème.
-        router.get('/stats', [LeitnerStatsController, 'index']).use(middleware.can('leitner.view'))
+        // `stats.view` et non `view` : lecture pure, séparable de la vue des cartes.
+        router
+          .get('/stats', [LeitnerStatsController, 'index'])
+          .use(middleware.can('leitner.stats.view'))
 
         // Téléchargement JSON : réponse HTTP nue, hors Inertia (voir le contrôleur).
-        // Sous `cards.read` : l'export emporte le catalogue entier, mais qui voit les
-        // cartes peut déjà les copier — ce n'est pas un droit de plus.
+        // ⚠️ Sous `leitner.backup`, PAS sous une capacité de lecture : l'export rend
+        // l'intégralité du contenu — réponses écrites comprises — en un fichier. Voir les
+        // cartes n'est pas repartir avec la base ; c'est tout l'intérêt de la séparation.
         router
           .get('/export', [LeitnerSettingsController, 'exportBackup'])
-          .use(middleware.can('leitner.cards.read'))
-        // L'import n'ajoute que ce qui manque, mais il ajoute : c'est de la saisie.
+          .use(middleware.can('leitner.backup'))
+        // L'import partage la même capacité : il n'ajoute que ce qui manque, mais il ajoute,
+        // et c'est le pendant naturel de l'export dans l'écran de sauvegarde.
         router
           .post('/import', [LeitnerSettingsController, 'importBackup'])
-          .use(middleware.can('leitner.cards.write'))
+          .use(middleware.can('leitner.backup'))
         router
           .post('/cards', [LeitnerSettingsController, 'store'])
           .use(middleware.can('leitner.cards.write'))
@@ -257,25 +264,27 @@ router
           .post('/cards/theme', [LeitnerSettingsController, 'assignTheme'])
           .use(middleware.can('leitner.cards.write'))
 
+        // La taxonomie (catégories, thèmes) est un geste d'écriture distinct du contenu
+        // des cartes : `leitner.taxonomy.write`, pas `cards.write`.
         router
           .post('/categories', [LeitnerSettingsController, 'storeCategory'])
-          .use(middleware.can('leitner.cards.write'))
+          .use(middleware.can('leitner.taxonomy.write'))
         router
           .put('/categories/:id', [LeitnerSettingsController, 'updateCategory'])
-          .use(middleware.can('leitner.cards.write'))
+          .use(middleware.can('leitner.taxonomy.write'))
         router
           .delete('/categories/:id', [LeitnerSettingsController, 'destroyCategory'])
-          .use(middleware.can('leitner.cards.write'))
+          .use(middleware.can('leitner.taxonomy.write'))
 
         router
           .post('/themes', [LeitnerSettingsController, 'storeTheme'])
-          .use(middleware.can('leitner.cards.write'))
+          .use(middleware.can('leitner.taxonomy.write'))
         router
           .put('/themes/:id', [LeitnerSettingsController, 'updateTheme'])
-          .use(middleware.can('leitner.cards.write'))
+          .use(middleware.can('leitner.taxonomy.write'))
         router
           .delete('/themes/:id', [LeitnerSettingsController, 'destroyTheme'])
-          .use(middleware.can('leitner.cards.write'))
+          .use(middleware.can('leitner.taxonomy.write'))
 
         // Ingestion d'un cours par un LLM local : le modèle **propose** des cartes,
         // l'utilisateur relit et valide. Rien n'entre en base sans relecture.
@@ -321,22 +330,20 @@ router
           .use(middleware.can('leitner.ingest'))
 
         // Configuration du LLM : détecter le serveur, lister ses modèles, tester une
-        // génération. Ces trois routes n'écrivent RIEN (ni base, ni disque) : elles
-        // rendent le bloc à coller dans `.env`, et l'utilisateur redémarre.
-        // ⚠️ Elles font émettre au serveur des requêtes vers une URL saisie : la liste
-        // blanche des validateurs (loopback + plages privées) est le seul rempart SSRF.
-        // D'où `leitner.settings` — la capacité la plus fermée du module — et non une
-        // capacité de lecture, malgré l'absence d'écriture.
-        router.get('/llm', [LeitnerLlmController, 'index']).use(middleware.can('leitner.settings'))
+        // génération. Ces routes n'écrivent RIEN (ni base, ni disque) : elles rendent le
+        // bloc à coller dans `.env`, et l'utilisateur redémarre.
+        // ⚠️ Sous `leitner.llm`, sa propre capacité et non `settings` : elles font émettre
+        // au serveur des requêtes vers une URL saisie — la surface la plus proche d'une
+        // SSRF du dépôt, bornée par la seule liste blanche des validateurs. Régler un
+        // intervalle (`settings`) n'atteint aucun réseau ; le risque n'est pas le même.
+        router.get('/llm', [LeitnerLlmController, 'index']).use(middleware.can('leitner.llm'))
         router
           .post('/llm/detect', [LeitnerLlmController, 'detect'])
-          .use(middleware.can('leitner.settings'))
+          .use(middleware.can('leitner.llm'))
         router
           .post('/llm/models', [LeitnerLlmController, 'models'])
-          .use(middleware.can('leitner.settings'))
-        router
-          .post('/llm/test', [LeitnerLlmController, 'test'])
-          .use(middleware.can('leitner.settings'))
+          .use(middleware.can('leitner.llm'))
+        router.post('/llm/test', [LeitnerLlmController, 'test']).use(middleware.can('leitner.llm'))
 
         // La réponse écrite → un verdict, AVANT le dévoilement du verso. JSON nu (la
         // page l'appelle en fetch, donc avec `x-xsrf-token`), et elle n'écrit RIEN :
