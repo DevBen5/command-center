@@ -2,6 +2,7 @@ import { test } from '@japa/runner'
 import { HttpContextFactory } from '@adonisjs/core/factories/http'
 import type { StoreRouteNode } from '@adonisjs/http-server/types'
 import DeclaredCapabilityMiddleware from '#core/auth/middleware/declared_capability_middleware'
+import ForbiddenException from '#core/shared/exceptions/forbidden_exception'
 
 /**
  * Le garde-barrière : **il refuse une route qui n'a rien déclaré**.
@@ -27,16 +28,28 @@ test.group('Core / garde-barrière des routes', () => {
     } as unknown as StoreRouteNode
   }
 
+  /**
+   * ⚠️ **Le refus est une exception levée, plus une réponse écrite** (CC-81) : c'est le seul
+   * chemin qui passe devant les status pages, donc devant la page 403. On lit donc le statut
+   * sur l'exception, jamais sur `ctx.response` — qui n'a rien reçu.
+   */
   async function run(route: StoreRouteNode | undefined) {
     const ctx = new HttpContextFactory().create()
     ctx.route = route
     let passed = false
+    let status: number | null = null
 
-    await new DeclaredCapabilityMiddleware().handle(ctx, async () => {
-      passed = true
-    })
+    try {
+      await new DeclaredCapabilityMiddleware().handle(ctx, async () => {
+        passed = true
+      })
+    } catch (error) {
+      // Le `instanceof` fait partie de l'assertion : une autre exception ne compte pas comme
+      // un refus, elle laisserait `status` à `null` et ferait rougir les tests ci-dessous.
+      status = error instanceof ForbiddenException ? error.status : null
+    }
 
-    return { passed, status: ctx.response.getStatus() }
+    return { passed, status }
   }
 
   test('refuse une route qui n’a déclaré aucune condition d’accès', async ({ assert }) => {

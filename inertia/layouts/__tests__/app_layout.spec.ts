@@ -28,9 +28,18 @@ const NAV = {
 
 const mockedPage = { url: '/', props: {} as Record<string, unknown> }
 
-// Depuis CC-71, la barre ne montre que ce à quoi le compte a droit : sans `user` partagé,
-// aucune entrée n'est rendue. L'administrateur est le cas « voit tout », qui correspond à
-// ce que la barre affichait avant le lot ; le filtrage a ses propres tests plus bas.
+// Depuis CC-71, la barre ne montre que ce à quoi le compte a droit. ⚠️ **Depuis CC-81, ce
+// filtrage est fait par le serveur** : les entrées arrivent dans la prop partagée
+// `destinations`, calculée depuis le registre qui sert aussi à l'atterrissage. Le layout ne
+// décide plus qui voit quoi — il rend ce qu'il reçoit, et y attache libellé, icône et pastille.
+const DESTINATIONS = [
+  { key: 'accueil', href: '/' },
+  { key: 'services', href: '/services' },
+  { key: 'agents', href: '/agents' },
+  { key: 'veille', href: '/veille' },
+  { key: 'revision', href: '/revision' },
+]
+
 const ADMIN = { fullName: 'Admin', email: 'admin@example.com', isAdmin: true, capabilities: [] }
 
 vi.mock('@inertiajs/vue3', () => ({
@@ -39,9 +48,15 @@ vi.mock('@inertiajs/vue3', () => ({
   Link: { props: ['href'], template: '<a :href="href"><slot /></a>' },
 }))
 
-function monter(url: string, user: unknown = ADMIN) {
+function monter(url: string, user: unknown = ADMIN, destinations: unknown = DESTINATIONS) {
   mockedPage.url = url
-  mockedPage.props = { nav: NAV, user, locale: 'fr', supportedLocales: ['fr', 'en'] }
+  mockedPage.props = {
+    nav: NAV,
+    user,
+    destinations,
+    locale: 'fr',
+    supportedLocales: ['fr', 'en'],
+  }
 
   return mount(AppLayout, {
     global: {
@@ -132,16 +147,24 @@ describe('Core / AppLayout', () => {
     wrapper.unmount()
   })
 
-  test('la barre ne montre que ce à quoi le compte a droit', () => {
-    // ⚠️ Ce filtrage est du **confort**, pas un droit : chaque route est fermée par son
+  test('la barre rend exactement les destinations reçues du serveur', () => {
+    // ⚠️ Ce filtrage reste du **confort**, pas un droit : chaque route est fermée par son
     // middleware de capacité, que la barre l'affiche ou non. Il sert à ne pas proposer des
-    // liens qui répondraient 403.
-    const lecteur = monter('/', {
-      fullName: 'Lecteur',
-      email: 'lecteur@example.com',
-      isAdmin: false,
-      capabilities: ['dashboard.view', 'leitner.view'],
-    })
+    // liens qui répondraient 403 — et depuis CC-81 il est appliqué une seule fois, au serveur,
+    // là où l'atterrissage lit la même liste.
+    const lecteur = monter(
+      '/',
+      {
+        fullName: 'Lecteur',
+        email: 'lecteur@example.com',
+        isAdmin: false,
+        capabilities: ['dashboard.view', 'leitner.view'],
+      },
+      [
+        { key: 'accueil', href: '/' },
+        { key: 'revision', href: '/revision' },
+      ]
+    )
 
     const liens = lecteur.findAll('a').map((a) => a.attributes('href'))
     expect(liens).toContain('/revision')
@@ -159,30 +182,64 @@ describe('Core / AppLayout', () => {
     expect(admin.findAll('a').map((a) => a.attributes('href'))).toContain('/admin/users')
     admin.unmount()
 
-    // Même en portant toutes les capacités déclarées, un non-admin ne la voit pas : aucune
-    // capacité ne couvre Services, Agents ni l'administration.
-    const complet = monter('/', {
-      fullName: 'Complet',
-      email: 'complet@example.com',
-      isAdmin: false,
-      capabilities: [
-        'dashboard.view',
-        'veille.view',
-        'veille.items.write',
-        'veille.sources.write',
-        'leitner.view',
-        'leitner.review',
-        'leitner.cards.read',
-        'leitner.cards.write',
-        'leitner.ingest',
-        'leitner.settings',
-      ],
-    })
+    // ⚠️ Elle ne vient **pas** du registre de destinations, et c'est délibéré : l'écran qui
+    // distribue les droits ne doit pas pouvoir être ouvert par les droits qu'il distribue. Un
+    // compte qui recevrait toutes les destinations non-admin ne la voit donc pas.
+    const complet = monter(
+      '/',
+      {
+        fullName: 'Complet',
+        email: 'complet@example.com',
+        isAdmin: false,
+        capabilities: ['dashboard.view', 'veille.view', 'leitner.view'],
+      },
+      [
+        { key: 'accueil', href: '/' },
+        { key: 'veille', href: '/veille' },
+        { key: 'revision', href: '/revision' },
+      ]
+    )
     const liens = complet.findAll('a').map((a) => a.attributes('href'))
     expect(liens).not.toContain('/admin/users')
     expect(liens).not.toContain('/services')
     expect(liens).toContain('/veille')
     complet.unmount()
+  })
+
+  test('« Journaux » et « Réglages » ne sont plus proposés', () => {
+    // ⚠️ Les deux pointaient vers `/`, donc vers un refus pour un non-admin sans
+    // `dashboard.view` — et vers l'accueil, pas vers ce qu'elles annonçaient, pour tout le
+    // monde. Ces écrans n'existent pas ; les afficher les promettait (CC-81).
+    const admin = monter('/')
+
+    expect(admin.text()).not.toContain(fr.nav.journaux)
+    expect(admin.text()).not.toContain(fr.nav.reglages)
+
+    admin.unmount()
+  })
+
+  test('sans destination, aucune section n’est titrée à vide', () => {
+    // Un titre « Pilotage » suivi de rien annoncerait une navigation qui n'existe pas : c'est
+    // l'écran d'un compte sans droits, ou la page 403 d'un compte qui n'a rien d'autre.
+    //
+    // ⚠️ On compte les titres plutôt que de chercher leur texte : « Pilotage » apparaît **aussi**
+    // dans le fil d'Ariane (`topbar.crumb`), donc une assertion textuelle passerait au vert sans
+    // rien prouver. Les trois `div.uppercase` d'un montage plein sont les deux titres de section
+    // et le label du sélecteur de langue.
+    const admin = monter('/')
+    expect(admin.findAll('div.uppercase')).toHaveLength(3)
+    admin.unmount()
+
+    const nu = monter(
+      '/',
+      { fullName: 'Nu', email: 'nu@example.com', isAdmin: false, capabilities: [] },
+      []
+    )
+
+    expect(nu.findAll('div.uppercase')).toHaveLength(1)
+    expect(nu.text()).not.toContain(fr.nav.sectionSysteme)
+
+    nu.unmount()
   })
 
   test('sans shared props, le layout se monte quand même (pages non authentifiées)', () => {

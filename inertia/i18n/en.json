@@ -44,5 +44,17 @@
     "password": "Password",
     "submit": "Access the dashboard",
     "invalid": "Invalid credentials."
+  },
+  "forbidden": {
+    "eyebrow": "Access denied",
+    "title": "This page is not open to you",
+    "lead": "Your account cannot open this screen. If you believe this is a mistake, ask an administrator for the matching permission.",
+    "back": "Back"
+  },
+  "noAccess": {
+    "eyebrow": "Welcome",
+    "title": "No access has been granted to you yet",
+    "lead": "Your account is active — it simply has no permissions yet. Ask an administrator to open the screens you need; they will appear the next time you sign in.",
+    "logout": "Sign out"
   }
 }

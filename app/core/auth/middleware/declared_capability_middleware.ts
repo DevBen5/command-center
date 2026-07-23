@@ -2,6 +2,7 @@ import logger from '@adonisjs/core/services/logger'
 import type { HttpContext } from '@adonisjs/core/http'
 import type { NextFn } from '@adonisjs/core/types/http'
 import { declarationOf } from '#core/auth/capabilities/route_declaration'
+import ForbiddenException from '#core/shared/exceptions/forbidden_exception'
 
 /**
  * Le garde-barrière : **aucune route ne répond sans avoir déclaré sa condition d'accès.**
@@ -22,6 +23,10 @@ import { declarationOf } from '#core/auth/capabilities/route_declaration'
  * doit se fermer proprement, pas rendre l'application bruyante. Le `logger.error` est là
  * pour que ça ne soit pas non plus silencieux — un 403 inexpliqué en développement se
  * diagnostique en lisant le journal.
+ *
+ * ⚠️ **`ForbiddenException` est levée, elle n'est pas retournée**, et ça ne rend rien de plus
+ * bruyant : elle porte un statut 403 et se rend comme une page de refus ordinaire. C'est le
+ * seul chemin qui passe devant les status pages — voir `ForbiddenException`.
  */
 export default class DeclaredCapabilityMiddleware {
   async handle(ctx: HttpContext, next: NextFn) {
@@ -38,7 +43,7 @@ export default class DeclaredCapabilityMiddleware {
         'Route sans condition d’accès déclarée : refusée. ' +
           'Ajoute middleware.can(…), middleware.admin() ou middleware.openRoute() sur cette route.'
       )
-      return ctx.response.forbidden({ error: 'Accès refusé.' })
+      throw new ForbiddenException('Accès refusé.')
     }
 
     return next()

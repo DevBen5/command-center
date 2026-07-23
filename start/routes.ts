@@ -27,6 +27,7 @@ const InvitationController = () => import('#core/auth/controllers/invitation_con
 const AdminUsersController = () => import('#core/auth/controllers/admin_users_controller')
 const AdminRolesController = () => import('#core/auth/controllers/admin_roles_controller')
 const LocaleController = () => import('#core/i18n/controllers/locale_controller')
+const NoAccessController = () => import('#core/shared/controllers/no_access_controller')
 const HomeController = () => import('#core/dashboard/controllers/home_controller')
 const ServicesController = () => import('#modules/services/controllers/services_controller')
 const AgentsController = () => import('#modules/agents/controllers/agents_controller')
@@ -81,6 +82,18 @@ router
 // en a besoin, donc avant toute authentification).
 router.post('/logout', [AuthController, 'destroy']).use([middleware.auth(), middleware.openRoute()])
 router.post('/locale', [LocaleController, 'switch']).use(middleware.openRoute())
+
+/*
+| L'écran d'un compte actif à qui aucun droit n'a encore été attribué (CC-81).
+|
+| `openRoute()` et non `can(…)` : exiger une capacité pour voir « vous n'avez aucune capacité »
+| serait un cercle — c'est la seule page dont un compte sans le moindre droit a besoin. Elle ne
+| rend aucune donnée, et le contrôleur renvoie ailleurs quiconque a une vraie destination.
+| `auth()` reste, elle : cet écran s'adresse à quelqu'un de connecté.
+*/
+router
+  .get('/aucun-acces', [NoAccessController, 'index'])
+  .use([middleware.auth(), middleware.openRoute()])
 
 /*
 |--------------------------------------------------------------------------

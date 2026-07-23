@@ -1,6 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import type { NextFn } from '@adonisjs/core/types/http'
 import { capabilitiesFor } from '#core/auth/services/capability_service'
+import ForbiddenException from '#core/shared/exceptions/forbidden_exception'
 
 /**
  * Exige une capacité sur une route.
@@ -9,13 +10,17 @@ import { capabilitiesFor } from '#core/auth/services/capability_service'
  * `POST /revision/cards` répond que le bouton soit affiché ou non, et un `curl` muni d'un
  * cookie de session valide n'a que faire du rendu Vue. Masquer un bouton évite d'offrir une
  * action qui échouera ; ça ne ferme rien.
+ *
+ * ⚠️ **Le refus est levé, jamais retourné** — voir `ForbiddenException`. Un
+ * `response.forbidden()` court-circuiterait le gestionnaire d'exceptions, donc la page 403,
+ * et renverrait du JSON brut au navigateur sans que rien ne le signale.
  */
 export default class CanMiddleware {
   async handle(ctx: HttpContext, next: NextFn, capability?: string) {
     // Un `can()` sans argument est un oubli à mi-chemin. Refuser plutôt que laisser passer :
     // le garde-barrière ne le compte pas non plus comme une déclaration.
     if (!capability) {
-      return ctx.response.forbidden({ error: 'Capacité requise non déclarée.' })
+      throw new ForbiddenException('Capacité requise non déclarée.')
     }
 
     const user = ctx.auth.user
@@ -24,7 +29,7 @@ export default class CanMiddleware {
     // Cette ligne compte pour la route qui porterait `can()` sans `auth` — elle refuse
     // au lieu de planter sur un utilisateur absent.
     if (!user || !user.isActive) {
-      return ctx.response.forbidden({ error: 'Accès refusé.' })
+      throw new ForbiddenException('Accès refusé.')
     }
 
     if (user.isAdmin) {
@@ -33,7 +38,7 @@ export default class CanMiddleware {
 
     const granted = await capabilitiesFor(ctx)
     if (!granted.has(capability)) {
-      return ctx.response.forbidden({ error: 'Accès refusé.' })
+      throw new ForbiddenException('Accès refusé.')
     }
 
     return next()
