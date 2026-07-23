@@ -63,10 +63,15 @@ export default class HomeController {
   async #agents() {
     const agents = await Agent.all()
 
+    // ⚠️ On publie l'**id** en plus du nom pour que la carte d'accueil puisse pointer chaque agent
+    // vers `/agents?id=<id>` (sa sélection + ses logs). L'id reste sous la même frontière que le
+    // nom : `#agents()` n'est appelé que pour un `is_admin`, et `/agents` est `middleware.admin()`.
     return {
       active: agents.filter((a) => a.status === 'active').length,
-      running: agents.filter((a) => a.status === 'running').map((a) => a.name),
-      failed: agents.filter((a) => a.status === 'failed').map((a) => a.name),
+      running: agents
+        .filter((a) => a.status === 'running')
+        .map((a) => ({ id: a.id, name: a.name })),
+      failed: agents.filter((a) => a.status === 'failed').map((a) => ({ id: a.id, name: a.name })),
     }
   }
 
