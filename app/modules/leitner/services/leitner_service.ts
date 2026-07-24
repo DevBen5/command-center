@@ -5,6 +5,7 @@ import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerSettings from '#modules/leitner/models/leitner_settings'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 import { isUsableMeasure } from '#modules/leitner/services/leitner_fluency'
+import { countByDay, currentStreak } from '#modules/leitner/services/leitner_habits'
 import LeitnerFluencyService from '#modules/leitner/services/leitner_fluency_service'
 import { ALL_CARDS, applyScope, type CardScope } from '#modules/leitner/services/leitner_scope'
 
@@ -432,16 +433,16 @@ export default class LeitnerService {
     return reviews.length
   }
 
+  /**
+   * La série **en cours**, celle qu'affiche `/revision`. Le comptage lui-même vit dans
+   * `leitner_habits.ts` et n'est pas recopié ici : l'onglet Stats affiche la même série
+   * à côté de la meilleure jamais tenue, et **deux boucles auraient fini par diverger**
+   * — sur le fuseau, ou sur la question de savoir si aujourd'hui compte.
+   */
   async streakDays(): Promise<number> {
-    const reviews = await LeitnerReview.query().orderBy('reviewed_at', 'desc')
-    const reviewedDays = new Set(reviews.map((review) => review.reviewedAt.toISODate()))
+    const reviews = await LeitnerReview.query().select('reviewed_at')
+    const reviewedDays = new Set(countByDay(reviews).keys())
 
-    let streak = 0
-    let cursor = DateTime.now().startOf('day')
-    while (reviewedDays.has(cursor.toISODate())) {
-      streak++
-      cursor = cursor.minus({ days: 1 })
-    }
-    return streak
+    return currentStreak(reviewedDays, DateTime.now())
   }
 }
