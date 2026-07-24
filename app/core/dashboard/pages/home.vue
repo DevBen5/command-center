@@ -19,7 +19,11 @@ interface Cards {
     down: string[]
     highRam: { name: string; ram: number | null }[]
   } | null
-  agents: { active: number; running: string[]; failed: string[] } | null
+  agents: {
+    active: number
+    running: { id: number; name: string }[]
+    failed: { id: number; name: string }[]
+  } | null
   veille: { total: number; queue: number; untagged: number } | null
   leitner: { due: number; total: number } | null
 }
@@ -38,7 +42,12 @@ defineProps<{ cards: Cards }>()
   <div class="grid grid-cols-2 gap-5">
     <!-- Services — `is_admin` uniquement : le serveur n'envoie rien aux autres -->
     <div v-if="cards.services" class="overflow-hidden rounded-[14px] border border-line bg-panel">
-      <div class="flex items-center gap-3 border-b border-line px-[18px] py-4">
+      <!-- En-tête cliquable → ouvre le module (CC-52). Les lignes ci-dessous restent des liens
+           frères, jamais imbriqués dans celui-ci. -->
+      <Link
+        href="/services"
+        class="flex items-center gap-3 border-b border-line px-[18px] py-4 transition hover:bg-panel-2"
+      >
         <div
           class="grid h-[30px] w-[30px] place-items-center rounded-lg border border-line-2 bg-accent-soft text-accent"
         >
@@ -50,7 +59,7 @@ defineProps<{ cards: Cards }>()
             cards.services.down.length > 1 ? 's' : ''
           }}
         </span>
-      </div>
+      </Link>
       <div class="px-[18px] py-2">
         <Link
           v-for="name in cards.services.down"
@@ -93,7 +102,10 @@ defineProps<{ cards: Cards }>()
 
     <!-- Agents — `is_admin` uniquement, même raison -->
     <div v-if="cards.agents" class="overflow-hidden rounded-[14px] border border-line bg-panel">
-      <div class="flex items-center gap-3 border-b border-line px-[18px] py-4">
+      <Link
+        href="/agents"
+        class="flex items-center gap-3 border-b border-line px-[18px] py-4 transition hover:bg-panel-2"
+      >
         <div
           class="grid h-[30px] w-[30px] place-items-center rounded-lg border border-line-2 bg-accent-soft text-accent"
         >
@@ -103,12 +115,12 @@ defineProps<{ cards: Cards }>()
         <span class="ml-auto font-mono text-[11.5px] text-txt-2">
           {{ cards.agents.active }} actifs · {{ cards.agents.running.length }} en cours
         </span>
-      </div>
+      </Link>
       <div class="px-[18px] py-2">
         <Link
-          v-for="name in cards.agents.failed"
-          :key="name"
-          href="/agents"
+          v-for="agent in cards.agents.failed"
+          :key="agent.id"
+          :href="`/agents?id=${agent.id}`"
           class="flex items-center gap-3.5 border-b border-line py-3.5 last:border-0"
         >
           <span
@@ -116,22 +128,23 @@ defineProps<{ cards: Cards }>()
           ></span>
           <div class="flex-1">
             <div class="flex items-center gap-2 text-[13.5px] font-semibold">
-              <span class="h-2 w-2 rounded-full bg-bad"></span> {{ name }} — en échec
+              <span class="h-2 w-2 rounded-full bg-bad"></span> {{ agent.name }} — en échec
             </div>
             <div class="mt-0.5 text-[12px] text-txt-2">Voir les logs pour diagnostiquer</div>
           </div>
           <span class="font-mono text-[11px] text-txt-3">logs →</span>
         </Link>
         <Link
-          v-for="name in cards.agents.running"
-          :key="name"
-          href="/agents"
+          v-for="agent in cards.agents.running"
+          :key="agent.id"
+          :href="`/agents?id=${agent.id}`"
           class="flex items-center gap-3.5 border-b border-line py-3.5 last:border-0"
         >
           <span class="min-h-[34px] w-[3px] shrink-0 self-stretch rounded-[3px] bg-line-2"></span>
           <div class="flex-1">
             <div class="flex items-center gap-2 text-[13.5px] font-semibold">
-              <span class="h-2 w-2 animate-pulse rounded-full bg-warn"></span> {{ name }} — en cours
+              <span class="h-2 w-2 animate-pulse rounded-full bg-warn"></span> {{ agent.name }} — en
+              cours
             </div>
             <div class="mt-0.5 text-[12px] text-txt-2">Exécution en direct</div>
           </div>
@@ -148,7 +161,10 @@ defineProps<{ cards: Cards }>()
 
     <!-- Veille — sous `veille.view` -->
     <div v-if="cards.veille" class="overflow-hidden rounded-[14px] border border-line bg-panel">
-      <div class="flex items-center gap-3 border-b border-line px-[18px] py-4">
+      <Link
+        href="/veille"
+        class="flex items-center gap-3 border-b border-line px-[18px] py-4 transition hover:bg-panel-2"
+      >
         <div
           class="grid h-[30px] w-[30px] place-items-center rounded-lg border border-line-2 bg-accent-soft text-accent"
         >
@@ -158,9 +174,12 @@ defineProps<{ cards: Cards }>()
         <span class="ml-auto font-mono text-[11.5px] text-txt-2">
           {{ cards.veille.total }} éléments · {{ cards.veille.queue }} à lire
         </span>
-      </div>
+      </Link>
       <div class="px-[18px] py-2">
-        <Link href="/veille" class="flex items-center gap-3.5 border-b border-line py-3.5">
+        <Link
+          href="/veille?readingQueue=1"
+          class="flex items-center gap-3.5 border-b border-line py-3.5"
+        >
           <span class="min-h-[34px] w-[3px] shrink-0 self-stretch rounded-[3px] bg-line-2"></span>
           <div class="flex-1">
             <div class="text-[13.5px] font-semibold">
@@ -185,7 +204,10 @@ defineProps<{ cards: Cards }>()
 
     <!-- Révision — sous `leitner.view` -->
     <div v-if="cards.leitner" class="overflow-hidden rounded-[14px] border border-line bg-panel">
-      <div class="flex items-center gap-3 border-b border-line px-[18px] py-4">
+      <Link
+        href="/revision"
+        class="flex items-center gap-3 border-b border-line px-[18px] py-4 transition hover:bg-panel-2"
+      >
         <div
           class="grid h-[30px] w-[30px] place-items-center rounded-lg border border-line-2 bg-accent-soft text-accent"
         >
@@ -195,9 +217,12 @@ defineProps<{ cards: Cards }>()
         <span class="ml-auto font-mono text-[11.5px] text-txt-2">
           {{ cards.leitner.due }} dues · {{ cards.leitner.total }} au total
         </span>
-      </div>
+      </Link>
       <div class="px-[18px] py-2">
-        <Link href="/revision" class="flex items-center gap-3.5 border-b border-line py-3.5">
+        <Link
+          href="/revision?scope=all"
+          class="flex items-center gap-3.5 border-b border-line py-3.5"
+        >
           <span
             class="min-h-[34px] w-[3px] shrink-0 self-stretch rounded-[3px]"
             :class="
@@ -212,7 +237,7 @@ defineProps<{ cards: Cards }>()
           </div>
           <span class="font-mono text-[11px] text-txt-3">démarrer →</span>
         </Link>
-        <Link href="/revision" class="flex items-center gap-3.5 py-3.5">
+        <Link href="/revision/settings" class="flex items-center gap-3.5 py-3.5">
           <span class="min-h-[34px] w-[3px] shrink-0 self-stretch rounded-[3px] bg-line-2"></span>
           <div class="flex-1">
             <div class="text-[13.5px] font-semibold">
