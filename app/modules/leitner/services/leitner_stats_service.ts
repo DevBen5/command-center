@@ -1,6 +1,20 @@
 import { DateTime } from 'luxon'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
 import {
+  HEATMAP_WINDOW_DAYS,
+  REGULARITY_WINDOWS,
+  activeDays,
+  countByDay,
+  countByHour,
+  countByWeekday,
+  currentStreak,
+  heatmapCells,
+  heatmapMonths,
+  longestStreak,
+  type DayCell,
+  type HeatmapMonth,
+} from '#modules/leitner/services/leitner_habits'
+import {
   SESSION_GAP_MINUTES,
   groupIntoSessions,
   median,
@@ -20,6 +34,25 @@ export interface RecentSession {
   startedAt: string
   durationSeconds: number
   cardCount: number
+}
+
+/** Un taux de régularité : le brut **et** le pourcentage, jamais le pourcentage seul. */
+export interface RegularityWindow {
+  windowDays: number
+  activeDays: number
+  percent: number
+}
+
+export interface LeitnerHabitStats {
+  currentStreak: number
+  bestStreak: number
+  regularity: RegularityWindow[]
+  heatmap: DayCell[]
+  heatmapMonths: HeatmapMonth[]
+  heatmapDays: number
+  maxPerDay: number
+  byWeekday: number[]
+  byHour: number[]
 }
 
 export interface LeitnerEffortStats {
@@ -77,6 +110,52 @@ export default class LeitnerStatsService {
           durationSeconds: session.durationSeconds,
           cardCount: session.cardCount,
         })),
+    }
+  }
+
+  /**
+   * Les statistiques d'**habitude** : les séries, la heatmap de l'année, la régularité
+   * et le rythme (jour de semaine, heure). Comme l'effort, elles sont globales.
+   *
+   * ⚠️ **Le chargement n'a pas de fenêtre, et il ne peut pas en avoir une** : la
+   * meilleure série est celle « jamais tenue », donc une série de 40 jours tenue il y a
+   * deux ans doit encore se voir. C'est le seul point où cet écran lit tout
+   * l'historique — `select('reviewed_at')` seul, volumétrie personnelle assumée, comme
+   * `streakDays` le faisait déjà.
+   *
+   * ⚠️ **Aucune requête agrégée, et c'est la décision centrale du lot** : tout le
+   * découpage en journées se fait en JS (`toISODate()`), donc dans le fuseau du process
+   * Node — le même que le `DateTime.now()` des séries. Un `group by date(reviewed_at)`
+   * utiliserait le fuseau du serveur Postgres et ferait diverger la heatmap de la série
+   * d'une case au voisinage de minuit, sans erreur ni log. Bénéfice de bord : pas de
+   * `count(*)`, donc pas de `bigint` rendu en chaîne à reconvertir.
+   */
+  async habitStats(): Promise<LeitnerHabitStats> {
+    const today = DateTime.now().startOf('day')
+    const reviews = await LeitnerReview.query().select('reviewed_at')
+
+    const counts = countByDay(reviews)
+    const days = new Set(counts.keys())
+    const cells = heatmapCells(counts, today, HEATMAP_WINDOW_DAYS)
+    const windowStart = today.minus({ days: HEATMAP_WINDOW_DAYS - 1 })
+
+    return {
+      currentStreak: currentStreak(days, today),
+      bestStreak: longestStreak(days),
+      regularity: REGULARITY_WINDOWS.map((windowDays) => {
+        const active = activeDays(days, today, windowDays)
+        return {
+          windowDays,
+          activeDays: active,
+          percent: Math.round((active / windowDays) * 100),
+        }
+      }),
+      heatmap: cells,
+      heatmapMonths: heatmapMonths(cells),
+      heatmapDays: HEATMAP_WINDOW_DAYS,
+      maxPerDay: cells.reduce((max, cell) => Math.max(max, cell.count), 0),
+      byWeekday: countByWeekday(reviews, windowStart),
+      byHour: countByHour(reviews, windowStart),
     }
   }
 
