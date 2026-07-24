@@ -6,8 +6,8 @@ Commandes : `npm run dev` · `npm test` · `npm run typecheck` · `npm run lint`
 
 ## Les données : où elles vivent, comment on les sauve
 
-Le contenu réel est saisi à la main, sans seeder : **la base est la seule copie**. D'où deux
-protections, qui ne se remplacent pas.
+Le contenu réel est saisi à la main, sans seeder : **la base est la seule copie**. D'où trois
+protections, qui ne se remplacent pas — chacune couvre une panne que les autres laissent passer.
 
 **1. `./pgdata` — un bind mount, pas un volume nommé.** Postgres écrit dans un dossier du dépôt
 (ignoré par git), sur le disque de la machine. Un `docker compose down -v` **ne le touche pas** :
@@ -23,6 +23,51 @@ le `-v` ne supprime que les volumes gérés par Docker. C'est l'unique raison de
 restaurable par `npm run db:restore` (le plus récent, ou `-- backups/<fichier>.sql`). Il emporte
 **tout** : contenu, réglages, comptes. Le dump est fait avec `--clean --if-exists` : il **remplace**
 la base, il ne fusionne pas.
+
+Le dump est **vérifié** avant d'être annoncé, et **relu** avant d'être restauré : en-tête `pg_dump`,
+au moins un `CREATE TABLE`, marqueur de fin. À la **sauvegarde**, un fichier qui échoue est supprimé
+sur-le-champ plutôt que laissé à passer pour une sauvegarde. À la **restauration**, il est refusé et
+**jamais** supprimé — il est peut-être le seul qui reste.
+
+- ⚠️ **Ce n'est pas une restauration à blanc.** Ça attrape la troncature — disque plein, conteneur
+  tué en plein dump, copie coupée — pas un dump complet mais logiquement inutilisable. La seule
+  preuve qu'un dump se recharge reste de le recharger ; **ce point est encore ouvert** (CC-69).
+- Le marqueur de fin est cherché dans les **derniers 8 Ko**, pas en dernière ligne : `pg_dump`
+  écrit un `\unrestrict <jeton>` **après** lui. Le chercher en fin de fichier rejetterait tous les
+  vrais dumps.
+- L'absence de `CREATE TABLE` n'est pas une curiosité, c'est le symptôme d'un `DB_DATABASE` qui
+  désigne une base vide — `app_test`, que `npm test` déroule à chaque exécution. `pg_dump` réussit,
+  sort 0, et produit quelques Ko qui ne contiennent rien.
+- `db:restore` refuse un dump qui échoue à cette relecture, et c'est le point important : `--clean`
+  **supprime** les tables avant de les recréer. Sur un fichier tronqué, `ON_ERROR_STOP=1` s'arrête
+  au milieu — base à moitié détruite, et le dump incapable de la reconstruire.
+
+**3. `BACKUP_MIRROR_DIR` — la copie qui n'est pas sur ce disque** (CC-69). `backups/` vit à côté de
+`pgdata/` : les deux premières protections sont sur le **même volume**, donc une panne de disque, un
+vol ou un rançongiciel les emporte ensemble. Renseignée, cette variable fait copier chaque dump
+vérifié vers un NAS ou un second disque. Voir `.env.example` pour les garde-fous ; les deux qui
+comptent :
+
+- ⚠️ **Le dossier doit exister — il n'est jamais créé.** Un `mkdir -p` sur un support non monté
+  fabriquerait un dossier sur le disque local : on croirait être protégé sans l'être, ce qui est
+  pire que de ne rien copier.
+- ⚠️ **Les dumps partent en clair.** Décision assumée : la destination est un support de confiance.
+- La copie est écrite sous `.part` puis renommée, et **relue depuis le support** : comparer les
+  tailles ne prouve que la longueur. C'est la copie qui compte — la seule qui survive à la perte du
+  disque — donc c'est celle dont on relit les marqueurs, pas seulement celle qu'on a envoyée.
+- Seuls les dumps faits **après** avoir renseigné la variable partent au miroir. Ceux déjà dans
+  `backups/` n'y montent pas tout seuls : une copie manuelle, une fois, au moment de l'activer.
+
+**L'ordre des étapes de `db:backup` n'est pas décoratif** : dump → écriture close → vérification →
+miroir → purge. `BACKUP_KEEP` (défaut 10) ne garde que les N derniers dumps **locaux** ; le miroir
+n'est jamais purgé, c'est l'archive. La purge étant la seule opération destructive, elle vient en
+dernier : si la copie vers le miroir échoue, **rien n'est supprimé**. Sans ça, un NAS débranché
+ferait disparaître des dumps que l'archive n'a jamais reçus.
+
+La logique qui décide de tout ça vit dans `scripts/lib/dumps.js`, séparée des scripts pour une
+raison unique : elle est testable (`tests/unit/db_dumps.spec.ts`), les scripts non — ils dépendent
+d'un conteneur Postgres qui tourne. C'est le seul endroit du dépôt où une erreur de logique se paie
+en contenu perdu.
 
 Les scripts (`scripts/db-*.js`) appellent `docker compose exec` via `spawn` **avec un tableau
 d'arguments**, jamais une chaîne interpolée dans un shell.
