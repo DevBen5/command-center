@@ -51,6 +51,8 @@ components/TaxonomyCombobox.vue             sélecteur de la relecture — rend 
 shared/review_page.ts                       PUR · MEASURE_MAX_MS (UNIQUE déclaration) + duration
                                             / fluencyMeasure + boxIntervalLabel / dueLabel
 shared/draft_review.ts                      PUR · la relecture des brouillons d'ingest_show.vue
+shared/settings_page.ts                     PUR · scrollTopKeepingAnchor — le recalage du
+                                            défilement après un import (CC-67)
 migrations/                                 cards PUIS reviews PUIS categories/themes PUIS settings
                                             PUIS ingestions PUIS draft_cards (FK : l'ordre du nom
                                             de fichier compte)
@@ -81,8 +83,11 @@ qui n'aurait de droits que sur ce module atterrit sur « aucun accès » **alors
 ⚠️ Japa n'a aucun compilateur Vue : ce qui vit dans un `<script setup>` est **structurellement** hors
 de portée de la suite. Règle (CC-60) : prédicat, dérivation, écrêtage, libellé qui régresse en
 silence → `shared/*.ts` ; `router.post`, modale, `ref` → dans le `.vue`. C'est pourquoi
-**`settings.vue` n'a rien à extraire** malgré ses 899 lignes : ses vingt fonctions sont des
-gestionnaires d'action, pures ni en entrée ni en sortie.
+**`settings.vue` n'avait rien à extraire** malgré sa taille : ses vingt fonctions sont des
+gestionnaires d'action, pures ni en entrée ni en sortie. **Une seule ligne y a échappé** (CC-67) —
+`scrollTopKeepingAnchor`, de l'arithmétique dont le signe inversé *doublerait* le saut qu'elle
+annule : le critère n'est pas la taille du fichier, c'est qu'une régression y serait invisible à
+la relecture.
 
 - ⚠️ **Un fichier de `shared/` n'importe JAMAIS par un alias `#modules/*`** : l'alias mappe vers
   `./app/modules/*.js`, qui n'existe qu'après un build — Vite ne le résout pas, la page casse. C'est
@@ -139,6 +144,56 @@ défaut `resize: both`, qui laissait tirer le champ plus large que la modale. �
 inset-0` du dépôt est la palette ⌘K, qui n'a **pas** ce bug (contenu borné, aucun champ
 redimensionnable) : ce n'est pas une incohérence à rattraper, et deux occurrences dont une inerte ne
 justifient pas d'extraire un composant `Modal`.
+
+### Après un import, la vue suit le bloc Sauvegarde (CC-67)
+
+Le formulaire d'import se retrouvait hors de l'écran dès qu'on importait un vrai lot, ce qui
+interdisait d'en enchaîner un second sans re-défiler. **Trois explications tentantes, et toutes les
+trois sont fausses** — les vérifier coûte moins cher que de « corriger » deux fois le même bug :
+
+- ⚠️ **Ce n'est pas `preserveScroll` qui manque** : il est là, et il n'y a rien à ajouter.
+- ⚠️ **Ce n'est pas non plus le tableau qui pousse le formulaire vers le bas.** La page est un
+  `grid grid-cols-[1fr_320px] items-start` : le tableau est l'item **gauche**, taxonomie /
+  intervalles / Sauvegarde forment l'item **droit**. `items-start` cale chaque item en haut de la
+  ligne — un tableau plus haut allonge la page **sans déplacer la colonne de droite d'un pixel**.
+- ⚠️ **Et `preserveScroll: true` ne gouverne pas cette page.** Inertia ne réinitialise et ne restaure
+  que `window` et les éléments portant l'attribut `[scroll-region]` ; le conteneur qui défile est le
+  panneau `overflow-y-auto` d'`AppLayout`, qui n'est ni l'un ni l'autre — et **aucun `scroll-region`
+  n'existe dans le dépôt**. Le drapeau est donc inerte ici. Il reste (il ne coûte rien et
+  redeviendrait porteur si un `scroll-region` apparaissait), mais ne compte pas sur lui.
+
+La cause réelle est **l'ancrage de défilement du navigateur** (`overflow-anchor`, actif par défaut).
+`cards()` trie `id desc` : les cartes importées s'insèrent **en tête** du tableau, donc au-dessus de
+la ligne sur laquelle le navigateur s'était ancré, et il remonte `scrollTop` de la hauteur insérée
+pour garder cette ligne fixe. La colonne de droite, elle, n'a pas bougé du document : elle part
+simplement hors de l'écran, d'autant plus loin que l'import est gros.
+
+La correction suit **l'élément** : position à l'écran du bloc relevée avant la requête, relue après
+le rendu, `scrollTop` corrigé du delta (`shared/settings_page.ts`). Elle annule aussi le second cas,
+plus discret — un import qui crée des catégories allonge la taxonomie, elle vraiment **au-dessus** du
+bloc dans la même colonne.
+
+⚠️ **Trois détails dont le retrait rend le correctif inerte sans rien casser de visible :**
+
+- **`await nextTick()` avant de mesurer.** `onSuccess` se déclenche à l'échange des props, quand Vue
+  n'a pas encore écrit les lignes : mesurer là lit l'**ancien** tableau. Le piège est qu'un import
+  d'**une** carte paraît alors corrigé (l'écart est d'une ligne) et qu'un vrai lot ne l'est pas.
+- **Le conteneur défilant, jamais `window`.** `window.scrollY` vaut éternellement 0 sur cette
+  application et `window.scrollTo` n'y fait rien : le correctif passerait lint, typecheck et tests
+  sans jamais bouger l'écran.
+- **Le `ref` est sur le bloc entier, donc sur son bord haut.** Rapport d'import et liste d'erreurs
+  apparaissent **sous** lui : ils ne peuvent pas déplacer l'ancre qui sert à les ramener sous les
+  yeux. Un ancrage plus bas ferait sauter le cas témoin (import entièrement dédupliqué).
+
+Seul l'import est traité. Les autres actions de la page relèvent du même mécanisme mais ne le
+déclenchent pas de la même façon (créer une catégorie n'allonge pas le tableau, une suppression le
+raccourcit alors qu'on est déjà devant lui) : si le helper leur sert un jour, ce sera avec ses
+propres cas.
+
+⚠️ **Le test unitaire ne prouve que l'arithmétique et son signe.** jsdom ne fait aucun layout : ni
+hauteur de tableau, ni `scrollTop`, ni `getBoundingClientRect` réel, ni ancrage de défilement. Le
+reste se vérifie **au navigateur**, sur un lot de plusieurs dizaines de cartes — un import d'une
+carte ne prouve rien.
 
 ## Le paquet à réviser : `/revision` a deux visages
 
