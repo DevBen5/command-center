@@ -7,7 +7,7 @@
  * au démarrage. Une liste centrale énumérant `/revision` et `leitner.view` ferait de `core/`
  * un endroit qu'on modifie à chaque évolution d'un module.
  *
- * À quoi il sert, concrètement — deux usages, une seule source :
+ * À quoi il sert, concrètement — trois usages, une seule source :
  *
  * 1. **l'atterrissage** : après connexion, après acceptation d'invitation, et quand un compte
  *    déjà connecté rouvre `/login`, on redirige vers la première destination que le compte
@@ -15,7 +15,10 @@
  *    donc sur un JSON d'erreur, comme tout premier écran (CC-81) ;
  * 2. **la barre latérale** : elle affiche ces mêmes destinations, filtrées de la même façon.
  *    Avant CC-81, `AppLayout.vue` tenait sa propre liste — deux endroits à mettre d'accord,
- *    et rien pour signaler qu'ils avaient divergé.
+ *    et rien pour signaler qu'ils avaient divergé ;
+ * 3. **la racine du fil d'Ariane** de la topbar (CC-83) : `destinations[0]`, donc exactement la
+ *    cible de l'atterrissage. Le lien « remonter » et la redirection post-connexion désignent
+ *    le même écran par construction, sans second endroit à tenir d'accord.
  *
  * ⚠️ **L'ordre d'enregistrement est l'ordre de la barre ET l'ordre de l'atterrissage.**
  * Réordonner `start/navigation.ts` change la page d'accueil des comptes non-admins. C'est le

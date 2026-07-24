@@ -248,10 +248,18 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
    `start/navigation.ts` (CC-81). C'est le pendant exact du point précédent, sur l'autre registre.
 
    Une destination est une **porte d'entrée** de module — l'écran vers lequel on envoie quelqu'un
-   qui n'a rien demandé. Le registre en tire deux choses : les entrées de la barre latérale, et
+   qui n'a rien demandé. Le registre en tire trois choses : les entrées de la barre latérale,
    **la page d'atterrissage** après connexion, après acceptation d'invitation, et quand un compte
-   connecté rouvre `/login`. Les trois redirigeaient vers `/` en dur, qui exige `dashboard.view` :
-   un collègue sans cette capacité recevait un JSON d'erreur comme tout premier écran.
+   connecté rouvre `/login`, et **la racine du fil d'Ariane** de la topbar (CC-83). Tous
+   redirigeaient vers `/` en dur, qui exige `dashboard.view` : un collègue sans cette capacité
+   recevait un JSON d'erreur comme tout premier écran.
+
+   ⚠️ **La racine du fil d'Ariane est `destinations[0]`, jamais `/`.** C'est la même valeur que
+   l'atterrissage, donc le lien de la topbar et la redirection post-connexion désignent le même
+   écran par construction. Un `href="/"` codé là rejouerait le bug : le seul élément cliquable de
+   la topbar répondrait 403 aux comptes sans `dashboard.view`. La topbar affichait auparavant
+   `Pilotage /` — une chaîne fixe, dans un `<span>`, qui nommait la *section* de la barre latérale
+   et mimait une hiérarchie inexistante.
 
    ⚠️ **L'ordre de `start/navigation.ts` est l'ordre de la barre ET la page d'accueil des comptes.**
    Déplacer une ligne change l'écran d'arrivée ; c'est le seul endroit où ça se décide.
