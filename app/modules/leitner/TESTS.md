@@ -71,6 +71,18 @@ navigateur.
   Ce qu'il ne voit **pas**, et personne d'autre non plus : que les classes de la heatmap soient
   réellement **générées** par Tailwind. Une table de classes construites laisserait la grille grise
   avec toute la suite verte — ça se vérifie à `npm run build`, en greppant le CSS produit.
+- `tests/unit/leitner_weakness.spec.ts` — les **points faibles**, code pur sans base : la doctrine de
+  rétention (`hard` ne fait **pas** chuter, `again` oui, l'absence rend `null` jamais 0), la remontée
+  thème → catégorie dont **un `themeId` null tombe dans « Non classées »** et le **total d'une
+  catégorie qui somme sans concaténer** — les `count` sont fournis en **chaîne** (le `bigint` de
+  Postgres) et `assert.strictEqual` refuse `'66'`. Plus le tri décroissant et le drapeau `enoughData`
+  au seuil. C'est le test qui compte du lot.
+- `tests/unit/leitner_stats_service.spec.ts` — ce que le pur ne voit pas : le **SQL**. Il touche la
+  base et prouve le **fenêtrage `toSQL()`** (les fenêtres 7/30/90 cumulent, une révision au-delà de
+  90 j n'entre nulle part), la **jointure reviews → cards** du taux d'`again` avec sa remontée à la
+  catégorie et « Non classées », et les **deux requêtes de cartes** (le plus d'`again` classé
+  décroissant, les coincées en boîte 1-2 filtrées par le plancher de tentatives). Ce qu'il ne voit
+  **pas** : le rendu de `stats.vue` (formatage, liens, table dépliable) — pas de test de composant.
 
 ## Le juge et la fluence
 

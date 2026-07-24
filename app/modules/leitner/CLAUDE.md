@@ -33,8 +33,10 @@ services/leitner_scope.ts                   `CardScope` + `applyScope` — l'UNI
 services/leitner_sessions.ts                l'INFÉRENCE de session — CODE PUR, sans base ni horloge
 services/leitner_habits.ts                  séries, heatmap, régularité, rythme — CODE PUR, le jour
                                             courant est un PARAMÈTRE
-services/leitner_stats_service.ts           les stats d'HABITUDE et d'EFFORT — globales, jamais par
-                                            paquet
+services/leitner_weakness.ts                les POINTS FAIBLES : rétention, taux d'again, seuils —
+                                            CODE PUR, sans base
+services/leitner_stats_service.ts           les stats d'HABITUDE, d'EFFORT et les POINTS FAIBLES —
+                                            globales, jamais par paquet
 services/leitner_catalog_service.ts         seul point d'écriture d'une carte, porte la dédup
 services/leitner_backup_service.ts          export/import JSON — le filet de sécurité du module
 services/leitner_ingestion_service.ts       découpage, appels LLM, TÂCHE DE FOND, brouillons au fil
@@ -310,9 +312,11 @@ le défaut que la palette ⌘K traîne déjà.
 
 ## L'onglet « Stats » : la session est INFÉRÉE, jamais enregistrée
 
-`/revision/stats` raconte deux choses : l'**habitude** (séries, heatmap de l'année, régularité,
-rythme) et l'**effort** (combien de sessions, de quelle durée, combien de cartes). **Aucune colonne
-n'a été ajoutée** : tout se déduit des horodatages, donc rétroactivement sur l'historique existant.
+`/revision/stats` raconte trois choses : l'**habitude** (séries, heatmap de l'année, régularité,
+rythme), l'**effort** (combien de sessions, de quelle durée, combien de cartes) et les **points
+faibles** (rétention par fenêtre, taux d'`again` par thème, cartes à problème — voir la section
+dédiée plus bas, CC-47). **Aucune colonne n'a été ajoutée** : tout se déduit des révisions
+(horodatages et notes), donc rétroactivement sur l'historique existant.
 
 L'inférence tient à une propriété de l'écran de révision, et à elle seule : **la page est sans état**
 — noter une carte recharge `/revision` et affiche la suivante aussitôt. L'horodatage de la note N
@@ -409,6 +413,67 @@ du pourcentage**, jamais le pourcentage seul.
 
 **Limite assumée** : l'histogramme d'heures range une révision à l'heure de sa **note**, pas de sa
 présentation — une carte affichée à 22h58 et notée à 23h01 compte pour 23 h.
+
+## Les points faibles : rendre la rétention actionnable (CC-47)
+
+Le même onglet Stats porte, au-dessus de l'habitude et de l'effort, la couche **analyse** — ce que
+l'historique dit des thèmes et des cartes qui résistent. Comme le reste de l'écran, tout se déduit de
+`leitner_reviews`, **aucune colonne ajoutée**. La logique qui régresserait en silence vit dans
+`leitner_weakness.ts` — **pur, sans base ni horloge**, comme `leitner_sessions.ts` et
+`leitner_habits.ts` ; `LeitnerStatsService` charge et délègue.
+
+**Rétention par fenêtre 7 / 30 / 90 j.** ⚠️ **Ce n'est pas le `retention` de `/revision`.** Ce
+dernier reste un chiffre unique 30 j sur l'écran de révision (une mesure d'**habitude**, cf. le
+tableau « stats de paquet vs globales ») et **n'a pas bougé** — il vit toujours dans le `globalStats`
+privé de `LeitnerController`. Les fenêtres, elles, disent une **tendance**, et vivent sur l'onglet
+Stats. Doctrine identique et non négociable des deux côtés : `grade !== 'again'` = réussite, **`hard`
+compte comme une réussite**, seul `again` est un échec. `retentionRate` rend **`null`, jamais 0**,
+quand une fenêtre est vide — « 0 % » se lirait comme une rétention effondrée. La page affiche `—`.
+
+**Taux d'`again` par thème, agrégé par catégorie** — la mesure la plus utile du lot : elle désigne
+les points faibles réels.
+
+- ⚠️ **UNE seule requête**, `group by leitner_theme_id`, jointure reviews → cards (`db.rawQuery` +
+  `count(*) FILTER`, patron `VeilleStatsService`, `?` paramétré). Jamais une requête par thème.
+- ⚠️ **La remontée à la catégorie se fait en JS**, via la taxonomie préchargée — une carte ne connaît
+  que son thème (`leitner_cards` n'a pas de `leitner_category_id`). C'est **exactement l'approche de
+  `dueScopeChoices`**, et surtout **pas une 3ᵉ copie** de la sous-requête catégorie → thèmes (l'unique
+  copie reste `applyScope`).
+- ⚠️ **`count(*)` revient en `bigint`, donc en chaîne** — le piège de CC-46 : sans `Number()`, les
+  totaux de catégorie concatèneraient (`'12' + '7' = '127'`). Le `Number()` est fait **dans
+  `aggregateWeakness`**, donc dans le code testé (avec des `count` en chaîne dans le test).
+- ⚠️ **Les cartes non classées sont une ligne « Non classées », jamais absente de l'agrégat.** Un
+  `theme_id` null y tombe (ainsi qu'un thème introuvable, par sécurité) au lieu de disparaître.
+
+**Deux seuils, tous deux des conventions** (comme `SESSION_GAP_MINUTES`), qui ne se vérifient qu'à
+l'usage :
+
+- `WEAKNESS_MIN_REVIEWS = 10` — sous ce volume, un « taux » est du bruit (un thème à 3 révisions dont
+  une ratée afficherait 33 % et trônerait pour rien). ⚠️ **Le seuil masque du _classement_, jamais de
+  l'_agrégat_** : les lignes sous le seuil restent comptées dans le total de leur catégorie ; c'est le
+  drapeau `enoughData` qui décide de leur affichage, et **c'est la page qui tranche** — « Non classées »
+  reste toujours visible même sous le seuil. Le `n` est affiché à côté du `%`, sinon le classement est
+  du bruit statistique.
+- `STUCK_MIN_REVIEWS = 3` — une carte « coincée en boîte 1-2 » doit avoir été **tentée** plusieurs
+  fois : une carte neuve (boîte 1, jamais révisée) n'a pas échoué à progresser, elle n'a pas eu sa
+  chance. Sans ce plancher, la liste des coincées serait pleine de cartes qu'on vient de créer.
+
+**Cartes à problème — deux listes distinctes par construction** : « le plus d'`again` » (classé en
+SQL, ré-ordonné en JS car `whereIn` perd l'ordre) et « coincées en boîte 1-2 » (`withCount('reviews')`,
+filtre `>= STUCK_MIN_REVIEWS` en JS). ⚠️ **Chaque carte renvoie vers `/revision/settings`, jamais vers
+`/revision`** : le paquet ne fait que réviser, la correction se fait au seul point de saisie. Le lien
+passe par le filtre `search` existant (`?search=<front>`, `whereILike` paramétré) — il tombe sur la
+carte exacte, sans réintroduire de formulaire d'édition ailleurs.
+
+⚠️ **Tout est sur tout l'historique et globalement** (pas de fenêtre pour les points faibles, pas de
+`?theme=` sur cet écran) : un point faible est cumulatif, et l'onglet Stats est global comme le reste.
+La fenêtre ne concerne que la rétention (la tendance).
+
+⚠️ **Ce que la suite ne voit pas** : le rendu Vue de `stats.vue` (formatage, liens, table dépliable,
+états vides) — pas de test de composant sur cet écran. `leitner_weakness.spec.ts` prouve le code pur
+(doctrine `hard`/`again`, « Non classées », somme sans concaténation) ; `leitner_stats_service.spec.ts`
+prouve le SQL (jointure, fenêtrage `toSQL()`, les deux requêtes de cartes) — le seul filet dessus. Le
+reste se vérifie au navigateur.
 
 ## La réponse écrite : le juge propose, l'utilisateur dispose
 
