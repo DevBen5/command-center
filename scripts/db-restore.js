@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process'
-import { createReadStream, existsSync, readdirSync } from 'node:fs'
+import { createReadStream, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
+
+import { listerDumps, verifierDump } from './lib/dumps.js'
 
 /*
 | Restauration d'un dump produit par `npm run db:backup`.
@@ -9,8 +11,12 @@ import { resolve } from 'node:path'
 | avant de les recréer. Le contenu actuel de la base est donc remplacé, pas fusionné.
 | C'est l'inverse de l'import JSON du module Leitner, qui n'ajoute que ce qui manque.
 |
-| Usage : npm run db:restore              → le dump le plus récent
-|         npm run db:restore -- <fichier> → un dump précis
+| ⚠️ C'est aussi pourquoi le dump est vérifié AVANT d'ouvrir le flux (CC-69) : sur un
+| fichier tronqué, `--clean` supprimerait les tables, puis `ON_ERROR_STOP=1` arrêterait
+| tout au milieu — la base à moitié détruite, et le dump incapable de la reconstruire.
+|
+| Usage : npm run db:restore              → le dump local le plus récent
+|         npm run db:restore -- <fichier> → un dump précis, y compris depuis le miroir
 */
 
 const { DB_USER = 'root', DB_DATABASE = 'app' } = process.env
@@ -22,10 +28,9 @@ function trouverDump() {
   const demande = process.argv[2]
   if (demande) return resolve(demande)
 
-  if (!existsSync(dossier)) return null
-  const dumps = readdirSync(dossier)
-    .filter((nom) => nom.endsWith('.sql'))
-    .sort()
+  // Le choix automatique ne retient que les noms produits par `db:backup` ; un fichier
+  // renommé à la main reste restaurable en le nommant explicitement.
+  const dumps = listerDumps(dossier)
 
   return dumps.length > 0 ? resolve(dossier, dumps.at(-1)) : null
 }
@@ -35,6 +40,18 @@ const fichier = trouverDump()
 if (!fichier || !existsSync(fichier)) {
   console.error(
     'Aucune sauvegarde à restaurer.\nUsage : npm run db:restore -- backups/<fichier>.sql'
+  )
+  process.exit(1)
+}
+
+const { ok, raison } = verifierDump(fichier)
+if (!ok) {
+  console.error(
+    `Restauration refusée — ${raison}\n${fichier}\n` +
+      'Ce dump ne peut pas reconstruire la base, et le tenter la détruirait à moitié ' +
+      '(--clean supprime avant de recréer).\n' +
+      'Pour forcer malgré tout, en connaissance de cause :\n' +
+      `  docker compose exec -T postgres psql -U ${DB_USER} -d ${DB_DATABASE} < <fichier>`
   )
   process.exit(1)
 }
