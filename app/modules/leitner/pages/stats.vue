@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { Head } from '@inertiajs/vue3'
+import { computed } from 'vue'
+import { Head, Link } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
 
@@ -9,6 +10,43 @@ interface RecentSession {
   startedAt: string
   durationSeconds: number
   cardCount: number
+}
+
+interface RetentionWindow {
+  days: number
+  rate: number | null
+}
+
+interface WeaknessTheme {
+  themeId: number
+  name: string
+  total: number
+  again: number
+  rate: number
+  enoughData: boolean
+}
+
+interface WeaknessCategory {
+  categoryId: number | null
+  name: string
+  total: number
+  again: number
+  rate: number
+  enoughData: boolean
+  themes: WeaknessTheme[]
+}
+
+interface ProblemCard {
+  id: number
+  front: string
+  box: number
+  path: string
+  count: number
+}
+
+interface ProblemCards {
+  mostAgain: ProblemCard[]
+  stuck: ProblemCard[]
 }
 
 interface EffortStats {
@@ -53,7 +91,13 @@ interface HabitStats {
   byHour: number[]
 }
 
-defineProps<{ habits: HabitStats; stats: EffortStats }>()
+const props = defineProps<{
+  habits: HabitStats
+  stats: EffortStats
+  retention: RetentionWindow[]
+  weakness: WeaknessCategory[]
+  problemCards: ProblemCards
+}>()
 
 /**
  * Les cinq paliers de la heatmap, en **classes littérales complètes**.
@@ -131,6 +175,38 @@ function barHeight(count: number, max: number): string {
 function maxOf(counts: number[]): number {
   return counts.reduce((max, count) => Math.max(max, count), 0)
 }
+
+/** Rétention : `null` → `—`, jamais `0 %` (une base neuve n'a pas une rétention nulle). */
+function formatRate(rate: number | null): string {
+  return rate === null ? '—' : `${rate} %`
+}
+
+/**
+ * Le classement à afficher : une catégorie n'entre que si elle a assez de volume — sauf
+ * « Non classées » (`categoryId === null`), qui reste toujours visible (le ticket l'exige).
+ * Sous chaque catégorie, seuls les thèmes au-dessus du seuil (`enoughData`) : les autres
+ * comptent dans l'agrégat mais ne se donnent pas à voir comme un point faible.
+ */
+const displayedWeakness = computed(() =>
+  props.weakness
+    .filter((category) => category.enoughData || category.categoryId === null)
+    .map((category) => ({
+      ...category,
+      shownThemes: category.themes.filter((theme) => theme.enoughData),
+    }))
+)
+
+/** Un taux d'oubli élevé se lit rouge, moyen orange — c'est un défaut, pas un score. */
+function rateClass(rate: number): string {
+  if (rate >= 50) return 'text-bad'
+  if (rate >= 25) return 'text-warn'
+  return 'text-txt-2'
+}
+
+/** Vers `/revision/settings`, seul point de saisie — la carte exacte via le filtre de recherche. */
+function cardLink(front: string): string {
+  return `/revision/settings?search=${encodeURIComponent(front)}`
+}
 </script>
 
 <template>
@@ -139,15 +215,159 @@ function maxOf(counts: number[]): number {
   <LeitnerTabs />
 
   <div class="mb-4">
-    <div class="text-[18px] font-bold">L'habitude et l'effort</div>
+    <div class="text-[18px] font-bold">Ce que disent les révisions</div>
     <div class="mt-0.5 text-[11.5px] text-txt-3">
-      Tout est déduit des horodatages des révisions — aucune colonne n'a été ajoutée pour
-      ça, et l'historique se relit rétroactivement. Mesures globales, jamais restreintes à
-      un thème.
+      Tout est déduit des révisions — leurs horodatages et leurs notes — sans qu'aucune
+      colonne n'ait été ajoutée, et l'historique se relit rétroactivement. Mesures globales,
+      jamais restreintes à un thème.
     </div>
   </div>
 
   <div class="mx-auto max-w-[880px]">
+    <!-- ================= Les points faibles : la rétention rendue actionnable ================= -->
+    <div class="mb-2 text-[12.5px] font-semibold text-txt-2">Les points faibles</div>
+
+    <!-- La rétention sur trois fenêtres, pour lire une tendance. « Difficile » compte
+         comme une réussite ; seul « à revoir » est un échec de rappel. -->
+    <div class="mb-3 grid grid-cols-3 gap-3">
+      <div
+        v-for="window in retention"
+        :key="window.days"
+        class="rounded-[12px] border border-line bg-panel px-4 py-3 text-center"
+      >
+        <div class="font-mono text-[22px] font-bold">{{ formatRate(window.rate) }}</div>
+        <div class="text-[10.5px] text-txt-3">rétention ({{ window.days }} j)</div>
+      </div>
+    </div>
+
+    <!-- Le taux d'« à revoir » par thème, agrégé par catégorie. Le classement n'affiche
+         que ce qui a au moins 10 révisions — en dessous, un taux ne veut rien dire. -->
+    <div
+      v-if="displayedWeakness.length === 0"
+      class="mb-3 rounded-[12px] border border-line bg-panel px-4 py-6 text-center"
+    >
+      <div class="text-[12.5px] text-txt-2">Pas encore assez de révisions.</div>
+      <div class="mt-1 text-[11.5px] text-txt-3">
+        Les points faibles se dégagent à mesure que l'historique se remplit.
+      </div>
+    </div>
+
+    <div v-else class="mb-3 space-y-2">
+      <template v-for="category in displayedWeakness" :key="category.categoryId ?? 'unclassified'">
+        <!-- Catégorie avec des thèmes assez révisés → dépliable. -->
+        <details
+          v-if="category.shownThemes.length > 0"
+          class="rounded-[12px] border border-line bg-panel"
+        >
+          <summary
+            class="flex cursor-pointer items-center gap-3 px-4 py-2.5 text-[12.5px] font-semibold"
+          >
+            <span>{{ category.name }}</span>
+            <span class="ml-auto font-mono text-[11px] text-txt-3">{{ category.total }} rév.</span>
+            <span class="w-[52px] text-right font-mono font-bold" :class="rateClass(category.rate)">
+              {{ category.rate }} %
+            </span>
+          </summary>
+
+          <Link
+            v-for="theme in category.shownThemes"
+            :key="theme.themeId"
+            :href="`/revision/settings?themeId=${theme.themeId}`"
+            class="flex items-center gap-3 border-t border-line px-4 py-2 pl-8 text-[12px] hover:bg-panel-2"
+          >
+            <span class="text-txt-2">{{ theme.name }}</span>
+            <span class="ml-auto font-mono text-[11px] text-txt-3">{{ theme.total }} rév.</span>
+            <span class="w-[52px] text-right font-mono" :class="rateClass(theme.rate)">
+              {{ theme.rate }} %
+            </span>
+          </Link>
+        </details>
+
+        <!-- Sans thème affichable (« Non classées », ou catégorie au volume juste au global). -->
+        <Link
+          v-else-if="category.categoryId === null"
+          href="/revision/settings?unclassified=1"
+          class="flex items-center gap-3 rounded-[12px] border border-line bg-panel px-4 py-2.5 text-[12.5px] font-semibold hover:bg-panel-2"
+        >
+          <span>{{ category.name }}</span>
+          <span class="ml-auto font-mono text-[11px] text-txt-3">{{ category.total }} rév.</span>
+          <span
+            class="w-[52px] text-right font-mono font-bold"
+            :class="category.enoughData ? rateClass(category.rate) : 'text-txt-3'"
+          >
+            {{ category.rate }} %
+          </span>
+        </Link>
+
+        <div
+          v-else
+          class="flex items-center gap-3 rounded-[12px] border border-line bg-panel px-4 py-2.5 text-[12.5px] font-semibold"
+        >
+          <span>{{ category.name }}</span>
+          <span class="ml-auto font-mono text-[11px] text-txt-3">{{ category.total }} rév.</span>
+          <span class="w-[52px] text-right font-mono font-bold" :class="rateClass(category.rate)">
+            {{ category.rate }} %
+          </span>
+        </div>
+      </template>
+    </div>
+
+    <!-- Deux listes de cartes à corriger. Un clic ouvre la carte dans les réglages — le
+         seul endroit où on l'édite. -->
+    <div class="mb-5 grid grid-cols-2 gap-3">
+      <div class="rounded-[12px] border border-line bg-panel">
+        <div class="border-b border-line px-4 py-2.5 text-[12.5px] font-semibold">
+          Le plus d'« à revoir »
+        </div>
+
+        <div v-if="problemCards.mostAgain.length === 0" class="px-4 py-6 text-center">
+          <div class="text-[12px] text-txt-3">Aucune carte ratée à répétition.</div>
+        </div>
+
+        <Link
+          v-for="card in problemCards.mostAgain"
+          :key="card.id"
+          :href="cardLink(card.front)"
+          class="flex items-center gap-3 border-b border-line px-4 py-2 text-[12px] last:border-b-0 hover:bg-panel-2"
+        >
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-txt-2">{{ card.front }}</span>
+            <span class="block truncate text-[10.5px] text-txt-3">{{ card.path }}</span>
+          </span>
+          <span class="shrink-0 font-mono text-[10.5px] text-txt-3">bte {{ card.box }}</span>
+          <span class="w-[54px] shrink-0 text-right font-mono font-bold text-bad">
+            {{ card.count }}×
+          </span>
+        </Link>
+      </div>
+
+      <div class="rounded-[12px] border border-line bg-panel">
+        <div class="border-b border-line px-4 py-2.5 text-[12.5px] font-semibold">
+          Coincées en boîte 1-2
+        </div>
+
+        <div v-if="problemCards.stuck.length === 0" class="px-4 py-6 text-center">
+          <div class="text-[12px] text-txt-3">Aucune carte bloquée en bas.</div>
+        </div>
+
+        <Link
+          v-for="card in problemCards.stuck"
+          :key="card.id"
+          :href="cardLink(card.front)"
+          class="flex items-center gap-3 border-b border-line px-4 py-2 text-[12px] last:border-b-0 hover:bg-panel-2"
+        >
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-txt-2">{{ card.front }}</span>
+            <span class="block truncate text-[10.5px] text-txt-3">{{ card.path }}</span>
+          </span>
+          <span class="shrink-0 font-mono text-[10.5px] text-warn">bte {{ card.box }}</span>
+          <span class="w-[54px] shrink-0 text-right font-mono text-txt-3">
+            {{ card.count }} rév.
+          </span>
+        </Link>
+      </div>
+    </div>
+
     <div class="mb-2 text-[12.5px] font-semibold text-txt-2">L'habitude</div>
 
     <!-- La heatmap : le graphique le plus parlant du lot. Une case par jour, du lundi
