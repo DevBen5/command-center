@@ -134,6 +134,65 @@ describe('Core / AppLayout', () => {
     accueil.unmount()
   })
 
+  test('le fil d’Ariane ramène à la racine du compte, jamais à « / » en dur', () => {
+    // ⚠️ Un lien codé vers `/` rejouerait CC-81 : cette page exige `dashboard.view`, donc le seul
+    // élément cliquable de la topbar répondrait 403 aux comptes qui ne l'ont pas. La racine est
+    // `destinations[0]` — celle que le registre a déjà jugée ouvrable, et celle vers laquelle
+    // l'atterrissage envoie après connexion.
+    //
+    // Ce compte n'a pas `dashboard.view` : sa liste ne commence donc pas par l'accueil.
+    const lecteur = monter(
+      '/revision',
+      {
+        fullName: 'Lecteur',
+        email: 'lecteur@example.com',
+        isAdmin: false,
+        capabilities: ['veille.view', 'leitner.view'],
+      },
+      [
+        { key: 'veille', href: '/veille' },
+        { key: 'revision', href: '/revision' },
+      ]
+    )
+
+    // La topbar seule : `/veille` figure aussi dans la barre latérale et dans la palette.
+    const topbar = lecteur.get('header')
+    expect(topbar.get('a').attributes('href')).toBe('/veille')
+    expect(topbar.get('a').text()).toBe(fr.nav.veille)
+    expect(topbar.get('h1').text()).toBe(fr.nav.revision)
+    // Ni le libellé de l'accueil, ni l'ancien préfixe fixe « Pilotage / ».
+    expect(topbar.text()).not.toContain(fr.nav.accueil)
+    expect(topbar.text()).not.toContain(fr.nav.sectionPilotage)
+
+    lecteur.unmount()
+  })
+
+  test('sur l’écran racine, le fil d’Ariane ne répète pas le titre', () => {
+    // « Accueil / Accueil » : le second segment n'apprendrait rien et le lien ramènerait sur la
+    // page déjà ouverte. Un seul segment, et aucun lien dans la topbar.
+    const accueil = monter('/')
+
+    const topbar = accueil.get('header')
+    expect(topbar.findAll('a')).toHaveLength(0)
+    expect(topbar.text()).toBe(fr.nav.accueil)
+
+    accueil.unmount()
+  })
+
+  test('sur une page hors registre (/admin/*), pas de crumb « Accueil / Accueil »', () => {
+    // `/admin/users` n'est pas une destination : `activeDestination` y est null et `pageTitle`
+    // retombe sur « Accueil ». Sans garde, le crumb vers la racine réafficherait « Accueil /
+    // Accueil » — la duplication même que CC-83 supprime sur l'écran racine. Le crumb ne remonte
+    // que depuis une sous-page d'une destination connue.
+    const admin = monter('/admin/users')
+
+    const topbar = admin.get('header')
+    expect(topbar.findAll('a')).toHaveLength(0)
+    expect(topbar.text()).toBe(fr.nav.accueil)
+
+    admin.unmount()
+  })
+
   test('les pastilles distinguent une stat nulle d’une stat non chargée', () => {
     const wrapper = monter('/')
 
@@ -222,10 +281,9 @@ describe('Core / AppLayout', () => {
     // Un titre « Pilotage » suivi de rien annoncerait une navigation qui n'existe pas : c'est
     // l'écran d'un compte sans droits, ou la page 403 d'un compte qui n'a rien d'autre.
     //
-    // ⚠️ On compte les titres plutôt que de chercher leur texte : « Pilotage » apparaît **aussi**
-    // dans le fil d'Ariane (`topbar.crumb`), donc une assertion textuelle passerait au vert sans
-    // rien prouver. Les trois `div.uppercase` d'un montage plein sont les deux titres de section
-    // et le label du sélecteur de langue.
+    // Les trois `div.uppercase` d'un montage plein sont les deux titres de section et le label du
+    // sélecteur de langue. On les compte plutôt que d'assertir leur texte : c'est le seul moyen de
+    // voir apparaître un quatrième titre, ou d'en voir survivre un que son contenu a quitté.
     const admin = monter('/')
     expect(admin.findAll('div.uppercase')).toHaveLength(3)
     admin.unmount()
@@ -256,6 +314,8 @@ describe('Core / AppLayout', () => {
 
     // `nav` vaut null sur login : aucune stat, aucune pastille, et surtout aucune exception.
     expect(wrapper.get('h1').text()).toBe(fr.nav.accueil)
+    // `destinations` est vide, donc aucune racine à proposer : la topbar ne rend pas de lien mort.
+    expect(wrapper.get('header').findAll('a')).toHaveLength(0)
     wrapper.unmount()
   })
 })

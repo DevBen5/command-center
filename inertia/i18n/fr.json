@@ -25,9 +25,6 @@
     "logoutTitle": "Se déconnecter",
     "language": "Langue"
   },
-  "topbar": {
-    "crumb": "Pilotage /"
-  },
   "palette": {
     "placeholder": "Tapez une commande, un service, un agent…",
     "navigation": "Navigation",
