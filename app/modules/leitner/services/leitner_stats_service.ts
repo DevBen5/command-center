@@ -1,5 +1,8 @@
 import { DateTime } from 'luxon'
+import db from '@adonisjs/lucid/services/db'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
+import LeitnerCard from '#modules/leitner/models/leitner_card'
+import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import {
   HEATMAP_WINDOW_DAYS,
   REGULARITY_WINDOWS,
@@ -20,6 +23,13 @@ import {
   median,
   type LeitnerSession,
 } from '#modules/leitner/services/leitner_sessions'
+import {
+  STUCK_MIN_REVIEWS,
+  UNCLASSIFIED_LABEL,
+  aggregateWeakness,
+  retentionRate,
+  type WeaknessCategory,
+} from '#modules/leitner/services/leitner_weakness'
 
 /** La fenêtre la plus large affichée, et donc la seule qu'on charge. */
 const WIDEST_WINDOW_DAYS = 365
@@ -29,6 +39,15 @@ const DETAIL_WINDOW_DAYS = 30
 
 /** Le nombre de sessions listées sous les tuiles. */
 const RECENT_SESSIONS = 10
+
+/** Les fenêtres de rétention (jours), de la plus courte à la plus large. */
+const RETENTION_WINDOW_DAYS = [7, 30, 90]
+
+/** Combien de cartes chaque liste de « cartes à problème » montre au plus. */
+const PROBLEM_CARDS_LIMIT = 8
+
+/** Une carte « coincée » n'a jamais dépassé cette boîte. */
+const STUCK_MAX_BOX = 2
 
 export interface RecentSession {
   startedAt: string
@@ -67,6 +86,31 @@ export interface LeitnerEffortStats {
   medianCardsPerSession: number | null
   totalSeconds: number
   recentSessions: RecentSession[]
+}
+
+/** La rétention sur une fenêtre. `rate` est `null` quand il n'y a rien à mesurer. */
+export interface RetentionWindow {
+  days: number
+  rate: number | null
+}
+
+/**
+ * Une carte à corriger. `count` change de sens selon la liste — nombre d'`again` pour
+ * « le plus d'oublis », nombre de révisions pour « coincées » : c'est l'en-tête de la
+ * section qui le nomme, comme le `count` du service veille.
+ */
+export interface ProblemCard {
+  id: number
+  front: string
+  box: number
+  /** « Catégorie · Thème », ou « Non classées ». */
+  path: string
+  count: number
+}
+
+export interface ProblemCards {
+  mostAgain: ProblemCard[]
+  stuck: ProblemCard[]
 }
 
 /**
@@ -160,6 +204,91 @@ export default class LeitnerStatsService {
   }
 
   /**
+   * La rétention sur trois fenêtres (7 / 30 / 90 j) — la même mesure d'habitude que le
+   * chiffre unique de `/revision`, mais déclinée pour lire une **tendance**. Doctrine
+   * inchangée : `hard` est une réussite, seul `again` un échec (voir `retentionRate`).
+   *
+   * Un seul chargement sur la fenêtre la plus large, puis un filtrage en JS par fenêtre —
+   * comme `effortStats`, à volumétrie personnelle assumée.
+   *
+   * ⚠️ `reviewed_at` est un `timestamp` : `.toSQL()`, **jamais** `.toSQLDate()` (réservé à
+   * `next_review`, colonne `date`). Les intervertir passe le typecheck et casse le filtre.
+   */
+  async retentionByWindow(): Promise<RetentionWindow[]> {
+    const today = DateTime.now().startOf('day')
+    const widest = Math.max(...RETENTION_WINDOW_DAYS)
+
+    const reviews = await LeitnerReview.query()
+      .select('grade', 'reviewed_at')
+      .where('reviewed_at', '>=', today.minus({ days: widest }).toSQL()!)
+
+    return RETENTION_WINDOW_DAYS.map((days) => {
+      const from = today.minus({ days }).toMillis()
+      const grades = reviews
+        .filter((review) => review.reviewedAt.toMillis() >= from)
+        .map((review) => review.grade)
+      return { days, rate: retentionRate(grades) }
+    })
+  }
+
+  /**
+   * Le taux d'`again` par thème, agrégé par catégorie — la mesure la plus utile du lot :
+   * elle désigne les points faibles réels. **Tout l'historique**, sans fenêtre : un point
+   * faible est cumulatif.
+   *
+   * ⚠️ **UNE seule requête**, `group by leitner_theme_id`, jointure reviews → cards (une
+   * carte ne porte que son thème). `count(*)` revient en `bigint` → chaîne ; le `Number()`
+   * est fait dans `aggregateWeakness`, avec le reste de la logique pure. La remontée à la
+   * catégorie se fait **en JS** via la taxonomie préchargée, comme `dueScopeChoices` :
+   * aucune 3ᵉ copie de la sous-requête catégorie → thèmes. Patron `db.rawQuery` +
+   * `count(*) FILTER` : cf. `VeilleStatsService`, `?` paramétré.
+   */
+  async weaknessByTheme(): Promise<WeaknessCategory[]> {
+    const result = await db.rawQuery(
+      `SELECT
+         c.leitner_theme_id                    AS theme_id,
+         count(*)                              AS total,
+         count(*) FILTER (WHERE r.grade = ?)   AS again
+       FROM leitner_reviews r
+       JOIN leitner_cards c ON c.id = r.leitner_card_id
+       GROUP BY c.leitner_theme_id`,
+      ['again']
+    )
+
+    const rows = result.rows.map(
+      (row: { theme_id: number | null; total: string; again: string }) => ({
+        themeId: row.theme_id,
+        total: row.total,
+        again: row.again,
+      })
+    )
+
+    const categories = await LeitnerCategory.query().preload('themes').orderBy('name')
+
+    return aggregateWeakness(
+      rows,
+      categories.map((category) => ({
+        id: category.id,
+        name: category.name,
+        themes: category.themes.map((theme) => ({ id: theme.id, name: theme.name })),
+      }))
+    )
+  }
+
+  /**
+   * Deux listes de cartes à corriger, distinctes par construction : celles qui **cumulent
+   * le plus d'`again`**, et celles **coincées en boîte 1-2** (jamais promues). Sur tout
+   * l'historique. La page renvoie chacune vers `/revision/settings` — le seul point de
+   * saisie ; `/revision` ne fait que réviser.
+   */
+  async problemCards(): Promise<ProblemCards> {
+    return {
+      mostAgain: await this.mostAgainCards(),
+      stuck: await this.stuckCards(),
+    }
+  }
+
+  /**
    * **Un seul chargement, un seul regroupement** — et c'est structurel, pas une
    * optimisation. Filtrer les révisions *avant* de les regrouper couperait en deux la
    * session à cheval sur la frontière de la fenêtre, et la compterait **deux fois** :
@@ -185,5 +314,62 @@ export default class LeitnerStatsService {
       .orderBy('reviewed_at', 'asc')
 
     return groupIntoSessions(reviews, SESSION_GAP_MINUTES)
+  }
+
+  /**
+   * Les cartes qui cumulent le plus d'`again`. Le classement se fait en SQL (`group by`
+   * carte), mais `whereIn` **perd cet ordre** au chargement des cartes : on le rétablit en
+   * JS sur le compte d'`again`. `count(*)` bigint → `Number()`.
+   */
+  private async mostAgainCards(): Promise<ProblemCard[]> {
+    const result = await db.rawQuery(
+      `SELECT leitner_card_id AS card_id, count(*) AS again
+       FROM leitner_reviews
+       WHERE grade = ?
+       GROUP BY leitner_card_id
+       ORDER BY again DESC, leitner_card_id ASC
+       LIMIT ?`,
+      ['again', PROBLEM_CARDS_LIMIT]
+    )
+
+    const againByCard = new Map<number, number>()
+    for (const row of result.rows) againByCard.set(row.card_id, Number(row.again))
+
+    const ids = [...againByCard.keys()]
+    if (ids.length === 0) return []
+
+    const cards = await LeitnerCard.query()
+      .whereIn('id', ids)
+      .preload('theme', (theme) => theme.preload('category'))
+
+    return cards
+      .map((card) => this.toProblemCard(card, againByCard.get(card.id) ?? 0))
+      .sort((a, b) => b.count - a.count || a.id - b.id)
+  }
+
+  /**
+   * Les cartes **coincées en boîte 1-2** : jamais promues au-delà, malgré au moins
+   * `STUCK_MIN_REVIEWS` tentatives. Le plancher de tentatives écarte les cartes neuves,
+   * qui sont en boîte 1 sans avoir échoué à rien. `withCount` compte les révisions en
+   * base ; le filtre et le tri se font en JS, à volumétrie personnelle.
+   */
+  private async stuckCards(): Promise<ProblemCard[]> {
+    const cards = await LeitnerCard.query()
+      .where('box', '<=', STUCK_MAX_BOX)
+      .withCount('reviews')
+      .preload('theme', (theme) => theme.preload('category'))
+
+    return cards
+      .map((card) => ({ card, reviewCount: Number(card.$extras.reviews_count) }))
+      .filter(({ reviewCount }) => reviewCount >= STUCK_MIN_REVIEWS)
+      .sort((a, b) => b.reviewCount - a.reviewCount || a.card.id - b.card.id)
+      .slice(0, PROBLEM_CARDS_LIMIT)
+      .map(({ card, reviewCount }) => this.toProblemCard(card, reviewCount))
+  }
+
+  private toProblemCard(card: LeitnerCard, count: number): ProblemCard {
+    const theme = card.theme
+    const path = theme ? `${theme.category.name} · ${theme.name}` : UNCLASSIFIED_LABEL
+    return { id: card.id, front: card.front, box: card.box, path, count }
   }
 }
