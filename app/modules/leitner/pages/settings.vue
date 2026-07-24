@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { Head, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
 import { useCan } from '../components/leitner_can'
+import { scrollTopKeepingAnchor } from '../shared/settings_page'
 
 defineOptions({ layout: AppLayout })
 
@@ -287,9 +288,67 @@ function submitCard(keepOpen = false): void {
 const importFile = ref<File | null>(null)
 const importing = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
+const backupBlock = ref<HTMLElement | null>(null)
+
+/** Position à l'écran du bloc Sauvegarde avant la requête — `null` hors import (CC-67). */
+let backupTopBefore: number | null = null
 
 function pickFile(event: Event): void {
   importFile.value = (event.target as HTMLInputElement).files?.[0] ?? null
+}
+
+/**
+ * Le conteneur qui défile n'est PAS la fenêtre : c'est le panneau `overflow-y-auto`
+ * d'`AppLayout`. `window.scrollY` y vaut éternellement 0 et `window.scrollTo` n'y fait
+ * rien — un correctif écrit sur la fenêtre passerait lint, typecheck et tests sans
+ * jamais bouger l'écran. On remonte donc jusqu'au premier ancêtre réellement défilant,
+ * plutôt que de coder en dur une classe du layout.
+ *
+ * ⚠️ **`scrollHeight > clientHeight` n'est pas une précaution décorative** : un ancêtre
+ * qui ne porte qu'un `overflow-x: hidden` a un `overflowY` **calculé** à `auto` (la spec
+ * CSS interdit `visible` face à un `hidden`). Sans ce second test, la remontée
+ * s'arrêterait sur un conteneur qui ne défile pas, et la correction écrirait dans le vide.
+ */
+function scrollParentOf(element: HTMLElement): HTMLElement | null {
+  let node = element.parentElement
+  while (node) {
+    const { overflowY } = getComputedStyle(node)
+    if ((overflowY === 'auto' || overflowY === 'scroll') && node.scrollHeight > node.clientHeight) {
+      return node
+    }
+    node = node.parentElement
+  }
+  return null
+}
+
+/**
+ * Rend au bloc Sauvegarde la place qu'il occupait à l'écran (CC-67).
+ *
+ * Le formulaire d'import vit dans la colonne de droite, le tableau des cartes dans celle de
+ * gauche : un tableau plus haut ne pousse donc rien. Ce qui déplace la vue, c'est l'ancrage
+ * de défilement du navigateur — les cartes importées s'insèrent **en tête** du tableau
+ * (`cards()` trie `id desc`), au-dessus de la ligne sur laquelle il s'était ancré, et il
+ * remonte `scrollTop` d'autant pour la garder fixe. La colonne de droite part alors hors
+ * de l'écran. Le second cas, plus discret, est un import qui crée des catégories : la
+ * taxonomie grandit, elle, réellement au-dessus du bloc.
+ *
+ * Suivre l'élément annule les deux. Rien à annuler (import entièrement dédupliqué, import
+ * refusé) donne un delta nul, donc un no-op.
+ */
+function restoreBackupPosition(): void {
+  const element = backupBlock.value
+  const topBefore = backupTopBefore
+  backupTopBefore = null
+  if (!element || topBefore === null) return
+
+  const container = scrollParentOf(element)
+  if (!container) return
+
+  container.scrollTop = scrollTopKeepingAnchor({
+    scrollTop: container.scrollTop,
+    topBefore,
+    topAfter: element.getBoundingClientRect().top,
+  })
 }
 
 // L'import n'ajoute que ce qui manque : rien n'est supprimé ni écrasé, donc aucune
@@ -297,12 +356,24 @@ function pickFile(event: Event): void {
 function submitImport(): void {
   if (!importFile.value) return
 
+  backupTopBefore = backupBlock.value?.getBoundingClientRect().top ?? null
+
   importing.value = true
   router.post(
     '/revision/import',
     { file: importFile.value },
     {
+      // ⚠️ Inertia ne restaure que `window` et les éléments `[scroll-region]` — le panneau
+      // d'`AppLayout` n'est ni l'un ni l'autre, donc ce drapeau ne gouverne pas cette page.
+      // Il reste : il ne coûte rien et redeviendrait porteur si un `scroll-region` apparaît.
       preserveScroll: true,
+      // ⚠️ Après le `nextTick`, jamais avant : `onSuccess` se déclenche à l'échange des props,
+      // quand Vue n'a pas encore écrit les nouvelles lignes. Mesurer là mesurerait l'ancien
+      // tableau — le correctif paraîtrait juste sur une carte et n'annulerait rien sur un lot.
+      onSuccess: async () => {
+        await nextTick()
+        restoreBackupPosition()
+      },
       onFinish: () => {
         importing.value = false
         importFile.value = null
@@ -776,8 +847,16 @@ function deleteTheme(theme: ThemeNode): void {
 
       <!-- Sauvegarde — export ET import sous `leitner.backup`, masqués en lecture seule.
            ⚠️ L'export est en lecture, mais il rend l'intégralité du contenu (réponses
-           écrites comprises) en un fichier : un invité n'a pas à repartir avec la base. -->
-      <div v-if="canBackup" class="rounded-[12px] border border-line bg-panel p-4">
+           écrites comprises) en un fichier : un invité n'a pas à repartir avec la base.
+
+           ⚠️ `ref` porté par le bloc ENTIER, donc par son bord haut : le rapport d'import
+           et la liste d'erreurs apparaissent plus bas, et ne peuvent donc pas déplacer
+           l'ancre qui sert à les ramener sous les yeux (CC-67). -->
+      <div
+        v-if="canBackup"
+        ref="backupBlock"
+        class="rounded-[12px] border border-line bg-panel p-4"
+      >
         <h2 class="text-[12px] font-bold tracking-[.12em] text-txt-2 uppercase">Sauvegarde</h2>
         <p class="mt-1 mb-3 text-[11.5px] text-txt-3">
           Vos cartes ne vivent que dans cette base. L'export en donne une copie autonome —
