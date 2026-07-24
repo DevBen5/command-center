@@ -57,6 +57,20 @@ navigateur.
   qui attrape le tri lexicographique) et son `null` sur l'absence de mesure.
   Ce qu'il ne voit **pas** : l'agrégation par fenêtre du service (glu triviale) et tout le rendu (le
   formatage des durées, le `—` sur base vide) — `pages/stats.vue` n'a pas de test de composant.
+- `tests/unit/leitner_habits.spec.ts` — les mesures d'**habitude**, du code pur dont le jour courant
+  est un paramètre. Les séries d'abord : **une série passée plus longue que la courante est retenue**,
+  un trou d'un jour coupe, l'ensemble vide rend 0, un jour isolé rend 1, et la contiguïté **traverse
+  un changement de mois** (le piège d'une comparaison de chaînes). Puis le fait que la série en cours
+  vaut toujours 0 tant que rien n'a été noté aujourd'hui — le comportement d'origine, gardé comme
+  témoin du refactor de `streakDays()`. La heatmap ensuite : **la première case est un lundi** (le
+  calage sans lequel chaque jour tombe sur la mauvaise ligne), la dernière est aujourd'hui, aucune
+  case ne dépasse aujourd'hui, un jour sans révision existe à 0, les comptes atterrissent sur la
+  bonne date, les paliers suivent le maximum de la fenêtre et un historique vide ne divise pas par
+  zéro. Enfin **l'index 0 des jours de semaine est le lundi** (Luxon numérote de 1 à 7) et les
+  fenêtres écartent bien ce qui les précède.
+  Ce qu'il ne voit **pas**, et personne d'autre non plus : que les classes de la heatmap soient
+  réellement **générées** par Tailwind. Une table de classes construites laisserait la grille grise
+  avec toute la suite verte — ça se vérifie à `npm run build`, en greppant le CSS produit.
 
 ## Le juge et la fluence
 

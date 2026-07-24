@@ -31,7 +31,10 @@ services/leitner_fluency_service.ts         sa partie base : médianes carte/bo�
 services/leitner_scope.ts                   `CardScope` + `applyScope` — l'UNIQUE copie de la
                                             sous-requête catégorie → thèmes
 services/leitner_sessions.ts                l'INFÉRENCE de session — CODE PUR, sans base ni horloge
-services/leitner_stats_service.ts           les stats d'EFFORT — globales, jamais par paquet
+services/leitner_habits.ts                  séries, heatmap, régularité, rythme — CODE PUR, le jour
+                                            courant est un PARAMÈTRE
+services/leitner_stats_service.ts           les stats d'HABITUDE et d'EFFORT — globales, jamais par
+                                            paquet
 services/leitner_catalog_service.ts         seul point d'écriture d'une carte, porte la dédup
 services/leitner_backup_service.ts          export/import JSON — le filet de sécurité du module
 services/leitner_ingestion_service.ts       découpage, appels LLM, TÂCHE DE FOND, brouillons au fil
@@ -307,9 +310,9 @@ le défaut que la palette ⌘K traîne déjà.
 
 ## L'onglet « Stats » : la session est INFÉRÉE, jamais enregistrée
 
-`/revision/stats` mesure l'**effort** (combien de sessions, de quelle durée, combien de cartes), là
-où les quatre chiffres de `/revision` mesurent l'**habitude**. **Aucune colonne n'a été ajoutée** :
-tout se déduit des horodatages, donc rétroactivement sur l'historique existant.
+`/revision/stats` raconte deux choses : l'**habitude** (séries, heatmap de l'année, régularité,
+rythme) et l'**effort** (combien de sessions, de quelle durée, combien de cartes). **Aucune colonne
+n'a été ajoutée** : tout se déduit des horodatages, donc rétroactivement sur l'historique existant.
 
 L'inférence tient à une propriété de l'écran de révision, et à elle seule : **la page est sans état**
 — noter une carte recharge `/revision` et affiche la suivante aussitôt. L'horodatage de la note N
@@ -353,6 +356,59 @@ serait fabriquer une mesure qu'on n'a pas, dans le seul chiffre que l'utilisateu
 
 **Limites assumées** : un onglet laissé ouvert dix minutes gonfle le temps d'une carte (la médiane
 l'absorbe) ; deux onglets révisant en parallèle entrelaceraient les horodatages.
+
+### L'habitude : la journée se découpe en JS, et à un seul endroit (CC-46)
+
+⚠️ **Il n'existe qu'une voie pour dire à quel jour appartient une révision, et c'est
+`reviewedAt.toISODate()`** — donc le fuseau du **process Node**, le même que le `DateTime.now()` des
+séries. La voie SQL (`group by date(reviewed_at)`, fuseau du serveur Postgres) **n'est pas prise**.
+Ce n'est pas une préférence : deux voies feraient diverger la heatmap et la série d'**une case au
+voisinage de minuit**, avec deux chiffres plausibles qui se contredisent et rien pour le signaler.
+N'ajoute pas d'agrégat SQL « pour aller plus vite » sur cet écran.
+
+Deux corollaires du choix : il n'y a **aucun `count(*)`**, donc pas de `bigint` rendu en chaîne à
+reconvertir (le piège de `dueScopeChoices` est écarté par construction, pas désamorcé) ; et changer
+`TZ` déplace **rétroactivement** les cases de la heatmap, ce qui est le comportement voulu — la
+journée est celle de l'utilisateur, pas celle du conteneur.
+
+**Deux séries, et elles ne disent pas la même chose :**
+
+- `currentStreak` **vaut 0 toute la journée tant qu'on n'a rien noté**, et ça ne change pas : c'est la
+  définition qu'affiche `/revision` depuis toujours. `LeitnerService.streakDays()` **délègue**
+  désormais à `leitner_habits.ts` au lieu de porter sa propre boucle — deux définitions de « série »
+  auraient fini par diverger, sur le fuseau ou sur la question de savoir si aujourd'hui compte.
+- `longestStreak` lit **tout l'historique, sans fenêtre**. C'est la seule mesure de cet écran qui
+  charge la table entière, et c'est irréductible : une série de 40 jours tenue il y a deux ans reste
+  la meilleure jamais tenue. La contiguïté se vérifie par arithmétique de dates, **jamais** en
+  comparant des chaînes — le 31 janvier est suivi du 1ᵉʳ février.
+
+**La heatmap, et les deux calages qui ne lèvent rien s'ils disparaissent :**
+
+- La grille **commence au lundi qui précède** la fenêtre. Sans ce calage la première colonne est
+  incomplète, tout glisse d'un cran, et **chaque jour s'affiche sur la mauvaise ligne** : une grille
+  pleine, plausible, et fausse. `heatmapCells` le fait, et le test asserte le `weekday` de la
+  première cellule — pas seulement le nombre de cases.
+- La dernière colonne, elle, **n'est jamais complétée** : un jour à venir rendu au palier 0 serait
+  indiscernable d'un jour sans révision. On s'arrête à aujourd'hui, la colonne reste partielle.
+- Le palier est **relatif au maximum de la fenêtre affichée**, et `level 0` ↔ `count 0` exactement :
+  un jour à une seule révision ne doit jamais être gris.
+
+⚠️ **Le piège de rendu, et c'est le pire du lot : les classes Tailwind construites.**
+`` :class="`bg-accent/${level * 25}`" `` ne génère **aucune règle** — Tailwind scanne du texte, il ne
+résout pas d'expression. La heatmap serait uniformément grise avec `lint`, `typecheck` et **toute la
+suite verts**, jsdom ne faisant aucun layout. D'où la table `LEVEL_CLASS` de `stats.vue`, en
+**classes littérales complètes**. Ça se vérifie à `npm run build`, en greppant le `.css` de
+`public/assets/` — même famille que le `calc(100vh_-_8rem)` de la modale. Les hauteurs de barres des
+histogrammes passent par un **style inline**, une valeur continue ne pouvant de toute façon pas être
+une classe.
+
+**Le dénominateur de la régularité est la fenêtre, pas l'âge de la base** — « 12 jours sur 30 » garde
+le même sens d'un mois à l'autre, là où un dénominateur mobile serait une seconde règle invisible.
+Sur une base jeune le pourcentage paraît donc bas : c'est pourquoi l'écran affiche **le brut à côté
+du pourcentage**, jamais le pourcentage seul.
+
+**Limite assumée** : l'histogramme d'heures range une révision à l'heure de sa **note**, pas de sa
+présentation — une carte affichée à 22h58 et notée à 23h01 compte pour 23 h.
 
 ## La réponse écrite : le juge propose, l'utilisateur dispose
 
