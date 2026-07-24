@@ -25,9 +25,6 @@
     "logoutTitle": "Sign out",
     "language": "Language"
   },
-  "topbar": {
-    "crumb": "Control /"
-  },
   "palette": {
     "placeholder": "Type a command, a service, an agent…",
     "navigation": "Navigation",

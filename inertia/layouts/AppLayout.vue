@@ -123,9 +123,35 @@ function isActive(href: string): boolean {
   return href === '/' ? page.url === '/' : page.url.startsWith(href)
 }
 
-const pageTitle = computed(() => {
-  const item = navItems.value.find((i) => isActive(i.href))
-  return t(`nav.${item?.key ?? 'accueil'}`)
+/** L'entrée de barre latérale qui correspond à la page ouverte — `null` hors authentification. */
+const activeDestination = computed(() => navItems.value.find((i) => isActive(i.href)) ?? null)
+
+const pageTitle = computed(() => t(`nav.${activeDestination.value?.key ?? 'accueil'}`))
+
+/**
+ * La racine du fil d'Ariane : **`destinations[0]`**, la première destination que ce compte peut
+ * réellement ouvrir. `null` = aucun segment racine rendu.
+ *
+ * ⚠️ **Jamais un lien vers `/` en dur** (CC-83). Cette page exige `dashboard.view` : le seul
+ * élément cliquable de la topbar répondrait alors 403 aux comptes qui n'ont pas cette capacité.
+ * C'est exactement ce que CC-81 a retiré de la barre latérale avec « Journaux » et « Réglages ».
+ * Le registre a déjà filtré cette liste côté serveur, et son premier élément est celui vers
+ * lequel `landingFor()` redirige après connexion : la racine du fil d'Ariane et la page
+ * d'atterrissage désignent donc le même écran par construction, sans second endroit à tenir.
+ *
+ * `null` couvre trois cas d'un même mécanisme, aucun n'est un cas de bord :
+ *  - les pages non authentifiées (login, erreurs) où `destinations` est vide ;
+ *  - **l'écran racine lui-même** — un second segment y répéterait mot pour mot le titre à sa
+ *    droite (« Accueil / Accueil ») ;
+ *  - **une page hors registre** (les écrans `/admin/*`) : `activeDestination` y est `null` et
+ *    `pageTitle` retombe sur « Accueil », donc un crumb vers la racine réafficherait « Accueil /
+ *    Accueil ». Le crumb ne remonte que depuis une sous-page d'une destination *connue*.
+ */
+const crumbRoot = computed(() => {
+  const root = destinations.value[0]
+  const active = activeDestination.value
+  if (!root || !active || active.key === root.key) return null
+  return root
 })
 
 const paletteOpen = ref(false)
@@ -306,8 +332,15 @@ function switchLocale(next: string): void {
     </aside>
 
     <div class="flex min-w-0 flex-1 flex-col">
-      <header class="flex h-[66px] shrink-0 items-center gap-3.5 border-b border-line px-[30px]">
-        <span class="text-[13px] text-txt-3">{{ t('topbar.crumb') }}</span>
+      <header class="flex h-[66px] shrink-0 items-center gap-2.5 border-b border-line px-[30px]">
+        <template v-if="crumbRoot">
+          <Link
+            :href="crumbRoot.href"
+            class="text-[13px] text-txt-3 transition hover:text-txt"
+            >{{ t(`nav.${crumbRoot.key}`) }}</Link
+          >
+          <span class="text-[13px] text-txt-3" aria-hidden="true">/</span>
+        </template>
         <h1 class="m-0 text-[18px] font-bold tracking-tight">{{ pageTitle }}</h1>
       </header>
       <div class="flex-1 overflow-x-hidden overflow-y-auto p-[30px]">
