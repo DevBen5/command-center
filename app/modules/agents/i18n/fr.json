@@ -1,0 +1,31 @@
+{
+  "title": "Agents",
+  "status": {
+    "active": "Actif",
+    "running": "En cours",
+    "idle": "Inactif",
+    "failed": "En échec"
+  },
+  "toolbar": {
+    "filter": "Filtrer les agents…",
+    "framework": "Framework : Hermes ▾",
+    "new": "+ Nouvel agent"
+  },
+  "stats": {
+    "active": "agents actifs",
+    "running": "en cours d'exécution",
+    "failed": "en échec",
+    "total": "agents au total"
+  },
+  "list": {
+    "count": "{count} agents"
+  },
+  "detail": {
+    "stop": "Stopper",
+    "run": "Lancer",
+    "config": "Config",
+    "logsLabel": "LOGS",
+    "logsCount": "{count} dernières lignes",
+    "logsEmpty": "Aucun log récent."
+  }
+}
