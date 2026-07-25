@@ -1,0 +1,29 @@
+{
+  "title": "Services",
+  "toolbar": {
+    "filter": "Filtrer les services…",
+    "category": "Catégorie ▾",
+    "status": "Statut ▾",
+    "viewGrid": "Grille",
+    "viewList": "Liste",
+    "restartAll": "Tout redémarrer"
+  },
+  "status": {
+    "up": "ACTIF",
+    "down": "ARRÊTÉ",
+    "unknown": "INCONNU"
+  },
+  "stats": {
+    "up": "services actifs",
+    "down": "arrêté | arrêté | arrêtés",
+    "cpuAvg": "CPU moyen (actifs)",
+    "ramAvg": "RAM moyenne (actifs)"
+  },
+  "card": {
+    "cpu": "CPU",
+    "ram": "RAM",
+    "start": "Démarrer",
+    "stop": "Arrêter",
+    "restart": "Redémarrer"
+  }
+}

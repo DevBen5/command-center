@@ -2,9 +2,12 @@
 import { computed } from 'vue'
 import { Head, router } from '@inertiajs/vue3'
 import { Box, Search } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '~/layouts/AppLayout.vue'
 
 defineOptions({ layout: AppLayout })
+
+const { t } = useI18n()
 
 interface Service {
   id: number
@@ -45,10 +48,8 @@ const categories = computed(() => {
   return [...groups.entries()]
 })
 
-const statusLabel: Record<Service['status'], string> = {
-  up: 'ACTIF',
-  down: 'ARRÊTÉ',
-  unknown: 'INCONNU',
+function statusLabel(status: Service['status']): string {
+  return t(`services.status.${status}`)
 }
 
 const dotClass: Record<Service['status'], string> = {
@@ -63,7 +64,7 @@ function act(service: Service, action: 'start' | 'stop' | 'restart'): void {
 </script>
 
 <template>
-  <Head title="Services" />
+  <Head :title="t('services.title')" />
 
   <!-- Barre d'outils -->
   <div class="mb-[18px] flex items-center gap-3">
@@ -71,19 +72,21 @@ function act(service: Service, action: 'start' | 'stop' | 'restart'): void {
       class="flex w-[300px] items-center gap-2.5 rounded-[9px] border border-line-2 bg-panel px-3.5 py-2.5 text-[13px] text-txt-3"
     >
       <Search :size="15" :stroke-width="1.5" aria-hidden="true" class="shrink-0" />
-      Filtrer les services…
+      {{ t('services.toolbar.filter') }}
     </div>
-    <span class="rounded-full border border-line-2 bg-panel-2 px-3 py-1.5 text-[11px] text-txt-2"
-      >Catégorie ▾</span
-    >
-    <span class="rounded-full border border-line-2 bg-panel-2 px-3 py-1.5 text-[11px] text-txt-2"
-      >Statut ▾</span
-    >
+    <span class="rounded-full border border-line-2 bg-panel-2 px-3 py-1.5 text-[11px] text-txt-2">{{
+      t('services.toolbar.category')
+    }}</span>
+    <span class="rounded-full border border-line-2 bg-panel-2 px-3 py-1.5 text-[11px] text-txt-2">{{
+      t('services.toolbar.status')
+    }}</span>
     <div class="flex-1"></div>
     <div class="inline-flex overflow-hidden rounded-[9px] border border-line-2 bg-panel">
-      <button type="button" class="bg-accent px-3.5 py-2 text-[12.5px] text-white">Grille</button>
+      <button type="button" class="bg-accent px-3.5 py-2 text-[12.5px] text-white">
+        {{ t('services.toolbar.viewGrid') }}
+      </button>
       <button type="button" class="border-l border-line px-3.5 py-2 text-[12.5px] text-txt-2">
-        Liste
+        {{ t('services.toolbar.viewList') }}
       </button>
     </div>
     <button
@@ -94,7 +97,7 @@ function act(service: Service, action: 'start' | 'stop' | 'restart'): void {
       <span class="rounded-md border border-line-2 bg-panel px-1.5 py-0.5 font-mono text-[11px]"
         >R</span
       >
-      Tout redémarrer
+      {{ t('services.toolbar.restartAll') }}
     </button>
   </div>
 
@@ -104,23 +107,23 @@ function act(service: Service, action: 'start' | 'stop' | 'restart'): void {
       <div class="font-mono text-[24px] font-bold text-ok">
         {{ stats.up }}<span class="text-[13px] text-txt-3"> / {{ stats.total }}</span>
       </div>
-      <div class="text-[11px] text-txt-3">services actifs</div>
+      <div class="text-[11px] text-txt-3">{{ t('services.stats.up') }}</div>
     </div>
     <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
       <div class="font-mono text-[24px] font-bold text-accent">{{ stats.down }}</div>
-      <div class="text-[11px] text-txt-3">arrêté{{ stats.down > 1 ? 's' : '' }}</div>
+      <div class="text-[11px] text-txt-3">{{ t('services.stats.down', stats.down) }}</div>
     </div>
     <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
       <div class="font-mono text-[24px] font-bold">
         {{ stats.cpuAvg }}<span class="text-[13px]"> %</span>
       </div>
-      <div class="text-[11px] text-txt-3">CPU moyen (actifs)</div>
+      <div class="text-[11px] text-txt-3">{{ t('services.stats.cpuAvg') }}</div>
     </div>
     <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
       <div class="font-mono text-[24px] font-bold">
         {{ stats.ramAvg }}<span class="text-[13px]"> %</span>
       </div>
-      <div class="text-[11px] text-txt-3">RAM moyenne (actifs)</div>
+      <div class="text-[11px] text-txt-3">{{ t('services.stats.ramAvg') }}</div>
     </div>
   </div>
 
@@ -151,13 +154,15 @@ function act(service: Service, action: 'start' | 'stop' | 'restart'): void {
           <div class="text-[14px] font-semibold">{{ service.name }}</div>
           <div class="ml-auto flex items-center gap-1.5 font-mono text-[10px] tracking-[.06em]">
             <span class="h-2 w-2 rounded-full" :class="dotClass[service.status]"></span>
-            {{ statusLabel[service.status] }}
+            {{ statusLabel(service.status) }}
           </div>
         </div>
 
         <div class="flex gap-4">
           <div class="flex-1">
-            <div class="text-[9.5px] tracking-[.08em] text-txt-3 uppercase">CPU</div>
+            <div class="text-[9.5px] tracking-[.08em] text-txt-3 uppercase">
+              {{ t('services.card.cpu') }}
+            </div>
             <div class="mt-1 h-1.5 rounded-full bg-panel-2">
               <div
                 class="h-full rounded-full bg-linear-to-r from-aqua to-accent"
@@ -169,7 +174,9 @@ function act(service: Service, action: 'start' | 'stop' | 'restart'): void {
             </div>
           </div>
           <div class="flex-1">
-            <div class="text-[9.5px] tracking-[.08em] text-txt-3 uppercase">RAM</div>
+            <div class="text-[9.5px] tracking-[.08em] text-txt-3 uppercase">
+              {{ t('services.card.ram') }}
+            </div>
             <div class="mt-1 h-1.5 rounded-full bg-panel-2">
               <div
                 class="h-full rounded-full bg-linear-to-r from-aqua to-accent"
@@ -189,7 +196,7 @@ function act(service: Service, action: 'start' | 'stop' | 'restart'): void {
             class="flex-1 rounded-[9px] border border-accent bg-accent px-2 py-1.5 text-center text-[11.5px] text-white"
             @click="act(service, 'start')"
           >
-            Démarrer
+            {{ t('services.card.start') }}
           </button>
           <button
             v-else
@@ -197,14 +204,14 @@ function act(service: Service, action: 'start' | 'stop' | 'restart'): void {
             class="flex-1 rounded-[9px] border border-line-2 bg-panel-2 px-2 py-1.5 text-center text-[11.5px]"
             @click="act(service, 'stop')"
           >
-            Arrêter
+            {{ t('services.card.stop') }}
           </button>
           <button
             type="button"
             class="flex-1 rounded-[9px] border border-line-2 bg-panel-2 px-2 py-1.5 text-center text-[11.5px]"
             @click="act(service, 'restart')"
           >
-            Redémarrer
+            {{ t('services.card.restart') }}
           </button>
         </div>
       </div>

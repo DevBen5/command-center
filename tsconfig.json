@@ -3,7 +3,8 @@
   "compilerOptions": {
     "rootDir": "./",
     "outDir": "./build",
-    "strict": true
+    "strict": true,
+    "resolveJsonModule": true
   },
   "exclude": ["./inertia/**/*", "node_modules", "build"]
 }
