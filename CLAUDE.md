@@ -177,10 +177,11 @@ dans l'état que le test observe : monter puis assertir peut ne rien prouver du 
 sans avoir tapé passe même si la remise à zéro disparaît. Il faut reproduire le **geste réel** (taper,
 fermer, rouvrir). En cas de doute, casse la ligne concernée et vérifie que le test rougit.
 
-⚠️ **Ne fige jamais un bug connu dans un test.** La palette ⌘K est inerte (CC-26) et annonce des
-raccourcis qu'elle n'implémente pas (CC-27) : `app_layout.spec.ts` ne teste ni l'un ni l'autre, et
-dit pourquoi en tête de fichier. Un test qui asserterait le comportement actuel rendrait le bug
-incorrigible sans rougir.
+⚠️ **Ne fige jamais un bug connu dans un test.** La palette ⌘K annonce des raccourcis qu'elle
+n'implémente pas (CC-27) : `app_layout.spec.ts` ne teste pas cette navigation ↑↓/↵, et dit pourquoi
+en tête de fichier — un test qui asserterait le comportement actuel rendrait le bug incorrigible
+sans rougir. Son filtrage (CC-26), lui, **est** désormais câblé et couvert : le même fichier prouve
+qu'il n'est plus inerte, sur le geste réel — ouvrir, taper, voir les non-correspondances disparaître.
 
 ⚠️ **`vitest.config.ts` est séparé de `vite.config.ts`, et doit le rester.** Sans lui, Vitest
 chargerait la config applicative, donc les plugins `inertia()` et `adonisjs({ entrypoints })` — qui
