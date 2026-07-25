@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import IngestionTitle from '../components/IngestionTitle.vue'
@@ -15,6 +16,8 @@ import {
 } from '../shared/draft_review.js'
 
 defineOptions({ layout: AppLayout })
+
+const { t } = useI18n()
 
 interface ThemeNode {
   id: number
@@ -114,12 +117,12 @@ const percent = computed(() => {
   return Math.round((chunksDone / chunkCount) * 100)
 })
 
-const STATUS_LABELS: Record<Ingestion['status'], string> = {
-  pending: 'En attente',
-  running: 'Analyse en cours',
-  done: 'Terminée',
-  failed: 'Échec',
-}
+const STATUS_LABELS = computed<Record<Ingestion['status'], string>>(() => ({
+  pending: t('leitner.ingestShow.status.pending'),
+  running: t('leitner.ingestShow.status.running'),
+  done: t('leitner.ingestShow.status.done'),
+  failed: t('leitner.ingestShow.status.failed'),
+}))
 
 const STATUS_CLASSES: Record<Ingestion['status'], string> = {
   pending: 'text-txt-2',
@@ -234,19 +237,19 @@ function reject(ids: number[]): void {
 }
 
 function destroyIngestion(): void {
-  if (!confirm('Supprimer cette ingestion et ses brouillons ? Les cartes validées restent.')) return
+  if (!confirm(t('leitner.ingestShow.confirmDelete'))) return
   router.delete(`/revision/ingest/${props.ingestion.id}`)
 }
 </script>
 
 <template>
-  <Head :title="ingestion.title ?? 'Ingestion'" />
+  <Head :title="ingestion.title ?? t('leitner.ingestShow.defaultTitle')" />
 
   <LeitnerTabs />
 
   <div class="mb-4 flex items-center gap-2">
     <Link href="/revision/ingest" class="text-[12.5px] text-txt-3 transition hover:text-accent">
-      ← Ingestion
+      {{ t('leitner.ingestShow.back') }}
     </Link>
   </div>
 
@@ -265,7 +268,7 @@ function destroyIngestion(): void {
         class="ml-auto shrink-0 text-[11.5px] text-txt-3 transition hover:text-bad"
         @click="destroyIngestion"
       >
-        Supprimer
+        {{ t('leitner.ingestShow.delete') }}
       </button>
     </div>
 
@@ -275,10 +278,18 @@ function destroyIngestion(): void {
       </span>
       <!-- L'origine reste une donnée utile : elle s'affiche à côté du titre, pas à sa place. -->
       <span class="rounded-md border border-line px-1.5 py-0.5 text-txt-3">
-        {{ ingestion.source === 'file' ? `Fichier · ${ingestion.sourceName}` : 'Texte collé' }}
+        {{
+          ingestion.source === 'file'
+            ? t('leitner.ingestShow.sourceFile', { name: ingestion.sourceName })
+            : t('leitner.ingestShow.sourcePaste')
+        }}
       </span>
-      <span class="text-txt-3"> {{ ingestion.charCount.toLocaleString('fr-FR') }} caractères </span>
-      <span class="text-txt-3">{{ ingestion.cardsProposed }} carte(s) proposée(s)</span>
+      <span class="text-txt-3">
+        {{ ingestion.charCount.toLocaleString('fr-FR') }} {{ t('leitner.ingestShow.charsUnit') }}
+      </span>
+      <span class="text-txt-3">
+        {{ t('leitner.ingestShow.cardsProposed', { n: ingestion.cardsProposed }) }}
+      </span>
       <span class="ml-auto text-txt-3">{{ formatDate(ingestion.createdAt) }}</span>
     </div>
   </div>
@@ -289,12 +300,18 @@ function destroyIngestion(): void {
       <span class="text-txt-2">
         {{
           ingestion.status === 'pending'
-            ? "Le travail est en file d'attente…"
-            : 'Le modèle analyse le cours, morceau par morceau.'
+            ? t('leitner.ingestShow.queued')
+            : t('leitner.ingestShow.analyzing')
         }}
       </span>
       <span class="ml-auto text-txt-3">
-        {{ ingestion.chunksDone }} / {{ ingestion.chunkCount }} morceau(x) · {{ percent }} %
+        {{
+          t('leitner.ingestShow.progress', {
+            done: ingestion.chunksDone,
+            total: ingestion.chunkCount,
+            percent,
+          })
+        }}
       </span>
     </div>
 
@@ -306,7 +323,7 @@ function destroyIngestion(): void {
     </div>
 
     <p class="mt-2 text-[11.5px] text-txt-3">
-      Tu peux quitter cette page : le travail continue côté serveur, et tu la retrouveras à jour.
+      {{ t('leitner.ingestShow.leaveHint') }}
     </p>
   </div>
 
@@ -315,19 +332,18 @@ function destroyIngestion(): void {
     v-if="ingestion.status === 'failed'"
     class="mb-4 rounded-[14px] border border-bad bg-panel p-4"
   >
-    <div class="text-[12.5px] font-semibold text-bad">L'analyse a échoué.</div>
+    <div class="text-[12.5px] font-semibold text-bad">{{ t('leitner.ingestShow.failedTitle') }}</div>
     <p class="mt-1 font-mono text-[11.5px] break-words text-txt-2">{{ ingestion.error }}</p>
 
     <div v-if="ingestion.cardsProposed > 0" class="mt-2 text-[11.5px] text-warn">
-      {{ ingestion.cardsProposed }} carte(s) avaient déjà été proposées avant l'échec : elles sont
-      ci-dessous, relisibles telles quelles.
+      {{ t('leitner.ingestShow.failedPartial', { n: ingestion.cardsProposed }) }}
     </div>
 
     <Link
       href="/revision/ingest"
       class="mt-3 inline-block rounded-[10px] border border-accent bg-accent px-3 py-1.5 text-[12px] text-white transition hover:opacity-90"
     >
-      Relancer une analyse
+      {{ t('leitner.ingestShow.restart') }}
     </Link>
   </div>
 
@@ -337,9 +353,9 @@ function destroyIngestion(): void {
     class="mb-4 rounded-[14px] border border-ok bg-panel p-4 text-[12.5px] text-txt-2"
   >
     <span class="font-semibold text-ok">
-      Terminé — {{ ingestion.cardsProposed }} carte(s) proposée(s).
+      {{ t('leitner.ingestShow.doneTitle', { n: ingestion.cardsProposed }) }}
     </span>
-    Relis-les : rien n'entre en base sans ta validation.
+    {{ t('leitner.ingestShow.doneHint') }}
   </div>
 
   <!-- Retours de la dernière action -->
@@ -356,10 +372,12 @@ function destroyIngestion(): void {
     v-if="promotionReport"
     class="mb-4 rounded-[14px] border border-ok bg-panel p-4 text-[11.5px] text-txt-2"
   >
-    <span class="font-semibold text-ok">{{ promotionReport.cardsCreated }} carte(s) créée(s)</span>
-    — boîte 1, dues aujourd'hui.
+    <span class="font-semibold text-ok">
+      {{ t('leitner.ingestShow.cardsCreated', { n: promotionReport.cardsCreated }) }}
+    </span>
+    {{ t('leitner.ingestShow.cardsCreatedBox') }}
     <span v-if="promotionReport.cardsSkipped" class="text-warn">
-      {{ promotionReport.cardsSkipped }} ignorée(s) : ce recto existait déjà sous ce thème.
+      {{ t('leitner.ingestShow.cardsSkipped', { n: promotionReport.cardsSkipped }) }}
     </span>
   </div>
 
@@ -368,7 +386,12 @@ function destroyIngestion(): void {
     <div class="flex items-center gap-3 border-b border-line px-4 py-3">
       <label class="flex items-center gap-2 text-[12.5px] text-txt-2">
         <input type="checkbox" :checked="allSelected" @change="toggleAll" />
-        {{ selected.length }} / {{ pendingDrafts.length }} sélectionnée(s)
+        {{
+          t('leitner.ingestShow.selectedCount', {
+            selected: selected.length,
+            total: pendingDrafts.length,
+          })
+        }}
       </label>
       <button
         type="button"
@@ -376,7 +399,7 @@ function destroyIngestion(): void {
         :disabled="!selected.length"
         @click="accept(selected)"
       >
-        Valider la sélection
+        {{ t('leitner.ingestShow.acceptSelection') }}
       </button>
       <button
         type="button"
@@ -384,7 +407,7 @@ function destroyIngestion(): void {
         :disabled="!selected.length"
         @click="reject(selected)"
       >
-        Rejeter
+        {{ t('leitner.ingestShow.reject') }}
       </button>
     </div>
 
@@ -414,17 +437,21 @@ function destroyIngestion(): void {
           <TaxonomyCombobox
             v-model="edited[draft.id].category"
             :options="categoryNames"
-            placeholder="Catégorie"
+            :placeholder="t('leitner.ingestShow.categoryPlaceholder')"
           />
           <TaxonomyCombobox
             v-model="edited[draft.id].theme"
             :options="themesFor(edited[draft.id].category)"
             :disabled="!edited[draft.id].category.trim()"
-            :placeholder="edited[draft.id].category.trim() ? 'Thème' : 'Thème — catégorie d’abord'"
+            :placeholder="
+              edited[draft.id].category.trim()
+                ? t('leitner.ingestShow.themePlaceholder')
+                : t('leitner.ingestShow.themePlaceholderNeedCategory')
+            "
           />
 
           <span v-if="halfClassified(draft.id)" class="text-[11px] text-warn">
-            Catégorie et thème vont ensemble.
+            {{ t('leitner.ingestShow.halfClassified') }}
           </span>
 
           <!-- Enregistrer : le brouillon reste un brouillon (on y reviendra plus tard).
@@ -433,25 +460,25 @@ function destroyIngestion(): void {
             type="button"
             class="ml-auto rounded-md border border-line-2 bg-panel-2 px-2 py-1 text-[11.5px] text-txt-2 transition hover:border-accent hover:text-txt disabled:opacity-40"
             :disabled="!isDirty(draft.id)"
-            title="Corriger le brouillon sans le valider"
+            :title="t('leitner.ingestShow.saveDraftTitle')"
             @click="saveDraft(draft.id)"
           >
-            Enregistrer les modifications
+            {{ t('leitner.ingestShow.saveDraft') }}
           </button>
           <button
             type="button"
             class="rounded-md border border-accent bg-accent px-2 py-1 text-[11.5px] text-white transition hover:opacity-90"
-            title="Créer la carte (boîte 1, due aujourd'hui)"
+            :title="t('leitner.ingestShow.acceptTitle')"
             @click="accept([draft.id])"
           >
-            Valider
+            {{ t('leitner.ingestShow.accept') }}
           </button>
           <button
             type="button"
             class="rounded-md border border-line-2 bg-panel-2 px-2 py-1 text-[11.5px] text-txt-3 transition hover:border-bad hover:text-bad"
             @click="reject([draft.id])"
           >
-            Rejeter
+            {{ t('leitner.ingestShow.reject') }}
           </button>
         </div>
       </div>
@@ -462,7 +489,7 @@ function destroyIngestion(): void {
     v-else-if="ingestion.status === 'done'"
     class="rounded-[14px] border border-line bg-panel p-4 text-[12.5px] text-txt-3"
   >
-    Aucun brouillon en attente sur cette ingestion.
+    {{ t('leitner.ingestShow.noPending') }}
   </div>
 
   <!-- Ce que le modèle a proposé, et ce qu'on en a fait. -->
@@ -470,13 +497,13 @@ function destroyIngestion(): void {
     <div v-if="acceptedDrafts.length" class="rounded-[14px] border border-line bg-panel p-4">
       <div class="mb-2 flex items-center gap-2">
         <span class="text-[11px] tracking-[.1em] text-ok uppercase">
-          Validées ({{ acceptedDrafts.length }})
+          {{ t('leitner.ingestShow.accepted', { n: acceptedDrafts.length }) }}
         </span>
         <Link
           href="/revision/settings"
           class="ml-auto text-[11px] text-txt-3 transition hover:text-accent"
         >
-          Voir les cartes →
+          {{ t('leitner.ingestShow.seeCards') }}
         </Link>
       </div>
 
@@ -497,7 +524,7 @@ function destroyIngestion(): void {
       <!-- Un brouillon rejeté reste en base : la trace de ce que le modèle a proposé,
            et il ne redevient jamais « en attente ». -->
       <div class="mb-2 text-[11px] tracking-[.1em] text-txt-3 uppercase">
-        Rejetées ({{ rejectedDrafts.length }})
+        {{ t('leitner.ingestShow.rejected', { n: rejectedDrafts.length }) }}
       </div>
 
       <div
