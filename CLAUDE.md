@@ -145,6 +145,18 @@ providers/    leitner_provider                      → import via #providers/*
   documente comme le 5ᵉ fichier vivant hors de son dossier.
 - **N'utilise pas `node ace make:*` tel quel** : ces commandes génèrent aux chemins par défaut et
   recréent l'ancienne arborescence. Crée les fichiers directement dans le module.
+- **Les traductions d'un module vivent dans le module** (CC-23). Le châssis — `brand`, `nav`,
+  `sidebar`, `palette`, `login`, `forbidden`, `noAccess` — reste dans `inertia/i18n/{fr,en}.json`.
+  Le contenu **d'une page de module** va dans `app/<couche>/<module>/i18n/<locale>.json` ; au boot,
+  `inertia/i18n/index.ts` les ramasse par `import.meta.glob('/app/**/i18n/…')` et les range sous un
+  namespace **égal au nom du dossier module** — les clés d'`agents` s'écrivent donc `t('agents.…')`.
+  Trois choses à connaître : *(1)* la logique de fusion vit dans `inertia/i18n/messages.ts`,
+  séparée du glob pour être testable (`__tests__/messages.spec.ts`) — même raison que
+  `scripts/lib/dumps.js` ; *(2)* une **collision** de namespace (avec une clé du châssis ou entre
+  deux modules) **lève au boot**, elle n'écrase jamais en silence ; *(3)* on est en **« FR d'abord »**
+  — un module sans `i18n/en.json` retombe sur le français via `fallbackLocale`, ce n'est pas une
+  panne mais une dette de traduction. Un `t('mod.clé')` sans clé correspondante s'affiche en **texte
+  brut** à l'écran : c'est visible, pas silencieux.
 
 ## Les tests : deux runners, et ce que chacun ne voit pas
 
