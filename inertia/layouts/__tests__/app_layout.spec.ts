@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
+import { router } from '@inertiajs/vue3'
 import fr from '../../i18n/fr.json'
 import AppLayout from '../AppLayout.vue'
 
@@ -12,9 +13,15 @@ import AppLayout from '../AppLayout.vue'
 | sont visibles — une simple assertion de présence passerait même filtre mort ; c'est l'absence qui
 | atteste le filtre.
 |
-| ⚠️ Ce fichier ne teste toujours PAS la navigation ↑↓ / ↵ que la palette annonce sans
-| l'implémenter (CC-27) : bogue ouvert distinct. Un test qui figerait son inertie actuelle le
-| rendrait incorrigible sans rougir.
+| ⚠️ La navigation ↑↓ / ↵ que la palette annonce est désormais câblée (CC-27) et testée plus bas,
+| toujours sur le **geste réel** : on dispatch de vrais `KeyboardEvent` sur `window` et on lit le
+| DOM — quelle entrée de l'overlay porte `bg-accent-soft`, quel `href` reçoit `router.visit`. Le
+| reset au filtre est prouvé NÉGATIVEMENT : on descend loin dans la liste, on filtre jusqu'à une
+| seule entrée, et c'est le surlignage de CET unique résultat qui atteste la remise à zéro — un
+| index figé pointerait hors de la liste réduite et ne surlignerait rien.
+|
+| ⚠️ jsdom ne fait aucun layout : ces tests prouvent QUELLE ligne est sélectionnée (sa classe), pas
+| que `accent-soft` s'affiche rose. L'apparence se vérifie au navigateur, nulle part ailleurs.
 |
 | ⚠️ L'instance i18n est neuve à chaque montage, jamais le singleton de `inertia/i18n` :
 | `setLocale()` le mute globalement, et deux tests qui changeraient de langue
@@ -45,9 +52,12 @@ const DESTINATIONS = [
 
 const ADMIN = { fullName: 'Admin', email: 'admin@example.com', isAdmin: true, capabilities: [] }
 
+// ⚠️ `router.visit` fait partie du mock : ↵ dans la palette navigue par ce chemin (visite Inertia
+// GET), là où le mock `Link` ne rend qu'un `<a>` sans navigation réelle. Sans lui, l'appel de ↵
+// jetterait « visit is not a function ».
 vi.mock('@inertiajs/vue3', () => ({
   usePage: () => mockedPage,
-  router: { post: vi.fn() },
+  router: { post: vi.fn(), visit: vi.fn() },
   Link: { props: ['href'], template: '<a :href="href"><slot /></a>' },
 }))
 
@@ -80,6 +90,12 @@ async function ouvrirPalette(wrapper: ReturnType<typeof monter>) {
   window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))
   await wrapper.vm.$nextTick()
   return wrapper.get('input')
+}
+
+// Les entrées cliquables de l'overlay (`.z-50`), dans l'ordre de rendu : navigation puis système.
+// C'est cette liste plate que ↑↓ parcourent, et dont on lit le surlignage `bg-accent-soft`.
+function liensPalette(wrapper: ReturnType<typeof monter>) {
+  return wrapper.get('.z-50').findAll('a')
 }
 
 describe('Core / AppLayout', () => {
@@ -178,6 +194,73 @@ describe('Core / AppLayout', () => {
     expect(input.exists()).toBe(true)
 
     lecteur.unmount()
+  })
+
+  test('↑↓ déplacent la sélection avec bouclage, la 1ʳᵉ entrée est présélectionnée (CC-27)', async () => {
+    const wrapper = monter('/')
+    await ouvrirPalette(wrapper)
+
+    // Admin : 6 entrées (accueil, services, agents, veille, revision, administration). À l'ouverture,
+    // la tête de liste est déjà surlignée — ↵ est actionnable sans même toucher aux flèches.
+    expect(liensPalette(wrapper)[0].classes()).toContain('bg-accent-soft')
+    expect(liensPalette(wrapper)[1].classes()).not.toContain('bg-accent-soft')
+
+    // ↓ : la sélection descend d'un cran.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }))
+    await wrapper.vm.$nextTick()
+    expect(liensPalette(wrapper)[0].classes()).not.toContain('bg-accent-soft')
+    expect(liensPalette(wrapper)[1].classes()).toContain('bg-accent-soft')
+
+    // ↑ ramène en tête, puis un ↑ de plus BOUCLE sur la dernière entrée — c'est le bouclage qu'on teste.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp' }))
+    await wrapper.vm.$nextTick()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp' }))
+    await wrapper.vm.$nextTick()
+    const liens = liensPalette(wrapper)
+    expect(liens[liens.length - 1].classes()).toContain('bg-accent-soft')
+    expect(liens[0].classes()).not.toContain('bg-accent-soft')
+
+    wrapper.unmount()
+  })
+
+  test('↵ navigue vers l’entrée sélectionnée et referme la palette (CC-27)', async () => {
+    const visit = vi.mocked(router.visit)
+    visit.mockClear()
+
+    const wrapper = monter('/')
+    await ouvrirPalette(wrapper)
+
+    // ↓ sélectionne la 2ᵉ entrée (services), puis ↵ y navigue.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }))
+    await wrapper.vm.$nextTick()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+    await wrapper.vm.$nextTick()
+
+    // Le même chemin qu'un clic sur le lien : une visite Inertia GET vers le href sélectionné.
+    expect(visit).toHaveBeenCalledWith('/services')
+    // Et la palette s'est refermée.
+    expect(wrapper.text()).not.toContain(fr.palette.navigation)
+
+    wrapper.unmount()
+  })
+
+  test('taper réinitialise la sélection sur la 1ʳᵉ correspondance (CC-27)', async () => {
+    const wrapper = monter('/')
+    const input = await ouvrirPalette(wrapper)
+
+    // On s'éloigne de la tête de liste : deux ↓ amènent sur la 3ᵉ entrée (agents).
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }))
+    await wrapper.vm.$nextTick()
+
+    // Filtre à une seule entrée. Sans reset, l'index 2 pointerait hors de la liste réduite (1 entrée)
+    // → aucune ligne surlignée. C'est le surlignage de cet UNIQUE résultat qui prouve la remise à zéro.
+    await input.setValue('revision')
+    const liens = liensPalette(wrapper)
+    expect(liens).toHaveLength(1)
+    expect(liens[0].classes()).toContain('bg-accent-soft')
+
+    wrapper.unmount()
   })
 
   test('le listener clavier posé au montage est bien celui retiré au démontage', () => {
