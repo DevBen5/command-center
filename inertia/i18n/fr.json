@@ -28,7 +28,9 @@
   "palette": {
     "placeholder": "Tapez une commande, un service, un agent…",
     "navigation": "Navigation",
+    "systeme": "Système",
     "goTo": "Aller à — {label}",
+    "empty": "Aucun résultat",
     "navigate": "naviguer",
     "open": "ouvrir",
     "close": "fermer"

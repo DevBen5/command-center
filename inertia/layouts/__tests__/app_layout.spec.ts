@@ -5,13 +5,16 @@ import fr from '../../i18n/fr.json'
 import AppLayout from '../AppLayout.vue'
 
 /*
-| Le layout : navigation, état actif, titre de page, palette ⌘K.
+| Le layout : navigation, état actif, titre de page, palette ⌘K (ouverture, fermeture, filtrage).
 |
-| ⚠️ Ce fichier ne teste NI le filtrage de la palette (CC-26 : le champ est inerte), NI la
-| navigation ↑↓ / ↵ qu'elle annonce sans l'implémenter (CC-27). Ce sont des bogues ouverts :
-| un test qui figerait leur comportement actuel les rendrait incorrigibles sans rougir, et
-| un test qui asserterait le comportement attendu échouerait dès aujourd'hui. On couvre donc
-| ce qui est câblé — ouverture, fermeture, état actif, titre — et pas ce qui ne l'est pas.
+| ⚠️ Le filtrage de la palette est désormais câblé (CC-26) et testé plus bas, sur le **geste réel** :
+| ouvrir, taper, et observer les non-correspondances DISPARAÎTRE. À l'ouverture, toutes les entrées
+| sont visibles — une simple assertion de présence passerait même filtre mort ; c'est l'absence qui
+| atteste le filtre.
+|
+| ⚠️ Ce fichier ne teste toujours PAS la navigation ↑↓ / ↵ que la palette annonce sans
+| l'implémenter (CC-27) : bogue ouvert distinct. Un test qui figerait son inertie actuelle le
+| rendrait incorrigible sans rougir.
 |
 | ⚠️ L'instance i18n est neuve à chaque montage, jamais le singleton de `inertia/i18n` :
 | `setLocale()` le mute globalement, et deux tests qui changeraient de langue
@@ -68,6 +71,17 @@ function monter(url: string, user: unknown = ADMIN, destinations: unknown = DEST
   })
 }
 
+// Le libellé d'une entrée de palette : « Aller à — <label> ». On le construit depuis fr.json
+// plutôt qu'en dur — la chaîne dérive alors avec la traduction. C'est aussi ce préfixe qui
+// distingue une entrée de palette d'un lien de barre latérale, où « Révision » figure nu.
+const goTo = (label: string) => fr.palette.goTo.replace('{label}', label)
+
+async function ouvrirPalette(wrapper: ReturnType<typeof monter>) {
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))
+  await wrapper.vm.$nextTick()
+  return wrapper.get('input')
+}
+
 describe('Core / AppLayout', () => {
   test('Ctrl+K ouvre la palette, Échap la ferme', async () => {
     const wrapper = monter('/')
@@ -94,6 +108,76 @@ describe('Core / AppLayout', () => {
 
     expect(wrapper.text()).not.toContain(fr.palette.navigation)
     wrapper.unmount()
+  })
+
+  test('taper filtre la palette, insensible à la casse et aux accents (CC-26)', async () => {
+    const wrapper = monter('/')
+    const input = await ouvrirPalette(wrapper)
+
+    await input.setValue('revision')
+    // « revision » — ASCII, minuscule — retrouve « Révision » : accent ET casse ignorés, et le
+    // filtre porte sur le libellé traduit, pas sur la clé.
+    expect(wrapper.text()).toContain(goTo(fr.nav.revision))
+    // ⚠️ Le cœur du test : les non-correspondances DISPARAISSENT. À l'ouverture toutes les entrées
+    // étaient là ; un filtre mort les y laisserait. C'est cette absence, pas la présence ci-dessus,
+    // qui prouve que le champ n'est plus inerte.
+    expect(wrapper.text()).not.toContain(goTo(fr.nav.services))
+    expect(wrapper.text()).not.toContain(goTo(fr.nav.agents))
+
+    wrapper.unmount()
+  })
+
+  test('aucune correspondance affiche l’état vide, pas une liste muette (CC-26)', async () => {
+    const wrapper = monter('/')
+    const input = await ouvrirPalette(wrapper)
+
+    await input.setValue('zzz')
+    expect(wrapper.text()).toContain(fr.palette.empty)
+    // Les deux sections ont disparu — ni navigation, ni système.
+    expect(wrapper.text()).not.toContain(goTo(fr.nav.revision))
+    expect(wrapper.text()).not.toContain(goTo(fr.nav.administration))
+
+    wrapper.unmount()
+  })
+
+  test('la palette liste l’administration pour un admin, et la filtre (CC-26)', async () => {
+    const wrapper = monter('/')
+    const input = await ouvrirPalette(wrapper)
+
+    // Présente à l'ouverture, sans filtre…
+    expect(wrapper.text()).toContain(goTo(fr.nav.administration))
+    // …et retrouvée en tapant, quand la navigation, elle, s'efface.
+    await input.setValue('admin')
+    expect(wrapper.text()).toContain(goTo(fr.nav.administration))
+    expect(wrapper.text()).not.toContain(goTo(fr.nav.revision))
+
+    wrapper.unmount()
+  })
+
+  test('la palette ne propose pas l’administration à un non-admin (CC-26)', async () => {
+    // `systemItems` est vide hors admin : l'entrée Administration n'entre pas dans la palette, donc
+    // le filtre n'a rien à en faire. On l'ouvre sans filtre pour l'affirmer sur la liste complète.
+    const lecteur = monter(
+      '/',
+      {
+        fullName: 'Lecteur',
+        email: 'lecteur@example.com',
+        isAdmin: false,
+        capabilities: ['dashboard.view', 'leitner.view'],
+      },
+      [
+        { key: 'accueil', href: '/' },
+        { key: 'revision', href: '/revision' },
+      ]
+    )
+    const input = await ouvrirPalette(lecteur)
+
+    expect(lecteur.text()).not.toContain(goTo(fr.nav.administration))
+    // La navigation, elle, s'y trouve bien.
+    expect(lecteur.text()).toContain(goTo(fr.nav.revision))
+    expect(input.exists()).toBe(true)
+
+    lecteur.unmount()
   })
 
   test('le listener clavier posé au montage est bien celui retiré au démontage', () => {
