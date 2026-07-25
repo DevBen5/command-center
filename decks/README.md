@@ -30,6 +30,7 @@ protège un contenu qui n'appartient à aucune base en particulier.
 | `leitner-linux-confirme.json` | Linux · Commandes — confirmé | 45 |
 | `leitner-linux-expert.json` | Linux · Commandes — expert | 44 |
 | `leitner-owasp-top10.json` | Sécurité · OWASP | 27 |
+| `leitner-breadcrumb.json` | Web Development · UX | 1 |
 
 ## Le format, en trois champs
 
