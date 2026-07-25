@@ -177,11 +177,14 @@ dans l'état que le test observe : monter puis assertir peut ne rien prouver du 
 sans avoir tapé passe même si la remise à zéro disparaît. Il faut reproduire le **geste réel** (taper,
 fermer, rouvrir). En cas de doute, casse la ligne concernée et vérifie que le test rougit.
 
-⚠️ **Ne fige jamais un bug connu dans un test.** La palette ⌘K annonce des raccourcis qu'elle
-n'implémente pas (CC-27) : `app_layout.spec.ts` ne teste pas cette navigation ↑↓/↵, et dit pourquoi
-en tête de fichier — un test qui asserterait le comportement actuel rendrait le bug incorrigible
-sans rougir. Son filtrage (CC-26), lui, **est** désormais câblé et couvert : le même fichier prouve
-qu'il n'est plus inerte, sur le geste réel — ouvrir, taper, voir les non-correspondances disparaître.
+⚠️ **Ne fige jamais un bug connu dans un test.** Un test qui asserterait le comportement bogué du
+moment le rendrait incorrigible sans rougir : on couvre le geste réel attendu, jamais l'état inerte
+qu'on cherche à corriger. La palette ⌘K en a porté deux exemples, tous deux résolus — son filtrage
+(CC-26) et sa navigation ↑↓/↵ (CC-27). `app_layout.spec.ts` les prouve désormais sur le geste réel :
+ouvrir, taper, voir les non-correspondances disparaître ; descendre, boucler, ↵ pour naviguer, voir
+la sélection se réinitialiser à la frappe. Chacun retombe si son comportement régresse — le reset
+est même prouvé *négativement* : un index périmé ne surlignerait rien. C'est ce qui distingue une
+couverture d'un décor.
 
 ⚠️ **`vitest.config.ts` est séparé de `vite.config.ts`, et doit le rester.** Sans lui, Vitest
 chargerait la config applicative, donc les plugins `inertia()` et `adonisjs({ entrypoints })` — qui
