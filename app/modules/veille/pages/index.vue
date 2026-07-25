@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 // ⚠️ Import **relatif**, jamais `#modules/*` : l'alias vise des `.js` qui n'existent qu'après un
@@ -19,6 +20,8 @@ import {
 } from '../shared/item_selection.js'
 
 defineOptions({ layout: AppLayout })
+
+const { t } = useI18n()
 
 interface VeilleItem {
   id: number
@@ -182,13 +185,13 @@ const NOTIFICATION_STYLES: Record<string, string> = {
   info: 'border-line-2 bg-panel text-txt-2',
 }
 
-const TYPE_LABELS: Record<VeilleItem['type'], string> = {
-  article: 'Article',
-  bookmark: 'Signet',
-  note: 'Note',
-  image: 'Image',
-  video: 'Vidéo',
-}
+const TYPE_LABELS = computed<Record<VeilleItem['type'], string>>(() => ({
+  article: t('veille.index.types.article'),
+  bookmark: t('veille.index.types.bookmark'),
+  note: t('veille.index.types.note'),
+  image: t('veille.index.types.image'),
+  video: t('veille.index.types.video'),
+}))
 
 /**
  * Les enveloppes des fonctions de `shared/media_item.ts` — **une ligne chacune**, pour que le
@@ -230,7 +233,7 @@ function submitCapture(): void {
 </script>
 
 <template>
-  <Head title="Veille" />
+  <Head :title="t('veille.index.title')" />
 
   <!-- Le retour d'une suppression. Un échec Immich s'affiche **tel quel** : « instance éteinte »,
        « clé sans la permission asset.delete » et « asset inconnu » doivent rester distinguables.
@@ -247,7 +250,7 @@ function submitCapture(): void {
     <input
       v-model="searchInput"
       type="text"
-      placeholder="Rechercher dans articles, signets et notes…"
+      :placeholder="t('veille.index.search.placeholder')"
       class="flex-1 rounded-[9px] border border-line-2 bg-panel px-3.5 py-2.5 text-[13px] text-txt placeholder:text-txt-3 outline-none focus:border-accent"
       @keyup.enter="submitSearch"
     />
@@ -256,13 +259,13 @@ function submitCapture(): void {
       class="rounded-[9px] border border-line-2 bg-panel-2 px-3.5 py-2 text-[12.5px]"
       @click="submitSearch"
     >
-      Rechercher
+      {{ t('veille.index.search.submit') }}
     </button>
     <Link
       href="/veille/sources"
       class="rounded-[9px] border border-line-2 bg-panel-2 px-3.5 py-2 text-[12.5px] text-txt-2 hover:text-txt"
     >
-      Sources
+      {{ t('veille.index.sourcesLink') }}
     </Link>
   </div>
 
@@ -270,23 +273,23 @@ function submitCapture(): void {
   <div class="mb-[18px] grid grid-cols-5 gap-3.5">
     <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
       <div class="font-mono text-[24px] font-bold text-accent">{{ stats.total }}</div>
-      <div class="text-[11px] text-txt-3">éléments au total</div>
+      <div class="text-[11px] text-txt-3">{{ t('veille.index.stats.total') }}</div>
     </div>
     <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
       <div class="font-mono text-[24px] font-bold">{{ stats.articles }}</div>
-      <div class="text-[11px] text-txt-3">articles collectés</div>
+      <div class="text-[11px] text-txt-3">{{ t('veille.index.stats.articles') }}</div>
     </div>
     <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
       <div class="font-mono text-[24px] font-bold text-aqua">{{ stats.unread }}</div>
-      <div class="text-[11px] text-txt-3">non lus</div>
+      <div class="text-[11px] text-txt-3">{{ t('veille.index.stats.unread') }}</div>
     </div>
     <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
       <div class="font-mono text-[24px] font-bold">{{ stats.queue }}</div>
-      <div class="text-[11px] text-txt-3">en file de lecture</div>
+      <div class="text-[11px] text-txt-3">{{ t('veille.index.stats.queue') }}</div>
     </div>
     <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
       <div class="font-mono text-[24px] font-bold">{{ stats.tags }}</div>
-      <div class="text-[11px] text-txt-3">tags distincts</div>
+      <div class="text-[11px] text-txt-3">{{ t('veille.index.stats.tags') }}</div>
     </div>
   </div>
 
@@ -295,7 +298,9 @@ function submitCapture(): void {
   >
     <!-- Filtres -->
     <div class="border-r border-line bg-bg-2">
-      <div class="border-b border-line p-4 text-[12px] font-semibold">Filtres</div>
+      <div class="border-b border-line p-4 text-[12px] font-semibold">
+        {{ t('veille.index.filters.title') }}
+      </div>
       <div class="flex flex-col gap-1 p-2">
         <button
           type="button"
@@ -303,7 +308,7 @@ function submitCapture(): void {
           :class="!filters.type ? 'font-semibold text-txt' : 'text-txt-2 hover:bg-panel-2'"
           @click="applyFilters({ type: null })"
         >
-          Tout
+          {{ t('veille.index.filters.all') }}
         </button>
         <button
           v-for="(label, type) in TYPE_LABELS"
@@ -324,7 +329,7 @@ function submitCapture(): void {
           :class="filters.unread ? 'font-semibold text-aqua' : 'text-txt-2 hover:bg-panel-2'"
           @click="applyFilters({ unread: !filters.unread })"
         >
-          Non lus seulement
+          {{ t('veille.index.filters.unreadOnly') }}
         </button>
         <button
           type="button"
@@ -332,12 +337,14 @@ function submitCapture(): void {
           :class="filters.readingQueue ? 'font-semibold text-accent' : 'text-txt-2 hover:bg-panel-2'"
           @click="applyFilters({ readingQueue: !filters.readingQueue })"
         >
-          File de lecture
+          {{ t('veille.index.filters.readingQueue') }}
         </button>
       </div>
 
       <template v-if="sources.length > 0">
-        <div class="border-t border-line p-4 text-[12px] font-semibold">Sources</div>
+        <div class="border-t border-line p-4 text-[12px] font-semibold">
+          {{ t('veille.index.filters.sourcesTitle') }}
+        </div>
         <div class="flex flex-col gap-1 p-2">
           <button
             v-for="source in sources"
@@ -356,7 +363,9 @@ function submitCapture(): void {
         </div>
       </template>
 
-      <div class="border-t border-line p-4 text-[12px] font-semibold">Tags</div>
+      <div class="border-t border-line p-4 text-[12px] font-semibold">
+        {{ t('veille.index.filters.tags') }}
+      </div>
       <div class="flex flex-wrap gap-1.5 p-3">
         <!-- Les tags viennent du serveur (toute la base), pas des items affichés : dérivés de
              la liste filtrée, ils s'effondraient au tag sélectionné dès le premier clic. -->
@@ -387,14 +396,14 @@ function submitCapture(): void {
           type="checkbox"
           class="accent-accent"
           :checked="selection.total === items.length"
-          title="Tout sélectionner sur cette page"
+          :title="t('veille.index.feed.selectAllTitle')"
           @change="toggleEveryItem"
         />
-        Flux agrégé
+        {{ t('veille.index.feed.title') }}
         <span
           class="rounded-full border border-line-2 bg-panel-2 px-2.5 py-0.5 text-[11px] font-normal text-txt-2"
         >
-          {{ pagination.total }} éléments
+          {{ t('veille.index.feed.count', { n: pagination.total }) }}
         </span>
       </div>
 
@@ -405,25 +414,24 @@ function submitCapture(): void {
         class="flex items-center gap-3 border-b border-line bg-panel-2 px-4 py-2.5 text-[12px]"
       >
         <span class="font-semibold">
-          {{ selection.total }} sélectionné{{ selection.total > 1 ? 's' : '' }}
+          {{ t('veille.index.selection.selected', selection.total) }}
         </span>
         <span v-if="selection.media > 0" class="text-txt-3">
-          dont {{ selection.media }} média{{ selection.media > 1 ? 's' : '' }} à envoyer à la
-          corbeille d’Immich
+          {{ t('veille.index.selection.media', selection.media) }}
         </span>
         <button
           type="button"
           class="ml-auto rounded-md border border-line-2 bg-panel px-3 py-1.5 text-txt-2 hover:text-txt"
           @click="selected = []"
         >
-          Annuler
+          {{ t('veille.index.selection.cancel') }}
         </button>
         <button
           type="button"
           class="rounded-md border border-bad/50 bg-panel px-3 py-1.5 text-bad hover:border-bad"
           @click="deleteSelected"
         >
-          Supprimer
+          {{ t('veille.index.selection.delete') }}
         </button>
       </div>
 
@@ -437,7 +445,7 @@ function submitCapture(): void {
           type="checkbox"
           class="mt-0.5 shrink-0 accent-accent"
           :checked="isSelected(item)"
-          :title="`Sélectionner « ${item.title} »`"
+          :title="t('veille.index.selectItem', { title: item.title })"
           @change="toggleItem(item)"
         />
         <button
@@ -446,7 +454,7 @@ function submitCapture(): void {
           :class="
             item.readAt ? 'h-2 w-2 border-line-2 bg-transparent' : 'h-2 w-2 border-aqua bg-aqua'
           "
-          :title="item.readAt ? 'Marquer comme non lu' : 'Marquer comme lu'"
+          :title="item.readAt ? t('veille.index.markUnread') : t('veille.index.markRead')"
           @click="toggleRead(item)"
         />
         <!-- La vignette d'un média. `<img>` natif vers notre proxy : la clé d'API reste au
@@ -476,7 +484,7 @@ function submitCapture(): void {
           v-else-if="isMedia(item)"
           class="flex h-[54px] w-[86px] shrink-0 items-center justify-center rounded-[8px] border border-dashed border-line-2 bg-panel-2 text-[10px] text-txt-3"
         >
-          absent
+          {{ t('veille.index.media.absent') }}
         </div>
 
         <div class="min-w-0 flex-1">
@@ -507,9 +515,9 @@ function submitCapture(): void {
             <span
               v-if="item.unavailableAt"
               class="rounded-full border border-warn/40 bg-panel-2 px-2 py-0.5 text-[10.5px] text-warn"
-              title="L’asset n’est plus dans l’album de veille : retiré de l’album, ou supprimé d’Immich."
+              :title="t('veille.index.unavailable.title')"
             >
-              plus dans l’album
+              {{ t('veille.index.unavailable.badge') }}
             </span>
             <span
               v-for="tag in item.tags"
@@ -525,12 +533,12 @@ function submitCapture(): void {
           class="shrink-0 font-mono text-[10.5px] text-txt-3 hover:text-accent"
           @click="toggleQueue(item)"
         >
-          {{ item.readingQueue ? '− file' : '+ file' }}
+          {{ item.readingQueue ? t('veille.index.queue.remove') : t('veille.index.queue.add') }}
         </button>
       </div>
 
       <div v-if="items.length === 0" class="p-6 text-center text-[13px] text-txt-2">
-        Aucun résultat.
+        {{ t('veille.index.empty') }}
       </div>
 
       <div
@@ -543,10 +551,10 @@ function submitCapture(): void {
           :disabled="pagination.currentPage <= 1"
           @click="goToPage(pagination.currentPage - 1)"
         >
-          Précédent
+          {{ t('veille.index.pagination.prev') }}
         </button>
         <span class="font-mono text-[11.5px] text-txt-3">
-          page {{ pagination.currentPage }} / {{ pagination.lastPage }}
+          {{ t('veille.index.pagination.status', { current: pagination.currentPage, last: pagination.lastPage }) }}
         </span>
         <button
           type="button"
@@ -554,7 +562,7 @@ function submitCapture(): void {
           :disabled="pagination.currentPage >= pagination.lastPage"
           @click="goToPage(pagination.currentPage + 1)"
         >
-          Suivant
+          {{ t('veille.index.pagination.next') }}
         </button>
       </div>
     </div>
@@ -562,7 +570,7 @@ function submitCapture(): void {
     <!-- File de lecture + capture -->
     <div class="border-l border-line bg-bg-2">
       <div class="flex items-center gap-2 border-b border-line p-4 text-[12px] font-semibold">
-        File de lecture
+        {{ t('veille.index.queue.title') }}
         <span class="ml-auto font-mono text-[11px] text-txt-3">{{ stats.queue }}</span>
       </div>
       <div class="flex flex-col gap-2 p-3">
@@ -581,30 +589,32 @@ function submitCapture(): void {
           class="rounded-md px-2 py-1 text-left text-[11.5px] text-txt-3 hover:text-accent"
           @click="applyFilters({ readingQueue: true })"
         >
-          voir toute la file ({{ stats.queue }})
+          {{ t('veille.index.queue.seeAll', { count: stats.queue }) }}
         </button>
       </div>
 
-      <div class="border-t border-line p-4 text-[12px] font-semibold">Capture rapide</div>
+      <div class="border-t border-line p-4 text-[12px] font-semibold">
+        {{ t('veille.index.capture.title') }}
+      </div>
       <form class="flex flex-col gap-2 p-3" @submit.prevent="submitCapture">
         <select
           v-model="capture.type"
           class="rounded-md border border-line-2 bg-panel px-2 py-1.5 text-[12px]"
         >
-          <option value="note">Note</option>
-          <option value="bookmark">Signet</option>
-          <option value="article">Article</option>
+          <option value="note">{{ t('veille.index.types.note') }}</option>
+          <option value="bookmark">{{ t('veille.index.types.bookmark') }}</option>
+          <option value="article">{{ t('veille.index.types.article') }}</option>
         </select>
         <input
           v-model="capture.title"
           type="text"
-          placeholder="Titre"
+          :placeholder="t('veille.index.capture.titlePlaceholder')"
           class="rounded-md border border-line-2 bg-panel px-2 py-1.5 text-[12px] placeholder:text-txt-3"
         />
         <input
           v-model="capture.url"
           type="text"
-          placeholder="URL (optionnel)"
+          :placeholder="t('veille.index.capture.urlPlaceholder')"
           class="rounded-md border border-line-2 bg-panel px-2 py-1.5 text-[12px] placeholder:text-txt-3"
         />
         <button
@@ -612,7 +622,7 @@ function submitCapture(): void {
           class="rounded-md border border-accent bg-accent px-2 py-1.5 text-[12px] text-white disabled:opacity-50"
           :disabled="capturing || !capture.title.trim()"
         >
-          Ajouter
+          {{ t('veille.index.capture.submit') }}
         </button>
       </form>
     </div>

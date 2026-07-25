@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import {
@@ -23,6 +24,8 @@ import {
 } from '../shared/schedule_draft.js'
 
 defineOptions({ layout: AppLayout })
+
+const { t } = useI18n()
 
 interface VeilleSource {
   id: number
@@ -56,21 +59,21 @@ const addErrors = computed(() =>
   props.sourceErrors && props.sourceErrors.sourceId === undefined ? props.sourceErrors : null
 )
 
-const UNIT_OPTIONS: { value: IntervalUnit; label: string }[] = [
-  { value: 'minutes', label: 'minutes' },
-  { value: 'hours', label: 'heures' },
-  { value: 'days', label: 'jours' },
-]
+const UNIT_OPTIONS = computed<{ value: IntervalUnit; label: string }[]>(() => [
+  { value: 'minutes', label: t('veille.sources.units.minutes') },
+  { value: 'hours', label: t('veille.sources.units.hours') },
+  { value: 'days', label: t('veille.sources.units.days') },
+])
 
 /**
  * ⚠️ « À 7h » n'est **pas** une unité de plus. Un intervalle dit « après la dernière collecte »
  * et dérive ; un horaire mural se réancre chaque jour. Le premier choix porte donc sur le mode,
  * et le sélecteur d'unité se replie sous « intervalle ».
  */
-const MODE_OPTIONS: { value: ScheduleMode; label: string }[] = [
-  { value: 'interval', label: 'intervalle' },
-  { value: 'daily', label: 'horaire' },
-]
+const MODE_OPTIONS = computed<{ value: ScheduleMode; label: string }[]>(() => [
+  { value: 'interval', label: t('veille.sources.modes.interval') },
+  { value: 'daily', label: t('veille.sources.modes.daily') },
+])
 
 /**
  * ⚠️ La page **ne convertit jamais avant d'envoyer** : elle poste `{ interval, intervalUnit }`
@@ -182,7 +185,7 @@ function refreshAll(): void {
 }
 
 function formatDateTime(value: string | null): string {
-  if (!value) return 'jamais'
+  if (!value) return t('veille.sources.never')
   return new Date(value).toLocaleString('fr-FR', {
     day: '2-digit',
     month: '2-digit',
@@ -200,22 +203,22 @@ const NOTIFICATION_CLASSES: Record<string, string> = {
 </script>
 
 <template>
-  <Head title="Sources de veille" />
+  <Head :title="t('veille.sources.title')" />
 
   <div class="mb-4 flex items-center gap-3">
     <Link
       href="/veille"
       class="rounded-[9px] border border-line-2 bg-panel-2 px-3.5 py-2 text-[12.5px] text-txt-2 hover:text-txt"
     >
-      ← Flux
+      {{ t('veille.sources.backToFeed') }}
     </Link>
-    <div class="text-[13px] font-semibold">Sources</div>
+    <div class="text-[13px] font-semibold">{{ t('veille.sources.heading') }}</div>
     <button
       type="button"
       class="ml-auto rounded-[9px] border border-line-2 bg-panel-2 px-3.5 py-2 text-[12.5px]"
       @click="refreshAll"
     >
-      Tout rafraîchir
+      {{ t('veille.sources.refreshAll') }}
     </button>
   </div>
 
@@ -231,7 +234,7 @@ const NOTIFICATION_CLASSES: Record<string, string> = {
     <!-- Liste des sources -->
     <div class="overflow-hidden rounded-[14px] border border-line bg-panel">
       <div class="border-b border-line p-4 text-[12px] font-semibold">
-        Sources suivies
+        {{ t('veille.sources.followed') }}
         <span class="ml-1 font-normal text-txt-3">({{ props.sources.length }})</span>
       </div>
 
@@ -250,7 +253,9 @@ const NOTIFICATION_CLASSES: Record<string, string> = {
               >
                 {{ source.kind }}
               </span>
-              <span v-if="!source.active" class="text-[11px] text-txt-3">désactivée</span>
+              <span v-if="!source.active" class="text-[11px] text-txt-3">
+                {{ t('veille.sources.disabled') }}
+              </span>
             </div>
             <!-- L'`url` d'une source Immich est un identifiant d'album (`immich:album:<uuid>`),
                  pas une adresse : l'afficher brute ne dit rien à personne. La pastille `kind`
@@ -259,16 +264,16 @@ const NOTIFICATION_CLASSES: Record<string, string> = {
               class="mt-0.5 truncate text-[11px] text-txt-3"
               :class="source.kind === 'immich' ? '' : 'font-mono'"
             >
-              {{ source.kind === 'immich' ? 'Album de veille Immich' : source.url }}
+              {{ source.kind === 'immich' ? t('veille.sources.immichAlbum') : source.url }}
             </div>
             <div class="mt-1 flex flex-wrap items-center gap-2 text-[11.5px] text-txt-3">
               <span>{{ formatSchedule(source) }}</span>
               <span>·</span>
-              <span>dernière collecte : {{ formatDateTime(source.lastFetchedAt) }}</span>
+              <span>{{ t('veille.sources.lastFetch', { date: formatDateTime(source.lastFetchedAt) }) }}</span>
               <template v-if="source.lastItemCount !== null">
                 <span>·</span>
                 <span :class="source.lastItemCount === 0 ? 'text-warn' : ''">
-                  {{ source.lastItemCount }} entrée(s)
+                  {{ t('veille.sources.entries', { count: source.lastItemCount }) }}
                 </span>
               </template>
             </div>
@@ -281,14 +286,14 @@ const NOTIFICATION_CLASSES: Record<string, string> = {
               :disabled="refreshing === source.id"
               @click="refresh(source)"
             >
-              {{ refreshing === source.id ? '…' : 'Rafraîchir' }}
+              {{ refreshing === source.id ? '…' : t('veille.sources.refresh') }}
             </button>
             <button
               type="button"
               class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-1 text-[11.5px]"
               @click="toggleActive(source)"
             >
-              {{ source.active ? 'Désactiver' : 'Activer' }}
+              {{ source.active ? t('veille.sources.deactivate') : t('veille.sources.activate') }}
             </button>
           </div>
         </div>
@@ -299,7 +304,7 @@ const NOTIFICATION_CLASSES: Record<string, string> = {
           v-if="drafts[source.id]"
           class="mt-2 flex flex-wrap items-center gap-2 text-[11.5px] text-txt-3"
         >
-          <span>cadence</span>
+          <span>{{ t('veille.sources.cadence') }}</span>
 
           <!-- Le premier choix porte sur le MODE. L'unité n'est qu'un détail de l'intervalle,
                d'où son repli sous celui-ci. -->
@@ -334,7 +339,7 @@ const NOTIFICATION_CLASSES: Record<string, string> = {
           </template>
 
           <template v-else>
-            <span>tous les jours à</span>
+            <span>{{ t('veille.sources.dailyAt') }}</span>
             <input
               v-model="drafts[source.id].dailyAt"
               type="time"
@@ -349,13 +354,13 @@ const NOTIFICATION_CLASSES: Record<string, string> = {
             :disabled="saving === source.id || !isDraftValid(drafts[source.id])"
             @click="saveSchedule(source)"
           >
-            {{ saving === source.id ? '…' : 'Enregistrer' }}
+            {{ saving === source.id ? '…' : t('veille.sources.save') }}
           </button>
 
           <span v-if="!isDraftValid(drafts[source.id])" class="text-bad">
             {{
               drafts[source.id].scheduleMode === 'daily'
-                ? 'heure attendue au format HH:MM'
+                ? t('veille.sources.timeHint')
                 : boundsHint(drafts[source.id].intervalUnit)
             }}
           </span>
@@ -377,7 +382,7 @@ const NOTIFICATION_CLASSES: Record<string, string> = {
              le mode de panne le plus courant d'un agrégateur : il doit se voir ici. -->
         <div v-if="source.lastError" class="mt-2 rounded-[9px] border border-bad bg-bg-2 p-2.5">
           <div class="text-[11.5px] font-semibold text-bad">
-            Dernière collecte en échec — {{ formatDateTime(source.lastErrorAt) }}
+            {{ t('veille.sources.lastErrorAt', { date: formatDateTime(source.lastErrorAt) }) }}
           </div>
           <p class="mt-0.5 font-mono text-[11px] break-words text-txt-2">{{ source.lastError }}</p>
         </div>
@@ -386,23 +391,25 @@ const NOTIFICATION_CLASSES: Record<string, string> = {
           v-else-if="source.lastItemCount === 0"
           class="mt-2 rounded-[9px] border border-warn bg-bg-2 p-2.5 text-[11.5px] text-warn"
         >
-          Le flux répond, mais aucune entrée n’a été reconnue — format inattendu, ou flux vidé.
+          {{ t('veille.sources.emptyFeed') }}
         </div>
       </div>
 
       <div v-if="props.sources.length === 0" class="p-6 text-center text-[13px] text-txt-2">
-        Aucune source. Ajoute un flux RSS ou Atom pour que la veille se remplisse toute seule.
+        {{ t('veille.sources.noSources') }}
       </div>
     </div>
 
     <!-- Ajout -->
     <div class="h-fit overflow-hidden rounded-[14px] border border-line bg-panel">
-      <div class="border-b border-line p-4 text-[12px] font-semibold">Ajouter une source</div>
+      <div class="border-b border-line p-4 text-[12px] font-semibold">
+        {{ t('veille.sources.add.title') }}
+      </div>
       <form class="flex flex-col gap-2 p-3" @submit.prevent="submit">
         <input
           v-model="form.url"
           type="text"
-          placeholder="https://exemple.dev/feed.xml"
+          :placeholder="t('veille.sources.add.urlPlaceholder')"
           class="rounded-md border border-line-2 bg-panel px-2 py-1.5 text-[12px] placeholder:text-txt-3"
         />
         <p v-if="addErrors?.url" class="text-[11px] text-bad">
@@ -412,14 +419,14 @@ const NOTIFICATION_CLASSES: Record<string, string> = {
         <input
           v-model="form.title"
           type="text"
-          placeholder="Nom affiché"
+          :placeholder="t('veille.sources.add.namePlaceholder')"
           class="rounded-md border border-line-2 bg-panel px-2 py-1.5 text-[12px] placeholder:text-txt-3"
         />
         <p v-if="addErrors?.title" class="text-[11px] text-bad">
           {{ addErrors.title }}
         </p>
 
-        <label class="mt-1 text-[11px] text-txt-3">Cadence</label>
+        <label class="mt-1 text-[11px] text-txt-3">{{ t('veille.sources.add.cadence') }}</label>
         <select
           v-model="form.scheduleMode"
           class="rounded-md border border-line-2 bg-panel px-2 py-1.5 text-[12px]"
@@ -456,7 +463,7 @@ const NOTIFICATION_CLASSES: Record<string, string> = {
 
         <template v-else>
           <div class="flex items-center gap-2">
-            <span class="text-[12px] text-txt-3">tous les jours à</span>
+            <span class="text-[12px] text-txt-3">{{ t('veille.sources.dailyAt') }}</span>
             <input
               v-model="form.dailyAt"
               type="time"
@@ -464,7 +471,7 @@ const NOTIFICATION_CLASSES: Record<string, string> = {
             />
           </div>
           <p class="text-[11px]" :class="isDraftValid(form) ? 'text-txt-3' : 'text-bad'">
-            Une liste fraîche à heure fixe, sans dériver d’un jour sur l’autre.
+            {{ t('veille.sources.add.dailyHint') }}
           </p>
         </template>
 
@@ -480,12 +487,11 @@ const NOTIFICATION_CLASSES: Record<string, string> = {
           class="mt-1 rounded-md border border-accent bg-accent px-2 py-1.5 text-[12px] text-white disabled:opacity-50"
           :disabled="submitting || !form.url.trim() || !form.title.trim() || !isDraftValid(form)"
         >
-          Ajouter
+          {{ t('veille.sources.add.submit') }}
         </button>
 
         <p class="mt-1 text-[11px] leading-relaxed text-txt-3">
-          RSS et Atom. Le serveur va chercher l’URL lui-même : les adresses locales et privées
-          sont refusées.
+          {{ t('veille.sources.add.note') }}
         </p>
       </form>
     </div>
