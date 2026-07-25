@@ -1,6 +1,7 @@
 import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
 import User from '#core/auth/models/user'
+import UserCapability from '#core/auth/models/user_capability'
 import UserInvitation from '#core/auth/models/user_invitation'
 import Role from '#core/auth/models/role'
 import invitationService from '#core/auth/services/invitation_service'
@@ -137,13 +138,13 @@ test.group('Core / administration des comptes', (group) => {
     assert.lengthOf(await UserInvitation.query().where('user_id', jamaisServi.id), 0)
   })
 
-  test('refuse de supprimer un compte dont l’invitation a été consommée', async ({
+  test('supprime un compte qui a servi ; ses capacités et invitations partent avec lui', async ({
     client,
     assert,
   }) => {
-    // ⚠️ Le cœur de la règle : dès qu'un compte a servi, il se **désactive**, il ne se
-    // supprime plus. CC-70 prévoit une progression Leitner par personne — supprimer poserait
-    // alors la question de ce qu'on fait de son historique, sur une base qui est l'unique copie.
+    // ⚠️ Le cœur de CC-80 : un compte **utilisé** se supprime désormais. Aucune table de
+    // contenu ne porte de `user_id` — seules `user_capabilities` et `user_invitations` le
+    // référencent, en `ON DELETE CASCADE`. La suppression n'emporte que ses données perso.
     const admin = await createAdmin()
     const aServi = await createUserWith(['leitner.view'])
     const token = await invitationService.issueFor(aServi)
@@ -154,35 +155,64 @@ test.group('Core / administration des comptes', (group) => {
       .withCsrfToken()
       .redirects(0)
 
+    // Une surcharge personnelle, pour prouver que `user_capabilities` part bien en cascade —
+    // et pas seulement l'invitation.
+    await UserCapability.create({ userId: aServi.id, capability: 'leitner.view', granted: true })
+
     const response = await client
       .delete(`/admin/users/${aServi.id}`)
-      .accept('json')
       .loginAs(admin)
       .withCsrfToken()
+      .redirects(0)
 
-    response.assertStatus(400)
-    assert.isNotNull(await User.find(aServi.id))
+    response.assertStatus(302)
+    assert.isNull(await User.find(aServi.id))
+    assert.lengthOf(await UserCapability.query().where('user_id', aServi.id), 0)
+    assert.lengthOf(await UserInvitation.query().where('user_id', aServi.id), 0)
   })
 
-  test('refuse de supprimer un compte sans aucune invitation', async ({ client, assert }) => {
-    // ⚠️ Le cas du compte seedé (`admin@bstenger.fr`) : aucune invitation, et pourtant un vrai
-    // mot de passe. Un critère « aucune invitation consommée » le rendrait supprimable — d'où
-    // l'exigence qu'une invitation **existe** avant de conclure que le compte n'a jamais servi.
+  test('supprime un compte sans aucune invitation (cas seedé)', async ({ client, assert }) => {
+    // ⚠️ Le compte propriétaire, créé par le seeder depuis ADMIN_PASSWORD sans invitation :
+    // l'ancien critère « jamais servi » le refusait. Désormais supprimable — tant qu'il n'est
+    // ni soi-même ni le dernier administrateur actif. Ici, un non-admin sans invitation.
     const admin = await createAdmin()
     const seede = await createUserWith(['leitner.view'])
 
     const response = await client
       .delete(`/admin/users/${seede.id}`)
-      .accept('json')
       .loginAs(admin)
+      .withCsrfToken()
+      .redirects(0)
+
+    response.assertStatus(302)
+    assert.isNull(await User.find(seede.id))
+  })
+
+  test('refuse de supprimer le dernier administrateur actif', async ({ client, assert }) => {
+    // ⚠️ Verrouillage sans retour : plus aucun admin actif = administration fermée, réparable
+    // seulement en SQL. Vérifié AVANT « pas soi-même » — c'est l'invariant le plus fort, et le
+    // seul cas où il mord est l'unique admin qui tente de se supprimer.
+    const seul = await createAdmin()
+
+    const response = await client
+      .delete(`/admin/users/${seul.id}`)
+      .accept('json')
+      .loginAs(seul)
       .withCsrfToken()
 
     response.assertStatus(400)
-    assert.isNotNull(await User.find(seede.id))
+    assert.include((response.body() as { error: string }).error, 'administrateur')
+    assert.isNotNull(await User.find(seul.id))
   })
 
-  test('refuse de se supprimer soi-même', async ({ client, assert }) => {
+  test('refuse de se supprimer soi-même quand un autre admin existe', async ({
+    client,
+    assert,
+  }) => {
+    // Deux admins : le garde « dernier admin » passe (l'autre reste), donc c'est bien le
+    // verrou « pas soi-même » qui ferme — un verrouillage sans retour comme la désactivation.
     const admin = await createAdmin()
+    await createAdmin()
 
     const response = await client
       .delete(`/admin/users/${admin.id}`)
@@ -191,6 +221,26 @@ test.group('Core / administration des comptes', (group) => {
       .withCsrfToken()
 
     response.assertStatus(400)
+    assert.include((response.body() as { error: string }).error, 'propre compte')
+    assert.isNotNull(await User.find(admin.id))
+  })
+
+  test('supprime un autre administrateur tant qu’il en reste un actif', async ({
+    client,
+    assert,
+  }) => {
+    // Un admin peut en supprimer un autre : le garde ne mord que sur le **dernier** actif.
+    const admin = await createAdmin()
+    const autre = await createAdmin()
+
+    const response = await client
+      .delete(`/admin/users/${autre.id}`)
+      .loginAs(admin)
+      .withCsrfToken()
+      .redirects(0)
+
+    response.assertStatus(302)
+    assert.isNull(await User.find(autre.id))
     assert.isNotNull(await User.find(admin.id))
   })
 

@@ -20,8 +20,9 @@ interface Props {
   roles: Array<{ id: number; name: string }>
   catalog: Array<{ module: string; capabilities: string[] }>
   invitation: { expiresAt: string; issuedAt: string } | null
-  // Vrai seulement si le compte n'a jamais servi : son invitation n'a pas été consommée,
-  // donc personne n'a jamais pu s'y connecter. Tout le reste se désactive.
+  // Calculé côté serveur avec les mêmes prédicats que `destroy` : faux pour soi-même et pour
+  // le dernier administrateur actif. Tout autre compte est supprimable — ses données
+  // personnelles partent en cascade, le contenu partagé n'est pas rattaché à lui.
   deletable: boolean
 }
 
@@ -72,7 +73,11 @@ function toggleActivation(): void {
 
 function destroy(): void {
   const nom = props.account.fullName ?? props.account.email
-  if (!confirm(`Supprimer définitivement le compte « ${nom} » ? Cette action est irréversible.`)) {
+  const message =
+    `Supprimer définitivement le compte « ${nom} » ? ` +
+    'Ses capacités et ses invitations seront détruites avec lui ; ' +
+    'le contenu partagé n’est pas affecté. Cette action est irréversible.'
+  if (!confirm(message)) {
     return
   }
   router.delete(`/admin/users/${props.account.id}`)
@@ -253,11 +258,10 @@ async function issueInvitation(): Promise<void> {
     >
       <h3 class="text-[13px] font-semibold tracking-tight text-bad">Supprimer ce compte</h3>
       <p class="text-[12.5px] text-txt-3">
-        Ce compte n'a jamais servi : son invitation n'a pas été utilisée, personne n'a donc pu
-        s'y connecter. Il peut être supprimé sans laisser de trace derrière lui.
-        <strong class="text-txt-2">
-          Dès qu'il aura servi, il ne se supprimera plus — il se désactivera.
-        </strong>
+        La suppression retire définitivement ce compte, avec
+        <strong class="text-txt-2">ses capacités et ses invitations</strong>. Le contenu partagé
+        (cartes, veille…) ne lui est pas rattaché : il n'est pas affecté. Cette action est
+        irréversible — pour un retrait réversible, désactivez plutôt le compte.
       </p>
       <div>
         <button

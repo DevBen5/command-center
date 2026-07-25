@@ -72,9 +72,12 @@ export default class AdminUsersController {
       invitation: invitation?.isPending
         ? { expiresAt: invitation.expiresAt.toISO(), issuedAt: invitation.createdAt.toISO() }
         : null,
-      // Le bouton de suppression n'apparaît que là où il aboutirait. Le serveur revérifie
-      // de toute façon — masquer un bouton n'a jamais fermé une route.
-      deletable: user.id !== auth.user!.id && (await invitationService.hasNeverBeenUsed(user)),
+      // Le bouton de suppression n'apparaît que là où il aboutirait. **Mêmes prédicats que
+      // `destroy`** — sinon l'UI proposerait une action que le serveur refuse (ou l'inverse) :
+      // pas soi-même, et pas le dernier administrateur actif. Le serveur revérifie de toute
+      // façon — masquer un bouton n'a jamais fermé une route.
+      deletable:
+        user.id !== auth.user!.id && !(user.isAdmin && !(await this.#otherActiveAdminExists(user))),
     })
   }
 
@@ -152,38 +155,56 @@ export default class AdminUsersController {
   }
 
   /**
-   * Supprime un compte — **uniquement s'il n'a jamais servi**.
+   * Supprime un compte — dès lors qu'il n'a **aucune dépendance bloquante** (CC-80).
    *
-   * ⚠️ CC-71 tranchait « désactiver, jamais supprimer », et la raison reste valable : une
-   * suppression pose la question des données rattachées, et CC-70 prévoit une progression
-   * Leitner par personne. Ce qui manquait à cette règle, c'est le compte créé avec une faute
-   * de frappe : le désactiver ne le nettoie pas, il encombre la liste pour toujours.
+   * CC-71 tranchait « désactiver, jamais supprimer » par anticipation de données rattachées.
+   * Vérification faite (CC-80), aucune table de **contenu** ne porte de `user_id` : les seules
+   * références à `users.id` — `user_capabilities`, `user_invitations` — sont en
+   * `ON DELETE CASCADE` et n'existent que pour ce compte. Supprimer un compte, même utilisé,
+   * n'emporte donc que ses propres données personnelles ; rien de partagé.
    *
-   * D'où la restriction — un compte dont l'invitation n'a jamais été consommée n'a **jamais
-   * pu se connecter**, donc ne peut rien avoir produit, ni maintenant ni après CC-72. Le
-   * refus par défaut vaut ici aussi : ce qui n'est pas manifestement inutilisé est conservé.
+   * La sûreté vient du **schéma**, pas d'un contrôle (CC-77) : sous ce modèle un compte est
+   * toujours supprimable sans risque. Ne subsistent que deux verrous, tous deux « sans
+   * retour » — ce qu'ils ferment ne se rouvre qu'en SQL :
    *
-   * Les lignes de `user_capabilities` et `user_invitations` partent avec, par leur
-   * `ON DELETE CASCADE` — elles n'existent que pour ce compte.
+   * - **le dernier administrateur actif** ne se supprime pas — sinon plus personne n'atteint
+   *   l'administration. On le vérifie **avant** « pas soi-même » : c'est l'invariant le plus
+   *   fort, et le seul cas où il mord aujourd'hui est l'unique admin qui se supprime — d'où
+   *   ce message plutôt que celui du self-delete. Il reste un garde-fou : il tiendra le jour
+   *   où la route ne serait plus réservée aux admins.
+   * - **son propre compte** ne se supprime pas (verrouillage sans retour, comme la
+   *   désactivation de soi).
+   *
+   * ⚠️ Compter les admins **actifs**, pas le total : ne laisser qu'un admin *désactivé*
+   * derrière soi fermerait l'accès tout autant.
    */
   async destroy({ response, params, auth }: HttpContext) {
     const user = await User.findOrFail(params.id)
+
+    if (user.isAdmin && !(await this.#otherActiveAdminExists(user))) {
+      return response.badRequest({
+        error: 'Impossible de supprimer le dernier administrateur actif.',
+      })
+    }
 
     if (user.id === auth.user!.id) {
       return response.badRequest({ error: 'On ne peut pas supprimer son propre compte.' })
     }
 
-    if (!(await invitationService.hasNeverBeenUsed(user))) {
-      return response.badRequest({
-        error:
-          'Ce compte a déjà servi : il se désactive, il ne se supprime pas. ' +
-          'Seul un compte dont l’invitation n’a jamais été utilisée peut être supprimé.',
-      })
-    }
-
     await user.delete()
 
     return response.redirect('/admin/users')
+  }
+
+  /** Existe-t-il un **autre** administrateur actif que celui-ci ? */
+  async #otherActiveAdminExists(user: User): Promise<boolean> {
+    const other = await User.query()
+      .where('is_admin', true)
+      .where('is_active', true)
+      .whereNot('id', user.id)
+      .first()
+
+    return other !== null
   }
 
   /**

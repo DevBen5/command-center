@@ -121,13 +121,12 @@ router
         router.get('/users/:id', [AdminUsersController, 'show'])
         router.put('/users/:id', [AdminUsersController, 'update'])
         router.put('/users/:id/capabilities', [AdminUsersController, 'updateCapabilities'])
-        // Désactiver plutôt que supprimer : aucune table métier n'a de `user_id` aujourd'hui,
-        // mais CC-70 prévoit une progression Leitner par personne — supprimer poserait alors
-        // la question des données rattachées.
+        // Désactivation : le retrait **réversible**, qui garde le compte et son historique.
         router.post('/users/:id/activation', [AdminUsersController, 'toggleActivation'])
-        // ⚠️ **La seule suppression possible : un compte dont l'invitation n'a jamais été
-        // consommée**, donc qui n'a jamais pu se connecter et ne peut rien avoir produit.
-        // Tout le reste se désactive. Voir `AdminUsersController.destroy`.
+        // Suppression : possible dès qu'il n'y a **aucune dépendance bloquante** (CC-80).
+        // Aucune table de contenu ne porte de `user_id` ; les seules références partent en
+        // `ON DELETE CASCADE`. Deux verrous seulement : pas le dernier admin actif, pas soi-
+        // même. Voir `AdminUsersController.destroy`.
         router.delete('/users/:id', [AdminUsersController, 'destroy'])
         // Rend le lien d'invitation **une fois**, en JSON, et révoque le précédent.
         router.post('/users/:id/invitation', [AdminUsersController, 'issueInvitation'])

@@ -58,31 +58,6 @@ class InvitationService {
     return invitation
   }
 
-  /**
-   * Ce compte n'a-t-il **jamais** servi ?
-   *
-   * Vrai quand une invitation lui a été émise et qu'**aucune** n'a été consommée : son mot de
-   * passe est donc toujours celui, inutilisable, posé à la création — personne n'a jamais pu
-   * s'y connecter, et rien ne peut y être rattaché.
-   *
-   * ⚠️ **C'est la seule condition sous laquelle un compte se supprime** (voir
-   * `AdminUsersController.destroy`). Le ticket CC-71 tranchait « désactiver, jamais
-   * supprimer », parce qu'une suppression poserait la question des données rattachées le jour
-   * où il y en aura (CC-70 prévoit une progression Leitner par personne). Un compte jamais
-   * utilisé échappe à cette question — aujourd'hui comme après CC-72.
-   *
-   * ⚠️ **Exiger qu'une invitation existe n'est pas un détail.** Un compte peut avoir un vrai
-   * mot de passe sans qu'aucune invitation ne l'accompagne : c'est le cas du compte
-   * propriétaire, que le seeder crée directement depuis `ADMIN_PASSWORD` (CC-75). Un critère
-   * « aucune invitation consommée » le rendrait supprimable. Ici, l'absence totale
-   * d'invitation rend `false`.
-   */
-  async hasNeverBeenUsed(user: User): Promise<boolean> {
-    const invitations = await UserInvitation.query().where('user_id', user.id)
-    if (invitations.length === 0) return false
-    return invitations.every((one) => one.usedAt === null)
-  }
-
   /** Marque l'invitation comme consommée. Le mot de passe est posé par l'appelant. */
   async consume(invitation: UserInvitation): Promise<void> {
     invitation.usedAt = DateTime.now()
