@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "name": "Web Development",
+      "themes": ["UX"]
+    }
+  ],
+  "cards": [
+    {
+      "category": "Web Development",
+      "theme": "UX",
+      "front": "En développement web, qu'est-ce qu'un « fil d'Ariane » (breadcrumb) ?",
+      "back": "Un repère de navigation secondaire qui montre **où l'on se trouve** dans la hiérarchie du site et rappelle le chemin depuis l'accueil (ex. `Accueil › Catégorie › Page`). Chaque niveau est cliquable pour remonter.\n\n**Nom FR** : fil d'Ariane — de la mythologie grecque, le fil qui permet de ressortir du labyrinthe.\n**Nom EN** : *breadcrumb* (ou *breadcrumb trail*) — les miettes de pain du Petit Poucet, semées pour retrouver son chemin.\n\nIl **reflète la structure du site**, pas l'historique du navigateur : il ne remplace donc pas le bouton « précédent »."
+    }
+  ]
+}
