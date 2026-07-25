@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import type { Component } from 'vue'
 import { Link, router, usePage } from '@inertiajs/vue3'
 import { useI18n } from 'vue-i18n'
@@ -160,6 +160,7 @@ const paletteQuery = ref('')
 function openPalette(): void {
   paletteOpen.value = true
   paletteQuery.value = ''
+  paletteIndex.value = 0
 }
 
 function closePalette(): void {
@@ -196,6 +197,44 @@ const paletteEmpty = computed(
   () => filteredNavItems.value.length === 0 && filteredSystemItems.value.length === 0
 )
 
+/**
+ * La liste **plate ordonnée** parcourue au clavier : navigation puis système, dans l'ordre exact
+ * du rendu — sinon ↓ ne suivrait pas l'œil. Le spread copie le tableau mais **garde les références**
+ * des éléments : `selectedItem` désigne donc le même objet que celui rendu par le `v-for`, ce qui
+ * rend le surlignage comparable par référence, sans risque de collision de clé.
+ */
+const paletteItems = computed(() => [...filteredNavItems.value, ...filteredSystemItems.value])
+const paletteIndex = ref(0)
+const selectedItem = computed(() => paletteItems.value[paletteIndex.value] ?? null)
+
+/**
+ * La sélection **se réinitialise à chaque frappe** (CC-27) : un index retenu d'une liste plus
+ * longue pointerait dans le vide dès que le filtre la rétrécit — ↵ deviendrait inerte sans erreur.
+ * Remis à 0, il reste valide tant qu'il reste au moins une entrée ; `openPalette` le repose aussi,
+ * car remettre `paletteQuery` à `''` alors qu'elle l'est déjà ne déclenche pas ce watch.
+ */
+watch(paletteQuery, () => {
+  paletteIndex.value = 0
+})
+
+/** ↑/↓ avec bouclage. Sort si la liste filtrée est vide, pour ne pas calculer un modulo par zéro. */
+function moveSelection(delta: number): void {
+  const count = paletteItems.value.length
+  if (count === 0) return
+  paletteIndex.value = (paletteIndex.value + delta + count) % count
+}
+
+/**
+ * ↵ emprunte le **même chemin qu'un clic** sur `<Link>` : une visite Inertia GET, précédée de la
+ * fermeture. Sans entrée sélectionnée (liste vide), on ne fait rien — la palette reste ouverte.
+ */
+function confirmSelection(): void {
+  const item = selectedItem.value
+  if (!item) return
+  closePalette()
+  router.visit(item.href)
+}
+
 function onKeydown(event: KeyboardEvent): void {
   const isMod = event.metaKey || event.ctrlKey
   if (isMod && event.key.toLowerCase() === 'k') {
@@ -203,8 +242,26 @@ function onKeydown(event: KeyboardEvent): void {
     paletteOpen.value ? closePalette() : openPalette()
     return
   }
+  // Tout le reste ne vaut que palette ouverte : sinon ↵ et les flèches seraient captées
+  // globalement (le listener est sur `window`) alors que rien n'attend le focus.
+  if (!paletteOpen.value) return
   if (event.key === 'Escape') {
     closePalette()
+    return
+  }
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    moveSelection(1)
+    return
+  }
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    moveSelection(-1)
+    return
+  }
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    confirmSelection()
   }
 }
 
@@ -407,6 +464,7 @@ function switchLocale(next: string): void {
               :key="item.key"
               :href="item.href"
               class="flex items-center gap-3 px-[19px] py-[10px] text-[13px] text-txt hover:bg-accent-soft"
+              :class="selectedItem === item ? 'bg-accent-soft' : ''"
               @click="closePalette"
             >
               {{ t('palette.goTo', { label: t(`nav.${item.key}`) }) }}
@@ -421,6 +479,7 @@ function switchLocale(next: string): void {
               :key="item.key"
               :href="item.href"
               class="flex items-center gap-3 px-[19px] py-[10px] text-[13px] text-txt hover:bg-accent-soft"
+              :class="selectedItem === item ? 'bg-accent-soft' : ''"
               @click="closePalette"
             >
               {{ t('palette.goTo', { label: t(`nav.${item.key}`) }) }}
