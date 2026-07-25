@@ -1,0 +1,111 @@
+{
+  "index": {
+    "title": "Veille",
+    "search": {
+      "placeholder": "Rechercher dans articles, signets et notes…",
+      "submit": "Rechercher"
+    },
+    "sourcesLink": "Sources",
+    "stats": {
+      "total": "éléments au total",
+      "articles": "articles collectés",
+      "unread": "non lus",
+      "queue": "en file de lecture",
+      "tags": "tags distincts"
+    },
+    "types": {
+      "article": "Article",
+      "bookmark": "Signet",
+      "note": "Note",
+      "image": "Image",
+      "video": "Vidéo"
+    },
+    "filters": {
+      "title": "Filtres",
+      "all": "Tout",
+      "unreadOnly": "Non lus seulement",
+      "readingQueue": "File de lecture",
+      "sourcesTitle": "Sources",
+      "tags": "Tags"
+    },
+    "feed": {
+      "title": "Flux agrégé",
+      "count": "{n} éléments",
+      "selectAllTitle": "Tout sélectionner sur cette page"
+    },
+    "selection": {
+      "selected": "{n} sélectionné | {n} sélectionnés",
+      "media": "dont {n} média à envoyer à la corbeille d’Immich | dont {n} médias à envoyer à la corbeille d’Immich",
+      "cancel": "Annuler",
+      "delete": "Supprimer"
+    },
+    "selectItem": "Sélectionner « {title} »",
+    "markRead": "Marquer comme lu",
+    "markUnread": "Marquer comme non lu",
+    "media": {
+      "absent": "absent"
+    },
+    "unavailable": {
+      "badge": "plus dans l’album",
+      "title": "L’asset n’est plus dans l’album de veille : retiré de l’album, ou supprimé d’Immich."
+    },
+    "queue": {
+      "add": "+ file",
+      "remove": "− file",
+      "title": "File de lecture",
+      "seeAll": "voir toute la file ({count})"
+    },
+    "empty": "Aucun résultat.",
+    "pagination": {
+      "prev": "Précédent",
+      "next": "Suivant",
+      "status": "page {current} / {last}"
+    },
+    "capture": {
+      "title": "Capture rapide",
+      "titlePlaceholder": "Titre",
+      "urlPlaceholder": "URL (optionnel)",
+      "submit": "Ajouter"
+    }
+  },
+  "sources": {
+    "title": "Sources de veille",
+    "backToFeed": "← Flux",
+    "heading": "Sources",
+    "refreshAll": "Tout rafraîchir",
+    "followed": "Sources suivies",
+    "disabled": "désactivée",
+    "immichAlbum": "Album de veille Immich",
+    "lastFetch": "dernière collecte : {date}",
+    "entries": "{count} entrée(s)",
+    "refresh": "Rafraîchir",
+    "activate": "Activer",
+    "deactivate": "Désactiver",
+    "cadence": "cadence",
+    "dailyAt": "tous les jours à",
+    "save": "Enregistrer",
+    "timeHint": "heure attendue au format HH:MM",
+    "lastErrorAt": "Dernière collecte en échec — {date}",
+    "emptyFeed": "Le flux répond, mais aucune entrée n’a été reconnue — format inattendu, ou flux vidé.",
+    "noSources": "Aucune source. Ajoute un flux RSS ou Atom pour que la veille se remplisse toute seule.",
+    "never": "jamais",
+    "units": {
+      "minutes": "minutes",
+      "hours": "heures",
+      "days": "jours"
+    },
+    "modes": {
+      "interval": "intervalle",
+      "daily": "horaire"
+    },
+    "add": {
+      "title": "Ajouter une source",
+      "urlPlaceholder": "https://exemple.dev/feed.xml",
+      "namePlaceholder": "Nom affiché",
+      "cadence": "Cadence",
+      "dailyHint": "Une liste fraîche à heure fixe, sans dériver d’un jour sur l’autre.",
+      "submit": "Ajouter",
+      "note": "RSS et Atom. Le serveur va chercher l’URL lui-même : les adresses locales et privées sont refusées."
+    }
+  }
+}

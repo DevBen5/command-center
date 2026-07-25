@@ -111,3 +111,14 @@ présentes en permanence sont dans `CLAUDE.md`, section « Tests ».
   nombre invérifiable), et le silence sur Immich quand aucun média n'est concerné — un avertissement
   affiché à tort ne se lit plus quand il compte. ⚠️ Ce qu'il ne voit **pas** : le template, les
   cases, et le `confirm()` lui-même.
+
+## Les pages (test de composant)
+
+- `app/modules/veille/pages/__tests__/index.spec.ts` — **CC-92**, le seul test de composant du
+  module. Il prouve la pluralisation i18n de la barre de sélection (« 1 sélectionné » / « 2
+  sélectionnés », idem pour les médias) sur le **geste réel** : `selected` démarre vide, la barre
+  est absente, donc le test coche des items avant d'assertir — monter puis lire ne prouverait rien.
+  Une forme de pluriel fausse rendrait « 1 sélectionnés » et le fait rougir ; son instance i18n
+  embarque le namespace `veille`, sans quoi `t()` rendrait la clé brute. ⚠️ Ce qu'il ne voit
+  **pas** : le rendu visuel (jsdom ne fait aucun layout), et les autres libellés — vérifiés au
+  navigateur.
