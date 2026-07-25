@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { Head, router } from '@inertiajs/vue3'
 import { Search } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '~/layouts/AppLayout.vue'
 
 defineOptions({ layout: AppLayout })
+
+const { t } = useI18n()
 
 interface Agent {
   id: number
@@ -34,11 +37,8 @@ const dotClass: Record<Agent['status'], string> = {
   failed: 'bg-bad shadow-[0_0_8px_var(--color-bad)]',
 }
 
-const statusLabel: Record<Agent['status'], string> = {
-  active: 'Actif',
-  running: 'En cours',
-  idle: 'Inactif',
-  failed: 'En échec',
+function statusLabel(status: Agent['status']): string {
+  return t(`agents.status.${status}`)
 }
 
 function select(agent: Agent): void {
@@ -55,7 +55,7 @@ function stop(agent: Agent): void {
 </script>
 
 <template>
-  <Head title="Agents" />
+  <Head :title="t('agents.title')" />
 
   <!-- Barre d'outils -->
   <div class="mb-4 flex items-center gap-3">
@@ -63,17 +63,17 @@ function stop(agent: Agent): void {
       class="flex w-[280px] items-center gap-2.5 rounded-[9px] border border-line-2 bg-panel px-3.5 py-2.5 text-[13px] text-txt-3"
     >
       <Search :size="15" :stroke-width="1.5" aria-hidden="true" class="shrink-0" />
-      Filtrer les agents…
+      {{ t('agents.toolbar.filter') }}
     </div>
     <div class="flex-1"></div>
-    <span class="rounded-[9px] border border-line-2 bg-panel-2 px-3.5 py-2 text-[12.5px] text-txt-2"
-      >Framework : Hermes ▾</span
-    >
+    <span class="rounded-[9px] border border-line-2 bg-panel-2 px-3.5 py-2 text-[12.5px] text-txt-2">{{
+      t('agents.toolbar.framework')
+    }}</span>
     <button
       type="button"
       class="rounded-[9px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white"
     >
-      + Nouvel agent
+      {{ t('agents.toolbar.new') }}
     </button>
   </div>
 
@@ -81,19 +81,19 @@ function stop(agent: Agent): void {
   <div class="mb-[18px] grid grid-cols-4 gap-3.5">
     <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
       <div class="font-mono text-[24px] font-bold text-ok">{{ stats.active }}</div>
-      <div class="text-[11px] text-txt-3">agents actifs</div>
+      <div class="text-[11px] text-txt-3">{{ t('agents.stats.active') }}</div>
     </div>
     <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
       <div class="font-mono text-[24px] font-bold text-warn">{{ stats.running }}</div>
-      <div class="text-[11px] text-txt-3">en cours d'exécution</div>
+      <div class="text-[11px] text-txt-3">{{ t('agents.stats.running') }}</div>
     </div>
     <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
       <div class="font-mono text-[24px] font-bold text-accent">{{ stats.failed }}</div>
-      <div class="text-[11px] text-txt-3">en échec</div>
+      <div class="text-[11px] text-txt-3">{{ t('agents.stats.failed') }}</div>
     </div>
     <div class="rounded-[12px] border border-line bg-panel px-4 py-3.5">
       <div class="font-mono text-[24px] font-bold">{{ stats.total }}</div>
-      <div class="text-[11px] text-txt-3">agents au total</div>
+      <div class="text-[11px] text-txt-3">{{ t('agents.stats.total') }}</div>
     </div>
   </div>
 
@@ -102,7 +102,7 @@ function stop(agent: Agent): void {
   >
     <div class="border-r border-line bg-bg-2">
       <div class="flex items-center gap-2.5 border-b border-line p-4 text-[12px] font-semibold">
-        {{ agents.length }} agents
+        {{ t('agents.list.count', { count: agents.length }) }}
       </div>
       <button
         v-for="agent in agents"
@@ -122,7 +122,7 @@ function stop(agent: Agent): void {
             {{ agent.name }}
           </div>
           <div class="mt-0.5 text-[11.5px] text-txt-2">
-            {{ statusLabel[agent.status] }} · {{ agent.framework }}
+            {{ statusLabel(agent.status) }} · {{ agent.framework }}
           </div>
         </div>
       </button>
@@ -135,7 +135,7 @@ function stop(agent: Agent): void {
         <span
           class="rounded-full border border-line-2 bg-panel-2 px-2.5 py-0.5 text-[11px] text-txt-2"
         >
-          {{ statusLabel[selected.status] }}
+          {{ statusLabel(selected.status) }}
         </span>
         <div class="ml-auto flex gap-2">
           <button
@@ -144,7 +144,7 @@ function stop(agent: Agent): void {
             class="rounded-[9px] border border-line-2 bg-panel-2 px-3.5 py-2 text-[12.5px]"
             @click="stop(selected)"
           >
-            Stopper
+            {{ t('agents.detail.stop') }}
           </button>
           <button
             v-else
@@ -152,13 +152,15 @@ function stop(agent: Agent): void {
             class="rounded-[9px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white"
             @click="run(selected)"
           >
-            Lancer
+            {{ t('agents.detail.run') }}
           </button>
         </div>
       </div>
 
       <div class="border-b border-line p-4 text-[13px] text-txt-2">
-        <div class="text-[10px] tracking-[.06em] text-txt-3 uppercase">Config</div>
+        <div class="text-[10px] tracking-[.06em] text-txt-3 uppercase">
+          {{ t('agents.detail.config') }}
+        </div>
         <pre class="mt-2 font-mono text-[11.5px] whitespace-pre-wrap text-txt-2">{{
           JSON.stringify(selected.config, null, 2)
         }}</pre>
@@ -168,13 +170,15 @@ function stop(agent: Agent): void {
         <div class="mb-2 flex items-center gap-2 text-[11px] text-txt-3">
           <span
             class="rounded-md border border-line-2 bg-panel-2 px-1.5 py-0.5 font-mono text-[10px]"
-            >LOGS</span
+            >{{ t('agents.detail.logsLabel') }}</span
           >
-          {{ recentLogs.length }} dernières lignes
+          {{ t('agents.detail.logsCount', { count: recentLogs.length }) }}
         </div>
         <div class="rounded-[10px] bg-bg-2 p-4 font-mono text-[11.5px] leading-[1.85] text-txt-2">
           <div v-for="(line, i) in recentLogs" :key="i">{{ line }}</div>
-          <div v-if="recentLogs.length === 0" class="text-txt-3">Aucun log récent.</div>
+          <div v-if="recentLogs.length === 0" class="text-txt-3">
+            {{ t('agents.detail.logsEmpty') }}
+          </div>
         </div>
       </div>
     </div>
