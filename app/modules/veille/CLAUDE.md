@@ -532,9 +532,10 @@ avant de modifier le module. Ce qui doit rester présent en permanence :
   `immichConfig` dans `ensureSource`.**
 - ⚠️ **Les six tests de filtre `deleted_at` se ressemblent** assez pour qu'un faux-positif y passe
   inaperçu — vérifiés mordants un par un. Ne les allège pas.
-- ⚠️ **Aucune page de ce module n'a de test de composant** — différent de « le dépôt n'en a pas »,
-  il en a depuis CC-33. Le lu/non-lu, la pagination à l'écran et `last_error` se vérifient au
-  navigateur ; les câbler est possible, pas fait.
+- ⚠️ **Une seule page de ce module a un test de composant** : `pages/__tests__/index.spec.ts`
+  (CC-92), qui prouve la pluralisation i18n de la barre de sélection sur le geste réel. Le reste —
+  lu/non-lu, la pagination à l'écran, `last_error` — se vérifie toujours au navigateur ; le câbler
+  est possible, pas fait.
 
 ## Limites connues — ne les fais pas passer pour couvertes
 
