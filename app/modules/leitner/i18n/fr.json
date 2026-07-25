@@ -43,5 +43,52 @@
       "serverStatus": "Le serveur a répondu {status}.",
       "extractFailed": "L'extraction a échoué."
     }
+  },
+  "llm": {
+    "title": "Configuration du LLM",
+    "subtitle": "Le fil rouge, de bout en bout : un serveur répond, un modèle est chargé, il rend du JSON — et voilà le bloc à coller dans {env}.",
+    "working": "Le modèle travaille…",
+    "banner": {
+      "loadedConfig": "Configuration chargée",
+      "apiKeyDefined": "clé d'API définie",
+      "apiKeyAbsent": "clé d'API absente",
+      "check": "Vérifier",
+      "ok": "Le modèle chargé répond et rend des cartes : l'ingestion d'un cours est opérationnelle.",
+      "idle": "Ces valeurs viennent de l'environnement ({env}), jamais de cet écran : rien d'ici n'est enregistré. « Vérifier » lance une vraie génération, sans rien écrire."
+    },
+    "step1": {
+      "title": "1 · Un serveur LLM tourne",
+      "detect": "Détecter",
+      "probing": "Sondage…",
+      "ports": "Les ports sondés sont fixés dans le code {ports} ; une URL saisie ici doit viser un hôte local ou privé.",
+      "responds": "répond",
+      "noResponse": "aucune réponse",
+      "help": "Aucun serveur ne répond. Dans LM Studio : onglet {developer} → charge un modèle → {startServer} (port 1234). Puis relance la détection."
+    },
+    "step2": {
+      "title": "2 · Un modèle est chargé",
+      "reload": "Relire /models",
+      "reading": "Lecture…",
+      "needServer": "Détecte d'abord un serveur.",
+      "empty": "Aucun modèle chargé : charge-en un dans LM Studio (onglet {developer}), puis relance la détection.",
+      "exposed": "{count} modèle(s) exposé(s) par {url}."
+    },
+    "step3": {
+      "title": "3 · Le modèle sait produire du JSON",
+      "test": "Tester",
+      "explain": "Une vraie génération sur un extrait de cours en dur, suivie du {parsing} que l'ingestion. C'est la seule chose qui réponde à « ce modèle-là sait-il fabriquer des cartes ? ». Rien n'est écrit en base.",
+      "usable": "Ce modèle est utilisable : ces cartes n'ont pas été enregistrées, elles prouvent seulement qu'il tient le format."
+    },
+    "step4": {
+      "title": "4 · La configuration est enregistrée",
+      "locked": "Le bloc à copier apparaît une fois le modèle testé.",
+      "intro": "Cet écran n'enregistre rien : la configuration vit dans l'environnement, lu {boot}. Colle le bloc, redémarre le serveur — le bandeau du haut repassera au vert.",
+      "copy": "Copier",
+      "copied": "Copié",
+      "dockerHint": "Depuis un conteneur, {localhost} est le conteneur lui-même : le serveur LLM de la machine hôte s'atteint par {dockerHost}."
+    },
+    "errors": {
+      "serverStatus": "Le serveur a répondu {status}."
+    }
   }
 }
