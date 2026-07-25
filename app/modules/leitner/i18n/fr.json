@@ -133,5 +133,60 @@
     "accepted": "Validées ({n})",
     "seeCards": "Voir les cartes →",
     "rejected": "Rejetées ({n})"
+  },
+  "stats": {
+    "title": "Stats",
+    "heading": "Ce que disent les révisions",
+    "intro": "Tout est déduit des révisions — leurs horodatages et leurs notes — sans qu'aucune colonne n'ait été ajoutée, et l'historique se relit rétroactivement. Mesures globales, jamais restreintes à un thème.",
+    "reviewsShort": "{n} rév.",
+    "reviewsSingular": "révision",
+    "reviewsPlural": "révisions",
+    "cardsSingular": "carte",
+    "cardsPlural": "cartes",
+    "boxShort": "bte {n}",
+    "daysValue": "{n} j",
+    "weakness": {
+      "title": "Les points faibles",
+      "empty": "Pas encore assez de révisions.",
+      "emptyHint": "Les points faibles se dégagent à mesure que l'historique se remplit."
+    },
+    "retention": "rétention ({days} j)",
+    "mostAgainTitle": "Le plus d'« à revoir »",
+    "mostAgainEmpty": "Aucune carte ratée à répétition.",
+    "stuckTitle": "Coincées en boîte 1-2",
+    "stuckEmpty": "Aucune carte bloquée en bas.",
+    "habit": {
+      "title": "L'habitude",
+      "lastDays": "{n} derniers jours",
+      "less": "Moins",
+      "more": "Plus",
+      "currentStreak": "série en cours",
+      "bestStreak": "meilleure série",
+      "activeDays": "{active} / {total} j actifs",
+      "byWeekday": "Par jour de la semaine",
+      "byHour": "Par heure"
+    },
+    "weekday": {
+      "mon": "L",
+      "tue": "M",
+      "wed": "M",
+      "thu": "J",
+      "fri": "V",
+      "sat": "S",
+      "sun": "D"
+    },
+    "effort": {
+      "title": "L'effort",
+      "intro": "Une session est une suite de cartes séparées de moins de {n} minutes. Le seuil est une convention : rien ne distingue une pause café d'une carte qu'on rumine.",
+      "sessionsWindow": "sessions ({days} j)",
+      "medianDuration": "durée médiane",
+      "cardsPerSession": "cartes / session",
+      "medianPerCard": "médiane par carte",
+      "totalTime": "temps total",
+      "windowNote": "Durées, cartes par session et temps par carte portent sur les {n} derniers jours.",
+      "recentTitle": "Dernières sessions",
+      "recentEmpty": "Aucune session pour l'instant.",
+      "recentEmptyHint": "Les statistiques se remplissent toutes seules, à mesure des révisions."
+    }
   }
 }
