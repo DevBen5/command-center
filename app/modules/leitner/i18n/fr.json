@@ -1,0 +1,47 @@
+{
+  "ingest": {
+    "title": "Ingestion d'un cours",
+    "intro": "Un LLM local en extrait les grands principes. Il {emphasis} des cartes : rien n'entre en base sans ta relecture.",
+    "introEmphasis": "propose",
+    "form": {
+      "titleLabel": "Titre (optionnel)",
+      "titlePlaceholder": "Vide, il sera déduit du cours (son premier titre, sa première ligne…)",
+      "courseLabel": "Le cours",
+      "clear": "Effacer",
+      "extracting": "Extraction du texte…",
+      "coursePlaceholder": "Colle ici le texte du cours, ou charge un fichier…",
+      "charsUnit": "caractères",
+      "reading": "Lecture du fichier…",
+      "fileHint": "ou un fichier .txt / .md / .pdf",
+      "overCap": "Au-delà, ce n'est plus un cours : découpe-le, ou soumets-le en plusieurs fois.",
+      "pdfHint": "Texte extrait d'un PDF : relis-le. Coupe la page de garde et la bibliographie — et sur un document à deux colonnes, l'extraction les entrelace : ce charabia-là ne se rattrape pas, mieux vaut renoncer.",
+      "submit": "Analyser le cours",
+      "submitting": "Lancement…",
+      "backgroundNote": "L'analyse tourne en tâche de fond : tu es redirigé vers sa page de suivi, que tu peux quitter et retrouver à tout moment."
+    },
+    "history": {
+      "title": "Historique",
+      "empty": "Aucune ingestion pour l'instant. Colle un cours pour commencer.",
+      "proposed": "{n} proposée(s)",
+      "pending": "{n} à relire",
+      "accepted": "{n} validée(s)",
+      "rejected": "{n} rejetée(s)",
+      "seeCards": "Voir les cartes validées →"
+    },
+    "status": {
+      "pending": "En attente",
+      "running": "En cours",
+      "done": "Terminée",
+      "failed": "Échec"
+    },
+    "source": {
+      "paste": "Collé",
+      "file": "Fichier",
+      "pdf": "PDF"
+    },
+    "errors": {
+      "serverStatus": "Le serveur a répondu {status}.",
+      "extractFailed": "L'extraction a échoué."
+    }
+  }
+}
