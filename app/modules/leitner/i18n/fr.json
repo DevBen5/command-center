@@ -90,5 +90,48 @@
     "errors": {
       "serverStatus": "Le serveur a répondu {status}."
     }
+  },
+  "ingestShow": {
+    "defaultTitle": "Ingestion",
+    "back": "← Ingestion",
+    "delete": "Supprimer",
+    "confirmDelete": "Supprimer cette ingestion et ses brouillons ? Les cartes validées restent.",
+    "status": {
+      "pending": "En attente",
+      "running": "Analyse en cours",
+      "done": "Terminée",
+      "failed": "Échec"
+    },
+    "sourceFile": "Fichier · {name}",
+    "sourcePaste": "Texte collé",
+    "charsUnit": "caractères",
+    "cardsProposed": "{n} carte(s) proposée(s)",
+    "queued": "Le travail est en file d'attente…",
+    "analyzing": "Le modèle analyse le cours, morceau par morceau.",
+    "progress": "{done} / {total} morceau(x) · {percent} %",
+    "leaveHint": "Tu peux quitter cette page : le travail continue côté serveur, et tu la retrouveras à jour.",
+    "failedTitle": "L'analyse a échoué.",
+    "failedPartial": "{n} carte(s) avaient déjà été proposées avant l'échec : elles sont ci-dessous, relisibles telles quelles.",
+    "restart": "Relancer une analyse",
+    "doneTitle": "Terminé — {n} carte(s) proposée(s).",
+    "doneHint": "Relis-les : rien n'entre en base sans ta validation.",
+    "cardsCreated": "{n} carte(s) créée(s)",
+    "cardsCreatedBox": "— boîte 1, dues aujourd'hui.",
+    "cardsSkipped": "{n} ignorée(s) : ce recto existait déjà sous ce thème.",
+    "selectedCount": "{selected} / {total} sélectionnée(s)",
+    "acceptSelection": "Valider la sélection",
+    "reject": "Rejeter",
+    "categoryPlaceholder": "Catégorie",
+    "themePlaceholder": "Thème",
+    "themePlaceholderNeedCategory": "Thème — catégorie d’abord",
+    "halfClassified": "Catégorie et thème vont ensemble.",
+    "saveDraft": "Enregistrer les modifications",
+    "saveDraftTitle": "Corriger le brouillon sans le valider",
+    "accept": "Valider",
+    "acceptTitle": "Créer la carte (boîte 1, due aujourd'hui)",
+    "noPending": "Aucun brouillon en attente sur cette ingestion.",
+    "accepted": "Validées ({n})",
+    "seeCards": "Voir les cartes →",
+    "rejected": "Rejetées ({n})"
   }
 }
