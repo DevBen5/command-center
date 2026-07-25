@@ -1,10 +1,24 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Head, Link } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
 
 defineOptions({ layout: AppLayout })
+
+const { t } = useI18n()
+
+/**
+ * « révision(s) » / « carte(s) » accordés en nombre. On garde EXACTEMENT la règle du module
+ * (`n > 1 ? pluriel : singulier` — donc 0 et 1 au singulier) plutôt que la pluralisation de
+ * vue-i18n, dont le choix par défaut diffère à `n = 0` : une case de heatmap vide afficherait
+ * « 0 révisions » au lieu de « 0 révision ».
+ */
+const reviews = (n: number): string =>
+  n > 1 ? t('leitner.stats.reviewsPlural') : t('leitner.stats.reviewsSingular')
+const cards = (n: number): string =>
+  n > 1 ? t('leitner.stats.cardsPlural') : t('leitner.stats.cardsSingular')
 
 interface RecentSession {
   startedAt: string
@@ -117,7 +131,15 @@ const LEVEL_CLASS = [
 ] as const
 
 /** Les initiales des jours, dans l'ordre de `byWeekday` — index 0 = lundi. */
-const WEEKDAY_LABELS = ['L', 'M', 'M', 'J', 'V', 'S', 'D']
+const WEEKDAY_LABELS = computed(() => [
+  t('leitner.stats.weekday.mon'),
+  t('leitner.stats.weekday.tue'),
+  t('leitner.stats.weekday.wed'),
+  t('leitner.stats.weekday.thu'),
+  t('leitner.stats.weekday.fri'),
+  t('leitner.stats.weekday.sat'),
+  t('leitner.stats.weekday.sun'),
+])
 
 /**
  * Une durée en secondes → du lisible. `null` rend `—` : le serveur ne renvoie jamais
@@ -210,22 +232,20 @@ function cardLink(front: string): string {
 </script>
 
 <template>
-  <Head title="Stats" />
+  <Head :title="t('leitner.stats.title')" />
 
   <LeitnerTabs />
 
   <div class="mb-4">
-    <div class="text-[18px] font-bold">Ce que disent les révisions</div>
+    <div class="text-[18px] font-bold">{{ t('leitner.stats.heading') }}</div>
     <div class="mt-0.5 text-[11.5px] text-txt-3">
-      Tout est déduit des révisions — leurs horodatages et leurs notes — sans qu'aucune
-      colonne n'ait été ajoutée, et l'historique se relit rétroactivement. Mesures globales,
-      jamais restreintes à un thème.
+      {{ t('leitner.stats.intro') }}
     </div>
   </div>
 
   <div class="mx-auto max-w-[880px]">
     <!-- ================= Les points faibles : la rétention rendue actionnable ================= -->
-    <div class="mb-2 text-[12.5px] font-semibold text-txt-2">Les points faibles</div>
+    <div class="mb-2 text-[12.5px] font-semibold text-txt-2">{{ t('leitner.stats.weakness.title') }}</div>
 
     <!-- La rétention sur trois fenêtres, pour lire une tendance. « Difficile » compte
          comme une réussite ; seul « à revoir » est un échec de rappel. -->
@@ -236,7 +256,7 @@ function cardLink(front: string): string {
         class="rounded-[12px] border border-line bg-panel px-4 py-3 text-center"
       >
         <div class="font-mono text-[22px] font-bold">{{ formatRate(window.rate) }}</div>
-        <div class="text-[10.5px] text-txt-3">rétention ({{ window.days }} j)</div>
+        <div class="text-[10.5px] text-txt-3">{{ t('leitner.stats.retention', { days: window.days }) }}</div>
       </div>
     </div>
 
@@ -246,9 +266,9 @@ function cardLink(front: string): string {
       v-if="displayedWeakness.length === 0"
       class="mb-3 rounded-[12px] border border-line bg-panel px-4 py-6 text-center"
     >
-      <div class="text-[12.5px] text-txt-2">Pas encore assez de révisions.</div>
+      <div class="text-[12.5px] text-txt-2">{{ t('leitner.stats.weakness.empty') }}</div>
       <div class="mt-1 text-[11.5px] text-txt-3">
-        Les points faibles se dégagent à mesure que l'historique se remplit.
+        {{ t('leitner.stats.weakness.emptyHint') }}
       </div>
     </div>
 
@@ -263,7 +283,7 @@ function cardLink(front: string): string {
             class="flex cursor-pointer items-center gap-3 px-4 py-2.5 text-[12.5px] font-semibold"
           >
             <span>{{ category.name }}</span>
-            <span class="ml-auto font-mono text-[11px] text-txt-3">{{ category.total }} rév.</span>
+            <span class="ml-auto font-mono text-[11px] text-txt-3">{{ t('leitner.stats.reviewsShort', { n: category.total }) }}</span>
             <span class="w-[52px] text-right font-mono font-bold" :class="rateClass(category.rate)">
               {{ category.rate }} %
             </span>
@@ -276,7 +296,7 @@ function cardLink(front: string): string {
             class="flex items-center gap-3 border-t border-line px-4 py-2 pl-8 text-[12px] hover:bg-panel-2"
           >
             <span class="text-txt-2">{{ theme.name }}</span>
-            <span class="ml-auto font-mono text-[11px] text-txt-3">{{ theme.total }} rév.</span>
+            <span class="ml-auto font-mono text-[11px] text-txt-3">{{ t('leitner.stats.reviewsShort', { n: theme.total }) }}</span>
             <span class="w-[52px] text-right font-mono" :class="rateClass(theme.rate)">
               {{ theme.rate }} %
             </span>
@@ -290,7 +310,7 @@ function cardLink(front: string): string {
           class="flex items-center gap-3 rounded-[12px] border border-line bg-panel px-4 py-2.5 text-[12.5px] font-semibold hover:bg-panel-2"
         >
           <span>{{ category.name }}</span>
-          <span class="ml-auto font-mono text-[11px] text-txt-3">{{ category.total }} rév.</span>
+          <span class="ml-auto font-mono text-[11px] text-txt-3">{{ t('leitner.stats.reviewsShort', { n: category.total }) }}</span>
           <span
             class="w-[52px] text-right font-mono font-bold"
             :class="category.enoughData ? rateClass(category.rate) : 'text-txt-3'"
@@ -304,7 +324,7 @@ function cardLink(front: string): string {
           class="flex items-center gap-3 rounded-[12px] border border-line bg-panel px-4 py-2.5 text-[12.5px] font-semibold"
         >
           <span>{{ category.name }}</span>
-          <span class="ml-auto font-mono text-[11px] text-txt-3">{{ category.total }} rév.</span>
+          <span class="ml-auto font-mono text-[11px] text-txt-3">{{ t('leitner.stats.reviewsShort', { n: category.total }) }}</span>
           <span class="w-[52px] text-right font-mono font-bold" :class="rateClass(category.rate)">
             {{ category.rate }} %
           </span>
@@ -317,11 +337,11 @@ function cardLink(front: string): string {
     <div class="mb-5 grid grid-cols-2 gap-3">
       <div class="rounded-[12px] border border-line bg-panel">
         <div class="border-b border-line px-4 py-2.5 text-[12.5px] font-semibold">
-          Le plus d'« à revoir »
+          {{ t('leitner.stats.mostAgainTitle') }}
         </div>
 
         <div v-if="problemCards.mostAgain.length === 0" class="px-4 py-6 text-center">
-          <div class="text-[12px] text-txt-3">Aucune carte ratée à répétition.</div>
+          <div class="text-[12px] text-txt-3">{{ t('leitner.stats.mostAgainEmpty') }}</div>
         </div>
 
         <Link
@@ -334,7 +354,7 @@ function cardLink(front: string): string {
             <span class="block truncate text-txt-2">{{ card.front }}</span>
             <span class="block truncate text-[10.5px] text-txt-3">{{ card.path }}</span>
           </span>
-          <span class="shrink-0 font-mono text-[10.5px] text-txt-3">bte {{ card.box }}</span>
+          <span class="shrink-0 font-mono text-[10.5px] text-txt-3">{{ t('leitner.stats.boxShort', { n: card.box }) }}</span>
           <span class="w-[54px] shrink-0 text-right font-mono font-bold text-bad">
             {{ card.count }}×
           </span>
@@ -343,11 +363,11 @@ function cardLink(front: string): string {
 
       <div class="rounded-[12px] border border-line bg-panel">
         <div class="border-b border-line px-4 py-2.5 text-[12.5px] font-semibold">
-          Coincées en boîte 1-2
+          {{ t('leitner.stats.stuckTitle') }}
         </div>
 
         <div v-if="problemCards.stuck.length === 0" class="px-4 py-6 text-center">
-          <div class="text-[12px] text-txt-3">Aucune carte bloquée en bas.</div>
+          <div class="text-[12px] text-txt-3">{{ t('leitner.stats.stuckEmpty') }}</div>
         </div>
 
         <Link
@@ -360,15 +380,15 @@ function cardLink(front: string): string {
             <span class="block truncate text-txt-2">{{ card.front }}</span>
             <span class="block truncate text-[10.5px] text-txt-3">{{ card.path }}</span>
           </span>
-          <span class="shrink-0 font-mono text-[10.5px] text-warn">bte {{ card.box }}</span>
+          <span class="shrink-0 font-mono text-[10.5px] text-warn">{{ t('leitner.stats.boxShort', { n: card.box }) }}</span>
           <span class="w-[54px] shrink-0 text-right font-mono text-txt-3">
-            {{ card.count }} rév.
+            {{ t('leitner.stats.reviewsShort', { n: card.count }) }}
           </span>
         </Link>
       </div>
     </div>
 
-    <div class="mb-2 text-[12.5px] font-semibold text-txt-2">L'habitude</div>
+    <div class="mb-2 text-[12.5px] font-semibold text-txt-2">{{ t('leitner.stats.habit.title') }}</div>
 
     <!-- La heatmap : le graphique le plus parlant du lot. Une case par jour, du lundi
          qui précède la fenêtre jusqu'à aujourd'hui — la dernière colonne reste
@@ -376,17 +396,17 @@ function cardLink(front: string): string {
     <div class="mb-3 rounded-[12px] border border-line bg-panel px-4 py-3">
       <div class="mb-2 flex items-center gap-2">
         <div class="text-[12.5px] font-semibold">
-          {{ habits.heatmapDays }} derniers jours
+          {{ t('leitner.stats.habit.lastDays', { n: habits.heatmapDays }) }}
         </div>
         <div class="ml-auto flex items-center gap-1.5 text-[10px] text-txt-3">
-          <span>Moins</span>
+          <span>{{ t('leitner.stats.habit.less') }}</span>
           <span
             v-for="level in [0, 1, 2, 3, 4]"
             :key="level"
             class="h-[11px] w-[11px] rounded-[2px]"
             :class="LEVEL_CLASS[level]"
           />
-          <span>Plus</span>
+          <span>{{ t('leitner.stats.habit.more') }}</span>
         </div>
       </div>
 
@@ -419,7 +439,7 @@ function cardLink(front: string): string {
                 :key="cell.date"
                 class="h-[11px] w-[11px] rounded-[2px]"
                 :class="LEVEL_CLASS[cell.level]"
-                :title="`${formatDay(cell.date)} — ${cell.count} révision${cell.count > 1 ? 's' : ''}`"
+                :title="`${formatDay(cell.date)} — ${cell.count} ${reviews(cell.count)}`"
               />
             </div>
           </div>
@@ -431,12 +451,12 @@ function cardLink(front: string): string {
          tenue il y a deux ans reste la meilleure. -->
     <div class="mb-3 grid grid-cols-5 gap-3">
       <div class="rounded-[12px] border border-line bg-panel px-4 py-3 text-center">
-        <div class="font-mono text-[22px] font-bold">{{ habits.currentStreak }} j</div>
-        <div class="text-[10.5px] text-txt-3">série en cours</div>
+        <div class="font-mono text-[22px] font-bold">{{ t('leitner.stats.daysValue', { n: habits.currentStreak }) }}</div>
+        <div class="text-[10.5px] text-txt-3">{{ t('leitner.stats.habit.currentStreak') }}</div>
       </div>
       <div class="rounded-[12px] border border-line bg-panel px-4 py-3 text-center">
-        <div class="font-mono text-[22px] font-bold text-aqua">{{ habits.bestStreak }} j</div>
-        <div class="text-[10.5px] text-txt-3">meilleure série</div>
+        <div class="font-mono text-[22px] font-bold text-aqua">{{ t('leitner.stats.daysValue', { n: habits.bestStreak }) }}</div>
+        <div class="text-[10.5px] text-txt-3">{{ t('leitner.stats.habit.bestStreak') }}</div>
       </div>
       <!-- Le brut est affiché à côté du pourcentage, et jamais l'inverse : sur une base
            jeune, « 8 % » seul se lirait comme un échec plutôt que comme une base jeune. -->
@@ -447,7 +467,7 @@ function cardLink(front: string): string {
       >
         <div class="font-mono text-[22px] font-bold">{{ window.percent }} %</div>
         <div class="text-[10.5px] text-txt-3">
-          {{ window.activeDays }} / {{ window.windowDays }} j actifs
+          {{ t('leitner.stats.habit.activeDays', { active: window.activeDays, total: window.windowDays }) }}
         </div>
       </div>
     </div>
@@ -455,13 +475,13 @@ function cardLink(front: string): string {
     <!-- Le rythme, sur la même fenêtre que la heatmap. -->
     <div class="mb-5 grid grid-cols-2 gap-3">
       <div class="rounded-[12px] border border-line bg-panel px-4 py-3">
-        <div class="mb-2 text-[12.5px] font-semibold">Par jour de la semaine</div>
+        <div class="mb-2 text-[12.5px] font-semibold">{{ t('leitner.stats.habit.byWeekday') }}</div>
         <div class="flex h-[60px] items-end gap-1.5">
           <div
             v-for="(count, index) in habits.byWeekday"
             :key="index"
             class="flex h-full flex-1 items-end"
-            :title="`${count} révision${count > 1 ? 's' : ''}`"
+            :title="`${count} ${reviews(count)}`"
           >
             <div
               class="w-full rounded-t-[2px]"
@@ -478,13 +498,13 @@ function cardLink(front: string): string {
       </div>
 
       <div class="rounded-[12px] border border-line bg-panel px-4 py-3">
-        <div class="mb-2 text-[12.5px] font-semibold">Par heure</div>
+        <div class="mb-2 text-[12.5px] font-semibold">{{ t('leitner.stats.habit.byHour') }}</div>
         <div class="flex h-[60px] items-end gap-[2px]">
           <div
             v-for="(count, hour) in habits.byHour"
             :key="hour"
             class="flex h-full flex-1 items-end"
-            :title="`${hour} h — ${count} révision${count > 1 ? 's' : ''}`"
+            :title="`${hour} h — ${count} ${reviews(count)}`"
           >
             <div
               class="w-full rounded-t-[2px]"
@@ -501,27 +521,25 @@ function cardLink(front: string): string {
       </div>
     </div>
 
-    <div class="mb-2 text-[12.5px] font-semibold text-txt-2">L'effort</div>
+    <div class="mb-2 text-[12.5px] font-semibold text-txt-2">{{ t('leitner.stats.effort.title') }}</div>
 
     <div class="mb-2 text-[11.5px] text-txt-3">
-      Une session est une suite de cartes séparées de moins de {{ stats.gapMinutes }}
-      minutes. Le seuil est une convention : rien ne distingue une pause café d'une carte
-      qu'on rumine.
+      {{ t('leitner.stats.effort.intro', { n: stats.gapMinutes }) }}
     </div>
 
     <!-- Le rythme : à quelle fréquence on s'y met. -->
     <div class="mb-3 grid grid-cols-3 gap-3">
       <div class="rounded-[12px] border border-line bg-panel px-4 py-3 text-center">
         <div class="font-mono text-[22px] font-bold">{{ stats.sessions7 }}</div>
-        <div class="text-[10.5px] text-txt-3">sessions (7 j)</div>
+        <div class="text-[10.5px] text-txt-3">{{ t('leitner.stats.effort.sessionsWindow', { days: 7 }) }}</div>
       </div>
       <div class="rounded-[12px] border border-line bg-panel px-4 py-3 text-center">
         <div class="font-mono text-[22px] font-bold">{{ stats.sessions30 }}</div>
-        <div class="text-[10.5px] text-txt-3">sessions (30 j)</div>
+        <div class="text-[10.5px] text-txt-3">{{ t('leitner.stats.effort.sessionsWindow', { days: 30 }) }}</div>
       </div>
       <div class="rounded-[12px] border border-line bg-panel px-4 py-3 text-center">
         <div class="font-mono text-[22px] font-bold">{{ stats.sessions365 }}</div>
-        <div class="text-[10.5px] text-txt-3">sessions (365 j)</div>
+        <div class="text-[10.5px] text-txt-3">{{ t('leitner.stats.effort.sessionsWindow', { days: 365 }) }}</div>
       </div>
     </div>
 
@@ -532,42 +550,41 @@ function cardLink(front: string): string {
         <div class="font-mono text-[22px] font-bold">
           {{ formatDuration(stats.medianSessionSeconds) }}
         </div>
-        <div class="text-[10.5px] text-txt-3">durée médiane</div>
+        <div class="text-[10.5px] text-txt-3">{{ t('leitner.stats.effort.medianDuration') }}</div>
       </div>
       <div class="rounded-[12px] border border-line bg-panel px-4 py-3 text-center">
         <div class="font-mono text-[22px] font-bold">
           {{ formatCards(stats.medianCardsPerSession) }}
         </div>
-        <div class="text-[10.5px] text-txt-3">cartes / session</div>
+        <div class="text-[10.5px] text-txt-3">{{ t('leitner.stats.effort.cardsPerSession') }}</div>
       </div>
       <div class="rounded-[12px] border border-line bg-panel px-4 py-3 text-center">
         <div class="font-mono text-[22px] font-bold">
           {{ formatDuration(stats.medianCardSeconds) }}
         </div>
-        <div class="text-[10.5px] text-txt-3">médiane par carte</div>
+        <div class="text-[10.5px] text-txt-3">{{ t('leitner.stats.effort.medianPerCard') }}</div>
       </div>
       <div class="rounded-[12px] border border-line bg-panel px-4 py-3 text-center">
         <div class="font-mono text-[22px] font-bold text-aqua">
           {{ formatDuration(stats.totalSeconds) }}
         </div>
-        <div class="text-[10.5px] text-txt-3">temps total</div>
+        <div class="text-[10.5px] text-txt-3">{{ t('leitner.stats.effort.totalTime') }}</div>
       </div>
     </div>
 
     <div class="mb-2 text-[11.5px] text-txt-3">
-      Durées, cartes par session et temps par carte portent sur les
-      {{ stats.windowDays }} derniers jours.
+      {{ t('leitner.stats.effort.windowNote', { n: stats.windowDays }) }}
     </div>
 
     <div class="rounded-[12px] border border-line bg-panel">
       <div class="border-b border-line px-4 py-2.5 text-[12.5px] font-semibold">
-        Dernières sessions
+        {{ t('leitner.stats.effort.recentTitle') }}
       </div>
 
       <div v-if="stats.recentSessions.length === 0" class="px-4 py-6 text-center">
-        <div class="text-[12.5px] text-txt-2">Aucune session pour l'instant.</div>
+        <div class="text-[12.5px] text-txt-2">{{ t('leitner.stats.effort.recentEmpty') }}</div>
         <div class="mt-1 text-[11.5px] text-txt-3">
-          Les statistiques se remplissent toutes seules, à mesure des révisions.
+          {{ t('leitner.stats.effort.recentEmptyHint') }}
         </div>
       </div>
 
@@ -579,7 +596,7 @@ function cardLink(front: string): string {
         >
           <span class="text-txt-2">{{ formatDate(session.startedAt) }}</span>
           <span class="ml-auto font-mono text-txt">
-            {{ session.cardCount }} carte{{ session.cardCount > 1 ? 's' : '' }}
+            {{ session.cardCount }} {{ cards(session.cardCount) }}
           </span>
           <!-- Une session à une carte dure 0, et s'affiche telle quelle : la masquer
                serait mentir sur l'effort. -->
