@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Head, Link } from '@inertiajs/vue3'
+import { Bot, Layers, Rss, Server } from 'lucide-vue-next'
 import AppLayout from '~/layouts/AppLayout.vue'
 
 defineOptions({ layout: AppLayout })
@@ -51,7 +52,7 @@ defineProps<{ cards: Cards }>()
         <div
           class="grid h-[30px] w-[30px] place-items-center rounded-lg border border-line-2 bg-accent-soft text-accent"
         >
-          ◧
+          <Server :size="16" :stroke-width="1.5" aria-hidden="true" />
         </div>
         <h3 class="text-[15px] font-semibold">Services</h3>
         <span class="ml-auto font-mono text-[11.5px] text-txt-2">
@@ -109,7 +110,7 @@ defineProps<{ cards: Cards }>()
         <div
           class="grid h-[30px] w-[30px] place-items-center rounded-lg border border-line-2 bg-accent-soft text-accent"
         >
-          ⬡
+          <Bot :size="16" :stroke-width="1.5" aria-hidden="true" />
         </div>
         <h3 class="text-[15px] font-semibold">Agents</h3>
         <span class="ml-auto font-mono text-[11.5px] text-txt-2">
@@ -168,7 +169,7 @@ defineProps<{ cards: Cards }>()
         <div
           class="grid h-[30px] w-[30px] place-items-center rounded-lg border border-line-2 bg-accent-soft text-accent"
         >
-          ☰
+          <Rss :size="16" :stroke-width="1.5" aria-hidden="true" />
         </div>
         <h3 class="text-[15px] font-semibold">Veille</h3>
         <span class="ml-auto font-mono text-[11.5px] text-txt-2">
@@ -211,7 +212,7 @@ defineProps<{ cards: Cards }>()
         <div
           class="grid h-[30px] w-[30px] place-items-center rounded-lg border border-line-2 bg-accent-soft text-accent"
         >
-          ▤
+          <Layers :size="16" :stroke-width="1.5" aria-hidden="true" />
         </div>
         <h3 class="text-[15px] font-semibold">Révision</h3>
         <span class="ml-auto font-mono text-[11.5px] text-txt-2">
