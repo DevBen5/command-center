@@ -188,5 +188,53 @@
       "recentEmpty": "Aucune session pour l'instant.",
       "recentEmptyHint": "Les statistiques se remplissent toutes seules, à mesure des révisions."
     }
+  },
+  "index": {
+    "title": "Révision",
+    "readOnlyBanner": "Consultation seule — vous pouvez lire les cartes et leur verso ; votre progression n'est pas enregistrée.",
+    "dueTodaySingular": "{n} carte due aujourd'hui",
+    "dueTodayPlural": "{n} cartes dues aujourd'hui",
+    "browseTitle": "Consultation des cartes",
+    "deckLabel": "Paquet : {label}",
+    "change": "changer",
+    "daysValue": "{n} j",
+    "streakLabel": "série",
+    "reviewedTodayLabel": "révisées auj.",
+    "retentionLabel": "rétention (30j)",
+    "totalCardsLabel": "total cartes",
+    "emptyTitle": "Votre base de révision est vide",
+    "emptyHint": "Créez vos catégories, vos thèmes et vos cartes depuis la gestion des cartes : elles apparaîtront ici dès la prochaine session.",
+    "manageCards": "Gérer les cartes",
+    "allDoneTitle": "Tout est à jour — aucune carte due",
+    "allDoneHint": "Revenez demain, ou enrichissez votre base depuis la gestion des cartes.",
+    "cardBox": "Boîte {box}",
+    "remaining": "· {n} restantes",
+    "answerPlaceholder": "Votre réponse — écrivez-la avant de révéler le verso",
+    "revealButton": "verso masqué — cliquer pour révéler",
+    "judging": "Évaluation en cours…",
+    "judgeUnavailable": "Juge indisponible — évaluez vous-même.",
+    "suggested": "· suggéré",
+    "verdict": {
+      "juste": "Juste",
+      "partiel": "Partiellement juste",
+      "faux": "Faux"
+    },
+    "grade": {
+      "again": "À revoir",
+      "hard": "Difficile",
+      "good": "Correct",
+      "easy": "Facile",
+      "againHint": "reste boîte {box} · revient dans la session",
+      "hardHintDemote": "2ᵉ d'affilée · boîte 1 · {due}",
+      "hardHint": "reste boîte {box} · {due}",
+      "boxDue": "boîte {box} · {due}"
+    },
+    "finishedTitle": "Paquet terminé — {label}",
+    "finishedHint": "Plus aucune carte due ici, y compris celles que vous avez revues à l'instant.",
+    "emptyDeckTitle": "Rien à réviser dans ce paquet",
+    "emptyDeckHint": "{label} n'a aucune carte due aujourd'hui. Choisissez un autre paquet, ou revenez demain.",
+    "chooseOther": "Choisir un autre paquet",
+    "stop": "Arrêter",
+    "boxesTitle": "Boîtes Leitner"
   }
 }

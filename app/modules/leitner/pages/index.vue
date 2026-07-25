@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import LeitnerScopePicker from '../components/LeitnerScopePicker.vue'
@@ -15,6 +16,8 @@ import {
 } from '../shared/review_page.js'
 
 defineOptions({ layout: AppLayout })
+
+const { t } = useI18n()
 
 type Grade = 'again' | 'hard' | 'good' | 'easy'
 /** Ce que le juge peut dire. Il **propose** une note, il ne la choisit jamais. */
@@ -334,11 +337,11 @@ async function reveal(): Promise<void> {
   }
 }
 
-const VERDICT_LABELS: Record<Verdict, string> = {
-  juste: 'Juste',
-  partiel: 'Partiellement juste',
-  faux: 'Faux',
-}
+const VERDICT_LABELS = computed<Record<Verdict, string>>(() => ({
+  juste: t('leitner.index.verdict.juste'),
+  partiel: t('leitner.index.verdict.partiel'),
+  faux: t('leitner.index.verdict.faux'),
+}))
 
 /**
  * Le bouton mis en avant : celui que le juge propose, **sinon `easy`**.
@@ -362,18 +365,26 @@ const gradeActions = computed(() => {
   return [
     {
       grade: 'again' as Grade,
-      label: 'À revoir',
-      hint: `reste boîte ${card.box} · revient dans la session`,
+      label: t('leitner.index.grade.again'),
+      hint: t('leitner.index.grade.againHint', { box: card.box }),
     },
     {
       grade: 'hard' as Grade,
-      label: 'Difficile',
+      label: t('leitner.index.grade.hard'),
       hint: hardDemotes
-        ? `2ᵉ d'affilée · boîte 1 · ${dueLabel(1)}`
-        : `reste boîte ${card.box} · ${dueLabel(card.box)}`,
+        ? t('leitner.index.grade.hardHintDemote', { due: dueLabel(1) })
+        : t('leitner.index.grade.hardHint', { box: card.box, due: dueLabel(card.box) }),
     },
-    { grade: 'good' as Grade, label: 'Correct', hint: `boîte ${good} · ${dueLabel(good)}` },
-    { grade: 'easy' as Grade, label: 'Facile', hint: `boîte ${easy} · ${dueLabel(easy)}` },
+    {
+      grade: 'good' as Grade,
+      label: t('leitner.index.grade.good'),
+      hint: t('leitner.index.grade.boxDue', { box: good, due: dueLabel(good) }),
+    },
+    {
+      grade: 'easy' as Grade,
+      label: t('leitner.index.grade.easy'),
+      hint: t('leitner.index.grade.boxDue', { box: easy, due: dueLabel(easy) }),
+    },
   ]
 })
 
@@ -403,7 +414,7 @@ function grade(g: Grade): void {
 </script>
 
 <template>
-  <Head title="Révision" />
+  <Head :title="t('leitner.index.title')" />
 
   <LeitnerTabs />
 
@@ -414,42 +425,42 @@ function grade(g: Grade): void {
     v-if="!canReview"
     class="mb-4 rounded-[10px] border border-line bg-panel-2 px-3.5 py-2.5 text-[11.5px] text-txt-2"
   >
-    Consultation seule — vous pouvez lire les cartes et leur verso ; votre progression n'est
-    pas enregistrée.
+    {{ t('leitner.index.readOnlyBanner') }}
   </div>
 
   <div class="mb-4 flex items-center gap-3">
     <div>
       <div v-if="canReview" class="text-[18px] font-bold">
-        {{ stats.dueCount }} carte{{ stats.dueCount > 1 ? 's' : '' }} due{{
-          stats.dueCount > 1 ? 's' : ''
+        {{
+          stats.dueCount > 1
+            ? t('leitner.index.dueTodayPlural', { n: stats.dueCount })
+            : t('leitner.index.dueTodaySingular', { n: stats.dueCount })
         }}
-        aujourd'hui
       </div>
-      <div v-else class="text-[18px] font-bold">Consultation des cartes</div>
+      <div v-else class="text-[18px] font-bold">{{ t('leitner.index.browseTitle') }}</div>
       <div v-if="scope" class="mt-0.5 flex items-center gap-2 text-[11.5px] text-txt-3">
-        <span>Paquet : {{ scope.label }}</span>
-        <Link href="/revision" class="text-accent transition hover:opacity-80">changer</Link>
+        <span>{{ t('leitner.index.deckLabel', { label: scope.label }) }}</span>
+        <Link href="/revision" class="text-accent transition hover:opacity-80">{{ t('leitner.index.change') }}</Link>
       </div>
     </div>
     <div class="ml-auto flex gap-3">
       <div class="rounded-[12px] border border-line bg-panel px-4 py-2.5 text-center">
-        <div class="font-mono text-[20px] font-bold">{{ stats.streak }} j</div>
-        <div class="text-[10.5px] text-txt-3">série</div>
+        <div class="font-mono text-[20px] font-bold">{{ t('leitner.index.daysValue', { n: stats.streak }) }}</div>
+        <div class="text-[10.5px] text-txt-3">{{ t('leitner.index.streakLabel') }}</div>
       </div>
       <div class="rounded-[12px] border border-line bg-panel px-4 py-2.5 text-center">
         <div class="font-mono text-[20px] font-bold">{{ stats.reviewedToday }}</div>
-        <div class="text-[10.5px] text-txt-3">révisées auj.</div>
+        <div class="text-[10.5px] text-txt-3">{{ t('leitner.index.reviewedTodayLabel') }}</div>
       </div>
       <div class="rounded-[12px] border border-line bg-panel px-4 py-2.5 text-center">
         <div class="font-mono text-[20px] font-bold">
           {{ stats.retention !== null ? `${stats.retention}%` : '—' }}
         </div>
-        <div class="text-[10.5px] text-txt-3">rétention (30j)</div>
+        <div class="text-[10.5px] text-txt-3">{{ t('leitner.index.retentionLabel') }}</div>
       </div>
       <div class="rounded-[12px] border border-line bg-panel px-4 py-2.5 text-center">
         <div class="font-mono text-[20px] font-bold">{{ stats.totalCards }}</div>
-        <div class="text-[10.5px] text-txt-3">total cartes</div>
+        <div class="text-[10.5px] text-txt-3">{{ t('leitner.index.totalCardsLabel') }}</div>
       </div>
     </div>
   </div>
@@ -469,16 +480,15 @@ function grade(g: Grade): void {
       v-if="stats.totalCards === 0"
       class="flex min-h-[230px] flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed border-line-2 bg-bg-2 p-9 text-center"
     >
-      <div class="text-[16px] font-semibold">Votre base de révision est vide</div>
+      <div class="text-[16px] font-semibold">{{ t('leitner.index.emptyTitle') }}</div>
       <div class="max-w-[380px] text-[12.5px] text-txt-2">
-        Créez vos catégories, vos thèmes et vos cartes depuis la gestion des cartes : elles
-        apparaîtront ici dès la prochaine session.
+        {{ t('leitner.index.emptyHint') }}
       </div>
       <Link
         href="/revision/settings"
         class="mt-2 rounded-[10px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white transition hover:opacity-90"
       >
-        Gérer les cartes
+        {{ t('leitner.index.manageCards') }}
       </Link>
     </div>
 
@@ -494,9 +504,9 @@ function grade(g: Grade): void {
         v-else
         class="flex min-h-[230px] flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed border-line-2 bg-bg-2 p-9 text-center"
       >
-        <div class="text-[16px] font-semibold">Tout est à jour — aucune carte due</div>
+        <div class="text-[16px] font-semibold">{{ t('leitner.index.allDoneTitle') }}</div>
         <div class="max-w-[380px] text-[12.5px] text-txt-2">
-          Revenez demain, ou enrichissez votre base depuis la gestion des cartes.
+          {{ t('leitner.index.allDoneHint') }}
         </div>
         <Link
           href="/revision/settings"
@@ -513,7 +523,7 @@ function grade(g: Grade): void {
     >
       <div class="flex flex-wrap items-center justify-center gap-1.5">
         <span class="rounded-full border border-line-2 bg-panel-2 px-2.5 py-1 text-[11px] text-txt-2">
-          Boîte {{ currentCard.box }}<template v-if="canReview"> · {{ stats.dueCount }} restantes</template>
+          {{ t('leitner.index.cardBox', { box: currentCard.box }) }}<template v-if="canReview"> {{ t('leitner.index.remaining', { n: stats.dueCount }) }}</template>
         </span>
         <span
           v-if="currentCard.theme"
@@ -533,7 +543,7 @@ function grade(g: Grade): void {
           v-model="answer"
           :disabled="revealed"
           rows="3"
-          placeholder="Votre réponse — écrivez-la avant de révéler le verso"
+          :placeholder="t('leitner.index.answerPlaceholder')"
           class="w-full resize-y rounded-[10px] border border-line-2 bg-bg-2 p-3 text-[13px] text-txt placeholder:text-txt-3 focus:border-accent focus:outline-none disabled:opacity-60"
           @input="markFirstInput()"
           @keydown.ctrl.enter.prevent="reveal()"
@@ -546,7 +556,7 @@ function grade(g: Grade): void {
         class="w-3/5 rounded-[10px] border border-dashed border-line-2 bg-accent-soft py-3.5 text-[11.5px] text-txt-2 transition hover:border-accent"
         @click="reveal()"
       >
-        verso masqué — cliquer pour révéler
+        {{ t('leitner.index.revealButton') }}
       </button>
       <div v-else class="w-3/5 rounded-[10px] border border-line bg-bg-2 p-4 text-[13px] text-txt-2">
         {{ currentCard.back }}
@@ -555,7 +565,7 @@ function grade(g: Grade): void {
       <!-- Le verdict et, surtout, CE QUI MANQUAIT : c'est là qu'est la valeur
            pédagogique du lot, pas dans l'étiquette « juste / partiel / faux ». -->
       <div v-if="revealed && (judging || verdict || judgeUnavailable)" class="w-3/5 text-left">
-        <div v-if="judging" class="text-[11.5px] text-txt-3">Évaluation en cours…</div>
+        <div v-if="judging" class="text-[11.5px] text-txt-3">{{ t('leitner.index.judging') }}</div>
 
         <div v-else-if="verdict" class="flex flex-col gap-1.5">
           <span
@@ -577,7 +587,7 @@ function grade(g: Grade): void {
              se lirait comme un bug — alors que la révision fonctionne, à l'identique
              de ce qu'elle était avant le juge. -->
         <div v-else class="text-[11.5px] text-txt-3">
-          Juge indisponible — évaluez vous-même.
+          {{ t('leitner.index.judgeUnavailable') }}
         </div>
       </div>
 
@@ -603,7 +613,7 @@ function grade(g: Grade): void {
           <span class="block text-[12.5px] font-semibold">
             {{ action.label }}
             <span v-if="action.grade === suggestedGrade" class="text-[10px] opacity-75">
-              · suggéré
+              {{ t('leitner.index.suggested') }}
             </span>
           </span>
           <span
@@ -625,16 +635,15 @@ function grade(g: Grade): void {
       class="flex min-h-[230px] flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed border-line-2 bg-bg-2 p-9 text-center"
     >
       <template v-if="scope?.finished">
-        <div class="text-[16px] font-semibold text-ok">Paquet terminé — {{ scope.label }}</div>
+        <div class="text-[16px] font-semibold text-ok">{{ t('leitner.index.finishedTitle', { label: scope.label }) }}</div>
         <div class="max-w-[380px] text-[12.5px] text-txt-2">
-          Plus aucune carte due ici, y compris celles que vous avez revues à l'instant.
+          {{ t('leitner.index.finishedHint') }}
         </div>
       </template>
       <template v-else>
-        <div class="text-[16px] font-semibold">Rien à réviser dans ce paquet</div>
+        <div class="text-[16px] font-semibold">{{ t('leitner.index.emptyDeckTitle') }}</div>
         <div class="max-w-[380px] text-[12.5px] text-txt-2">
-          {{ scope?.label }} n'a aucune carte due aujourd'hui. Choisissez un autre paquet, ou
-          revenez demain.
+          {{ t('leitner.index.emptyDeckHint', { label: scope?.label }) }}
         </div>
       </template>
 
@@ -643,19 +652,19 @@ function grade(g: Grade): void {
           href="/revision"
           class="rounded-[10px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white transition hover:opacity-90"
         >
-          Choisir un autre paquet
+          {{ t('leitner.index.chooseOther') }}
         </Link>
         <Link
           href="/"
           class="rounded-[10px] border border-line-2 bg-panel-2 px-3.5 py-2 text-[12.5px] text-txt-2 transition hover:border-accent"
         >
-          Arrêter
+          {{ t('leitner.index.stop') }}
         </Link>
       </div>
     </div>
 
     <div class="mt-6 mb-3 flex items-center gap-3">
-      <h2 class="text-[12px] font-bold tracking-[.12em] text-txt-2 uppercase">Boîtes Leitner</h2>
+      <h2 class="text-[12px] font-bold tracking-[.12em] text-txt-2 uppercase">{{ t('leitner.index.boxesTitle') }}</h2>
       <span class="h-px flex-1 bg-line"></span>
     </div>
     <div class="grid grid-cols-5 gap-3.5">
@@ -665,7 +674,7 @@ function grade(g: Grade): void {
         class="rounded-[12px] border p-4 text-center"
         :class="box <= 3 ? 'border-accent bg-accent-soft' : 'border-line bg-panel'"
       >
-        <div class="text-[10px] tracking-[.1em] text-txt-3 uppercase">Boîte {{ box }}</div>
+        <div class="text-[10px] tracking-[.1em] text-txt-3 uppercase">{{ t('leitner.index.cardBox', { box }) }}</div>
         <div
           class="my-2 font-mono text-[26px] font-bold"
           :class="box <= 3 ? 'text-accent' : 'text-txt'"
