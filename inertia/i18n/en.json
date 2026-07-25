@@ -28,7 +28,9 @@
   "palette": {
     "placeholder": "Type a command, a service, an agent…",
     "navigation": "Navigation",
+    "systeme": "System",
     "goTo": "Go to — {label}",
+    "empty": "No results",
     "navigate": "navigate",
     "open": "open",
     "close": "close"

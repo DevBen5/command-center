@@ -166,6 +166,36 @@ function closePalette(): void {
   paletteOpen.value = false
 }
 
+/**
+ * Réduit une chaîne à sa forme comparable : sans accents, en minuscules. `NFD` décompose « é »
+ * en « e » + combinante, que la classe `\u0300-\u036f` (les diacritiques combinants) retire —
+ * « revision » retrouve donc « Révision ». Couvre les libellés saisis en NFC comme en NFD.
+ */
+function normalize(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+/**
+ * Le filtre de la palette, sur le **libellé traduit** (`t('nav.<key>')`), jamais la clé : « veille »
+ * doit trouver « Veille », pas l'inverse. Requête vide → liste complète. Le fait que la forme
+ * normalisée d'un libellé égale parfois sa clé (« revision » ⇄ « Révision ») est une coïncidence,
+ * on ne matche pas la clé.
+ */
+function filterByLabel(items: NavItem[]): NavItem[] {
+  const query = normalize(paletteQuery.value.trim())
+  if (!query) return items
+  return items.filter((item) => normalize(t(`nav.${item.key}`)).includes(query))
+}
+
+const filteredNavItems = computed(() => filterByLabel(navItems.value))
+const filteredSystemItems = computed(() => filterByLabel(systemItems.value))
+const paletteEmpty = computed(
+  () => filteredNavItems.value.length === 0 && filteredSystemItems.value.length === 0
+)
+
 function onKeydown(event: KeyboardEvent): void {
   const isMod = event.metaKey || event.ctrlKey
   if (isMod && event.key.toLowerCase() === 'k') {
@@ -366,18 +396,41 @@ function switchLocale(next: string): void {
           />
         </div>
         <div class="py-2">
-          <div class="px-[19px] py-[7px] text-[10px] tracking-[.12em] text-txt-3 uppercase">
-            {{ t('palette.navigation') }}
+          <!-- Un titre de section sans résultat en dessous annoncerait une navigation qui n'existe
+               pas : chaque section disparaît quand le filtre a vidé sa liste (cf. barre latérale). -->
+          <template v-if="filteredNavItems.length">
+            <div class="px-[19px] py-[7px] text-[10px] tracking-[.12em] text-txt-3 uppercase">
+              {{ t('palette.navigation') }}
+            </div>
+            <Link
+              v-for="item in filteredNavItems"
+              :key="item.key"
+              :href="item.href"
+              class="flex items-center gap-3 px-[19px] py-[10px] text-[13px] text-txt hover:bg-accent-soft"
+              @click="closePalette"
+            >
+              {{ t('palette.goTo', { label: t(`nav.${item.key}`) }) }}
+            </Link>
+          </template>
+          <template v-if="filteredSystemItems.length">
+            <div class="px-[19px] py-[7px] text-[10px] tracking-[.12em] text-txt-3 uppercase">
+              {{ t('palette.systeme') }}
+            </div>
+            <Link
+              v-for="item in filteredSystemItems"
+              :key="item.key"
+              :href="item.href"
+              class="flex items-center gap-3 px-[19px] py-[10px] text-[13px] text-txt hover:bg-accent-soft"
+              @click="closePalette"
+            >
+              {{ t('palette.goTo', { label: t(`nav.${item.key}`) }) }}
+            </Link>
+          </template>
+          <!-- Le champ n'est plus inerte (CC-26) : quand rien ne correspond, on le dit, plutôt que
+               de laisser croire qu'aucune page n'existe. -->
+          <div v-if="paletteEmpty" class="px-[19px] py-[10px] text-[13px] text-txt-3">
+            {{ t('palette.empty') }}
           </div>
-          <Link
-            v-for="item in navItems"
-            :key="item.key"
-            :href="item.href"
-            class="flex items-center gap-3 px-[19px] py-[10px] text-[13px] text-txt hover:bg-accent-soft"
-            @click="closePalette"
-          >
-            {{ t('palette.goTo', { label: t(`nav.${item.key}`) }) }}
-          </Link>
         </div>
         <div
           class="flex gap-[18px] border-t border-line px-[19px] py-[10px] text-[11px] text-txt-3"
