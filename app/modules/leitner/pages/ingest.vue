@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import IngestionTitle from '../components/IngestionTitle.vue'
@@ -7,6 +8,8 @@ import LeitnerTabs from '../components/LeitnerTabs.vue'
 import { xsrfToken } from '../components/leitner_csrf'
 
 defineOptions({ layout: AppLayout })
+
+const { t } = useI18n()
 
 type Source = 'paste' | 'file' | 'pdf'
 
@@ -33,12 +36,12 @@ const props = defineProps<{
   ingestErrors: string[] | null
 }>()
 
-const STATUS_LABELS: Record<Ingestion['status'], string> = {
-  pending: 'En attente',
-  running: 'En cours',
-  done: 'Terminée',
-  failed: 'Échec',
-}
+const STATUS_LABELS = computed<Record<Ingestion['status'], string>>(() => ({
+  pending: t('leitner.ingest.status.pending'),
+  running: t('leitner.ingest.status.running'),
+  done: t('leitner.ingest.status.done'),
+  failed: t('leitner.ingest.status.failed'),
+}))
 
 const STATUS_CLASSES: Record<Ingestion['status'], string> = {
   pending: 'text-txt-2',
@@ -48,11 +51,11 @@ const STATUS_CLASSES: Record<Ingestion['status'], string> = {
 }
 
 /** D'où sort le texte. Déclaratif depuis la prévisualisation : affiché, jamais interprété. */
-const SOURCE_LABELS: Record<Source, string> = {
-  paste: 'Collé',
-  file: 'Fichier',
-  pdf: 'PDF',
-}
+const SOURCE_LABELS = computed<Record<Source, string>>(() => ({
+  paste: t('leitner.ingest.source.paste'),
+  file: t('leitner.ingest.source.file'),
+  pdf: t('leitner.ingest.source.pdf'),
+}))
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('fr-FR', {
@@ -178,12 +181,15 @@ async function pickFile(event: Event): Promise<void> {
 
     if (!response.ok) {
       // 422 : le validateur a refusé le fichier (type, taille).
-      throw new Error(payload?.errors?.[0]?.message ?? `Le serveur a répondu ${response.status}.`)
+      throw new Error(
+        payload?.errors?.[0]?.message ??
+          t('leitner.ingest.errors.serverStatus', { status: response.status })
+      )
     }
 
     // L'échec d'extraction n'est pas une panne : c'est une réponse, et son message brut
     // est l'information utile (« scan », « protégé par mot de passe », « illisible »).
-    if (!payload?.ok) throw new Error(payload?.error ?? "L'extraction a échoué.")
+    if (!payload?.ok) throw new Error(payload?.error ?? t('leitner.ingest.errors.extractFailed'))
 
     text.value = payload.text ?? ''
     source.value = payload.source ?? 'file'
@@ -252,16 +258,17 @@ function submitCourse(): void {
 </script>
 
 <template>
-  <Head title="Ingestion d'un cours" />
+  <Head :title="t('leitner.ingest.title')" />
 
   <LeitnerTabs />
 
   <div class="mb-4">
-    <div class="text-[18px] font-bold">Ingestion d'un cours</div>
-    <div class="text-[12.5px] text-txt-2">
-      Un LLM local en extrait les grands principes. Il <b>propose</b> des cartes : rien n'entre en
-      base sans ta relecture.
-    </div>
+    <div class="text-[18px] font-bold">{{ t('leitner.ingest.title') }}</div>
+    <!-- Un seul mot en gras au milieu de la phrase : `<i18n-t>` garde la phrase comme une
+         unité traduisible (slot `#emphasis`), sans `v-html` et sans la découper en morceaux. -->
+    <i18n-t keypath="leitner.ingest.intro" tag="div" scope="global" class="text-[12.5px] text-txt-2">
+      <template #emphasis><b>{{ t('leitner.ingest.introEmphasis') }}</b></template>
+    </i18n-t>
   </div>
 
   <div class="grid grid-cols-[1fr_360px] items-start gap-4">
@@ -272,19 +279,19 @@ function submitCourse(): void {
         @submit.prevent="submitCourse"
       >
         <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase" for="ingest-title">
-          Titre (optionnel)
+          {{ t('leitner.ingest.form.titleLabel') }}
         </label>
         <input
           id="ingest-title"
           v-model="title"
           :maxlength="titleMaxChars"
-          placeholder="Vide, il sera déduit du cours (son premier titre, sa première ligne…)"
+          :placeholder="t('leitner.ingest.form.titlePlaceholder')"
           class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] outline-none focus:border-accent"
         />
 
         <div class="mt-2 flex items-center gap-2">
           <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase" for="ingest-text">
-            Le cours
+            {{ t('leitner.ingest.form.courseLabel') }}
           </label>
           <!-- D'où vient le texte à l'écran : une pastille, pas un titre. -->
           <span
@@ -299,7 +306,7 @@ function submitCourse(): void {
             class="text-[11px] text-txt-3 transition hover:text-accent"
             @click="clearFile"
           >
-            Effacer
+            {{ t('leitner.ingest.form.clear') }}
           </button>
         </div>
         <textarea
@@ -308,7 +315,7 @@ function submitCourse(): void {
           rows="10"
           :disabled="extracting"
           :placeholder="
-            extracting ? 'Extraction du texte…' : 'Colle ici le texte du cours, ou charge un fichier…'
+            extracting ? t('leitner.ingest.form.extracting') : t('leitner.ingest.form.coursePlaceholder')
           "
           class="resize-y rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] outline-none focus:border-accent disabled:opacity-60"
         />
@@ -319,10 +326,10 @@ function submitCourse(): void {
             :class="overCap ? 'text-bad' : text.length ? 'text-txt-2' : 'text-txt-3'"
           >
             {{ text.length.toLocaleString('fr-FR') }} /
-            {{ maxChars.toLocaleString('fr-FR') }} caractères
+            {{ maxChars.toLocaleString('fr-FR') }} {{ t('leitner.ingest.form.charsUnit') }}
           </span>
           <span class="ml-auto text-[11.5px] text-txt-3">
-            {{ extracting ? 'Lecture du fichier…' : 'ou un fichier .txt / .md / .pdf' }}
+            {{ extracting ? t('leitner.ingest.form.reading') : t('leitner.ingest.form.fileHint') }}
           </span>
           <input
             ref="fileInput"
@@ -339,13 +346,11 @@ function submitCourse(): void {
         <p v-if="extractError" class="text-[11.5px] text-bad">{{ extractError }}</p>
 
         <p v-if="overCap" class="text-[11.5px] text-bad">
-          Au-delà, ce n'est plus un cours : découpe-le, ou soumets-le en plusieurs fois.
+          {{ t('leitner.ingest.form.overCap') }}
         </p>
 
         <p v-else-if="source === 'pdf'" class="text-[11.5px] text-txt-3">
-          Texte extrait d'un PDF : relis-le. Coupe la page de garde et la bibliographie —
-          et sur un document à deux colonnes, l'extraction les entrelace : ce charabia-là ne
-          se rattrape pas, mieux vaut renoncer.
+          {{ t('leitner.ingest.form.pdfHint') }}
         </p>
 
         <button
@@ -353,12 +358,11 @@ function submitCourse(): void {
           class="mt-1 self-start rounded-[10px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white transition hover:opacity-90 disabled:opacity-50"
           :disabled="!canSubmit"
         >
-          {{ submitting ? 'Lancement…' : 'Analyser le cours' }}
+          {{ submitting ? t('leitner.ingest.form.submitting') : t('leitner.ingest.form.submit') }}
         </button>
 
         <p class="text-[11.5px] text-txt-3">
-          L'analyse tourne en tâche de fond : tu es redirigé vers sa page de suivi, que tu peux
-          quitter et retrouver à tout moment.
+          {{ t('leitner.ingest.form.backgroundNote') }}
         </p>
       </form>
 
@@ -375,10 +379,12 @@ function submitCourse(): void {
 
     <!-- Historique : un travail, un titre, une page. -->
     <div class="rounded-[14px] border border-line bg-panel p-4">
-      <div class="mb-2 text-[11px] tracking-[.1em] text-txt-3 uppercase">Historique</div>
+      <div class="mb-2 text-[11px] tracking-[.1em] text-txt-3 uppercase">
+        {{ t('leitner.ingest.history.title') }}
+      </div>
 
       <p v-if="!ingestions.length" class="text-[11.5px] text-txt-3">
-        Aucune ingestion pour l'instant. Colle un cours pour commencer.
+        {{ t('leitner.ingest.history.empty') }}
       </p>
 
       <div
@@ -406,7 +412,9 @@ function submitCourse(): void {
           >
             {{ SOURCE_LABELS[ingestion.source] }}
           </span>
-          <span class="text-txt-3">{{ ingestion.cardsProposed }} proposée(s)</span>
+          <span class="text-txt-3">
+            {{ t('leitner.ingest.history.proposed', { n: ingestion.cardsProposed }) }}
+          </span>
           <span class="ml-auto text-txt-3">{{ formatDate(ingestion.createdAt) }}</span>
         </div>
 
@@ -415,13 +423,13 @@ function submitCourse(): void {
              travail dont tout attend encore ne se ressemblent pas. -->
         <div v-if="ingestion.cardsProposed" class="mt-1 flex items-center gap-3 text-[11px]">
           <span v-if="ingestion.drafts.pending" class="text-warn">
-            {{ ingestion.drafts.pending }} à relire
+            {{ t('leitner.ingest.history.pending', { n: ingestion.drafts.pending }) }}
           </span>
           <span v-if="ingestion.drafts.accepted" class="text-ok">
-            ✓ {{ ingestion.drafts.accepted }} validée(s)
+            ✓ {{ t('leitner.ingest.history.accepted', { n: ingestion.drafts.accepted }) }}
           </span>
           <span v-if="ingestion.drafts.rejected" class="text-txt-3">
-            ✕ {{ ingestion.drafts.rejected }} rejetée(s)
+            ✕ {{ t('leitner.ingest.history.rejected', { n: ingestion.drafts.rejected }) }}
           </span>
         </div>
       </div>
@@ -431,7 +439,7 @@ function submitCourse(): void {
         href="/revision/settings"
         class="mt-3 block text-[11.5px] text-txt-3 transition hover:text-accent"
       >
-        Voir les cartes validées →
+        {{ t('leitner.ingest.history.seeCards') }}
       </Link>
     </div>
   </div>
