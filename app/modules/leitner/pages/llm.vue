@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Head } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
 import { xsrfToken } from '../components/leitner_csrf'
 
 defineOptions({ layout: AppLayout })
+
+const { t } = useI18n()
 
 interface Candidate {
   label: string
@@ -54,7 +57,9 @@ async function post<T>(url: string, body: Record<string, unknown>): Promise<T> {
   if (!response.ok) {
     // 422 : la liste blanche a refusé l'URL. Le message du validateur est le bon.
     const errors = (payload as { errors?: { message: string }[] } | null)?.errors
-    throw new Error(errors?.[0]?.message ?? `Le serveur a répondu ${response.status}.`)
+    throw new Error(
+      errors?.[0]?.message ?? t('leitner.llm.errors.serverStatus', { status: response.status })
+    )
   }
 
   return payload as T
@@ -238,16 +243,15 @@ const STEP_CLASSES: Record<StepState, string> = {
 </script>
 
 <template>
-  <Head title="Configuration du LLM" />
+  <Head :title="t('leitner.llm.title')" />
 
   <LeitnerTabs />
 
   <div class="mb-4">
-    <div class="text-[18px] font-bold">Configuration du LLM</div>
-    <div class="text-[12.5px] text-txt-2">
-      Le fil rouge, de bout en bout : un serveur répond, un modèle est chargé, il rend du JSON —
-      et voilà le bloc à coller dans <code class="text-txt">.env</code>.
-    </div>
+    <div class="text-[18px] font-bold">{{ t('leitner.llm.title') }}</div>
+    <i18n-t keypath="leitner.llm.subtitle" tag="div" scope="global" class="text-[12.5px] text-txt-2">
+      <template #env><code class="text-txt">.env</code></template>
+    </i18n-t>
   </div>
 
   <!-- Bandeau d'état : la configuration réellement chargée par le serveur. -->
@@ -259,12 +263,19 @@ const STEP_CLASSES: Record<StepState, string> = {
   >
     <div class="flex flex-wrap items-center gap-3">
       <div>
-        <div class="text-[11px] tracking-[.1em] text-txt-3 uppercase">Configuration chargée</div>
+        <div class="text-[11px] tracking-[.1em] text-txt-3 uppercase">
+          {{ t('leitner.llm.banner.loadedConfig') }}
+        </div>
         <div class="mt-1 font-mono text-[12.5px] text-txt-2">
           {{ current.baseUrl }} · {{ current.model }} ·
           {{ Math.round(current.timeoutMs / 1000) }} s
           <span :class="current.hasApiKey ? 'text-ok' : 'text-txt-3'">
-            · clé d'API {{ current.hasApiKey ? 'définie' : 'absente' }}
+            ·
+            {{
+              current.hasApiKey
+                ? t('leitner.llm.banner.apiKeyDefined')
+                : t('leitner.llm.banner.apiKeyAbsent')
+            }}
           </span>
         </div>
       </div>
@@ -275,27 +286,32 @@ const STEP_CLASSES: Record<StepState, string> = {
         :disabled="banner.state === 'running'"
         @click="checkCurrent"
       >
-        {{ banner.state === 'running' ? 'Le modèle travaille…' : 'Vérifier' }}
+        {{ banner.state === 'running' ? t('leitner.llm.working') : t('leitner.llm.banner.check') }}
       </button>
     </div>
 
     <p v-if="banner.state === 'ok'" class="mt-2 text-[11.5px] text-ok">
-      Le modèle chargé répond et rend des cartes : l'ingestion d'un cours est opérationnelle.
+      {{ t('leitner.llm.banner.ok') }}
     </p>
     <p v-else-if="banner.state === 'bad'" class="mt-2 text-[11.5px] text-bad">
       {{ banner.error }}
     </p>
-    <p v-else class="mt-2 text-[11.5px] text-txt-3">
-      Ces valeurs viennent de l'environnement (<code>.env</code>), jamais de cet écran : rien
-      d'ici n'est enregistré. « Vérifier » lance une vraie génération, sans rien écrire.
-    </p>
+    <i18n-t
+      v-else
+      keypath="leitner.llm.banner.idle"
+      tag="p"
+      scope="global"
+      class="mt-2 text-[11.5px] text-txt-3"
+    >
+      <template #env><code>.env</code></template>
+    </i18n-t>
   </div>
 
   <div class="flex flex-col gap-3">
     <!-- Étape 1 — un serveur LLM tourne -->
     <section class="rounded-[14px] border bg-panel p-4" :class="STEP_CLASSES[step1State]">
       <div class="flex flex-wrap items-center gap-3">
-        <span class="text-[12.5px] font-bold">1 · Un serveur LLM tourne</span>
+        <span class="text-[12.5px] font-bold">{{ t('leitner.llm.step1.title') }}</span>
         <input
           v-model="manualUrl"
           placeholder="http://127.0.0.1:1234/v1"
@@ -307,17 +323,17 @@ const STEP_CLASSES: Record<StepState, string> = {
           :disabled="detection.state === 'running'"
           @click="detect"
         >
-          {{ detection.state === 'running' ? 'Sondage…' : 'Détecter' }}
+          {{ detection.state === 'running' ? t('leitner.llm.step1.probing') : t('leitner.llm.step1.detect') }}
         </button>
       </div>
 
-      <p class="mt-2 text-[11.5px] text-txt-3">
-        Les ports sondés sont fixés dans le code
-        <span class="font-mono">
-          ({{ candidates.map((candidate) => candidate.label).join(' · ') }})
-        </span>
-        ; une URL saisie ici doit viser un hôte local ou privé.
-      </p>
+      <i18n-t keypath="leitner.llm.step1.ports" tag="p" scope="global" class="mt-2 text-[11.5px] text-txt-3">
+        <template #ports>
+          <span class="font-mono">
+            ({{ candidates.map((candidate) => candidate.label).join(' · ') }})
+          </span>
+        </template>
+      </i18n-t>
 
       <p v-if="detection.error" class="mt-2 text-[11.5px] text-bad">{{ detection.error }}</p>
 
@@ -343,21 +359,27 @@ const STEP_CLASSES: Record<StepState, string> = {
           <span class="text-[12px] text-txt-2">{{ candidate.label }}</span>
           <span class="font-mono text-[11.5px] text-txt-3">{{ candidate.baseUrl }}</span>
           <span class="ml-auto text-[11px]" :class="candidate.ok ? 'text-ok' : 'text-txt-3'">
-            {{ candidate.ok ? 'répond' : 'aucune réponse' }}
+            {{ candidate.ok ? t('leitner.llm.step1.responds') : t('leitner.llm.step1.noResponse') }}
           </span>
         </button>
       </div>
 
-      <p v-if="step1State === 'bad'" class="mt-2 text-[11.5px] text-bad">
-        Aucun serveur ne répond. Dans LM Studio : onglet <b>Developer</b> → charge un modèle →
-        <b>Start Server</b> (port 1234). Puis relance la détection.
-      </p>
+      <i18n-t
+        v-if="step1State === 'bad'"
+        keypath="leitner.llm.step1.help"
+        tag="p"
+        scope="global"
+        class="mt-2 text-[11.5px] text-bad"
+      >
+        <template #developer><b>Developer</b></template>
+        <template #startServer><b>Start Server</b></template>
+      </i18n-t>
     </section>
 
     <!-- Étape 2 — un modèle est chargé -->
     <section class="rounded-[14px] border bg-panel p-4" :class="STEP_CLASSES[step2State]">
       <div class="flex flex-wrap items-center gap-3">
-        <span class="text-[12.5px] font-bold">2 · Un modèle est chargé</span>
+        <span class="text-[12.5px] font-bold">{{ t('leitner.llm.step2.title') }}</span>
 
         <select
           v-model="model"
@@ -373,44 +395,52 @@ const STEP_CLASSES: Record<StepState, string> = {
           :disabled="step1State !== 'ok' || !baseUrl || models.state === 'running'"
           @click="loadModels"
         >
-          {{ models.state === 'running' ? 'Lecture…' : 'Relire /models' }}
+          {{ models.state === 'running' ? t('leitner.llm.step2.reading') : t('leitner.llm.step2.reload') }}
         </button>
       </div>
 
       <p v-if="step1State !== 'ok'" class="mt-2 text-[11.5px] text-txt-3">
-        Détecte d'abord un serveur.
+        {{ t('leitner.llm.step2.needServer') }}
       </p>
       <p v-else-if="models.error" class="mt-2 text-[11.5px] text-bad">{{ models.error }}</p>
-      <p v-else-if="step2State === 'bad'" class="mt-2 text-[11.5px] text-bad">
-        Aucun modèle chargé : charge-en un dans LM Studio (onglet <b>Developer</b>), puis relance
-        la détection.
-      </p>
-      <p v-else-if="step2State === 'ok'" class="mt-2 text-[11.5px] text-txt-3">
-        {{ models.list.length }} modèle(s) exposé(s) par
-        <span class="font-mono">{{ baseUrl }}</span
-        >.
-      </p>
+      <i18n-t
+        v-else-if="step2State === 'bad'"
+        keypath="leitner.llm.step2.empty"
+        tag="p"
+        scope="global"
+        class="mt-2 text-[11.5px] text-bad"
+      >
+        <template #developer><b>Developer</b></template>
+      </i18n-t>
+      <i18n-t
+        v-else-if="step2State === 'ok'"
+        keypath="leitner.llm.step2.exposed"
+        tag="p"
+        scope="global"
+        class="mt-2 text-[11.5px] text-txt-3"
+      >
+        <template #count>{{ models.list.length }}</template>
+        <template #url><span class="font-mono">{{ baseUrl }}</span></template>
+      </i18n-t>
     </section>
 
     <!-- Étape 3 — le modèle sait produire du JSON -->
     <section class="rounded-[14px] border bg-panel p-4" :class="STEP_CLASSES[step3State]">
       <div class="flex flex-wrap items-center gap-3">
-        <span class="text-[12.5px] font-bold">3 · Le modèle sait produire du JSON</span>
+        <span class="text-[12.5px] font-bold">{{ t('leitner.llm.step3.title') }}</span>
         <button
           type="button"
           class="ml-auto rounded-[10px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white transition hover:opacity-90 disabled:opacity-50"
           :disabled="step2State !== 'ok' || !model || test.state === 'running'"
           @click="runTest"
         >
-          {{ test.state === 'running' ? 'Le modèle travaille…' : 'Tester' }}
+          {{ test.state === 'running' ? t('leitner.llm.working') : t('leitner.llm.step3.test') }}
         </button>
       </div>
 
-      <p class="mt-2 text-[11.5px] text-txt-3">
-        Une vraie génération sur un extrait de cours en dur, suivie du <b>même parsing</b> que
-        l'ingestion. C'est la seule chose qui réponde à « ce modèle-là sait-il fabriquer des
-        cartes ? ». Rien n'est écrit en base.
-      </p>
+      <i18n-t keypath="leitner.llm.step3.explain" tag="p" scope="global" class="mt-2 text-[11.5px] text-txt-3">
+        <template #parsing><b>même parsing</b></template>
+      </i18n-t>
 
       <pre
         class="mt-2 overflow-x-auto rounded-md border border-line bg-panel-2 p-2.5 font-mono text-[11px] whitespace-pre-wrap text-txt-3"
@@ -432,8 +462,7 @@ const STEP_CLASSES: Record<StepState, string> = {
           </div>
         </div>
         <p class="text-[11.5px] text-ok">
-          Ce modèle est utilisable : ces cartes n'ont pas été enregistrées, elles prouvent
-          seulement qu'il tient le format.
+          {{ t('leitner.llm.step3.usable') }}
         </p>
       </div>
     </section>
@@ -443,18 +472,16 @@ const STEP_CLASSES: Record<StepState, string> = {
       class="rounded-[14px] border bg-panel p-4"
       :class="STEP_CLASSES[step3State === 'ok' ? 'ok' : 'idle']"
     >
-      <div class="text-[12.5px] font-bold">4 · La configuration est enregistrée</div>
+      <div class="text-[12.5px] font-bold">{{ t('leitner.llm.step4.title') }}</div>
 
       <p v-if="step3State !== 'ok'" class="mt-2 text-[11.5px] text-txt-3">
-        Le bloc à copier apparaît une fois le modèle testé.
+        {{ t('leitner.llm.step4.locked') }}
       </p>
 
       <template v-else>
-        <p class="mt-2 text-[11.5px] text-txt-2">
-          Cet écran n'enregistre rien : la configuration vit dans l'environnement, lu
-          <b>au démarrage</b>. Colle le bloc, redémarre le serveur — le bandeau du haut repassera
-          au vert.
-        </p>
+        <i18n-t keypath="leitner.llm.step4.intro" tag="p" scope="global" class="mt-2 text-[11.5px] text-txt-2">
+          <template #boot><b>au démarrage</b></template>
+        </i18n-t>
 
         <div class="mt-3 flex items-center gap-2">
           <span class="text-[11px] tracking-[.1em] text-txt-3 uppercase">.env</span>
@@ -463,7 +490,7 @@ const STEP_CLASSES: Record<StepState, string> = {
             class="ml-auto rounded-md border border-line-2 bg-panel-2 px-2.5 py-1 text-[11.5px] text-txt-2 transition hover:border-accent hover:text-txt"
             @click="copy('env')"
           >
-            {{ copied === 'env' ? 'Copié' : 'Copier' }}
+            {{ copied === 'env' ? t('leitner.llm.step4.copied') : t('leitner.llm.step4.copy') }}
           </button>
         </div>
         <pre
@@ -478,18 +505,17 @@ const STEP_CLASSES: Record<StepState, string> = {
             class="ml-auto rounded-md border border-line-2 bg-panel-2 px-2.5 py-1 text-[11.5px] text-txt-2 transition hover:border-accent hover:text-txt"
             @click="copy('docker')"
           >
-            {{ copied === 'docker' ? 'Copié' : 'Copier' }}
+            {{ copied === 'docker' ? t('leitner.llm.step4.copied') : t('leitner.llm.step4.copy') }}
           </button>
         </div>
         <pre
           class="mt-1 overflow-x-auto rounded-md border border-line bg-panel-2 p-2.5 font-mono text-[11.5px] text-txt-2"
           >{{ dockerBlock }}</pre
         >
-        <p class="mt-1 text-[11.5px] text-txt-3">
-          Depuis un conteneur, <span class="font-mono">127.0.0.1</span> est le conteneur lui-même :
-          le serveur LLM de la machine hôte s'atteint par
-          <span class="font-mono">host.docker.internal</span>.
-        </p>
+        <i18n-t keypath="leitner.llm.step4.dockerHint" tag="p" scope="global" class="mt-1 text-[11.5px] text-txt-3">
+          <template #localhost><span class="font-mono">127.0.0.1</span></template>
+          <template #dockerHost><span class="font-mono">host.docker.internal</span></template>
+        </i18n-t>
       </template>
     </section>
   </div>
