@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Head, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
@@ -7,6 +8,8 @@ import { useCan } from '../components/leitner_can'
 import { scrollTopKeepingAnchor } from '../shared/settings_page'
 
 defineOptions({ layout: AppLayout })
+
+const { t } = useI18n()
 
 /**
  * L'écran de gestion mêle lecture (catalogue, arbre de taxonomie) et écriture. En lecture
@@ -200,7 +203,11 @@ function bulkAssign(): void {
 function bulkDelete(): void {
   const count = selected.value.length
   if (count === 0) return
-  if (!confirm(`Supprimer ${count} carte${count > 1 ? 's' : ''} ? Cette action est définitive.`)) {
+  const message =
+    count > 1
+      ? t('leitner.settings.confirmBulkDeletePlural', { count })
+      : t('leitner.settings.confirmBulkDeleteSingular', { count })
+  if (!confirm(message)) {
     return
   }
   router.post(
@@ -211,7 +218,7 @@ function bulkDelete(): void {
 }
 
 function deleteCard(card: Card): void {
-  if (!confirm(`Supprimer « ${card.front.slice(0, 60)} » ? Cette action est définitive.`)) return
+  if (!confirm(t('leitner.settings.confirmDeleteCard', { front: card.front.slice(0, 60) }))) return
   router.delete(`/revision/cards/${card.id}`, { preserveScroll: true })
 }
 
@@ -442,32 +449,45 @@ function submitRenameTheme(theme: ThemeNode, categoryId: number): void {
 
 function deleteCategory(category: CategoryNode): void {
   const message = category.cardCount
-    ? `Supprimer « ${category.name} » et ses ${category.themes.length} thème(s) ? Ses ${category.cardCount} carte(s) ne seront pas supprimées, elles deviendront « non classées ».`
-    : `Supprimer la catégorie « ${category.name} » ?`
+    ? t('leitner.settings.confirmDeleteCategory', {
+        name: category.name,
+        themes: category.themes.length,
+        cards: category.cardCount,
+      })
+    : t('leitner.settings.confirmDeleteCategoryEmpty', { name: category.name })
   if (!confirm(message)) return
   router.delete(`/revision/categories/${category.id}`, { preserveScroll: true })
 }
 
 function deleteTheme(theme: ThemeNode): void {
   const message = theme.cardCount
-    ? `Supprimer le thème « ${theme.name} » ? Ses ${theme.cardCount} carte(s) deviendront « non classées ».`
-    : `Supprimer le thème « ${theme.name} » ?`
+    ? t('leitner.settings.confirmDeleteTheme', { name: theme.name, cards: theme.cardCount })
+    : t('leitner.settings.confirmDeleteThemeEmpty', { name: theme.name })
   if (!confirm(message)) return
   router.delete(`/revision/themes/${theme.id}`, { preserveScroll: true })
 }
 </script>
 
 <template>
-  <Head title="Gestion des cartes" />
+  <Head :title="t('leitner.settings.title')" />
 
   <LeitnerTabs />
 
   <div class="mb-4 flex items-center gap-3">
     <div>
-      <div class="text-[18px] font-bold">Gestion des cartes</div>
+      <div class="text-[18px] font-bold">{{ t('leitner.settings.title') }}</div>
       <div class="text-[12.5px] text-txt-2">
-        {{ cards.length }} affichée{{ cards.length > 1 ? 's' : '' }} sur {{ totalCards }} ·
-        {{ unclassifiedCount }} non classée{{ unclassifiedCount > 1 ? 's' : '' }}
+        {{
+          cards.length > 1
+            ? t('leitner.settings.shownPlural', { shown: cards.length, total: totalCards })
+            : t('leitner.settings.shownSingular', { shown: cards.length, total: totalCards })
+        }}
+        ·
+        {{
+          unclassifiedCount > 1
+            ? t('leitner.settings.unclassifiedPlural', { n: unclassifiedCount })
+            : t('leitner.settings.unclassifiedSingular', { n: unclassifiedCount })
+        }}
       </div>
     </div>
     <button
@@ -476,7 +496,7 @@ function deleteTheme(theme: ThemeNode): void {
       class="ml-auto rounded-[10px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white transition hover:opacity-90"
       @click="openCreate"
     >
-      + Nouvelle carte
+      {{ t('leitner.settings.newCard') }}
     </button>
   </div>
 
@@ -489,14 +509,14 @@ function deleteTheme(theme: ThemeNode): void {
         <input
           v-model="filters.search"
           type="search"
-          placeholder="Rechercher recto ou verso…"
+          :placeholder="t('leitner.settings.searchPlaceholder')"
           class="min-w-[200px] flex-1 rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] placeholder:text-txt-3"
         />
         <select
           v-model="filters.categoryId"
           class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
         >
-          <option :value="null">Toutes catégories</option>
+          <option :value="null">{{ t('leitner.settings.allCategories') }}</option>
           <option v-for="category in categories" :key="category.id" :value="category.id">
             {{ category.name }}
           </option>
@@ -506,7 +526,7 @@ function deleteTheme(theme: ThemeNode): void {
           :disabled="!filters.categoryId"
           class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] disabled:opacity-40"
         >
-          <option :value="null">Tous thèmes</option>
+          <option :value="null">{{ t('leitner.settings.allThemes') }}</option>
           <option v-for="theme in themesOfFilteredCategory" :key="theme.id" :value="theme.id">
             {{ theme.name }}
           </option>
@@ -515,19 +535,19 @@ function deleteTheme(theme: ThemeNode): void {
           v-model="filters.box"
           class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
         >
-          <option :value="null">Toutes boîtes</option>
-          <option v-for="box in [1, 2, 3, 4, 5]" :key="box" :value="box">Boîte {{ box }}</option>
+          <option :value="null">{{ t('leitner.settings.allBoxes') }}</option>
+          <option v-for="box in [1, 2, 3, 4, 5]" :key="box" :value="box">{{ t('leitner.settings.boxLabel', { box }) }}</option>
         </select>
         <label class="flex items-center gap-1.5 text-[12.5px] text-txt-2">
           <input v-model="filters.unclassified" type="checkbox" class="accent-accent" />
-          Non classées
+          {{ t('leitner.settings.unclassifiedFilter') }}
         </label>
         <button
           type="button"
           class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] text-txt-2 transition hover:text-txt"
           @click="resetFilters"
         >
-          Réinitialiser
+          {{ t('leitner.settings.resetFilters') }}
         </button>
       </div>
 
@@ -538,15 +558,17 @@ function deleteTheme(theme: ThemeNode): void {
         class="mb-3 flex flex-wrap items-center gap-2 rounded-[12px] border border-accent bg-accent-soft p-3"
       >
         <span class="text-[12.5px] font-semibold">
-          {{ selected.length }} carte{{ selected.length > 1 ? 's' : '' }} sélectionnée{{
-            selected.length > 1 ? 's' : ''
+          {{
+            selected.length > 1
+              ? t('leitner.settings.selectionPlural', { n: selected.length })
+              : t('leitner.settings.selectionSingular', { n: selected.length })
           }}
         </span>
         <select
           v-model="bulkThemeId"
           class="ml-auto rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
         >
-          <option :value="null">— Non classée —</option>
+          <option :value="null">{{ t('leitner.settings.unclassifiedOption') }}</option>
           <optgroup v-for="category in categories" :key="category.id" :label="category.name">
             <option v-for="theme in category.themes" :key="theme.id" :value="theme.id">
               {{ theme.name }}
@@ -558,14 +580,14 @@ function deleteTheme(theme: ThemeNode): void {
           class="rounded-md border border-line-2 bg-panel px-2.5 py-2 text-[12.5px] transition hover:border-accent"
           @click="bulkAssign"
         >
-          Classer
+          {{ t('leitner.settings.assign') }}
         </button>
         <button
           type="button"
           class="rounded-md border border-bad px-2.5 py-2 text-[12.5px] text-bad transition hover:bg-bad hover:text-white"
           @click="bulkDelete"
         >
-          Supprimer
+          {{ t('leitner.settings.delete') }}
         </button>
       </div>
 
@@ -583,11 +605,11 @@ function deleteTheme(theme: ThemeNode): void {
                   @change="toggleAll"
                 />
               </th>
-              <th class="py-2.5 font-medium" :class="canWriteCards ? '' : 'pl-3'">Carte</th>
-              <th class="w-[190px] py-2.5 font-medium">Classement</th>
-              <th class="w-[70px] py-2.5 font-medium">Boîte</th>
+              <th class="py-2.5 font-medium" :class="canWriteCards ? '' : 'pl-3'">{{ t('leitner.settings.colCard') }}</th>
+              <th class="w-[190px] py-2.5 font-medium">{{ t('leitner.settings.colClassification') }}</th>
+              <th class="w-[70px] py-2.5 font-medium">{{ t('leitner.settings.colBox') }}</th>
               <th v-if="canWriteCards" class="w-[110px] py-2.5 pr-3 text-right font-medium">
-                Actions
+                {{ t('leitner.settings.colActions') }}
               </th>
             </tr>
           </thead>
@@ -616,7 +638,7 @@ function deleteTheme(theme: ThemeNode): void {
                 >
                   {{ card.theme.category.name }} · {{ card.theme.name }}
                 </span>
-                <span v-else class="text-[11px] text-txt-3 italic">non classée</span>
+                <span v-else class="text-[11px] text-txt-3 italic">{{ t('leitner.settings.unclassified') }}</span>
               </td>
               <td class="py-2.5 pr-3 align-top">
                 <span class="font-mono text-[12.5px]">{{ card.box }}</span>
@@ -627,24 +649,24 @@ function deleteTheme(theme: ThemeNode): void {
                   class="rounded-md border border-line-2 bg-panel-2 px-2 py-1 text-[11.5px] text-txt-2 transition hover:border-accent hover:text-txt"
                   @click="openEdit(card)"
                 >
-                  Éditer
+                  {{ t('leitner.settings.edit') }}
                 </button>
                 <button
                   type="button"
                   class="ml-1 rounded-md border border-line-2 bg-panel-2 px-2 py-1 text-[11.5px] text-txt-2 transition hover:border-bad hover:text-bad"
                   @click="deleteCard(card)"
                 >
-                  Suppr.
+                  {{ t('leitner.settings.deleteShort') }}
                 </button>
               </td>
             </tr>
             <tr v-if="!cards.length">
               <td :colspan="canWriteCards ? 5 : 3" class="py-8 text-center text-[12.5px] text-txt-3">
-                <template v-if="totalCards">Aucune carte ne correspond à ces filtres.</template>
+                <template v-if="totalCards">{{ t('leitner.settings.noMatch') }}</template>
                 <template v-else>
-                  <div class="text-[13px] font-semibold text-txt-2">Votre base est vide</div>
+                  <div class="text-[13px] font-semibold text-txt-2">{{ t('leitner.settings.emptyBase') }}</div>
                   <div v-if="canWriteCards" class="mt-1">
-                    Créez d'abord une catégorie et un thème ci-contre, puis ajoutez vos cartes.
+                    {{ t('leitner.settings.emptyBaseHint') }}
                   </div>
                   <button
                     v-if="canWriteCards"
@@ -652,7 +674,7 @@ function deleteTheme(theme: ThemeNode): void {
                     class="mt-3 rounded-md border border-accent bg-accent px-3 py-2 text-[12.5px] text-white transition hover:opacity-90"
                     @click="openCreate"
                   >
-                    + Créer ma première carte
+                    {{ t('leitner.settings.createFirst') }}
                   </button>
                 </template>
               </td>
@@ -666,7 +688,7 @@ function deleteTheme(theme: ThemeNode): void {
       <!-- Taxonomie -->
       <div class="rounded-[12px] border border-line bg-panel p-4">
         <h2 class="mb-3 text-[12px] font-bold tracking-[.12em] text-txt-2 uppercase">
-          Catégories & thèmes
+          {{ t('leitner.settings.taxonomyTitle') }}
         </h2>
 
         <div v-for="category in categories" :key="category.id" class="mb-3">
@@ -682,7 +704,7 @@ function deleteTheme(theme: ThemeNode): void {
                 class="min-w-0 flex-1 rounded-md border border-accent bg-panel-2 px-2 py-1 text-[12.5px]"
                 @keyup.esc="renamingCategory = null"
               />
-              <button type="submit" class="text-[11.5px] text-accent">OK</button>
+              <button type="submit" class="text-[11.5px] text-accent">{{ t('leitner.settings.ok') }}</button>
             </form>
             <template v-else>
               <span class="flex-1 truncate text-[13px] font-semibold">{{ category.name }}</span>
@@ -691,7 +713,7 @@ function deleteTheme(theme: ThemeNode): void {
                 v-if="canWriteTaxonomy"
                 type="button"
                 class="text-[11px] text-txt-3 transition hover:text-txt"
-                title="Renommer"
+                :title="t('leitner.settings.rename')"
                 @click="startRenameCategory(category)"
               >
                 ✎
@@ -700,7 +722,7 @@ function deleteTheme(theme: ThemeNode): void {
                 v-if="canWriteTaxonomy"
                 type="button"
                 class="text-[11px] text-txt-3 transition hover:text-bad"
-                title="Supprimer"
+                :title="t('leitner.settings.delete')"
                 @click="deleteCategory(category)"
               >
                 ✕
@@ -725,7 +747,7 @@ function deleteTheme(theme: ThemeNode): void {
                   class="min-w-0 flex-1 rounded-md border border-accent bg-panel-2 px-2 py-1 text-[12px]"
                   @keyup.esc="renamingTheme = null"
                 />
-                <button type="submit" class="text-[11.5px] text-accent">OK</button>
+                <button type="submit" class="text-[11.5px] text-accent">{{ t('leitner.settings.ok') }}</button>
               </form>
               <template v-else>
                 <span class="flex-1 truncate">{{ theme.name }}</span>
@@ -734,7 +756,7 @@ function deleteTheme(theme: ThemeNode): void {
                   v-if="canWriteTaxonomy"
                   type="button"
                   class="text-[11px] text-txt-3 transition hover:text-txt"
-                  title="Renommer"
+                  :title="t('leitner.settings.rename')"
                   @click="startRenameTheme(theme)"
                 >
                   ✎
@@ -743,7 +765,7 @@ function deleteTheme(theme: ThemeNode): void {
                   v-if="canWriteTaxonomy"
                   type="button"
                   class="text-[11px] text-txt-3 transition hover:text-bad"
-                  title="Supprimer"
+                  :title="t('leitner.settings.delete')"
                   @click="deleteTheme(theme)"
                 >
                   ✕
@@ -751,16 +773,16 @@ function deleteTheme(theme: ThemeNode): void {
               </template>
             </div>
             <span v-if="!category.themes.length" class="text-[11.5px] text-txt-3 italic">
-              aucun thème
+              {{ t('leitner.settings.noThemes') }}
             </span>
           </div>
         </div>
 
         <p v-if="!categories.length && canWriteTaxonomy" class="mb-3 text-[12px] text-txt-3 italic">
-          Aucune catégorie. Créez-en une pour commencer à classer vos cartes.
+          {{ t('leitner.settings.noCategoriesWritable') }}
         </p>
         <p v-else-if="!categories.length" class="mb-3 text-[12px] text-txt-3 italic">
-          Aucune catégorie pour le moment.
+          {{ t('leitner.settings.noCategories') }}
         </p>
 
         <form
@@ -770,7 +792,7 @@ function deleteTheme(theme: ThemeNode): void {
         >
           <input
             v-model="newCategory"
-            placeholder="Nouvelle catégorie"
+            :placeholder="t('leitner.settings.newCategoryPlaceholder')"
             class="min-w-0 flex-1 rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] placeholder:text-txt-3"
           />
           <button
@@ -787,7 +809,7 @@ function deleteTheme(theme: ThemeNode): void {
             v-model="newTheme.leitnerCategoryId"
             class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
           >
-            <option :value="null">Catégorie du thème…</option>
+            <option :value="null">{{ t('leitner.settings.themeCategoryPlaceholder') }}</option>
             <option v-for="category in categories" :key="category.id" :value="category.id">
               {{ category.name }}
             </option>
@@ -795,7 +817,7 @@ function deleteTheme(theme: ThemeNode): void {
           <div class="flex gap-1.5">
             <input
               v-model="newTheme.name"
-              placeholder="Nouveau thème"
+              :placeholder="t('leitner.settings.newThemePlaceholder')"
               class="min-w-0 flex-1 rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] placeholder:text-txt-3"
             />
             <button
@@ -814,16 +836,15 @@ function deleteTheme(theme: ThemeNode): void {
            « masqué ». -->
       <div v-if="canSettings" class="rounded-[12px] border border-line bg-panel p-4">
         <h2 class="text-[12px] font-bold tracking-[.12em] text-txt-2 uppercase">
-          Intervalles des boîtes
+          {{ t('leitner.settings.intervalsTitle') }}
         </h2>
         <p class="mt-1 mb-3 text-[11.5px] text-txt-3">
-          Jours avant la prochaine révision, selon la boîte atteinte. Les échéances déjà posées ne
-          bougent pas : le réglage vaut pour les révisions à venir.
+          {{ t('leitner.settings.intervalsHint') }}
         </p>
 
         <form class="flex flex-col gap-1.5" @submit.prevent="submitIntervals">
           <div v-for="box in BOXES" :key="box" class="flex items-center gap-2">
-            <span class="flex-1 text-[12.5px] text-txt-2">Boîte {{ box }}</span>
+            <span class="flex-1 text-[12.5px] text-txt-2">{{ t('leitner.settings.boxLabel', { box }) }}</span>
             <input
               v-model.number="intervals[box]"
               type="number"
@@ -832,7 +853,7 @@ function deleteTheme(theme: ThemeNode): void {
               class="w-[70px] rounded-md border border-line-2 bg-panel-2 px-2 py-1 text-right font-mono text-[12.5px]"
             />
             <span class="w-[38px] text-[11.5px] text-txt-3">
-              jour{{ intervals[box] > 1 ? 's' : '' }}
+              {{ intervals[box] > 1 ? t('leitner.settings.dayPlural') : t('leitner.settings.daySingular') }}
             </span>
           </div>
           <button
@@ -840,7 +861,7 @@ function deleteTheme(theme: ThemeNode): void {
             class="mt-2 rounded-md border border-accent bg-accent px-2.5 py-2 text-[12.5px] text-white transition hover:opacity-90 disabled:opacity-50"
             :disabled="!intervalsDirty || savingIntervals"
           >
-            Enregistrer les intervalles
+            {{ t('leitner.settings.saveIntervals') }}
           </button>
         </form>
       </div>
@@ -857,10 +878,9 @@ function deleteTheme(theme: ThemeNode): void {
         ref="backupBlock"
         class="rounded-[12px] border border-line bg-panel p-4"
       >
-        <h2 class="text-[12px] font-bold tracking-[.12em] text-txt-2 uppercase">Sauvegarde</h2>
+        <h2 class="text-[12px] font-bold tracking-[.12em] text-txt-2 uppercase">{{ t('leitner.settings.backupTitle') }}</h2>
         <p class="mt-1 mb-3 text-[11.5px] text-txt-3">
-          Vos cartes ne vivent que dans cette base. L'export en donne une copie autonome —
-          taxonomie, boîtes, échéances et historique — relisible et modifiable à la main.
+          {{ t('leitner.settings.backupHint') }}
         </p>
 
         <!--
@@ -872,16 +892,16 @@ function deleteTheme(theme: ThemeNode): void {
           download
           class="block rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-center text-[12.5px] text-txt-2 transition hover:border-accent hover:text-txt"
         >
-          Exporter en JSON
+          {{ t('leitner.settings.exportJson') }}
         </a>
 
         <form
           class="mt-4 flex flex-col gap-2 border-t border-line pt-4"
           @submit.prevent="submitImport"
         >
-          <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase"
-            >Importer un fichier</label
-          >
+          <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase">{{
+            t('leitner.settings.importLabel')
+          }}</label>
           <input
             ref="fileInput"
             type="file"
@@ -891,9 +911,7 @@ function deleteTheme(theme: ThemeNode): void {
           />
 
           <p class="text-[11.5px] text-txt-3">
-            L'import n'ajoute que ce qui manque : rien n'est supprimé ni écrasé. Une carte dont le
-            recto existe déjà sous le même thème est ignorée, les catégories existantes sont
-            réutilisées.
+            {{ t('leitner.settings.importHint') }}
           </p>
 
           <button
@@ -901,7 +919,7 @@ function deleteTheme(theme: ThemeNode): void {
             class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] transition hover:border-accent disabled:opacity-50"
             :disabled="!importFile || importing"
           >
-            {{ importing ? 'Import en cours…' : 'Importer' }}
+            {{ importing ? t('leitner.settings.importing') : t('leitner.settings.import') }}
           </button>
         </form>
 
@@ -910,7 +928,7 @@ function deleteTheme(theme: ThemeNode): void {
           v-if="importErrors?.length"
           class="mt-3 flex flex-col gap-1 rounded-md border border-bad bg-panel-2 p-2.5"
         >
-          <li class="text-[11.5px] font-semibold text-bad">Rien n'a été importé :</li>
+          <li class="text-[11.5px] font-semibold text-bad">{{ t('leitner.settings.importFailed') }}</li>
           <li v-for="(error, index) in importErrors" :key="index" class="text-[11.5px] text-txt-2">
             {{ error }}
           </li>
@@ -920,17 +938,25 @@ function deleteTheme(theme: ThemeNode): void {
           v-else-if="importReport"
           class="mt-3 rounded-md border border-ok bg-panel-2 p-2.5 text-[11.5px] text-txt-2"
         >
-          <div class="font-semibold text-ok">Import terminé</div>
+          <div class="font-semibold text-ok">{{ t('leitner.settings.importDone') }}</div>
           <div class="mt-1">
-            {{ importReport.cardsCreated }} carte(s) ajoutée(s), {{ importReport.reviewsCreated }}
-            révision(s) restaurée(s).
+            {{
+              t('leitner.settings.importSummaryCards', {
+                cards: importReport.cardsCreated,
+                reviews: importReport.reviewsCreated,
+              })
+            }}
           </div>
           <div v-if="importReport.categoriesCreated || importReport.themesCreated" class="mt-0.5">
-            {{ importReport.categoriesCreated }} catégorie(s) et
-            {{ importReport.themesCreated }} thème(s) créés.
+            {{
+              t('leitner.settings.importSummaryTaxonomy', {
+                categories: importReport.categoriesCreated,
+                themes: importReport.themesCreated,
+              })
+            }}
           </div>
           <div v-if="importReport.cardsSkipped" class="mt-0.5 text-warn">
-            {{ importReport.cardsSkipped }} carte(s) ignorée(s) : recto déjà présent sous ce thème.
+            {{ t('leitner.settings.importSummarySkipped', { cards: importReport.cardsSkipped }) }}
           </div>
         </div>
       </div>
@@ -955,10 +981,10 @@ function deleteTheme(theme: ThemeNode): void {
       @submit.prevent="submitCard()"
     >
       <div class="shrink-0 border-b border-line px-5 py-4 text-[13.5px] font-bold">
-        {{ editing ? 'Éditer la carte' : 'Nouvelle carte' }}
+        {{ editing ? t('leitner.settings.modalEditTitle') : t('leitner.settings.modalCreateTitle') }}
       </div>
       <div class="flex min-h-0 flex-col gap-2 overflow-y-auto p-5">
-        <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase">Recto</label>
+        <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase">{{ t('leitner.settings.front') }}</label>
         <textarea
           ref="frontInput"
           v-model="cardForm.front"
@@ -967,19 +993,19 @@ function deleteTheme(theme: ThemeNode): void {
           class="shrink-0 resize-y rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
         ></textarea>
 
-        <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">Verso</label>
+        <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">{{ t('leitner.settings.back') }}</label>
         <textarea
           v-model="cardForm.back"
           rows="3"
           class="shrink-0 resize-y rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
         ></textarea>
 
-        <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">Thème</label>
+        <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">{{ t('leitner.settings.theme') }}</label>
         <select
           v-model="cardForm.leitnerThemeId"
           class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
         >
-          <option :value="null">— Non classée —</option>
+          <option :value="null">{{ t('leitner.settings.unclassifiedOption') }}</option>
           <optgroup v-for="category in categories" :key="category.id" :label="category.name">
             <option v-for="theme in category.themes" :key="theme.id" :value="theme.id">
               {{ theme.name }}
@@ -987,8 +1013,7 @@ function deleteTheme(theme: ThemeNode): void {
           </optgroup>
         </select>
         <p v-if="!hasThemes" class="text-[11.5px] text-txt-3 italic">
-          Aucun thème pour l'instant : la carte sera « non classée ». Vous pourrez la classer plus
-          tard depuis cet écran.
+          {{ t('leitner.settings.noThemesHint') }}
         </p>
       </div>
       <div class="flex shrink-0 justify-end gap-2 border-t border-line px-5 py-4">
@@ -997,7 +1022,7 @@ function deleteTheme(theme: ThemeNode): void {
           class="rounded-md border border-line-2 bg-panel-2 px-3 py-2 text-[12.5px] text-txt-2"
           @click="modalOpen = false"
         >
-          Annuler
+          {{ t('leitner.settings.cancel') }}
         </button>
         <button
           v-if="!editing"
@@ -1006,14 +1031,14 @@ function deleteTheme(theme: ThemeNode): void {
           :disabled="saving || !cardForm.front.trim() || !cardForm.back.trim()"
           @click="submitCard(true)"
         >
-          Créer et enchaîner
+          {{ t('leitner.settings.createAndContinue') }}
         </button>
         <button
           type="submit"
           class="rounded-md border border-accent bg-accent px-3 py-2 text-[12.5px] text-white disabled:opacity-50"
           :disabled="saving || !cardForm.front.trim() || !cardForm.back.trim()"
         >
-          {{ editing ? 'Enregistrer' : 'Créer la carte' }}
+          {{ editing ? t('leitner.settings.save') : t('leitner.settings.create') }}
         </button>
       </div>
     </form>
