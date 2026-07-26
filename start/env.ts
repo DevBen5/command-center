@@ -102,4 +102,26 @@ export default await Env.create(new URL('../', import.meta.url), {
   IMMICH_API_KEY: Env.schema.string.optional(),
   IMMICH_ALBUM_ID: Env.schema.string.optional(),
   IMMICH_TIMEOUT_MS: Env.schema.number.optional(),
+
+  /*
+  |----------------------------------------------------------
+  | Playlist « Veille » YouTube — seconde source média (CC-85)
+  |----------------------------------------------------------
+  |
+  | ⚠️ Même frontière de confiance qu'Immich : la configuration vient **de
+  | l'environnement, jamais de la base**. Il n'existe donc, à dessein, aucun
+  | formulaire pour ces valeurs.
+  |
+  | ⚠️ Ce n'est pas « À regarder plus tard » : cette playlist-là n'est plus
+  | lisible par l'API depuis ~2016, aucun scope OAuth ne la rend accessible et
+  | elle n'a pas de flux RSS. `YOUTUBE_PLAYLIST_ID` désigne une playlist
+  | **dédiée**, non-répertoriée, que l'utilisateur alimente lui-même — donc
+  | lisible par une simple clé API, sans OAuth ni jeton à rafraîchir.
+  |
+  | Les deux premières sont optionnelles : sans elles, la collecte YouTube reste
+  | simplement inactive. Défauts et normalisation dans `config/youtube.ts`.
+  */
+  YOUTUBE_API_KEY: Env.schema.string.optional(),
+  YOUTUBE_PLAYLIST_ID: Env.schema.string.optional(),
+  YOUTUBE_TIMEOUT_MS: Env.schema.number.optional(),
 })
