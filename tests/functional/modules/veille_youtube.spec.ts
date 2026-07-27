@@ -330,13 +330,15 @@ test.group('Veille / collecte YouTube', (group) => {
     const fake = fakeClient([])
 
     /**
-     * ⚠️ **Le client Immich est explicitement désactivé, et ce n'est pas une précaution
-     * superflue.** `.env.test` vide bien `IMMICH_BASE_URL` et consorts, mais **cela ne suffit
-     * pas** : le chargeur d'environnement ne laisse pas une valeur vide masquer celle de `.env`,
-     * et `immichConfig.enabled` vaut donc `true` pendant les tests sur un poste dont le `.env`
-     * porte une vraie instance. **Mesuré, pas supposé.** Le même contournement existe déjà dans
-     * `veille_deletion.spec.ts:337`. Sans lui, ce test irait chercher une vraie vignette sur la
-     * vraie instance.
+     * ⚠️ **Le client Immich est configuré explicitement, et ça reste le bon motif** même depuis
+     * que `config/env_isolation.ts` neutralise les clients externes en test (CC-101) : un test
+     * n'a pas à dépendre de l'environnement de la machine pour être déterministe. La garde est
+     * une seconde barrière, pas une dispense.
+     *
+     * Historiquement, c'était un **contournement nécessaire** : `.env.test` vidait bien
+     * `IMMICH_BASE_URL` et consorts, mais une valeur vide n'y masque pas celle de `.env`, et
+     * `immichConfig.enabled` valait donc `true` pendant les tests. Sans cette ligne, ce test-ci
+     * allait chercher une vraie vignette sur la vraie instance — mesuré en CC-88, pas supposé.
      */
     app.container.swap(
       ImmichClient,

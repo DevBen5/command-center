@@ -156,6 +156,26 @@ présentes en permanence sont dans `CLAUDE.md`, section « Tests ».
   dans les **deux sens** — un item YouTube atteint le client YouTube, un item Immich ne l'atteint
   pas — et la clé absente de la réponse.
 
+## L'isolation des clients externes (CC-101)
+
+- `tests/unit/env_isolation.spec.ts` — **transverse** : il couvre Immich, YouTube *et* le LLM de
+  Leitner, parce que le défaut était dans le mécanisme d'environnement, pas dans un module.
+  - ⚠️ **Il fournit lui-même une configuration complète, il ne lit pas le `.env` de la machine.**
+    C'est ce qui le rend mordant partout : une spec qui se contenterait d'assertir
+    `immichConfig.enabled === false` serait verte sur un poste au `.env` vide **même sans garde** —
+    elle prouverait l'absence de configuration, pas l'isolation.
+  - ⚠️ **Il appelle les `*ConfigFrom` des `config/*.ts`**, jamais une recomposition locale de
+    `externalServicesIsolated` et `normalize*`. Recomposer prouverait l'expression de la spec :
+    retirer la garde d'un `config/*.ts` la laisserait verte.
+  - ⚠️ **Le contre-test compte autant que le test.** « Hors test, le même environnement configure
+    bien les trois clients » attrape une garde qui désactiverait *toujours* — laquelle passerait
+    l'assertion principale sans broncher et casserait la collecte en production en silence.
+  - **Vérifié mordant, quatre fois** : garde retirée d'`immichConfigFrom`, de `youtubeConfigFrom`,
+    de `llmConfigFrom`, puis rendue inconditionnelle — la spec rougit à chaque fois, en nommant le
+    client concerné.
+  - Le quatrième test (les singletons sont inertes) est le **seul dont la morsure dépend de la
+    machine** : il vérifie le câblage `env.get('NODE_ENV')` → `*ConfigFrom`, pas la garde.
+
 ## Les pages (test de composant)
 
 - `app/modules/veille/pages/__tests__/index.spec.ts` — **CC-92**, le seul test de composant du
