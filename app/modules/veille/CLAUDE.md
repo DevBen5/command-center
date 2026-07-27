@@ -278,9 +278,24 @@ remplace :
 
 ## YouTube — la playlist « Veille » (CC-84)
 
-**Écrit contre la documentation de l'API Data v3, pas contre un relevé d'instance** — contrairement
-à Immich, relevé contre une v2.6.1. Si quelque chose ne correspond pas, l'API a raison et ce fichier
-a tort.
+**Écrit contre la documentation de l'API Data v3, puis relevé contre le service réel le
+2026-07-27** — quatre vidéos, une playlist non-répertoriée. Le code écrit à l'aveugle correspondait
+sur les sept points vérifiés, **sans une seule correction** : lecture par simple clé d'une playlist
+non-répertoriée, les deux dates, les deux titres de chaîne, l'appariement des durées par identifiant,
+et les vignettes. Si quelque chose ne correspond pas malgré tout, l'API a raison et ce fichier a
+tort.
+
+Deux choses que la documentation ne disait pas, et que seul le relevé apprend :
+
+- ⚠️ **Un identifiant de playlist peut faire 13 caractères** (`PL` + 11), pas seulement les 18 ou 34
+  des formats couramment cités. Aucun code ne valide ce format, et **c'est délibéré** : une regex
+  calquée sur les identifiants modernes aurait rejeté une playlist parfaitement valide. Seul le
+  `videoId` est validé — lui devient une cible réseau (CC-88).
+- ⚠️ **Une playlist vide rend `200` avec `items: []`**, jamais une erreur. C'est le cas « succès +
+  zéro entrée » que le lot 1 avait prévu : la première collecte a rapporté `last_item_count = 0` et
+  `last_error` nul, donc une source qui *paraissait saine* alors que rien n'était collecté. Le
+  bandeau explicite à `0` est ce qui rend ce cas lisible — sans lui, l'écran est indiscernable d'une
+  panne. Un identifiant **inconnu**, lui, rend bien 404 (`playlistNotFound`).
 
 ### « À regarder plus tard » est inaccessible, et ça ne se rediscute pas
 
@@ -671,12 +686,10 @@ avant de modifier le module. Ce qui doit rester présent en permanence :
   résolution, qu'un DNS hostile peut faire différer de notre contrôle. Le contrer demanderait de
   figer l'IP via un dispatcher undici sur mesure — disproportionné pour un tableau de bord
   mono-utilisateur où celui qui saisit les URL est celui qu'on protège.
-- **L'API YouTube n'a pas été relevée**, seulement documentée : les formes que lit `youtube_asset.ts`
-  viennent de la documentation Data v3, pas d'un appel réel — contrairement à Immich. La première
-  collecte avec de vraies clés est le relevé, et c'est elle qui confirmera ou corrigera.
-- **L'apparence des vignettes YouTube et de l'écran des sources n'est pas couverte** : jsdom ne fait
-  aucun layout, et ni `index.vue` ni `sources.vue` n'ont de test qui regarde le rendu. CC-88 et
-  CC-89 restent en « à vérifier » tant que ça n'a pas été regardé au navigateur.
+- **L'apparence des vignettes YouTube et de l'écran des sources n'est toujours pas couverte par la
+  suite** : jsdom ne fait aucun layout, et ni `index.vue` ni `sources.vue` n'ont de test qui regarde
+  le rendu. Elle a été **vérifiée au navigateur** le 2026-07-27 (CC-88, CC-89) — ce qui lève les
+  critères d'alors, pas la couverture : une régression d'affichage passerait toujours au vert.
 - **Le lecteur vidéo est hors périmètre** : un clic ouvre l'asset dans Immich. Aucun flux vidéo ne
   traverse Command Center, seulement des vignettes de 20 Ko.
 - ⚠️ **`/photos/<id>` n'a pas pu être vérifié par l'API** (Immich sert son interface en repli sur
