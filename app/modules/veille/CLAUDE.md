@@ -661,6 +661,13 @@ n'est jamais touché : vider « Image » en plusieurs passes est le geste normal
   deviennent des concaténations.
 - ⚠️ **`readingQueue` se lit en booléen, pas en truthy** : `?readingQueue=false` arrive en `"false"`,
   truthy — le filtre s'activait à la première navigation et ne se désactivait plus. D'où `asBool`.
+- ⚠️ **L'écran dit « À lire plus tard », le code dit `queue` — l'écart est délibéré** (CC-107). Le
+  mot « file » se lisait comme *fichier*, et `+ file` / `− file` en mono gris ne ressemblait pas à un
+  bouton. Seuls les **libellés** ont changé : la colonne reste `reading_queue`, le paramètre d'URL
+  `?readingQueue=`, la prop `stats.queue`, et le lien `/veille?readingQueue=1` du tableau de bord.
+  Renommer le schéma imposerait une migration et casserait les URL déjà copiées, pour un problème de
+  vocabulaire d'écran. Conséquence à connaître : **chercher « file de lecture » dans le code ne rend
+  plus rien d'affiché** — le concept se cherche par `queue`.
 - **`tags` est un `text[]`, pas du JSON** : `@column()` nue, **sans** `prepare: JSON.stringify` ;
   filtrage `whereRaw('? = ANY(tags)', [tag])`. `metadata` est du `jsonb` et porte bien, lui,
   `prepare: JSON.stringify`.
