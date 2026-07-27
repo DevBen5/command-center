@@ -7,14 +7,15 @@ import { parseTimeOfDay, type ScheduleMode } from '#modules/veille/shared/interv
 
 /**
  * Provenance. `rss` couvre RSS 2.0 *et* Atom (même collecteur, même parseur) ; `immich` est
- * l'album de veille d'une instance Immich (CC-55).
+ * l'album de veille d'une instance Immich (CC-55) ; `youtube` la playlist « Veille » dédiée
+ * (CC-87).
  *
  * ⚠️ **Aucune contrainte en base** : `kind` est un `string(16)` avec un défaut `'rss'`
  * (migration `…191400`). Ajouter une provenance ne demande donc pas de migration — mais
  * `VeilleCollectorService` doit savoir l'aiguiller, faute de quoi la source partirait au
  * collecteur RSS et échouerait à chaque passe.
  */
-export type SourceKind = 'rss' | 'immich'
+export type SourceKind = 'rss' | 'immich' | 'youtube'
 
 /**
  * La source Immich est **auto-provisionnée depuis l'environnement**, jamais créée par un
@@ -22,6 +23,17 @@ export type SourceKind = 'rss' | 'immich'
  * Voir `ImmichCollector.ensureSource()`.
  */
 export const IMMICH_SOURCE_URL_PREFIX = 'immich:album:'
+
+/**
+ * Idem pour la playlist YouTube : `youtube:playlist:<id>` n'est pas une URL http, donc
+ * `isPublicFeedUrl` la refuse et aucun formulaire ne peut créer cette source.
+ * Voir `YoutubeCollector.ensureSource()`.
+ *
+ * ⚠️ **Cette valeur n'est jamais une cible réseau.** Le collecteur ne lit pas l'`url` de la
+ * source : il lit `config/youtube.ts`. La colonne ne sert qu'à identifier la playlist configurée
+ * et à détecter qu'elle a changé.
+ */
+export const YOUTUBE_SOURCE_URL_PREFIX = 'youtube:playlist:'
 
 export default class VeilleSource extends BaseModel {
   @column({ isPrimary: true })

@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import VeilleSource from '#modules/veille/models/veille_source'
 import FeedFetcher from '#modules/veille/services/feed_fetcher'
 import ImmichCollector from '#modules/veille/services/immich_collector'
+import YoutubeCollector from '#modules/veille/services/youtube_collector'
 import { dedupKeyFor, parseFeed, type ParsedEntry } from '#modules/veille/services/feed_parser'
 import { insertNewItems, type NewItem } from '#modules/veille/services/veille_item_writer'
 
@@ -14,7 +15,7 @@ export type CollectOutcome = {
   /** Entrées réellement écrites — les autres étaient déjà là. */
   inserted: number
   notModified: boolean
-  /** Assets qui ont quitté l'album (Immich seulement ; toujours `0` pour un flux). */
+  /** Médias qui ont quitté leur source (Immich et YouTube ; toujours `0` pour un flux). */
   disappeared: number
   error: string | null
 }
@@ -37,7 +38,8 @@ const CONCURRENCY = 4
 export default class VeilleCollectorService {
   constructor(
     private fetcher: FeedFetcher,
-    private immich: ImmichCollector
+    private immich: ImmichCollector,
+    private youtube: YoutubeCollector
   ) {}
 
   /**
@@ -45,15 +47,14 @@ export default class VeilleCollectorService {
    * échec, elle n'interrompt pas la passe. C'est la garantie centrale du module — sans elle, un
    * seul flux mort suffit à éteindre tout l'agrégateur.
    *
-   * ⚠️ **L'aiguillage sur `kind` n'est pas cosmétique** : sans lui, une source `immich` partirait
-   * au `FeedFetcher`, qui irait chercher `immich:album:<uuid>` comme une URL de flux. Elle
-   * échouerait à chaque passe avec un message parlant d'URL publique — un faux problème, et le
-   * vrai invisible.
+   * ⚠️ **L'aiguillage sur `kind` n'est pas cosmétique** : sans lui, une source `immich` ou
+   * `youtube` partirait au `FeedFetcher`, qui irait chercher `immich:album:<uuid>` comme une URL
+   * de flux. Elle échouerait à chaque passe avec un message parlant d'URL publique — un faux
+   * problème, et le vrai invisible.
    */
   async collectSource(source: VeilleSource): Promise<CollectOutcome> {
     try {
-      const result =
-        source.kind === 'immich' ? await this.collectImmich(source) : await this.collectFeed(source)
+      const result = await this.collectByKind(source)
 
       // ⚠️ Le marquage vient **après** l'effet, jamais avant — voir `markSuccess`.
       await this.markSuccess(source, {
@@ -80,9 +81,52 @@ export default class VeilleCollectorService {
     }
   }
 
+  /**
+   * L'aiguillage, **exhaustif à la compilation**.
+   *
+   * ⚠️ **Le `switch` est écrit sans repli vers les flux, et c'est le point de cette méthode.**
+   * Un `kind === 'immich' ? … : collectFeed(…)` envoie par défaut au `FeedFetcher` toute
+   * provenance qu'on aurait oublié de brancher — c'est la panne silencieuse n° 1 du module, et
+   * elle se paie en un message d'erreur qui parle d'URL publique pendant que la vraie cause reste
+   * invisible. Ici, l'affectation à `never` fait **échouer `tsc`** dès qu'une valeur est ajoutée à
+   * `SourceKind` sans sa branche : l'oubli devient impossible à merger, au lieu d'être découvert
+   * un mois plus tard dans un `last_error`.
+   *
+   * Le `default` reste atteignable au **runtime** — `kind` est un `string(16)` sans contrainte en
+   * base, une ligne éditée à la main peut donc porter n'importe quoi. Il lève un message qui
+   * nomme la vraie cause, plutôt que de laisser le `FeedFetcher` en inventer une autre.
+   */
+  private async collectByKind(source: VeilleSource): Promise<SourceResult> {
+    switch (source.kind) {
+      case 'immich':
+        return this.collectImmich(source)
+      case 'youtube':
+        return this.collectYoutube(source)
+      case 'rss':
+        return this.collectFeed(source)
+      default: {
+        const unknown: never = source.kind
+        throw new Error(
+          `Provenance de source inconnue : « ${String(unknown)} ». Aucun collecteur ne sait la ` +
+            'traiter — la source est laissée intacte.'
+        )
+      }
+    }
+  }
+
   /** L'album Immich (CC-55). Tout ou rien : `ImmichCollector` lève, il ne rend rien de partiel. */
   private async collectImmich(source: VeilleSource): Promise<SourceResult> {
     const { found, inserted, disappeared } = await this.immich.collect(source)
+    return { found, inserted, disappeared, notModified: false }
+  }
+
+  /**
+   * La playlist « Veille » YouTube (CC-87). Même propriété qu'Immich : `YoutubeCollector` lève à
+   * la moindre page en échec et ne rend jamais de liste partielle — c'est ce qui rend sûr le
+   * marquage des vidéos disparues.
+   */
+  private async collectYoutube(source: VeilleSource): Promise<SourceResult> {
+    const { found, inserted, disappeared } = await this.youtube.collect(source)
     return { found, inserted, disappeared, notModified: false }
   }
 
