@@ -76,6 +76,7 @@
     "followed": "Sources suivies",
     "disabled": "désactivée",
     "immichAlbum": "Album de veille Immich",
+    "youtubePlaylist": "Playlist Veille YouTube",
     "lastFetch": "dernière collecte : {date}",
     "entries": "{count} entrée(s)",
     "refresh": "Rafraîchir",

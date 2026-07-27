@@ -80,8 +80,10 @@ présentes en permanence sont dans `CLAUDE.md`, section « Tests ».
   instance injoignable.
 - `tests/unit/veille_media_item.spec.ts` — **CC-55**, la logique média sortie de `index.vue` : le
   lien construit à l'affichage (jamais stocké), la vignette pointée sur **notre** proxy, et une
-  durée qui ne s'affiche pas quand il n'y en a pas. Ce qu'il ne voit **pas** : le template et les
-  enveloppes de la page.
+  durée qui ne s'affiche pas quand il n'y en a pas. Depuis **CC-88** : le **repli de lien** dans les
+  deux sens — une vidéo YouTube s'ouvre sur son `url`, un asset Immich garde le sien. L'ordre ne
+  s'inverse pas, et c'est ce que la seconde assertion tient. Ce qu'il ne voit **pas** : le template
+  et les enveloppes de la page.
 - `tests/functional/modules/veille_immich.spec.ts` — la collecte. **« Une erreur d'API ne marque
   AUCUN asset disparu »** est le test qui porte le lot, et il est vérifié mordant : entoure
   `albumAssets()` d'un `try/catch` et lui plus « last_error » rougissent. Plus la deuxième collecte
@@ -111,6 +113,48 @@ présentes en permanence sont dans `CLAUDE.md`, section « Tests ».
   nombre invérifiable), et le silence sur Immich quand aucun média n'est concerné — un avertissement
   affiché à tort ne se lit plus quand il compte. ⚠️ Ce qu'il ne voit **pas** : le template, les
   cases, et le `confirm()` lui-même.
+
+## YouTube (CC-84)
+
+- `tests/unit/veille_youtube_config.spec.ts` — **CC-85**, la bascule d'`enabled`. Le cas qui compte
+  n'est pas l'absence mais la **chaîne vide** : une ligne `YOUTUBE_API_KEY=` laissée dans `.env`
+  n'est pas « absente », et sans le test `!== ''` la source serait provisionnée puis échouerait à
+  chaque passe — sans erreur ni ligne à lire, une source qui ne collecte pas n'en produisant
+  aucune. Un test fige aussi la décision inverse : une URL collée à la place de l'identifiant n'est
+  **pas** rattrapée, et son commentaire dit qu'une chute signifie que la magie a été *ajoutée*.
+- `tests/unit/veille_youtube_asset.spec.ts` — **CC-86**, le parsing : du code pur, donc le test qui
+  compte du lot. Les deux dates qu'on ne doit pas confondre (`snippet.publishedAt` = ajout à la
+  playlist, `contentDetails.videoPublishedAt` = la vidéo), la chaîne de la **vidéo** et non celle du
+  propriétaire de la playlist, les vidéos supprimées ou privées **sautées**, la durée ISO 8601 y
+  compris au-delà de la journée (`P1DT2H`) et `null` sur le `P0D` d'un direct, le repli de
+  miniature, et l'aller-retour de la clé de dédup — dont ce qui **ne rend rien** :
+  `immich:<uuid>`, `youtube:pas-un-identifiant`, `../../etc/pw`.
+- `tests/unit/veille_youtube_client.spec.ts` — ce que le client fait réellement d'une réponse
+  (`fetch` remplacé, aucun réseau). **Le test qui porte le lot : « aucun message d'erreur ne porte
+  la clé, sur aucun chemin d'échec »** — huit chemins, parce que l'API Data v3 met sa clé dans
+  l'**URL** et que `ImmichClient` compose ses erreurs avec le chemin appelé ; recopier ce patron
+  ferait atterrir la clé dans `last_error`, écrite en base et affichée à l'écran. **Vérifié
+  mordant** : remets l'URL dans le message de redirection et il rougit en nommant le chemin. Le
+  test **symétrique** est là aussi — la clé *doit* partir vers Google, sinon « on retire la clé de
+  l'URL » passerait sans rien casser de visible. Plus la pagination, le refus d'un `nextPageToken`
+  qui se répète, et **l'appariement des durées par `id`** : le lot du test retire l'élément **du
+  milieu**, donc un appariement par position donne à `B` la durée de `C` et l'assertion tombe.
+  Depuis **CC-88** : l'URL de vignette **dérivée** (`i.ytimg.com/vi/<id>/mqdefault.jpg` et rien
+  d'autre), l'absence de clé vers le CDN, la vignette qui marche encore config vidée, et un
+  identifiant malformé qui ne déclenche **aucune requête** — l'assertion porte sur la liste
+  d'appels, pas sur le fait que ça lève.
+- `tests/unit/veille_source_display.spec.ts` — **CC-89**, le libellé d'une source
+  auto-provisionnée, et surtout son **repli** : une provenance sans clé montre son `url` brute
+  plutôt que de disparaître. Un troisième test croise les clés rendues avec `i18n/fr.json`.
+- `tests/functional/modules/veille_youtube.spec.ts` — la collecte. **« Aiguille sur le collecteur
+  YouTube, jamais sur le fetcher de flux »** est le test qui porte le lot, et il asserte que le
+  faux fetcher n'a reçu **aucun** appel : « la collecte a réussi » ne prouverait rien. **Vérifié
+  mordant** : route `'youtube'` vers `collectFeed` et sept tests rougissent, celui-là en tête. Plus
+  l'erreur d'API qui **ne marque rien**, la deuxième collecte qui n'ajoute rien, la vidéo retirée
+  **puis remise**, la playlist vidée qui se voit (`last_item_count = 0`), la source désactivée à la
+  main **jamais réactivée**, et `published_at` figé sur la date d'ajout. Depuis **CC-88** : le proxy
+  dans les **deux sens** — un item YouTube atteint le client YouTube, un item Immich ne l'atteint
+  pas — et la clé absente de la réponse.
 
 ## Les pages (test de composant)
 

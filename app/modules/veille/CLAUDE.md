@@ -15,12 +15,16 @@ services/immich_client.ts                seul point qui parle à IMMICH : pagina
                                          assertion de content-type, plafonds
 services/immich_asset.ts                 PUR · type · durée · tag réseau · clé de dédup
 services/immich_collector.ts             ensureSource · insert · reconcile
+services/youtube_client.ts               seul point qui parle à YOUTUBE : playlistItems paginé,
+                                         videos.list, vignettes, JAMAIS l'URL dans une erreur
+services/youtube_asset.ts                PUR · parsing · durée ISO 8601 · miniature · clé de dédup
+services/youtube_collector.ts            ensureSource · insert · reconcile
 services/veille_item_writer.ts           l'unique liste de colonnes et l'unique ON CONFLICT
 services/veille_deletion_service.ts      Immich d'abord, pierre tombale ensuite
 services/veille_collector_service.ts     une passe, par source, isolée, AIGUILLÉE PAR `kind`
 services/veille_scheduler.ts             la boucle en processus (démarrée par le provider)
 services/veille_stats_service.ts         les agrégats SQL des indicateurs et des tags
-models/veille_source.ts                  isDue() · kind rss | immich
+models/veille_source.ts                  isDue() · kind rss | immich | youtube
 models/veille_item.ts                    article · bookmark · note · image · video
                                          · unavailableAt · deletedAt + visible()
 validators/veille.ts                     isPublicFeedUrl (GARDE SSRF) · resolveIntervalMinutes
@@ -28,12 +32,13 @@ shared/interval.ts                       PUR, serveur ET page · minutes ⇄ uni
 shared/schedule_draft.ts                 PUR · le brouillon de cadence de sources.vue
 shared/media_item.ts                     PUR · la logique média d'index.vue
 shared/item_selection.ts                 PUR · la sélection multiple d'index.vue
+shared/source_display.ts                 PUR · le libellé d'une source auto-provisionnée
 ```
 
-⚠️ **Huit fichiers hors du module** : `start/routes.ts`, `providers/veille_provider.ts` (déclaré
+⚠️ **Neuf fichiers hors du module** : `start/routes.ts`, `providers/veille_provider.ts` (déclaré
 dans `adonisrc.ts`, `environment: ['web']`), `config/veille.ts` (fuseau des collectes horaires),
-`config/immich.ts` · `start/env.ts` · `.env.example`, `start/capabilities.ts`, et
-`start/navigation.ts` (la ligne qui enregistre `destinations.ts`). Oublier l'avant-dernier ne casse
+`config/immich.ts` et `config/youtube.ts` · `start/env.ts` · `.env.example`,
+`start/capabilities.ts`, et `start/navigation.ts` (la ligne qui enregistre `destinations.ts`). Oublier l'avant-dernier ne casse
 rien tout de suite : les capacités n'entrent pas au registre, plus personne ne peut les accorder, et
 le module devient inaccessible à tout non-admin. Oublier le dernier retire `/veille` de la barre
 latérale et fait atterrir sur « aucun accès » un compte qui n'aurait de droits que sur ce module —
@@ -55,7 +60,8 @@ de portée de la suite. Règle (CC-60) : prédicat, dérivation, forme d'un payl
 
 ## `type` dit ce que c'est, `kind` dit d'où ça vient
 
-- **`veille_sources.kind`** = provenance : `rss` (RSS 2.0 **et** Atom, même parseur) et `immich`.
+- **`veille_sources.kind`** = provenance : `rss` (RSS 2.0 **et** Atom, même parseur), `immich`, et
+  `youtube` (la playlist « Veille » dédiée, CC-87).
 - **`veille_items.type`** = nature : `article | bookmark | note | image | video`. Avant CC-54 les
   deux étaient mélangés dans `type`, ce qui imposait une migration par source nouvelle. **La capture
   manuelle (`bookmark`, `note`) ne doit jamais régresser** : elle n'a pas de source.
@@ -67,6 +73,13 @@ de portée de la suite. Règle (CC-60) : prédicat, dérivation, forme d'un payl
 mais demande un **aiguillage dans `VeilleCollectorService`**. Sans lui la source part au
 `FeedFetcher`, qui va chercher son `url` comme un flux et échoue à chaque passe en parlant d'URL
 publique : un faux problème, et le vrai invisible.
+
+⚠️ **Depuis CC-87, l'oubli ne compile plus.** `collectByKind` est un `switch` **exhaustif** dont le
+`default` affecte la valeur à `never` : ajouter un membre à `SourceKind` sans sa branche fait
+échouer `tsc`. Ne le remplace pas par un ternaire « pour simplifier » — c'est précisément le repli
+vers `collectFeed` qui rendait la panne ci-dessus silencieuse. Le `default` reste utile au runtime
+(la colonne n'a aucune contrainte, une ligne éditée à la main peut porter n'importe quoi) et lève
+un message qui nomme la vraie cause.
 
 ⚠️ La liste des types vit à **trois** endroits (`VeilleItemType`, contrainte CHECK,
 `captureValidator`), qui bougent ensemble **sauf une exception délibérée** : `captureValidator` ne
@@ -84,15 +97,17 @@ url:https://exemple.dev/article        ← le cas normal
 guid:<sourceId>:<guid>                 ← entrée sans lien exploitable
 title:<sourceId>:<titre normalisé>     ← ni lien ni guid : dégénéré, mais il FAUT une clé
 immich:<uuid>                          ← un asset Immich
+youtube:<videoId>                      ← une vidéo de la playlist Veille
 ```
 
 - **L'URL d'abord, le `guid` en repli** — l'inverse de l'usage courant et de ce que demandait CC-54.
   Le `guid` est propre à chaque flux : il ne dédupliquerait **jamais entre deux sources**, or c'est
   le cas fréquent (le même article par le blog, un agrégateur et HN).
 - Le préfixe empêche un `guid` qui ressemble à une URL de collisionner avec une vraie URL. `guid` et
-  `title` sont cadrés par leur source ; **la clé Immich ne l'est pas** (l'UUID est unique dans
-  l'instance) et elle a un **second rôle** : index d'autorisation du proxy de vignette. Un second
-  module référençant des assets Immich demanderait une colonne dédiée, pas un second préfixe.
+  `title` sont cadrés par leur source ; **les clés Immich et YouTube ne le sont pas** (l'UUID est
+  unique dans l'instance, l'identifiant de vidéo dans tout YouTube) et elles ont un **second rôle** :
+  c'est le **préfixe** qui aiguille le proxy de vignette (CC-88). Un second module référençant les
+  mêmes médias demanderait une colonne dédiée, pas un troisième préfixe.
 - Le dernier repli n'est pas cosmétique : **sans clé, l'entrée serait réinsérée à chaque passe**.
 - ⚠️ **`dedup_key` est NULL pour les captures manuelles**, et c'est ce qui les protège (Postgres
   autorise autant de NULL qu'on veut sous index unique). Deux signets vers la même URL restent deux
@@ -259,6 +274,97 @@ remplace :
 2. l'assertion de `content-type` ci-dessus ;
 3. plafonds de 16 Mo (JSON) et 10 Mo (vignette), un timeout, et un plafond de **pages** — un
    `nextPage` qui n'avancerait pas ferait tourner la collecte indéfiniment.
+
+## YouTube — la playlist « Veille » (CC-84)
+
+**Écrit contre la documentation de l'API Data v3, pas contre un relevé d'instance** — contrairement
+à Immich, relevé contre une v2.6.1. Si quelque chose ne correspond pas, l'API a raison et ce fichier
+a tort.
+
+### « À regarder plus tard » est inaccessible, et ça ne se rediscute pas
+
+La playlist `WL` et l'historique **ne sont plus lisibles par l'API depuis ~2016** : aucun scope
+OAuth ne les restaure, et il n'existe aucun flux RSS pour la WL. D'où une playlist **dédiée**, que
+l'utilisateur alimente par *Enregistrer → Veille* — le même geste, dans le même menu, sur une liste
+que la machine sait lire.
+
+⚠️ **Non-répertoriée, pas privée.** Non-répertoriée, elle se lit avec une **simple clé API** : pas
+d'OAuth, pas de jeton de rafraîchissement, pas de consentement à réaccorder. Privée, il faudrait
+tout cela. C'est ce réglage-là qui rend le connecteur aussi simple.
+
+### Le point de sécurité : la clé est dans l'URL
+
+L'API Data v3 n'accepte sa clé qu'en **paramètre de requête**, là où Immich la met dans un en-tête
+`x-api-key`. Conséquence directe, et c'est **la** règle de `youtube_client.ts` :
+
+⚠️ **Aucun message d'erreur de ce fichier ne porte jamais l'URL appelée**, seulement le nom de
+l'endpoint. `ImmichClient` compose les siens avec le chemin (`immich_client.ts:290-299`) — recopier
+ce patron ferait atterrir la clé dans `veille_sources.last_error`, **écrite en base et affichée
+telle quelle sur `/veille/sources`**. `veille_youtube_client.spec.ts` l'asserte sur **huit** chemins
+d'échec, plus l'assertion symétrique (la clé *doit* partir vers Google) sans laquelle un « on retire
+la clé de l'URL » qui casserait tout passerait sans rougir.
+
+### Quatre pièges de l'API, tous silencieux
+
+| piège | ce qu'il faut lire |
+|---|---|
+| `snippet.publishedAt` d'un `playlistItem` | la date d'**ajout à la playlist** — celle de la vidéo est `contentDetails.videoPublishedAt` |
+| `snippet.channelTitle` | la chaîne **du propriétaire de la playlist**, donc la nôtre — celle de la vidéo est `videoOwnerChannelTitle` |
+| vidéos supprimées / privées | la playlist les **garde**, titrées « Deleted video » : d'où `part=status`, et l'entrée est sautée |
+| `videos.list` | rend **moins** d'éléments qu'on en demande quand un id est indisponible, **sans trou ni marqueur** |
+
+- ⚠️ La confusion des deux dates ne lève rien : la liste trie sur `coalesce(published_at,
+  created_at) DESC`, l'ordre serait simplement faux. **`published_at` porte la date d'ajout à la
+  playlist** (CC-87) — une playlist de veille est une file, l'événement est le geste de curation.
+  Avec la date de mise en ligne, une conférence de 2019 ajoutée aujourd'hui atterrirait des
+  centaines de lignes plus bas et passerait pour non collectée. La date de la vidéo survit dans
+  `metadata.videoPublishedAt`.
+- ⚠️ **Apparier les durées par `id`, jamais par position** : un appariement par index décalerait
+  toutes les durées suivantes — une corruption qui ne se verrait qu'à l'œil, vidéo par vidéo.
+- ⚠️ `maxResults` **plafonne à 50** sur les deux endpoints. C'est la limite de l'API, pas un réglage.
+
+### Le quota, et pourquoi la cadence n'est pas anodine
+
+Une passe coûte `2 × ceil(vidéos / 50)` unités — une par page de playlist, une par lot de durées —
+sur les **10 000** quotidiennes d'un projet Google Cloud. À 60 minutes de cadence sur une playlist
+de 100 vidéos, ~100 unités par jour. La marge est large, elle n'est pas infinie : descendre à cinq
+minutes la divise par douze. Un quota épuisé rend **403**, comme une clé invalide — d'où
+l'extraction du `reason` de Google (`quotaExceeded`, `keyInvalid`), qui distingue deux gestes
+opposés : attendre demain, ou corriger `.env`.
+
+### Les vignettes — l'URL est dérivée, jamais lue en base (CC-88)
+
+Le proxy `GET /veille/items/:id/thumbnail` **aiguille sur le préfixe de `dedup_key`**, pas sur
+`veille_items.type` : `image`/`video` valent des deux côtés, router dessus enverrait une vidéo
+YouTube au client Immich.
+
+⚠️ **`metadata.thumbnailUrl` n'est PAS la cible du `fetch`, et c'est délibéré.** La collecte y écrit
+l'URL annoncée par l'API — donnée juste, mais **relue en base**. La passer au client en ferait une
+cible réseau, ce que ce module refuse partout ailleurs : hôte constant, identifiant validé, « il n'y
+a pas de cible à filtrer, il n'y a qu'une cible ». Une ligne éditée à la main ferait sortir le
+serveur où on veut. `YoutubeClient.thumbnail` dérive donc l'URL du `videoId` lu dans `dedup_key`.
+
+⚠️ **`mqdefault` n'est pas un choix par défaut** : `maxresdefault` n'existe que sur les vidéos
+téléversées en HD (404 sur les anciennes), et `hqdefault` est en **4:3** — YouTube y ajoute des
+bandes noires qu'un `object-cover` sur 86×54 rognerait au hasard. `mqdefault` est toujours présent
+et nativement 16:9.
+
+⚠️ **Aucune clé n'est envoyée à `i.ytimg.com`** : les miniatures sont publiques, le CDN n'en veut
+pas, et la lui donner serait une fuite pure. `config.enabled` ne garde pas non plus cet appel —
+gater dessus ferait disparaître les vignettes de tous les items déjà collectés à la seconde où
+`.env` est vidé.
+
+### Deux différences avec Immich, à ne pas « harmoniser »
+
+- **`veille_items.url` est renseignée** (`https://www.youtube.com/watch?v=<id>`), là où elle reste
+  nulle côté Immich. La raison du `null` est qu'une URL figée pointerait sur l'ancien domaine le
+  jour d'un déménagement d'instance ; `youtube.com` ne nous appartient pas et ne bougera pas. C'est
+  aussi ce que `mediaHref` prend en repli — sans lui, une vidéo YouTube affichait sa vignette et
+  n'ouvrait rien au clic.
+- **Le tag est la constante `YOUTUBE_TAG`, pas `networkTagFor`.** Ce dernier **devine** un réseau à
+  partir d'un nom de fichier parce que c'est tout ce qu'Immich fournit. Ici la provenance est
+  certaine : appliqué à un titre, il étiquetterait `tiktok` une vidéo intitulée « Best TikTok
+  compilation ».
 
 ## Supprimer — la pierre tombale, et la corbeille d'Immich (CC-63)
 
@@ -521,15 +627,24 @@ n'est jamais touché : vider « Image » en plusieurs passes est le geste normal
 Le détail par fichier est dans [TESTS.md](./TESTS.md) — à lire avant de **modifier un test**, pas
 avant de modifier le module. Ce qui doit rester présent en permanence :
 
-- **Aucun test ne touche le réseau** : `fake_feed_fetcher.ts` et `fake_immich_client.ts` remplacent
-  les clients dans le conteneur (`app.container.swap`), les flux viennent de
-  `tests/fixtures/feeds/*.xml`. Seule exception délibérée : `veille_feed_redirect.spec.ts`.
-- ⚠️ **Pour Immich c'est une propriété du dispositif, pas une promesse** : `.env.test` **vide les
-  trois `IMMICH_*`**. Sans ça, `.env.test` surchargeant `.env`, les tests hériteraient de l'instance
-  réelle du poste — clé d'API comprise — et un `swap` oublié suffirait à faire partir de vraies
-  requêtes vers une vraie bibliothèque de photos pendant `npm test`. Les tests qui ont besoin d'une
-  configuration en passent une explicitement : **ne rétablis pas une lecture directe de
-  `immichConfig` dans `ensureSource`.**
+- **Aucun test ne touche le réseau** : `fake_feed_fetcher.ts`, `fake_immich_client.ts` et
+  `fake_youtube_client.ts` remplacent les clients dans le conteneur (`app.container.swap`), les flux
+  viennent de `tests/fixtures/feeds/*.xml`. Seule exception délibérée :
+  `veille_feed_redirect.spec.ts`.
+- 🔴 **`.env.test` ne neutralise PAS Immich, contrairement à ce que ce fichier a longtemps affirmé.**
+  Il vide bien les trois `IMMICH_*`, mais **une valeur vide n'y masque pas celle de `.env`** : sur un
+  poste dont le `.env` porte une vraie instance, `immichConfig.enabled` vaut **`true`** pendant
+  `npm test`. Mesuré en CC-88, pas déduit — un test y a réellement reçu un `200 image/webp` de
+  l'instance réelle avant d'être corrigé. **La garantie repose donc entièrement sur les `swap`**, et
+  un `swap` oublié atteint la vraie bibliothèque de photos. `veille_deletion.spec.ts:337` et
+  `veille_youtube.spec.ts` construisent pour cette raison un client **explicitement désactivé** au
+  lieu de se fier à l'environnement — reprends ce motif, il est le seul qui tienne.
+- ⚠️ **YouTube est dans le même cas dès que `.env` porte de vraies valeurs.** `youtubeConfig.enabled`
+  n'est `false` en test que tant que `YOUTUBE_API_KEY` et `YOUTUBE_PLAYLIST_ID` sont vides dans
+  `.env`. Les y renseigner — ce qu'exige le relevé réel de l'API — remet les tests YouTube dans la
+  position d'Immich, avec le quota du jour en jeu plutôt que des photos personnelles.
+- Les tests qui ont besoin d'une configuration en passent une explicitement : **ne rétablis pas une
+  lecture directe de `immichConfig` ou `youtubeConfig` dans `ensureSource`.**
 - ⚠️ **Les six tests de filtre `deleted_at` se ressemblent** assez pour qu'un faux-positif y passe
   inaperçu — vérifiés mordants un par un. Ne les allège pas.
 - ⚠️ **Une seule page de ce module a un test de composant** : `pages/__tests__/index.spec.ts`
@@ -543,6 +658,12 @@ avant de modifier le module. Ce qui doit rester présent en permanence :
   résolution, qu'un DNS hostile peut faire différer de notre contrôle. Le contrer demanderait de
   figer l'IP via un dispatcher undici sur mesure — disproportionné pour un tableau de bord
   mono-utilisateur où celui qui saisit les URL est celui qu'on protège.
+- **L'API YouTube n'a pas été relevée**, seulement documentée : les formes que lit `youtube_asset.ts`
+  viennent de la documentation Data v3, pas d'un appel réel — contrairement à Immich. La première
+  collecte avec de vraies clés est le relevé, et c'est elle qui confirmera ou corrigera.
+- **L'apparence des vignettes YouTube et de l'écran des sources n'est pas couverte** : jsdom ne fait
+  aucun layout, et ni `index.vue` ni `sources.vue` n'ont de test qui regarde le rendu. CC-88 et
+  CC-89 restent en « à vérifier » tant que ça n'a pas été regardé au navigateur.
 - **Le lecteur vidéo est hors périmètre** : un clic ouvre l'asset dans Immich. Aucun flux vidéo ne
   traverse Command Center, seulement des vignettes de 20 Ko.
 - ⚠️ **`/photos/<id>` n'a pas pu être vérifié par l'API** (Immich sert son interface en repli sur
