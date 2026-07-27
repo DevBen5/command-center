@@ -377,6 +377,12 @@ gater dessus ferait disparaître les vignettes de tous les items déjà collect�
   jour d'un déménagement d'instance ; `youtube.com` ne nous appartient pas et ne bougera pas. C'est
   aussi ce que `mediaHref` prend en repli — sans lui, une vidéo YouTube affichait sa vignette et
   n'ouvrait rien au clic.
+- **`metadata.channelTitle` est affiché sous la vidéo** (CC-103), entre le type et la date. C'est ce
+  qui rend le piège n° 2 de l'API **visible à l'écran** plutôt que constatable en base : si un jour
+  la carte affichait le nom du propriétaire de la playlist pour toutes les vidéos, ça se verrait au
+  premier coup d'œil. ⚠️ **Le séparateur `·` est sous le même `v-if` que le nom** — les séparer
+  laisserait une puce orpheline sur tout item sans chaîne, c'est-à-dire tous les assets Immich.
+  `channelLabel` rend `null` et jamais `''` pour la même raison.
 - **Le tag est la constante `YOUTUBE_TAG`, pas `networkTagFor`.** Ce dernier **devine** un réseau à
   partir d'un nom de fichier parce que c'est tout ce qu'Immich fournit. Ici la provenance est
   certaine : appliqué à un titre, il étiquetterait `tiktok` une vidéo intitulée « Best TikTok

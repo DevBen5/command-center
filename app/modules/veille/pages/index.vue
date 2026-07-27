@@ -6,6 +6,7 @@ import AppLayout from '~/layouts/AppLayout.vue'
 // ⚠️ Import **relatif**, jamais `#modules/*` : l'alias vise des `.js` qui n'existent qu'après un
 // build, Vite ne les résout pas et la page casse. Le `.js` bascule sur le `.ts` côté Vite.
 import {
+  channelLabel,
   durationLabel,
   isMediaItem,
   mediaHref,
@@ -205,6 +206,7 @@ const TYPE_LABELS = computed<Record<VeilleItem['type'], string>>(() => ({
 const isMedia = (item: VeilleItem): boolean => isMediaItem(item.type)
 const thumbnail = (item: VeilleItem): string => thumbnailHref(item.id)
 const duration = (item: VeilleItem): string | null => durationLabel(item.metadata)
+const channel = (item: VeilleItem): string | null => channelLabel(item.metadata)
 const mediaLink = (item: VeilleItem): string | null =>
   mediaHref(props.immich.webBaseUrl, item)
 
@@ -513,6 +515,14 @@ function submitCapture(): void {
           </p>
           <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11.5px] text-txt-3">
             <span>{{ TYPE_LABELS[item.type] }}</span>
+            <!-- ⚠️ La chaîne et SON séparateur sont sous le même `v-if` : les séparer laisserait
+                 une puce orpheline sur tout item qui n'a pas de chaîne — c'est-à-dire un asset
+                 Immich, un article, ou toute vidéo collectée avant CC-87. `channelLabel` rend
+                 `null` plutôt qu'une chaîne vide précisément pour que ce test soit binaire. -->
+            <template v-if="channel(item)">
+              <span>·</span>
+              <span>{{ channel(item) }}</span>
+            </template>
             <span>·</span>
             <span class="font-mono">{{ formatDate(item) }}</span>
             <!-- ⚠️ « plus dans l'album », pas « supprimé » : la collecte ne distingue pas un

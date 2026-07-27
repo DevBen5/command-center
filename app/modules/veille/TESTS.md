@@ -93,8 +93,9 @@ présentes en permanence sont dans `CLAUDE.md`, section « Tests ».
   lien construit à l'affichage (jamais stocké), la vignette pointée sur **notre** proxy, et une
   durée qui ne s'affiche pas quand il n'y en a pas. Depuis **CC-88** : le **repli de lien** dans les
   deux sens — une vidéo YouTube s'ouvre sur son `url`, un asset Immich garde le sien. L'ordre ne
-  s'inverse pas, et c'est ce que la seconde assertion tient. Ce qu'il ne voit **pas** : le template
-  et les enveloppes de la page.
+  s'inverse pas, et c'est ce que la seconde assertion tient. Depuis **CC-103** : `channelLabel`,
+  dont le point est qu'elle rend **`null` et jamais `''`** — la page suspend le séparateur au même
+  `v-if` que le nom. Ce qu'il ne voit **pas** : le template et les enveloppes de la page.
 - `tests/functional/modules/veille_immich.spec.ts` — la collecte. **« Une erreur d'API ne marque
   AUCUN asset disparu »** est le test qui porte le lot, et il est vérifié mordant : entoure
   `albumAssets()` d'un `try/catch` et lui plus « last_error » rougissent. Plus la deuxième collecte
@@ -197,3 +198,13 @@ présentes en permanence sont dans `CLAUDE.md`, section « Tests ».
   embarque le namespace `veille`, sans quoi `t()` rendrait la clé brute. ⚠️ Ce qu'il ne voit
   **pas** : le rendu visuel (jsdom ne fait aucun layout), et les autres libellés — vérifiés au
   navigateur.
+  - Depuis **CC-103**, le **nom de chaîne et son séparateur**. `channelLabel` est prouvée à part,
+    mais elle ne dit rien du template : c'est le `<template v-if>` qui décide que le `·` disparaît
+    avec le nom, et **ce test est le seul endroit où ça se prouve**.
+  - ⚠️ **L'assertion découpe la ligne sur ses séparateurs et compare la liste des segments**, plutôt
+    que de chercher le nom : chercher « Alex so yes » passerait aussi bien avec une puce en trop.
+    **Vérifié mordant** — le séparateur sorti du `v-if`, deux tests rendent `['Vidéo', '']`.
+  - ⚠️ **La date est retirée des segments, volontairement** : elle est formatée dans le fuseau de la
+    machine, donc `2026-01-01T00:00:00Z` se lit « 01 janv. » ici et « 31 déc. » à l'ouest de
+    Greenwich. L'asserter rendrait le test dépendant du poste, pour une valeur que ce lot ne touche
+    pas.

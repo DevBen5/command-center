@@ -27,7 +27,7 @@ vi.mock('@inertiajs/vue3', () => ({
 }))
 
 /** Un item média (vidéo) : `selection.media` ne compte que ceux-là. */
-function mediaItem(id: number, title: string) {
+function mediaItem(id: number, title: string, metadata: Record<string, unknown> | null = null) {
   return {
     id,
     type: 'video',
@@ -36,7 +36,7 @@ function mediaItem(id: number, title: string) {
     title,
     content: null,
     tags: [] as string[],
-    metadata: null,
+    metadata,
     readingQueue: false,
     publishedAt: null,
     readAt: null,
@@ -67,9 +67,9 @@ function baseProps() {
   }
 }
 
-function mountIndex() {
+function mountIndex(props: Record<string, unknown> = {}) {
   return mount(Index, {
-    props: baseProps(),
+    props: { ...baseProps(), ...props },
     global: {
       plugins: [
         createI18n({
@@ -120,5 +120,72 @@ describe('Veille / index — pluralisation de la sélection', () => {
 
     expect(selectedLabel(wrapper)).toBe('2 sélectionnés')
     expect(mediaLabel(wrapper)).toContain('dont 2 médias à')
+  })
+})
+
+/*
+| CC-103 — le nom de chaîne, et surtout **son séparateur**.
+|
+| ⚠️ C'est le seul endroit où « pas de puce orpheline » se prouve. `channelLabel` est testée
+| séparément (`tests/unit/veille_media_item.spec.ts`), mais elle ne dit rien du template : c'est le
+| `<template v-if>` qui décide si le `·` disparaît avec le nom, et lui seul. Sortir le séparateur de
+| ce bloc laisserait « Vidéo · · 01/01 » sur tout item sans chaîne — un asset Immich, un article,
+| toute vidéo collectée avant CC-87.
+|
+| ⚠️ L'assertion porte sur la ligne **entière, normalisée**, pas sur la présence du nom : chercher
+| « Alex so yes » passerait aussi bien avec un séparateur en trop.
+*/
+
+/**
+ * La ligne de métadonnées d'un item, **découpée sur ses séparateurs**, la date retirée.
+ *
+ * ⚠️ **La date est écartée volontairement**, pas par paresse : elle est formatée dans le fuseau de
+ * la machine, donc `2026-01-01T00:00:00Z` se lit « 01 janv. » ici et « 31 déc. » à l'ouest de
+ * Greenwich. L'asserter rendrait le test dépendant du poste, pour une valeur que ce lot ne touche
+ * pas. Ce qui compte est ce qui reste : le **nombre de segments**, donc de séparateurs.
+ */
+function metaParts(wrapper: ReturnType<typeof mountIndex>, index: number): string[] {
+  return wrapper
+    .findAll('.flex-wrap.text-txt-3')
+    [index].text()
+    .split('·')
+    .map((part) => part.trim())
+    .slice(0, -1)
+}
+
+describe('Veille / index — le nom de chaîne', () => {
+  test('affiche la chaîne entre le type et la date', () => {
+    const wrapper = mountIndex({
+      items: [mediaItem(1, 'Vidéo 1', { channelTitle: 'Alex so yes' })],
+    })
+
+    expect(metaParts(wrapper, 0)).toEqual(['Vidéo', 'Alex so yes'])
+  })
+
+  /**
+   * ⚠️ **Le test du lot.** Un segment, donc un seul `·` dans la ligne. Sortir le séparateur du
+   * `<template v-if>` rendrait `['Vidéo', '']` — la puce orpheline, visible à l'écran sur tout
+   * asset Immich et tout article.
+   */
+  test('sans chaîne, le séparateur disparaît avec elle', () => {
+    const wrapper = mountIndex({ items: [mediaItem(1, 'Vidéo 1')] })
+
+    expect(metaParts(wrapper, 0)).toEqual(['Vidéo'])
+  })
+
+  /**
+   * Le cas réel de la liste : les deux provenances se côtoient dans la même page, servies par la
+   * même carte. Chacune doit rendre sa propre ligne.
+   */
+  test('les deux formes coexistent dans la même liste', () => {
+    const wrapper = mountIndex({
+      items: [
+        mediaItem(1, 'Vidéo YouTube', { channelTitle: 'Kameto Live' }),
+        mediaItem(2, 'Asset Immich'),
+      ],
+    })
+
+    expect(metaParts(wrapper, 0)).toEqual(['Vidéo', 'Kameto Live'])
+    expect(metaParts(wrapper, 1)).toEqual(['Vidéo'])
   })
 })
