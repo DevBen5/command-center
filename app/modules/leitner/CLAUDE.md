@@ -64,7 +64,7 @@ migrations/                                 cards PUIS reviews PUIS categories/t
 ```
 
 **Aucun seeder, et c'est voulu** : tout le contenu est saisi depuis l'UI, `config/database.ts` ne
-déclare aucun path de seeder pour ce module — le seul dans ce cas. Ne réintroduis pas de données de
+déclare aucun path de seeder pour ce module. Ne réintroduis pas de données de
 démo : elles écraseraient le contenu réel au prochain `db:seed`. La ligne de `leitner_settings`
 insérée par la migration n'est pas une donnée de démo mais la configuration du module.
 

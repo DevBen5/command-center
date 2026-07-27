@@ -45,6 +45,25 @@ le module devient inaccessible à tout non-admin. Oublier le dernier retire `/ve
 latérale et fait atterrir sur « aucun accès » un compte qui n'aurait de droits que sur ce module —
 `navigation_registry.spec.ts` l'attrape.
 
+## Pas de seeder, et c'est une décision (CC-106)
+
+Le module en a porté un jusqu'à CC-106 : 7 articles fictifs, `updateOrCreateMany('title', …)`,
+enregistré dans `config/database.ts`. Ce qui l'a condamné n'est pas le contenu de démo, c'est **ce
+à quoi `node ace db:seed` est couplé** : c'est le seul chemin vers un premier compte et le seul
+outil de rotation d'`ADMIN_PASSWORD` (CC-75), documenté jusqu'en production. Changer le mot de
+passe administrateur replantait donc 7 faux articles dans la veille réelle — indiscernables du
+collecté, et comptés dans les indicateurs de l'écran.
+
+⚠️ **Ne réintroduis pas de données de démo ici**, quelle qu'en soit la forme. Un item de veille est
+soit collecté, soit saisi à la main : dans les deux cas la base est sa seule copie, et `db:seed`
+n'a aucune raison d'y écrire. `tests/unit/db_seeders.spec.ts` asserte la liste des paths déclarés
+et rougit si celui du module y revient.
+
+- ⚠️ **La suppression du seeder n'a rien retiré de la base** : les 7 lignes ont été supprimées à la
+  main, physiquement. Elles pouvaient l'être parce que leur `dedup_key` est nul et qu'elles n'ont
+  pas de source — rien ne les réinsère. Ce n'est **pas** le cas d'un item collecté, dont la
+  suppression reste logique (voir « la pierre tombale » plus bas).
+
 ## Où vit la logique d'une page — `shared/`, jamais le `<script setup>`
 
 ⚠️ Japa n'a aucun compilateur Vue : ce qui vit dans un `<script setup>` est **structurellement** hors
