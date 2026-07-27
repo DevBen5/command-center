@@ -22,6 +22,7 @@ import {
   switchUnit,
   type ScheduleDraft,
 } from '../shared/schedule_draft.js'
+import { sourceUrlLabelKey } from '../shared/source_display.js'
 
 defineOptions({ layout: AppLayout })
 
@@ -184,6 +185,12 @@ function refreshAll(): void {
   router.post('/veille/sources/refresh', {}, { preserveScroll: true })
 }
 
+/**
+ * L'enveloppe d'une ligne de `shared/source_display.ts` — la clé de libellé à afficher au lieu de
+ * l'`url`, ou `null` quand l'`url` est une vraie adresse. Voir le commentaire du template.
+ */
+const urlLabelKey = (source: VeilleSource): string | null => sourceUrlLabelKey(source.kind)
+
 function formatDateTime(value: string | null): string {
   if (!value) return t('veille.sources.never')
   return new Date(value).toLocaleString('fr-FR', {
@@ -257,14 +264,16 @@ const NOTIFICATION_CLASSES: Record<string, string> = {
                 {{ t('veille.sources.disabled') }}
               </span>
             </div>
-            <!-- L'`url` d'une source Immich est un identifiant d'album (`immich:album:<uuid>`),
-                 pas une adresse : l'afficher brute ne dit rien à personne. La pastille `kind`
-                 juste au-dessus porte déjà la provenance. -->
+            <!-- L'`url` d'une source auto-provisionnée est un identifiant (`immich:album:<uuid>`,
+                 `youtube:playlist:<id>`), pas une adresse : l'afficher brute ne dit rien à
+                 personne. La pastille `kind` juste au-dessus porte déjà la provenance.
+                 Le choix vit dans `shared/source_display.ts` — il se teste, un ternaire à trois
+                 branches en plein template ne se testerait pas. -->
             <div
               class="mt-0.5 truncate text-[11px] text-txt-3"
-              :class="source.kind === 'immich' ? '' : 'font-mono'"
+              :class="urlLabelKey(source) ? '' : 'font-mono'"
             >
-              {{ source.kind === 'immich' ? t('veille.sources.immichAlbum') : source.url }}
+              {{ urlLabelKey(source) ? t(urlLabelKey(source)!) : source.url }}
             </div>
             <div class="mt-1 flex flex-wrap items-center gap-2 text-[11.5px] text-txt-3">
               <span>{{ formatSchedule(source) }}</span>
