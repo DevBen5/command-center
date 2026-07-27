@@ -12,6 +12,14 @@
 import { Env } from '@adonisjs/core/env'
 
 export default await Env.create(new URL('../', import.meta.url), {
+  /**
+   * ⚠️ **Cet enum porte l'isolation des clients externes** (CC-101). `config/env_isolation.ts`
+   * reconnaît la valeur `'test'`, et elle seule ; c'est ce qui éteint Immich, YouTube et la
+   * configuration LLM du poste pendant `npm test`. Le chargeur d'AdonisJS, lui, traite **aussi**
+   * `'testing'` comme un environnement de test — c'est cette liste-ci qui le rend inatteignable.
+   * Ajouter une valeur ici sans l'ajouter à `externalServicesIsolated` **désarmerait l'isolation
+   * en silence** : les tests repartiraient vers la vraie instance Immich et l'API de Google.
+   */
   NODE_ENV: Env.schema.enum(['development', 'production', 'test'] as const),
   PORT: Env.schema.number(),
   APP_KEY: Env.schema.string(),

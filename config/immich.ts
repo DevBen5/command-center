@@ -1,4 +1,5 @@
 import env from '#start/env'
+import { externalServicesIsolated } from '#config/env_isolation'
 
 /**
  * Instance Immich — la source des vidéos et images de veille (CC-55).
@@ -35,25 +36,67 @@ export interface ImmichConfig {
   enabled: boolean
 }
 
+/** Valeurs brutes telles que lues dans l'environnement, avant nettoyage. */
+export interface RawImmichConfig {
+  baseUrl?: string
+  apiKey?: string
+  albumId?: string
+  timeoutMs?: number
+}
+
 /**
+ * Une instance auto-hébergée sur un lien domestique met parfois plusieurs secondes à rendre une
+ * page d'album ; 15 s laisse de la marge sans faire traîner un rafraîchissement manuel. Là où
+ * YouTube s'en accorde 10 : `www.googleapis.com` n'est pas au bout d'un lien domestique.
+ */
+export const IMMICH_DEFAULT_TIMEOUT_MS = 15_000
+
+/**
+ * Fonction **pure**, séparée de la lecture d'`env` pour la même raison que
+ * `normalizeYoutubeConfig` (CC-85) : un module qui calcule tout à l'import ne se teste pas, et
+ * `enabled` est précisément ce qui décide qu'une source collecte ou se tait.
+ *
  * ⚠️ **Le slash final est retiré, et ce n'est pas cosmétique.** Sans ce nettoyage,
  * `${baseUrl}/api/server/about` donne `//api/server/about` — et Immich répond alors
  * **200 avec le HTML de son interface** (le repli SPA du serveur), pas une 404. Un client qui
  * ne teste que le statut lirait `assets: undefined`, donc un album vide, donc *tout l'album
  * disparu*. Constaté sur l'instance réelle, pas déduit.
  */
-const baseUrl = (env.get('IMMICH_BASE_URL') ?? '').trim().replace(/\/+$/, '')
-const apiKey = (env.get('IMMICH_API_KEY') ?? '').trim()
-const albumId = (env.get('IMMICH_ALBUM_ID') ?? '').trim()
+export function normalizeImmichConfig(raw: RawImmichConfig): ImmichConfig {
+  const baseUrl = (raw.baseUrl ?? '').trim().replace(/\/+$/, '')
+  const apiKey = (raw.apiKey ?? '').trim()
+  const albumId = (raw.albumId ?? '').trim()
 
-const immichConfig: ImmichConfig = {
-  baseUrl,
-  apiKey,
-  albumId,
-  // Une instance auto-hébergée sur un lien domestique met parfois plusieurs secondes à rendre
-  // une page d'album ; 15 s laisse de la marge sans faire traîner un rafraîchissement manuel.
-  timeoutMs: env.get('IMMICH_TIMEOUT_MS') ?? 15_000,
-  enabled: baseUrl !== '' && apiKey !== '' && albumId !== '',
+  return {
+    baseUrl,
+    apiKey,
+    albumId,
+    timeoutMs: raw.timeoutMs ?? IMMICH_DEFAULT_TIMEOUT_MS,
+    enabled: baseUrl !== '' && apiKey !== '' && albumId !== '',
+  }
 }
+
+/**
+ * La configuration effective : celle de l'environnement, **sauf en test** (CC-101).
+ *
+ * ⚠️ **La garde est ici et pas dans `normalizeImmichConfig`**, qui doit rester capable de rendre
+ * une configuration activée — c'est ce que construisent les tests pour couvrir le chemin
+ * « configuré ». Voir `config/env_isolation.ts` pour la raison complète, et pourquoi `.env.test`
+ * ne peut pas jouer ce rôle.
+ *
+ * ⚠️ **Cette fonction est le sujet du test, pas la ligne d'en dessous.** Une spec qui recomposerait
+ * `externalServicesIsolated` et `normalizeImmichConfig` de son côté resterait verte si on retirait
+ * la garde d'ici : elle prouverait sa propre expression, pas le fichier.
+ */
+export function immichConfigFrom(nodeEnv: string | undefined, raw: RawImmichConfig): ImmichConfig {
+  return normalizeImmichConfig(externalServicesIsolated(nodeEnv) ? {} : raw)
+}
+
+const immichConfig = immichConfigFrom(env.get('NODE_ENV'), {
+  baseUrl: env.get('IMMICH_BASE_URL'),
+  apiKey: env.get('IMMICH_API_KEY'),
+  albumId: env.get('IMMICH_ALBUM_ID'),
+  timeoutMs: env.get('IMMICH_TIMEOUT_MS'),
+})
 
 export default immichConfig

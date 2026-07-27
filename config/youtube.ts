@@ -1,4 +1,5 @@
 import env from '#start/env'
+import { externalServicesIsolated } from '#config/env_isolation'
 
 /**
  * Playlist « Veille » YouTube — la seconde source média de la veille (CC-85).
@@ -79,7 +80,26 @@ export function normalizeYoutubeConfig(raw: RawYoutubeConfig): YoutubeConfig {
   }
 }
 
-const youtubeConfig = normalizeYoutubeConfig({
+/**
+ * La configuration effective : celle de l'environnement, **sauf en test** (CC-101).
+ *
+ * ⚠️ **La garde est ici et pas dans `normalizeYoutubeConfig`**, qui doit rester capable de rendre
+ * une configuration activée — c'est ce que construisent les tests pour couvrir le chemin
+ * « configuré ». Voir `config/env_isolation.ts` pour la raison complète, et pourquoi `.env.test`
+ * ne peut pas jouer ce rôle.
+ *
+ * ⚠️ **Cette fonction est le sujet du test, pas la ligne d'en dessous.** Une spec qui recomposerait
+ * `externalServicesIsolated` et `normalizeYoutubeConfig` de son côté resterait verte si on retirait
+ * la garde d'ici : elle prouverait sa propre expression, pas le fichier.
+ */
+export function youtubeConfigFrom(
+  nodeEnv: string | undefined,
+  raw: RawYoutubeConfig
+): YoutubeConfig {
+  return normalizeYoutubeConfig(externalServicesIsolated(nodeEnv) ? {} : raw)
+}
+
+const youtubeConfig = youtubeConfigFrom(env.get('NODE_ENV'), {
   apiKey: env.get('YOUTUBE_API_KEY'),
   playlistId: env.get('YOUTUBE_PLAYLIST_ID'),
   timeoutMs: env.get('YOUTUBE_TIMEOUT_MS'),
