@@ -35,9 +35,10 @@ shared/item_selection.ts                 PUR · la sélection multiple d'index.v
 shared/source_display.ts                 PUR · le libellé d'une source auto-provisionnée
 ```
 
-⚠️ **Neuf fichiers hors du module** : `start/routes.ts`, `providers/veille_provider.ts` (déclaré
+⚠️ **Dix fichiers hors du module** : `start/routes.ts`, `providers/veille_provider.ts` (déclaré
 dans `adonisrc.ts`, `environment: ['web']`), `config/veille.ts` (fuseau des collectes horaires),
-`config/immich.ts` et `config/youtube.ts` · `start/env.ts` · `.env.example`,
+`config/immich.ts` et `config/youtube.ts` · `config/env_isolation.ts` (la garde qui éteint les deux
+clients en test, CC-101) · `start/env.ts` · `.env.example`,
 `start/capabilities.ts`, et `start/navigation.ts` (la ligne qui enregistre `destinations.ts`). Oublier l'avant-dernier ne casse
 rien tout de suite : les capacités n'entrent pas au registre, plus personne ne peut les accorder, et
 le module devient inaccessible à tout non-admin. Oublier le dernier retire `/veille` de la barre
@@ -631,18 +632,30 @@ avant de modifier le module. Ce qui doit rester présent en permanence :
   `fake_youtube_client.ts` remplacent les clients dans le conteneur (`app.container.swap`), les flux
   viennent de `tests/fixtures/feeds/*.xml`. Seule exception délibérée :
   `veille_feed_redirect.spec.ts`.
-- 🔴 **`.env.test` ne neutralise PAS Immich, contrairement à ce que ce fichier a longtemps affirmé.**
-  Il vide bien les trois `IMMICH_*`, mais **une valeur vide n'y masque pas celle de `.env`** : sur un
-  poste dont le `.env` porte une vraie instance, `immichConfig.enabled` vaut **`true`** pendant
-  `npm test`. Mesuré en CC-88, pas déduit — un test y a réellement reçu un `200 image/webp` de
-  l'instance réelle avant d'être corrigé. **La garantie repose donc entièrement sur les `swap`**, et
-  un `swap` oublié atteint la vraie bibliothèque de photos. `veille_deletion.spec.ts:337` et
-  `veille_youtube.spec.ts` construisent pour cette raison un client **explicitement désactivé** au
-  lieu de se fier à l'environnement — reprends ce motif, il est le seul qui tienne.
-- ⚠️ **YouTube est dans le même cas dès que `.env` porte de vraies valeurs.** `youtubeConfig.enabled`
-  n'est `false` en test que tant que `YOUTUBE_API_KEY` et `YOUTUBE_PLAYLIST_ID` sont vides dans
-  `.env`. Les y renseigner — ce qu'exige le relevé réel de l'API — remet les tests YouTube dans la
-  position d'Immich, avec le quota du jour en jeu plutôt que des photos personnelles.
+- **La neutralisation des clients externes vit dans le code, pas dans `.env.test`** (CC-101).
+  `config/env_isolation.ts` : sous `NODE_ENV=test`, `immichConfigFrom` et `youtubeConfigFrom`
+  ignorent l'environnement, donc `enabled` vaut `false` et les deux clients refusent de partir avant
+  même de construire une URL.
+  - ⚠️ **Ne cherche pas à rétablir la garantie par `.env.test` : ce fichier ne peut pas la porter.**
+    Le chargeur d'`@adonisjs/env` fusionne par **truthiness**, jamais par présence
+    (`node_modules/@adonisjs/env/build/index.js:226-235`) : une valeur vide y est indiscernable de
+    « non définie », donc `.env` passe derrière et écrase. `DB_DATABASE=app_test` gagne pour la
+    seule raison qu'il est non vide. Mesuré en CC-88 — un test a réellement reçu un
+    `200 image/webp` de l'instance Immich du poste.
+  - ⚠️ **Et surtout pas de sentinelle non vide** (`IMMICH_BASE_URL=disabled-in-tests`) : elle
+    gagnerait la fusion **et** rendrait `enabled` vrai, puisque `enabled` teste la non-vacuité.
+  - ⚠️ **La garde n'est pas dans `normalizeImmichConfig` / `normalizeYoutubeConfig`**, qui doivent
+    rester capables de rendre une configuration **activée** — c'est ce que construisent les tests
+    pour couvrir le chemin « configuré ». Elle est dans `*ConfigFrom`, seul endroit où l'environnement
+    est lu, et `tests/unit/env_isolation.spec.ts` la prouve avec un environnement **factice plein** :
+    une spec qui lirait seulement les singletons serait verte sur un poste au `.env` vide même sans
+    garde.
+  - ⚠️ **Elle ne dispense pas des `swap`.** Un test reste responsable de son déterminisme :
+    `veille_deletion.spec.ts:337` et `veille_youtube.spec.ts` construisent un client explicitement
+    configuré, et c'est toujours le bon motif. La garde est une seconde barrière.
+  - ⚠️ **`process.env` reste pollué** par les vraies valeurs (le chargeur les y écrit,
+    `index.js:230`). Sans effet tant que seuls les `config/*.ts` lisent ces variables — une lecture
+    directe ajoutée ailleurs passerait au travers de la garde sans que rien ne le signale.
 - Les tests qui ont besoin d'une configuration en passent une explicitement : **ne rétablis pas une
   lecture directe de `immichConfig` ou `youtubeConfig` dans `ensureSource`.**
 - ⚠️ **Les six tests de filtre `deleted_at` se ressemblent** assez pour qu'un faux-positif y passe

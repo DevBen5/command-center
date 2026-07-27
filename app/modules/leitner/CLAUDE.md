@@ -72,8 +72,9 @@ Le filet n'est donc pas un seeder mais **l'export JSON** — les cartes n'existe
 autre copie. `./pgdata` survit à un `docker compose down -v` (voir le `CLAUDE.md` racine), pas à une
 corruption ni à un changement de machine.
 
-⚠️ **Sept fichiers hors du module** : `start/routes.ts` · `start/env.ts` et `.env.example` (les
-variables LLM) · `config/llm.ts` · `providers/leitner_provider.ts` (le **balayage au démarrage** des
+⚠️ **Huit fichiers hors du module** : `start/routes.ts` · `start/env.ts` et `.env.example` (les
+variables LLM) · `config/llm.ts` · `config/env_isolation.ts` (voir ci-dessous) ·
+`providers/leitner_provider.ts` (le **balayage au démarrage** des
 ingestions interrompues, déclaré dans `adonisrc.ts` sous `environment: ['web']`) ·
 `start/capabilities.ts` (la ligne qui enregistre `capabilities.ts` au registre) ·
 `start/navigation.ts` (celle qui enregistre `destinations.ts`). ⚠️ Oublier l'avant-dernier ne casse
@@ -1098,6 +1099,16 @@ avant de modifier le module. Ce qui doit rester présent en permanence :
   **diagnostic** (`ping`, `listModels`), sans quoi les tests de `/revision/llm` iraient sonder de
   vrais ports de la machine. Exception délibérée : `leitner_llm_redirect.spec.ts`, seul test du dépôt
   à faire émettre une requête au vrai client.
+- **La configuration LLM du poste n'entre pas dans la suite** (CC-101) : sous `NODE_ENV=test`,
+  `llmConfigFrom` ignore l'environnement et `config/llm.ts` retombe sur ses défauts documentés —
+  ni la clé, ni le modèle, ni l'hôte du `.env`. Deux machines exécutent donc les mêmes tests.
+  - ⚠️ **Ce n'est PAS un `enabled: false`**, contrairement à Immich et YouTube : le LLM n'a pas
+    d'interrupteur, il a une URL par défaut. Un test qui oublierait de swapper `LlmClient`
+    atteindrait toujours un LM Studio réellement lancé sur `127.0.0.1:1234`. Le rayon est borné —
+    `isLocalLlmUrl` n'accepte que le local, rien ne sort de la machine — mais le test serait lent
+    ou non déterministe sans que rien ne le dise. **La garde ne dispense pas du `swap`.**
+  - ⚠️ **N'ajoute pas un `enabled` à `LlmConfig` « pour aligner sur la veille »** : ce serait
+    inventer un réglage de production pour un besoin de test. Écarté explicitement en CC-101.
 - ⚠️ **`leitner_backup.spec.ts` tient entièrement dans son `snapshot()`** : une colonne que cette
   fonction ne lit pas peut être perdue par l'export sans qu'un test ne rougisse — c'est ce qui a
   laissé passer CC-51. **Une colonne ajoutée à `leitner_cards` ou `leitner_reviews` s'ajoute à
