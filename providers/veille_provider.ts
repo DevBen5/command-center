@@ -38,6 +38,21 @@ export default class VeilleProvider {
       logger.error({ err: error }, "Veille : la source Immich n'a pas pu être alignée sur `.env`.")
     }
 
+    /**
+     * Idem pour la playlist YouTube (CC-87), et dans un `try` **séparé** : les deux sources sont
+     * indépendantes, et un échec d'alignement de l'une ne doit pas empêcher l'autre d'exister.
+     * Les fusionner ferait disparaître la source YouTube au premier hoquet côté Immich, sans que
+     * rien ne relie les deux.
+     */
+    try {
+      const { default: YoutubeCollector } =
+        await import('#modules/veille/services/youtube_collector')
+      const collector = await this.app.container.make(YoutubeCollector)
+      await collector.ensureSource()
+    } catch (error) {
+      logger.error({ err: error }, "Veille : la source YouTube n'a pas pu être alignée sur `.env`.")
+    }
+
     try {
       const { startScheduler } = await import('#modules/veille/services/veille_scheduler')
       startScheduler()
