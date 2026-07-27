@@ -3,6 +3,12 @@ import { mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import { router } from '@inertiajs/vue3'
 import fr from '../../i18n/fr.json'
+// ⚠️ Les messages des modules sont chargés ici depuis CC-110, sous leur namespace — celui-là même
+// que le glob d'`inertia/i18n/index.ts` construit au boot. Sans eux, le fil d'Ariane ne trouverait
+// aucune clé d'écran et retomberait sur le libellé du module : le test passerait en n'ayant rien
+// prouvé, exactement le défaut qu'il est censé attraper.
+import leitnerFr from '../../../app/modules/leitner/i18n/fr.json'
+import veilleFr from '../../../app/modules/veille/i18n/fr.json'
 import AppLayout from '../AppLayout.vue'
 
 /*
@@ -36,7 +42,14 @@ const NAV = {
   host: 'ben-pc',
 }
 
-const mockedPage = { url: '/', props: {} as Record<string, unknown> }
+// ⚠️ `component` fait partie du mock depuis CC-110 : c'est de lui que le fil d'Ariane tire le nom
+// de l'écran ouvert (`modules/leitner/stats` → `leitner.stats.*`). Un mock qui l'omet ne décrit pas
+// ce qu'Inertia envoie, et faisait lever le layout entier avant que `crumbKeys` ne s'en garde.
+const mockedPage = {
+  url: '/',
+  component: 'core/dashboard/home',
+  props: {} as Record<string, unknown>,
+}
 
 // Depuis CC-71, la barre ne montre que ce à quoi le compte a droit. ⚠️ **Depuis CC-81, ce
 // filtrage est fait par le serveur** : les entrées arrivent dans la prop partagée
@@ -61,8 +74,14 @@ vi.mock('@inertiajs/vue3', () => ({
   Link: { props: ['href'], template: '<a :href="href"><slot /></a>' },
 }))
 
-function monter(url: string, user: unknown = ADMIN, destinations: unknown = DESTINATIONS) {
+function monter(
+  url: string,
+  user: unknown = ADMIN,
+  destinations: unknown = DESTINATIONS,
+  component = 'core/dashboard/home'
+) {
   mockedPage.url = url
+  mockedPage.component = component
   mockedPage.props = {
     nav: NAV,
     user,
@@ -74,7 +93,12 @@ function monter(url: string, user: unknown = ADMIN, destinations: unknown = DEST
   return mount(AppLayout, {
     global: {
       plugins: [
-        createI18n({ legacy: false, locale: 'fr', fallbackLocale: 'fr', messages: { fr } }),
+        createI18n({
+          legacy: false,
+          locale: 'fr',
+          fallbackLocale: 'fr',
+          messages: { fr: { ...fr, leitner: leitnerFr, veille: veilleFr } },
+        }),
       ],
     },
     attachTo: document.body,
@@ -96,6 +120,23 @@ async function ouvrirPalette(wrapper: ReturnType<typeof monter>) {
 // C'est cette liste plate que ↑↓ parcourent, et dont on lit le surlignage `bg-accent-soft`.
 function liensPalette(wrapper: ReturnType<typeof monter>) {
   return wrapper.get('.z-50').findAll('a')
+}
+
+/**
+ * Le fil d'Ariane de la topbar, **découpé sur ses séparateurs** (CC-110).
+ *
+ * ⚠️ On compare la liste des segments et non la présence d'un libellé : chercher « Cartes » passerait
+ * aussi bien si le module avait disparu du fil, ou s'il y figurait deux fois. C'est le **nombre** de
+ * segments qui porte le comportement. (`text()` colle les nœuds sans espace : le découpage se fait
+ * sur le `/`, pas sur la mise en forme.)
+ */
+function filDAriane(wrapper: ReturnType<typeof monter>): string[] {
+  return wrapper
+    .get('header')
+    .text()
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment !== '')
 }
 
 describe('Core / AppLayout', () => {
@@ -286,19 +327,99 @@ describe('Core / AppLayout', () => {
     remove.mockRestore()
   })
 
-  test('le titre de page suit l’entrée de navigation active', () => {
-    const revision = monter('/revision')
+  test('le titre de page nomme l’écran, pas seulement le module', () => {
+    // Sur la racine d'un module, le libellé de la destination reste le titre : rien à ajouter.
+    const revision = monter('/revision', ADMIN, DESTINATIONS, 'modules/leitner/index')
     expect(revision.get('h1').text()).toBe(fr.nav.revision)
     revision.unmount()
 
-    // ⚠️ `startsWith` : une sous-page du module reste sur la même entrée.
-    const stats = monter('/revision/stats')
-    expect(stats.get('h1').text()).toBe(fr.nav.revision)
+    /**
+     * ⚠️ **Ce test assertait l'inverse jusqu'à CC-110, et il figeait le défaut.** `isActive` fait un
+     * `startsWith`, donc les cinq écrans de `/revision` retombaient sur la même destination et
+     * portaient tous « Révision » en `<h1>` — le seul de la page, aucune de ces vues n'ayant de
+     * titre propre. Un test qui asserte l'état bogué le rend incorrigible sans rougir ; celui-ci
+     * change de sens avec l'intention.
+     */
+    const stats = monter('/revision/stats', ADMIN, DESTINATIONS, 'modules/leitner/stats')
+    expect(stats.get('h1').text()).toBe(leitnerFr.stats.title)
     stats.unmount()
 
     const accueil = monter('/')
     expect(accueil.get('h1').text()).toBe(fr.nav.accueil)
     accueil.unmount()
+  })
+
+  /**
+   * ⚠️ **Le test du lot** : le fil compte trois segments, et le module y est devenu cliquable.
+   * L'assertion porte sur la **liste des libellés**, pas sur la présence de « Cartes » — chercher
+   * le seul dernier segment passerait aussi bien si le module avait disparu du fil.
+   */
+  test('une sous-page ajoute son segment, et rend le module cliquable (CC-110)', () => {
+    const cartes = monter('/revision/settings', ADMIN, DESTINATIONS, 'modules/leitner/settings')
+
+    expect(filDAriane(cartes)).toEqual([fr.nav.accueil, fr.nav.revision, leitnerFr.settings.crumb])
+    // « Accueil » mène à la racine du compte, « Révision » à celle du module.
+    expect(
+      cartes
+        .get('header')
+        .findAll('a')
+        .map((a) => a.attributes('href'))
+    ).toEqual(['/', '/revision'])
+    cartes.unmount()
+
+    // Le pendant : sur la racine du module, deux segments et un seul lien.
+    const racine = monter('/revision', ADMIN, DESTINATIONS, 'modules/leitner/index')
+    expect(filDAriane(racine)).toEqual([fr.nav.accueil, fr.nav.revision])
+    expect(racine.get('header').findAll('a')).toHaveLength(1)
+    racine.unmount()
+  })
+
+  /**
+   * ⚠️ **Le repli est le point sensible** : un `t()` sans clé rend son **chemin en texte brut**,
+   * donc `agents.detail.crumb` s'afficherait tel quel dans la topbar. Deux cas, et il faut les deux
+   * — la première version de ce test n'avait que le second, et ne prouvait rien.
+   *
+   * ⚠️ **`/agents` ne teste PAS ce repli** : c'est la racine de sa destination, donc `crumbPage`
+   * sort avant même de chercher une clé. Il faut une **sous-page**, ici hypothétique : c'est
+   * exactement l'état d'un écran ajouté à un module sans lui poser de libellé, et le seul moyen de
+   * l'atteindre depuis un test.
+   */
+  test('une sous-page sans clé retombe sur le module, jamais sur la clé brute (CC-110)', () => {
+    // Aucune clé : `agents` a une i18n plate (`title` à la racine, pas sous une page).
+    const inconnue = monter('/agents/detail', ADMIN, DESTINATIONS, 'modules/agents/detail')
+    expect(inconnue.get('h1').text()).toBe(fr.nav.agents)
+    expect(inconnue.get('header').text()).not.toContain('agents.detail')
+    expect(filDAriane(inconnue)).toEqual([fr.nav.accueil, fr.nav.agents])
+    inconnue.unmount()
+
+    // `crumb` absent mais `title` présent : le second candidat prend le relais. C'est le cas de
+    // `stats`, dont le titre est déjà assez court pour ne pas mériter d'étiquette dédiée — ce qui
+    // garde ce repli vivant en production plutôt que théorique.
+    const stats = monter('/revision/stats', ADMIN, DESTINATIONS, 'modules/leitner/stats')
+    expect(stats.get('h1').text()).toBe(leitnerFr.stats.title)
+    expect(stats.get('header').text()).not.toContain('leitner.stats')
+    stats.unmount()
+  })
+
+  /**
+   * ⚠️ Une query string ne fait pas un autre écran. Sans le retrait, la page d'accueil de la veille
+   * gagnerait un troisième segment au premier filtre cliqué — et ce segment serait « Veille », donc
+   * « Accueil / Veille / Veille ».
+   */
+  test('un filtre dans l’URL ne crée pas de segment (CC-110)', () => {
+    const filtre = monter(
+      '/veille?tag=rust&unread=true',
+      ADMIN,
+      DESTINATIONS,
+      'modules/veille/index'
+    )
+
+    expect(filDAriane(filtre)).toEqual([fr.nav.accueil, fr.nav.veille])
+    filtre.unmount()
+
+    const sources = monter('/veille/sources', ADMIN, DESTINATIONS, 'modules/veille/sources')
+    expect(filDAriane(sources)).toEqual([fr.nav.accueil, fr.nav.veille, veilleFr.sources.crumb])
+    sources.unmount()
   })
 
   test('le fil d’Ariane ramène à la racine du compte, jamais à « / » en dur', () => {
