@@ -184,11 +184,11 @@ defineProps<{ cards: Cards }>()
           <span class="min-h-[34px] w-[3px] shrink-0 self-stretch rounded-[3px] bg-line-2"></span>
           <div class="flex-1">
             <div class="text-[13.5px] font-semibold">
-              File de lecture — {{ cards.veille.queue }} éléments
+              À lire plus tard — {{ cards.veille.queue }} éléments
             </div>
             <div class="mt-0.5 text-[12px] text-txt-2">Articles mis de côté à lire</div>
           </div>
-          <span class="font-mono text-[11px] text-txt-3">file →</span>
+          <span class="font-mono text-[11px] text-txt-3">à lire →</span>
         </Link>
         <Link href="/veille" class="flex items-center gap-3.5 py-3.5">
           <span class="min-h-[34px] w-[3px] shrink-0 self-stretch rounded-[3px] bg-line-2"></span>
