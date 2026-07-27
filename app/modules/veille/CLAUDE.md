@@ -34,6 +34,7 @@ shared/media_item.ts                     PUR · la logique média d'index.vue
 shared/item_selection.ts                 PUR · la sélection multiple d'index.vue
 shared/source_display.ts                 PUR · le libellé d'une source auto-provisionnée
 shared/item_provenance.ts                PUR, serveur ET page · d'où vient un item
+shared/source_filter.ts                  PUR, serveur ET page · le filtre par source, TROIS états
 ```
 
 ⚠️ **Dix fichiers hors du module** : `start/routes.ts`, `providers/veille_provider.ts` (déclaré
@@ -692,6 +693,21 @@ n'est jamais touché : vider « Image » en plusieurs passes est le geste normal
   deviennent des concaténations.
 - ⚠️ **`readingQueue` se lit en booléen, pas en truthy** : `?readingQueue=false` arrive en `"false"`,
   truthy — le filtre s'activait à la première navigation et ne se désactivait plus. D'où `asBool`.
+- ⚠️ **`sourceId` a TROIS états, et `Number(…) || null` n'en portait que deux** (CC-105). `null`
+  (pas de filtre), un identifiant, et `'none'` — les items détachés, que la barre latérale
+  n'atteignait par aucun clic. La forme d'origine échouait **en silence** : `Number('none')` vaut
+  `NaN`, donc `NaN || null` vaut `null`, donc aucun filtre — la liste ne changeait pas, rien
+  n'était levé, et l'écran était indiscernable d'un filtre qui ne trouve rien. D'où
+  `parseSourceFilter`.
+  - ⚠️ **La sentinelle est une chaîne, jamais `0`.** `applyFilters` retire de l'URL tout ce qui
+    vaut `null`, `false` ou `''` : un `0` serait retiré de la query string **et** annulé par le
+    parse. Deux silences, à deux endroits sans rapport l'un avec l'autre.
+  - ⚠️ **Le `if (sourceId)` d'origine ne se complète pas, il se remplace** : `'none'` est truthy,
+    donc il serait parti en `where('veille_source_id', 'none')` sur une colonne `integer`.
+  - ⚠️ **L'entrée « Sans source » n'est PAS sous le `v-if="sources.length > 0"`** du groupe.
+    Le cas où elle compte le plus est celui où il ne reste aucune source — toutes supprimées,
+    leurs items détachés par la FK `ON DELETE SET NULL`. Sous ce `v-if`, le filtre aurait disparu
+    exactement quand il devenait le seul utile. Seule la *liste* des sources reste conditionnée.
 - ⚠️ **L'écran dit « À lire plus tard », le code dit `queue` — l'écart est délibéré** (CC-107). Le
   mot « file » se lisait comme *fichier*, et `+ file` / `− file` en mono gris ne ressemblait pas à un
   bouton. Seuls les **libellés** ont changé : la colonne reste `reading_queue`, le paramètre d'URL
