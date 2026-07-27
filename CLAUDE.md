@@ -120,6 +120,14 @@ en place (`updateOrCreate`) : c'est l'outil de rotation, et le seul.
 ⚠️ **La variable ne sert qu'au seed — retire la ligne ensuite.** Rien d'autre ne la lit ; la garder
 laisse un secret en clair sur la machine sans rien apporter.
 
+**Une rotation ne touche aucun contenu, et ça se maintient** (CC-106). Puisque c'est le seul geste
+pour changer ce mot de passe, tout seeder enregistré dans `config/database.ts` s'exécute à chaque
+rotation — celui de veille replantait ainsi 7 faux articles dans la veille réelle, comptés dans les
+indicateurs de l'écran. Le fichier ne déclare donc plus que ce qu'aucun écran ne permet de saisir ;
+`tests/unit/db_seeders.spec.ts` asserte cette liste. ⚠️ Il asserte la liste **déclarée**, pas
+l'effet : aucun runner n'exécute `db:seed` de bout en bout, un seeder qui écrirait du contenu depuis
+un path légitime passerait au vert.
+
 ## Architecture — feature-based
 
 Chaque feature est une tranche verticale complète. Les dossiers AdonisJS par défaut
