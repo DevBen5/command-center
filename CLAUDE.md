@@ -280,6 +280,31 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
    ⚠️ **L'ordre de `start/navigation.ts` est l'ordre de la barre ET la page d'accueil des comptes.**
    Déplacer une ligne change l'écran d'arrivée ; c'est le seul endroit où ça se décide.
 
+   ⚠️ **Le dernier segment du fil nomme l'ÉCRAN, et il se dérive — il ne se déclare nulle part**
+   (CC-110). `AppLayout` lit `page.component` (`modules/leitner/stats`) et cherche
+   `leitner.stats.crumb`, puis `leitner.stats.title` en repli : **les clés i18n de premier niveau
+   d'un module portent le nom du fichier de page**, c'est le même invariant que le point 3 ci-dessus,
+   lu dans l'autre sens. Une table `chemin → libellé` dans le châssis casserait la règle « il
+   connaît la liste des modules, jamais celle des écrans » et vieillirait en silence à chaque page
+   ajoutée. Ajouter un écran nommé dans le fil = ajouter sa clé dans le `i18n/` de **son** module,
+   rien d'autre.
+
+   - `crumb` **et** `title` parce que ce sont deux besoins : `title` remplit le `<title>` de
+     l'onglet, où « Configuration du LLM » est juste ; un fil d'Ariane veut « Configuration ». Un
+     écran au titre déjà court ne pose que `title` — c'est le cas de `stats`, et c'est ce qui garde
+     le repli vivant plutôt que théorique.
+   - ⚠️ **Clé absente → aucun segment, jamais la clé.** Un `t()` sans clé rend son chemin en texte
+     brut : `agents.detail.crumb` s'afficherait dans la topbar. La garde est un `te()`, et
+     `app_layout.spec.ts` la tient sur **deux** cas — aucune clé du tout, et `crumb` absent mais
+     `title` présent. ⚠️ Tester ce repli depuis la **racine** d'un module ne prouve rien : on y sort
+     avant même de chercher une clé. Il faut une sous-page.
+   - ⚠️ **`ingest_show.vue` → `leitner.ingestShow`** : les fichiers de page sont en snake_case, les
+     clés en camelCase. Tant qu'un nom tient en un mot les deux coïncident et on peut croire qu'il
+     n'y a pas de règle.
+   - La logique vit dans `inertia/layouts/breadcrumb.ts`, **pure**, testée par Vitest — même raison
+     que `inertia/i18n/messages.ts` : ce qui reste dans un `<script setup>` n'est atteignable par
+     aucun exécuteur.
+
    ⚠️ **Un module oublié va vers le refus, mais en mentant** : son entrée disparaît de la barre, et
    un compte qui n'aurait de droits que sur lui atterrit sur « aucun accès » alors qu'il en a.
    `tests/functional/core/navigation_registry.spec.ts` asserte la liste attendue, croise chaque
