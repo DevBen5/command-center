@@ -19,6 +19,8 @@ export type MediaItemView = {
   id: number
   type: ItemType
   immichAssetId: string | null
+  /** Nul pour un média Immich, l'URL canonique `watch?v=…` pour une vidéo YouTube (CC-87). */
+  url: string | null
   metadata: Record<string, unknown> | null
 }
 
@@ -54,6 +56,23 @@ export function thumbnailHref(itemId: number): string {
 export function immichHref(webBaseUrl: string | null, assetId: string | null): string | null {
   if (!webBaseUrl || !assetId) return null
   return `${webBaseUrl}/photos/${assetId}`
+}
+
+/**
+ * Le lien qui ouvre un média — Immich s'il en vient, son URL sinon (CC-88).
+ *
+ * ⚠️ **Sans ce repli, une vidéo YouTube n'a aucun lien cliquable.** `isMediaItem` répond vrai
+ * pour un `type: 'video'` quelle que soit sa provenance, et la page demandait jusqu'ici un lien
+ * Immich — donc `null` pour tout ce qui vient d'ailleurs, puisque l'`immichAssetId` est tiré d'un
+ * `dedup_key` préfixé `immich:`. La vignette s'affichait, et rien ne s'ouvrait au clic.
+ *
+ * ⚠️ **L'ordre compte, et il ne s'inverse pas.** Immich d'abord : ses items ont une `url` nulle
+ * par conception (le lien se construit à l'affichage, voir `immichHref`), donc le repli ne peut
+ * pas leur voler leur lien. Un item YouTube, lui, n'a pas d'`immichAssetId` — chacun tombe dans sa
+ * branche sans que l'autre ait à le savoir.
+ */
+export function mediaHref(webBaseUrl: string | null, item: MediaItemView): string | null {
+  return immichHref(webBaseUrl, item.immichAssetId) ?? item.url
 }
 
 /**

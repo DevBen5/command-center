@@ -3,9 +3,11 @@ import app from '@adonisjs/core/services/app'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { DateTime } from 'luxon'
 import type { YoutubeConfig } from '#config/youtube'
+import { createUserWith } from '#tests/helpers/users'
 import VeilleItem from '#modules/veille/models/veille_item'
 import VeilleSource from '#modules/veille/models/veille_source'
 import FeedFetcher from '#modules/veille/services/feed_fetcher'
+import ImmichClient from '#modules/veille/services/immich_client'
 import YoutubeClient, { YoutubeUnavailableError } from '#modules/veille/services/youtube_client'
 import YoutubeCollector from '#modules/veille/services/youtube_collector'
 import VeilleCollectorService from '#modules/veille/services/veille_collector_service'
@@ -31,6 +33,7 @@ test.group('Veille / collecte YouTube', (group) => {
   // ⚠️ Déclarés avant les tests : un swap qui fuite contaminerait les groupes suivants.
   group.each.teardown(() => app.container.restore(YoutubeClient))
   group.each.teardown(() => app.container.restore(FeedFetcher))
+  group.each.teardown(() => app.container.restore(ImmichClient))
 
   const ID_A = 'aaaaaaaaaaa'
   const ID_B = 'bbbbbbbbbbb'
@@ -290,5 +293,98 @@ test.group('Veille / collecte YouTube', (group) => {
     const persisted = await VeilleSource.query().where('kind', 'youtube').firstOrFail()
 
     assert.isTrue(persisted.isDue(), 'une source neuve doit collecter tout de suite')
+  })
+
+  /**
+   * CC-88 — le proxy de vignette, généralisé.
+   *
+   * ⚠️ **L'aiguillage se fait sur le préfixe de `dedup_key`, pas sur `type`.** `video` vaut pour
+   * les deux provenances : router dessus enverrait une vidéo YouTube au client Immich, qui
+   * chercherait un UUID dans une clé qui n'en porte pas.
+   */
+  test('le proxy sert la vignette d’une vidéo YouTube', async ({ client, assert }) => {
+    const fake = fakeClient([video(ID_A)])
+    const collector = await app.container.make(VeilleCollectorService)
+    await collector.collectSource(await source())
+
+    const item = await VeilleItem.query().where('dedup_key', youtubeDedupKey(ID_A)).firstOrFail()
+    const response = await client
+      .get(`/veille/items/${item.id}/thumbnail`)
+      .loginAs(await createUserWith(['veille.view']))
+
+    response.assertStatus(200)
+    assert.equal(response.header('content-type'), 'image/jpeg')
+    // ⚠️ Contenu servi derrière `veille.view` : sans `private`, un mandataire partagé pourrait le
+    // servir à quelqu'un d'autre. Vrai même pour YouTube — la miniature est publique, la route non.
+    assert.include(response.header('cache-control')!, 'private')
+    // L'identifiant demandé au CDN vient de NOTRE base, jamais de l'URL appelée.
+    assert.deepEqual(fake.thumbnailed, [ID_A])
+  })
+
+  /**
+   * ⚠️ Le pendant du test précédent : un item Immich ne doit pas partir chez YouTube. Sans cette
+   * assertion, un aiguillage inversé passerait les deux tests d'affichage en échouant en silence
+   * sur la moitié des items.
+   */
+  test('le proxy n’envoie pas un item Immich au client YouTube', async ({ client, assert }) => {
+    const fake = fakeClient([])
+
+    /**
+     * ⚠️ **Le client Immich est explicitement désactivé, et ce n'est pas une précaution
+     * superflue.** `.env.test` vide bien `IMMICH_BASE_URL` et consorts, mais **cela ne suffit
+     * pas** : le chargeur d'environnement ne laisse pas une valeur vide masquer celle de `.env`,
+     * et `immichConfig.enabled` vaut donc `true` pendant les tests sur un poste dont le `.env`
+     * porte une vraie instance. **Mesuré, pas supposé.** Le même contournement existe déjà dans
+     * `veille_deletion.spec.ts:337`. Sans lui, ce test irait chercher une vraie vignette sur la
+     * vraie instance.
+     */
+    app.container.swap(
+      ImmichClient,
+      () =>
+        new ImmichClient({
+          baseUrl: 'https://immich.test',
+          apiKey: '',
+          albumId: '',
+          timeoutMs: 5_000,
+          enabled: false,
+        })
+    )
+
+    const item = await VeilleItem.create({
+      type: 'image',
+      title: 'a.jpg',
+      dedupKey: 'immich:219187d7-5320-498f-9c59-47a03bbdb491',
+      tags: [],
+      metadata: {},
+    })
+
+    const response = await client
+      .get(`/veille/items/${item.id}/thumbnail`)
+      .loginAs(await createUserWith(['veille.view']))
+
+    // Le client désactivé refuse avant de construire une URL, d'où le 404. Ce qui compte ici,
+    // c'est que le client YouTube n'ait **rien** reçu : l'aiguillage lit le préfixe de
+    // `dedup_key`, pas le `type`, qui vaut `image`/`video` des deux côtés.
+    response.assertStatus(404)
+    assert.lengthOf(fake.thumbnailed, 0, 'un item Immich est parti chez le client YouTube')
+  })
+
+  test('la clé d’API ne repart jamais vers le client', async ({ client, assert }) => {
+    fakeClient([video(ID_A)])
+    const collector = await app.container.make(VeilleCollectorService)
+    await collector.collectSource(await source())
+
+    const item = await VeilleItem.query().where('dedup_key', youtubeDedupKey(ID_A)).firstOrFail()
+    const response = await client
+      .get(`/veille/items/${item.id}/thumbnail`)
+      .loginAs(await createUserWith(['veille.view']))
+
+    // Le corps est binaire : `response.text()` est `undefined` sur une image. On repasse par les
+    // octets bruts, faute de quoi l'assertion porterait sur rien et passerait toujours.
+    const body = response.body()
+    const raw = Buffer.isBuffer(body) ? body.toString('utf8') : String(body ?? '')
+
+    assert.notInclude(raw, 'clé-de-test')
+    assert.notInclude(JSON.stringify(response.headers()), 'clé-de-test')
   })
 })

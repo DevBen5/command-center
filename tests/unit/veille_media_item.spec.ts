@@ -4,7 +4,9 @@ import {
   durationSecondsOf,
   immichHref,
   isMediaItem,
+  mediaHref,
   thumbnailHref,
+  type MediaItemView,
 } from '#modules/veille/shared/media_item'
 
 /**
@@ -42,6 +44,63 @@ test.group('Veille / logique média de la page', () => {
     assert.isNull(immichHref(null, '219187d7-5320-498f-9c59-47a03bbdb491'))
     assert.isNull(immichHref('https://immich.exemple.fr', null))
     assert.isNull(immichHref(null, null))
+  })
+
+  /**
+   * CC-88 — le repli de lien. `isMediaItem` répond vrai pour un `type: 'video'` **quelle que soit
+   * sa provenance**, et la page demandait jusqu'ici un lien Immich : une vidéo YouTube affichait
+   * donc sa vignette et n'ouvrait rien au clic.
+   */
+  test('ouvre un média YouTube sur son URL, faute de lien Immich', ({ assert }) => {
+    const item: MediaItemView = {
+      id: 7,
+      type: 'video',
+      immichAssetId: null,
+      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      metadata: null,
+    }
+
+    assert.equal(
+      mediaHref('https://immich.exemple.fr', item),
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+    )
+    // Immich non configuré ne change rien : ce n'est pas de lui que vient cet item.
+    assert.equal(mediaHref(null, item), 'https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+  })
+
+  /**
+   * ⚠️ **L'ordre ne s'inverse pas.** Immich d'abord : ses items ont une `url` nulle par
+   * conception, donc le repli ne peut pas leur voler leur lien — mais si la priorité était
+   * inversée, un item Immich qui aurait une `url` pour une raison quelconque cesserait d'ouvrir
+   * Immich, en silence.
+   */
+  test('garde le lien Immich pour un asset Immich', ({ assert }) => {
+    const item: MediaItemView = {
+      id: 8,
+      type: 'image',
+      immichAssetId: '219187d7-5320-498f-9c59-47a03bbdb491',
+      url: null,
+      metadata: null,
+    }
+
+    assert.equal(
+      mediaHref('https://immich.exemple.fr', item),
+      'https://immich.exemple.fr/photos/219187d7-5320-498f-9c59-47a03bbdb491'
+    )
+  })
+
+  test('ne fabrique aucun lien quand il n’y a ni asset ni URL', ({ assert }) => {
+    // Immich éteint sur un item Immich : la page retombe sur un titre non cliquable, pas sur un
+    // lien mort qui a l'air d'un lien.
+    assert.isNull(
+      mediaHref(null, {
+        id: 9,
+        type: 'image',
+        immichAssetId: '219187d7-5320-498f-9c59-47a03bbdb491',
+        url: null,
+        metadata: null,
+      })
+    )
   })
 
   test('formate une durée comme un lecteur vidéo', ({ assert }) => {

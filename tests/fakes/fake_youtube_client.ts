@@ -1,4 +1,7 @@
-import YoutubeClient from '#modules/veille/services/youtube_client'
+import YoutubeClient, {
+  YoutubeUnavailableError,
+  type YoutubeThumbnail,
+} from '#modules/veille/services/youtube_client'
 import type { YoutubeVideo } from '#modules/veille/services/youtube_asset'
 
 /** Ce que la playlist rend : une liste de vidéos, ou une erreur à lever. */
@@ -19,6 +22,9 @@ export default class FakeYoutubeClient extends YoutubeClient {
   /** Le nombre d'appels à la playlist : de quoi vérifier qu'une seconde passe interroge bien. */
   passes = 0
 
+  /** Les identifiants dont la vignette a été demandée, dans l'ordre (CC-88). */
+  readonly thumbnailed: string[] = []
+
   constructor(private playlist: PlaylistScript) {
     super()
   }
@@ -35,5 +41,19 @@ export default class FakeYoutubeClient extends YoutubeClient {
     if (typeof this.playlist === 'function') return this.playlist()
 
     return this.playlist
+  }
+
+  async thumbnail(videoId: string): Promise<YoutubeThumbnail> {
+    this.thumbnailed.push(videoId)
+
+    // Une vidéo absente du script est une vignette introuvable — pas une image vide qui
+    // ressemblerait à un succès, comme chez le faux client Immich.
+    const known =
+      Array.isArray(this.playlist) && this.playlist.some((video) => video.videoId === videoId)
+    if (!known) {
+      throw new YoutubeUnavailableError(`Aucune vignette scriptée pour ${videoId}.`)
+    }
+
+    return { bytes: Buffer.from('faux-jpeg'), contentType: 'image/jpeg' }
   }
 }
