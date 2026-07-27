@@ -1,5 +1,6 @@
 {
   "ingest": {
+    "crumb": "Ingestion",
     "title": "Ingestion d'un cours",
     "intro": "Un LLM local en extrait les grands principes. Il {emphasis} des cartes : rien n'entre en base sans ta relecture.",
     "introEmphasis": "propose",
@@ -45,6 +46,7 @@
     }
   },
   "llm": {
+    "crumb": "Configuration",
     "title": "Configuration du LLM",
     "subtitle": "Le fil rouge, de bout en bout : un serveur répond, un modèle est chargé, il rend du JSON — et voilà le bloc à coller dans {env}.",
     "working": "Le modèle travaille…",
@@ -92,6 +94,7 @@
     }
   },
   "ingestShow": {
+    "title": "Détail de l'ingestion",
     "defaultTitle": "Ingestion",
     "back": "← Ingestion",
     "delete": "Supprimer",
@@ -238,6 +241,7 @@
     "boxesTitle": "Boîtes Leitner"
   },
   "settings": {
+    "crumb": "Cartes",
     "title": "Gestion des cartes",
     "shownSingular": "{shown} affichée sur {total}",
     "shownPlural": "{shown} affichées sur {total}",

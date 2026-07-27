@@ -5,6 +5,7 @@ import { Link, router, usePage } from '@inertiajs/vue3'
 import { useI18n } from 'vue-i18n'
 // Icônes importées nommément : le barrel entier casserait le tree-shaking.
 import { Bot, Box, Layers, LayoutDashboard, Rss, Search, Server, Users } from 'lucide-vue-next'
+import { crumbKeys, isDestinationRoot } from './breadcrumb'
 
 interface NavStats {
   services: { total: number; down: number } | null
@@ -27,7 +28,7 @@ interface SharedDestination {
   href: string
 }
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const page = usePage()
 // `nav` vaut null sur les pages non authentifiées (login, erreur) : aucune stat n'y est chargée.
 const nav = computed(() => page.props.nav as NavStats | null)
@@ -126,7 +127,39 @@ function isActive(href: string): boolean {
 /** L'entrée de barre latérale qui correspond à la page ouverte — `null` hors authentification. */
 const activeDestination = computed(() => navItems.value.find((i) => isActive(i.href)) ?? null)
 
-const pageTitle = computed(() => t(`nav.${activeDestination.value?.key ?? 'accueil'}`))
+/**
+ * Le libellé de l'**écran** ouvert — `null` sur la racine d'un module, et sur tout écran dont le
+ * module n'a pas posé de clé (CC-110).
+ *
+ * ⚠️ **Un repli sur `null`, jamais sur la clé.** Un `t()` sans clé correspondante rend son chemin en
+ * texte brut : `leitner.ingestShow.crumb` s'afficherait dans la topbar. Ici l'absence ramène au
+ * comportement d'avant ce lot — le fil s'arrête au module — ce qui est discret mais correct. Les
+ * modules à i18n *plate* (`agents`, `services`, dont le `title` est à la racine du fichier et non
+ * sous `index`) passent tous par ce chemin, et ils n'ont de toute façon qu'un seul écran.
+ */
+const crumbPage = computed(() => {
+  const active = activeDestination.value
+  if (!active || isDestinationRoot(page.url, active.href)) return null
+
+  const key = crumbKeys(page.component).find((candidate) => te(candidate))
+  return key === undefined ? null : t(key)
+})
+
+/**
+ * Le segment **intermédiaire** : le module, devenu cliquable, et rendu seulement quand un écran le
+ * suit. Sur la racine d'un module, le libellé reste dans le `<h1>` plutôt que d'être répété.
+ */
+const crumbSection = computed(() => (crumbPage.value === null ? null : activeDestination.value))
+
+/**
+ * ⚠️ **Le `<h1>` nomme l'écran, pas le module.** Avant CC-110 il portait le libellé de la
+ * destination sur *toutes* ses sous-pages : les cinq écrans de `/revision` avaient « Révision » pour
+ * unique titre de premier niveau. Ce n'était pas qu'un défaut de repérage — aucune de ces pages ne
+ * rend son propre `<h1>`, donc c'était le seul de la page.
+ */
+const pageTitle = computed(
+  () => crumbPage.value ?? t(`nav.${activeDestination.value?.key ?? 'accueil'}`)
+)
 
 /**
  * La racine du fil d'Ariane : **`destinations[0]`**, la première destination que ce compte peut
@@ -425,6 +458,16 @@ function switchLocale(next: string): void {
             :href="crumbRoot.href"
             class="text-[13px] text-txt-3 transition hover:text-txt"
             >{{ t(`nav.${crumbRoot.key}`) }}</Link
+          >
+          <span class="text-[13px] text-txt-3" aria-hidden="true">/</span>
+        </template>
+        <!-- Le module, cliquable, seulement quand un écran le suit (CC-110). Sur sa propre racine
+             il reste dans le `<h1>` : « Révision / Révision » ne dirait rien de plus. -->
+        <template v-if="crumbSection">
+          <Link
+            :href="crumbSection.href"
+            class="text-[13px] text-txt-3 transition hover:text-txt"
+            >{{ t(`nav.${crumbSection.key}`) }}</Link
           >
           <span class="text-[13px] text-txt-3" aria-hidden="true">/</span>
         </template>
