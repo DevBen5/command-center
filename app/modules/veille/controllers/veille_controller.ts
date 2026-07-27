@@ -8,6 +8,7 @@ import VeilleDeletionService from '#modules/veille/services/veille_deletion_serv
 import VeilleStatsService from '#modules/veille/services/veille_stats_service'
 import { assetIdFromDedupKey } from '#modules/veille/services/immich_asset'
 import { itemProvenance } from '#modules/veille/shared/item_provenance'
+import { NO_SOURCE, parseSourceFilter } from '#modules/veille/shared/source_filter'
 import { captureValidator, itemIdsValidator } from '#modules/veille/validators/veille'
 
 /** Combien d'items par page. Au-delà, la page devient lourde à afficher autant qu'à parcourir. */
@@ -33,7 +34,9 @@ export default class VeilleController {
     const type = request.input('type')
     const tag = request.input('tag')
     const search = request.input('search')
-    const sourceId = Number(request.input('sourceId')) || null
+    // ⚠️ Trois états (CC-105), d'où un parse nommé : `Number(…) || null` ne peut pas en porter
+    // un troisième, et faisait retomber `?sourceId=none` sur « aucun filtre » — en silence.
+    const sourceId = parseSourceFilter(request.input('sourceId'))
     const readingQueue = asBool(request.input('readingQueue'))
     const unread = asBool(request.input('unread'))
     const page = Math.max(1, Number(request.input('page')) || 1)
@@ -54,7 +57,13 @@ export default class VeilleController {
     // `tags` est un `text[]` Postgres : le binding `?` reste paramétré, jamais concaténé.
     if (tag) query.whereRaw('? = ANY(tags)', [tag])
     if (search) query.whereRaw("search_vector @@ plainto_tsquery('french', ?)", [search])
-    if (sourceId) query.where('veille_source_id', sourceId)
+    /**
+     * ⚠️ **Trois branches, et le `if (sourceId)` d'origine ne pouvait pas les porter.** La
+     * sentinelle est une chaîne, donc truthy : laissée à l'ancienne forme, elle serait partie en
+     * `where('veille_source_id', 'none')` sur une colonne `integer`.
+     */
+    if (sourceId === NO_SOURCE) query.whereNull('veille_source_id')
+    else if (sourceId !== null) query.where('veille_source_id', sourceId)
     if (readingQueue) query.where('reading_queue', true)
     if (unread) query.whereNull('read_at')
 

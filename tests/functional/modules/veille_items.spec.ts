@@ -205,6 +205,84 @@ test.group('Veille / liste, filtres et recherche', (group) => {
   })
 
   /**
+   * CC-105 — le filtre « Sans source », de bout en bout.
+   *
+   * ⚠️ **Le mode d'échec ici est « le filtre ne filtre rien », qui ressemble beaucoup à « il n'y
+   * a rien à filtrer ».** Un test qui n'asserterait que la présence de l'orphelin passerait aussi
+   * bien si le filtre était ignoré — c'est exactement ce que faisait `Number('none') || null`.
+   * D'où les deux assertions : celui qui doit être là, et celui qui ne doit PAS y être.
+   */
+  test('le filtre « Sans source » ne rend que les détachés', async ({ assert, client }) => {
+    const user = await login()
+    const feed = await VeilleSource.create({
+      kind: 'rss',
+      url: 'https://a.dev/feed',
+      title: 'Source',
+      fetchIntervalMinutes: 60,
+      active: true,
+    })
+    await item({ title: 'Rattaché', veilleSourceId: feed.id, dedupKey: 'url:https://a.dev/1' })
+    await item({ title: 'Détaché', dedupKey: 'url:https://b.dev/2' })
+
+    const props = await itemsOf(client, user, { sourceId: 'none' })
+
+    const titres = props.items.map((i) => i.title)
+    assert.include(titres, 'Détaché')
+    assert.notInclude(titres, 'Rattaché')
+  })
+
+  /**
+   * ⚠️ **`0` n'est pas la sentinelle**, et ce test dit pourquoi la sentinelle est une chaîne :
+   * `Number('0') || null` valait `null`, donc `?sourceId=0` ne filtrait rien. Le comportement
+   * attendu est celui-là — une valeur qui n'est ni un identifiant ni la sentinelle rend la liste
+   * complète, elle ne lève pas et ne vide pas l'écran.
+   */
+  test('une valeur de source inexploitable rend la liste complète', async ({ assert, client }) => {
+    const user = await login()
+    await item({ title: 'Un' })
+    await item({ title: 'Deux' })
+
+    const zero = await itemsOf(client, user, { sourceId: '0' })
+    const nimporteQuoi = await itemsOf(client, user, { sourceId: 'nawak' })
+
+    assert.lengthOf(zero.items, 2)
+    assert.lengthOf(nimporteQuoi.items, 2)
+  })
+
+  /**
+   * ⚠️ **La sentinelle doit traverser la pagination.** `applyFilters` et `goToPage` retirent de
+   * l'URL tout ce qui vaut `null`, `false` ou `''` : `'none'` y survit, `0` non. Sans ce test,
+   * la page 2 d'un filtre « Sans source » rendrait tout le flux — et la page 1 aurait l'air
+   * correcte.
+   */
+  test('le filtre « Sans source » survit à la pagination', async ({ assert, client }) => {
+    const user = await login()
+    const feed = await VeilleSource.create({
+      kind: 'rss',
+      url: 'https://a.dev/feed',
+      title: 'Source',
+      fetchIntervalMinutes: 60,
+      active: true,
+    })
+    for (let index = 0; index < 60; index++) {
+      await item({
+        title: `Détaché ${index}`,
+        dedupKey: `url:https://b.dev/${index}`,
+        publishedAt: DateTime.now().minus({ minutes: index }),
+      })
+    }
+    await item({ title: 'Rattaché', veilleSourceId: feed.id, dedupKey: 'url:https://a.dev/1' })
+
+    const page2 = await itemsOf(client, user, { sourceId: 'none', page: 2 })
+
+    assert.equal(page2.pagination.total, 60)
+    assert.notInclude(
+      page2.items.map((i) => i.title),
+      'Rattaché'
+    )
+  })
+
+  /**
    * CC-104 — la pastille de provenance, **de bout en bout**.
    *
    * `tests/unit/veille_item_provenance.spec.ts` prouve la dérivation ; celui-ci prouve qu'elle

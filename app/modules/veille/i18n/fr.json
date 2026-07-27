@@ -26,6 +26,7 @@
       "unreadOnly": "Non lus seulement",
       "readingQueue": "À lire plus tard",
       "sourcesTitle": "Sources",
+      "noSource": "Sans source",
       "tags": "Tags"
     },
     "feed": {

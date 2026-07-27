@@ -23,6 +23,9 @@ import {
 // ici. La page reçoit une décision déjà prise et ne fait que la traduire et la colorer — c'est
 // ce qui lui évite de connaître `dedupKey`, dont elle n'a par ailleurs aucun usage.
 import type { ItemProvenance, SourceKind } from '../shared/item_provenance.js'
+// La sentinelle est importée, jamais réécrite : `'none'` défini des deux côtés ferait diverger
+// ce qui est cliqué de ce qui est filtré, et la divergence serait muette (CC-105).
+import { NO_SOURCE, type SourceFilter } from '../shared/source_filter.js'
 
 defineOptions({ layout: AppLayout })
 
@@ -68,7 +71,8 @@ interface Filters {
   readingQueue: boolean
   unread: boolean
   search: string | null
-  sourceId: number | null
+  /** `number` = une source · `'none'` = celles qui n'en ont plus · `null` = pas de filtre. */
+  sourceId: SourceFilter
 }
 
 interface Stats {
@@ -382,27 +386,42 @@ function submitCapture(): void {
         </button>
       </div>
 
-      <template v-if="sources.length > 0">
-        <div class="border-t border-line p-4 text-[12px] font-semibold">
-          {{ t('veille.index.filters.sourcesTitle') }}
-        </div>
-        <div class="flex flex-col gap-1 p-2">
-          <button
-            v-for="source in sources"
-            :key="source.id"
-            type="button"
-            class="truncate rounded-md px-2.5 py-1.5 text-left text-[12px]"
-            :class="
-              filters.sourceId === source.id
-                ? 'font-semibold text-txt'
-                : 'text-txt-2 hover:bg-panel-2'
-            "
-            @click="applyFilters({ sourceId: filters.sourceId === source.id ? null : source.id })"
-          >
-            {{ source.title }}
-          </button>
-        </div>
-      </template>
+      <!-- ⚠️ **Le groupe n'est PLUS conditionné à `sources.length > 0`** (CC-105). Le cas où
+           « Sans source » compte le plus est précisément celui où il ne reste aucune source :
+           toutes supprimées, leurs items détachés par la FK `ON DELETE SET NULL`, et plus rien à
+           l'écran pour les atteindre. Sous l'ancien `v-if`, le filtre aurait disparu exactement
+           quand il devenait le seul utile. Seule la LISTE des sources reste conditionnée. -->
+      <div class="border-t border-line p-4 text-[12px] font-semibold">
+        {{ t('veille.index.filters.sourcesTitle') }}
+      </div>
+      <div class="flex flex-col gap-1 p-2">
+        <button
+          v-for="source in sources"
+          :key="source.id"
+          type="button"
+          class="truncate rounded-md px-2.5 py-1.5 text-left text-[12px]"
+          :class="
+            filters.sourceId === source.id
+              ? 'font-semibold text-txt'
+              : 'text-txt-2 hover:bg-panel-2'
+          "
+          @click="applyFilters({ sourceId: filters.sourceId === source.id ? null : source.id })"
+        >
+          {{ source.title }}
+        </button>
+        <button
+          type="button"
+          class="truncate rounded-md px-2.5 py-1.5 text-left text-[12px]"
+          :class="
+            filters.sourceId === NO_SOURCE
+              ? 'font-semibold text-warn'
+              : 'text-txt-2 hover:bg-panel-2'
+          "
+          @click="applyFilters({ sourceId: filters.sourceId === NO_SOURCE ? null : NO_SOURCE })"
+        >
+          {{ t('veille.index.filters.noSource') }}
+        </button>
+      </div>
 
       <div class="border-t border-line p-4 text-[12px] font-semibold">
         {{ t('veille.index.filters.tags') }}
