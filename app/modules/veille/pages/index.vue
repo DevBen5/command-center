@@ -7,8 +7,8 @@ import AppLayout from '~/layouts/AppLayout.vue'
 // build, Vite ne les résout pas et la page casse. Le `.js` bascule sur le `.ts` côté Vite.
 import {
   durationLabel,
-  immichHref,
   isMediaItem,
+  mediaHref,
   thumbnailHref,
   type ItemType,
 } from '../shared/media_item.js'
@@ -27,6 +27,11 @@ interface VeilleItem {
   id: number
   type: ItemType
   veilleSourceId: number | null
+  /**
+   * Nulle pour un média Immich — son lien se construit à l'affichage (voir `immichHref`) — et
+   * renseignée pour une vidéo YouTube, dont l'URL canonique ne bougera pas (CC-87). C'est ce que
+   * `mediaHref` prend en repli.
+   */
   url: string | null
   title: string
   content: string | null
@@ -201,9 +206,9 @@ const isMedia = (item: VeilleItem): boolean => isMediaItem(item.type)
 const thumbnail = (item: VeilleItem): string => thumbnailHref(item.id)
 const duration = (item: VeilleItem): string | null => durationLabel(item.metadata)
 const mediaLink = (item: VeilleItem): string | null =>
-  immichHref(props.immich.webBaseUrl, item.immichAssetId)
+  mediaHref(props.immich.webBaseUrl, item)
 
-/** Le lien à ouvrir : Immich pour un média, l'URL du flux sinon. */
+/** Le lien à ouvrir : le média chez lui (Immich ou YouTube), l'URL du flux sinon. */
 const itemLink = (item: VeilleItem): string | null =>
   isMedia(item) ? mediaLink(item) : item.url
 

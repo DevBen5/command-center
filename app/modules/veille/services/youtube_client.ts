@@ -1,5 +1,6 @@
 import youtubeConfig, { type YoutubeConfig } from '#config/youtube'
 import {
+  isYoutubeVideoId,
   parseDurationSeconds,
   parseVideo,
   type YoutubeVideo,
@@ -8,7 +9,37 @@ import {
 /** YouTube ne répond pas, refuse de répondre, ou répond quelque chose qu'on refuse de lire. */
 export class YoutubeUnavailableError extends Error {}
 
+/** La vignette d'une vidéo, déjà bornée en taille. */
+export type YoutubeThumbnail = {
+  bytes: Buffer
+  contentType: string
+}
+
 const API_BASE = 'https://www.googleapis.com/youtube/v3'
+
+/**
+ * Le CDN des miniatures — **un hôte distinct de l'API, et sans authentification**.
+ *
+ * ⚠️ La clé d'API n'y est jamais envoyée : les miniatures sont publiques, `i.ytimg.com` n'en veut
+ * pas, et la lui donner serait une fuite vers un tiers qui n'en a aucun besoin.
+ */
+const THUMBNAIL_BASE = 'https://i.ytimg.com/vi'
+
+/**
+ * ⚠️ **`mqdefault` n'est pas un choix par défaut, c'est le seul qui tienne les deux contraintes.**
+ *
+ * - `maxresdefault` n'existe **que** sur les vidéos téléversées en HD : le demander rendrait 404
+ *   sur les plus anciennes, donc une image cassée à l'écran sans rien pour l'expliquer.
+ * - `hqdefault` existe toujours, mais il est en **4:3** : YouTube y ajoute des bandes noires sur
+ *   une vidéo 16:9, et l'`object-cover` du gabarit 86×54 les rognerait au hasard.
+ *
+ * `mqdefault` est toujours présent, nativement en 16:9, et ses 320×180 laissent la marge d'un
+ * écran à haute densité pour un affichage de 86×54.
+ */
+const THUMBNAIL_SIZE = 'mqdefault.jpg'
+
+/** Une miniature YouTube pèse ~15 Ko. 5 Mo laisse toute la marge du monde. */
+const MAX_THUMBNAIL_BYTES = 5 * 1024 * 1024
 
 /**
  * ⚠️ **50 est le plafond de l'API, pas un réglage.** `playlistItems.list` et `videos.list`
@@ -180,6 +211,73 @@ export default class YoutubeClient {
     }
   }
 
+  /**
+   * La vignette d'une vidéo, pour le proxy (CC-88).
+   *
+   * ⚠️ **L'URL est DÉRIVÉE de l'identifiant, jamais lue en base.** `metadata.thumbnailUrl` existe
+   * — la collecte y écrit ce que l'API a annoncé — et il serait tentant de le passer ici. Ne le
+   * fais pas : ce serait une valeur **relue en base** promue en cible réseau, ce que la doctrine
+   * du module refuse partout ailleurs (« il n'y a pas de cible à filtrer, il n'y a qu'une cible »).
+   * Une ligne éditée à la main, ou un futur bug d'écriture, ferait sortir le serveur où on veut.
+   * Ici l'hôte est une constante de ce fichier et l'identifiant est validé sur onze caractères
+   * base64url — il n'y a rien à filtrer et rien à croire.
+   *
+   * ⚠️ **Aucune clé dans cette requête.** Elle ne passe pas par `getJson`, et c'est délibéré :
+   * `i.ytimg.com` sert des miniatures publiques, ne demande aucune authentification, et lui
+   * envoyer la clé serait une fuite pure.
+   *
+   * ⚠️ **`config.enabled` ne garde pas cet appel**, contrairement aux appels d'API. Une miniature
+   * ne consomme ni clé ni quota : gater dessus ferait disparaître les vignettes de tous les items
+   * déjà collectés à la seconde où `.env` est vidé, sans que rien ne l'exige.
+   */
+  async thumbnail(videoId: string): Promise<YoutubeThumbnail> {
+    // Défense en profondeur : l'identifiant vient de `dedup_key`, donc d'une valeur que nous avons
+    // écrite, mais il est sur le point d'être interpolé dans un chemin d'URL.
+    if (!isYoutubeVideoId(videoId)) {
+      throw new YoutubeUnavailableError(`Identifiant de vidéo illisible : « ${videoId} ».`)
+    }
+
+    let response: Response
+    try {
+      response = await fetch(`${THUMBNAIL_BASE}/${videoId}/${THUMBNAIL_SIZE}`, {
+        method: 'GET',
+        headers: { 'accept': 'image/*', 'user-agent': USER_AGENT },
+        // Même raisonnement que pour l'API : le défaut d'undici est de suivre 20 sauts sans rien
+        // vérifier, et une miniature n'a aucune redirection légitime.
+        redirect: 'manual',
+        signal: AbortSignal.timeout(this.config.timeoutMs),
+      })
+    } catch {
+      throw new YoutubeUnavailableError(
+        `La miniature de ${videoId} n'a pas été servie en moins de ` +
+          `${this.config.timeoutMs / 1000} s.`
+      )
+    }
+
+    if (!response.ok) {
+      await this.drain(response)
+      throw new YoutubeUnavailableError(
+        `i.ytimg.com a répondu ${response.status} pour la miniature de ${videoId}. ` +
+          'Une vidéo supprimée ou passée en privé rend 404.'
+      )
+    }
+
+    const contentType = response.headers.get('content-type') ?? ''
+    if (!contentType.startsWith('image/')) {
+      await this.drain(response)
+      throw new YoutubeUnavailableError(
+        `i.ytimg.com a rendu « ${contentType || 'aucun type'} » au lieu d'une image pour ` +
+          `${videoId}.`
+      )
+    }
+
+    return {
+      bytes: await this.readBounded(response, MAX_THUMBNAIL_BYTES),
+      // Le type réel du CDN, jamais une valeur devinée : c'est lui qu'on restitue au navigateur.
+      contentType: contentType.split(';')[0].trim(),
+    }
+  }
+
   private async getJson(
     endpoint: 'playlistItems' | 'videos',
     params: Record<string, string>
@@ -314,13 +412,13 @@ export default class YoutubeClient {
   }
 
   /** Lit le corps sans jamais dépasser le plafond — on compte les octets réellement reçus. */
-  private async readBounded(response: Response): Promise<Buffer> {
+  private async readBounded(response: Response, maxBytes = MAX_JSON_BYTES): Promise<Buffer> {
     const declared = Number(response.headers.get('content-length'))
-    if (Number.isFinite(declared) && declared > MAX_JSON_BYTES) {
+    if (Number.isFinite(declared) && declared > maxBytes) {
       await this.drain(response)
       throw new YoutubeUnavailableError(
-        `L'API YouTube annonce ${Math.round(declared / 1024 / 1024)} Mo, au-delà du plafond de ` +
-          `${Math.round(MAX_JSON_BYTES / 1024 / 1024)} Mo : la réponse n'est pas lue.`
+        `La réponse annonce ${Math.round(declared / 1024 / 1024)} Mo, au-delà du plafond de ` +
+          `${Math.round(maxBytes / 1024 / 1024)} Mo : elle n'est pas lue.`
       )
     }
 
@@ -335,11 +433,10 @@ export default class YoutubeClient {
       if (done) break
 
       total += value.byteLength
-      if (total > MAX_JSON_BYTES) {
+      if (total > maxBytes) {
         await reader.cancel()
         throw new YoutubeUnavailableError(
-          `La réponse de l'API YouTube dépasse ${Math.round(MAX_JSON_BYTES / 1024 / 1024)} Mo : ` +
-            'la lecture est interrompue.'
+          `La réponse dépasse ${Math.round(maxBytes / 1024 / 1024)} Mo : la lecture est interrompue.`
         )
       }
       chunks.push(value)

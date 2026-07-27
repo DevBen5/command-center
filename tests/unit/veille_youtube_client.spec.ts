@@ -274,3 +274,119 @@ test.group('Veille / client YouTube — ce qu’il fait de la réponse', () => {
     }
   })
 })
+
+function image(bytes = 'faux-jpeg', status = 200, contentType = 'image/jpeg'): Response {
+  return new Response(bytes, { status, headers: { 'content-type': contentType } })
+}
+
+test.group('Veille / client YouTube — la vignette (CC-88)', () => {
+  /**
+   * ⚠️ **Le test qui porte CC-88.** L'URL est **dérivée** de l'identifiant : hôte constant du
+   * code, identifiant validé sur onze caractères. `metadata.thumbnailUrl` existe en base et il
+   * serait tentant de le passer au client — ce serait une valeur relue en base promue en cible
+   * réseau, ce que la doctrine du module refuse partout ailleurs.
+   */
+  test('dérive l’URL de l’identifiant, sur un hôte constant', async ({ assert }) => {
+    const fetchStub = stubFetch(() => image())
+
+    try {
+      await new YoutubeClient(CONFIG).thumbnail(A)
+
+      assert.lengthOf(fetchStub.urls, 1)
+      assert.equal(fetchStub.urls[0], `https://i.ytimg.com/vi/${A}/mqdefault.jpg`)
+    } finally {
+      fetchStub.restore()
+    }
+  })
+
+  /**
+   * ⚠️ La clé n'a rien à faire chez `i.ytimg.com` : les miniatures sont publiques, le CDN n'en
+   * veut pas, et la lui envoyer serait une fuite pure vers un tiers.
+   */
+  test('n’envoie jamais la clé d’API au CDN des miniatures', async ({ assert }) => {
+    const fetchStub = stubFetch(() => image())
+
+    try {
+      await new YoutubeClient(CONFIG).thumbnail(A)
+      assert.notInclude(fetchStub.urls[0], API_KEY)
+      assert.notInclude(fetchStub.urls[0], 'key=')
+    } finally {
+      fetchStub.restore()
+    }
+  })
+
+  /**
+   * ⚠️ `config.enabled` ne garde **pas** cet appel, contrairement aux appels d'API : une miniature
+   * ne consomme ni clé ni quota. Gater dessus ferait disparaître les vignettes de tous les items
+   * déjà collectés à la seconde où `.env` est vidé.
+   */
+  test('sert encore une vignette quand la configuration a disparu', async ({ assert }) => {
+    const fetchStub = stubFetch(() => image())
+
+    try {
+      const thumbnail = await new YoutubeClient({
+        ...CONFIG,
+        apiKey: '',
+        playlistId: '',
+        enabled: false,
+      }).thumbnail(A)
+
+      assert.equal(thumbnail.contentType, 'image/jpeg')
+    } finally {
+      fetchStub.restore()
+    }
+  })
+
+  test('rend le type réel du CDN, sans les paramètres', async ({ assert }) => {
+    const fetchStub = stubFetch(() => image('faux-webp', 200, 'image/webp; charset=binary'))
+
+    try {
+      const thumbnail = await new YoutubeClient(CONFIG).thumbnail(A)
+
+      assert.equal(thumbnail.contentType, 'image/webp')
+      assert.equal(thumbnail.bytes.toString('utf8'), 'faux-webp')
+    } finally {
+      fetchStub.restore()
+    }
+  })
+
+  test('lève sur une vidéo supprimée, sur une redirection et sur ce qui n’est pas une image', async ({
+    assert,
+  }) => {
+    const chemins: Array<{ nom: string; route: Route }> = [
+      { nom: 'vidéo supprimée', route: () => image('', 404) },
+      { nom: 'redirection', route: () => new Response(null, { status: 302 }) },
+      { nom: 'page HTML', route: () => image('<!doctype html>', 200, 'text/html') },
+    ]
+
+    for (const { nom, route } of chemins) {
+      const fetchStub = stubFetch(route)
+      try {
+        await new YoutubeClient(CONFIG).thumbnail(A)
+        assert.fail(`${nom} aurait dû lever`)
+      } catch (error) {
+        assert.instanceOf(error, YoutubeUnavailableError, `${nom} : mauvais type d'erreur`)
+      } finally {
+        fetchStub.restore()
+      }
+    }
+  })
+
+  /**
+   * ⚠️ Défense en profondeur : l'identifiant vient de `dedup_key`, donc d'une valeur que nous
+   * avons écrite — mais il est interpolé dans un chemin d'URL, et rien ne part avant vérification.
+   */
+  test('refuse un identifiant malformé avant toute requête', async ({ assert }) => {
+    const fetchStub = stubFetch(() => image())
+
+    try {
+      await assert.rejects(
+        () => new YoutubeClient(CONFIG).thumbnail('../../etc/passwd'),
+        /illisible/
+      )
+      assert.lengthOf(fetchStub.urls, 0, 'une requête est partie sur un identifiant malformé')
+    } finally {
+      fetchStub.restore()
+    }
+  })
+})
