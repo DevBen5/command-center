@@ -88,6 +88,29 @@ export function durationSecondsOf(metadata: Record<string, unknown> | null): num
 }
 
 /**
+ * La chaîne qui a mis la vidéo en ligne, si la collecte l'a écrite (CC-103).
+ *
+ * ⚠️ **C'est bien la chaîne de la VIDÉO, pas celle de la playlist.** `youtube_asset.ts` la lit
+ * dans `videoOwnerChannelTitle` et non dans `snippet.channelTitle`, qui rend le propriétaire de la
+ * playlist — donc nous. Le relevé réel de CC-84 l'a confirmé sur quatre vidéos ; ce libellé est ce
+ * qui rend ce piège **visible à l'écran** plutôt que constatable en base.
+ *
+ * ⚠️ **`null` plutôt qu'une chaîne vide, et ça n'est pas un détail de style** : la page suspend le
+ * séparateur au même `v-if` que le nom. Rendre `''` afficherait une puce sans rien après.
+ *
+ * Accès défensif, comme `durationSecondsOf` : `metadata` est du `jsonb`, son contenu dépend de la
+ * version qui a écrit la ligne. Un item Immich n'a pas ce champ, un item collecté avant CC-87 non
+ * plus, et une ligne éditée à la main peut y porter n'importe quoi.
+ */
+export function channelLabel(metadata: Record<string, unknown> | null): string | null {
+  const raw = metadata?.channelTitle
+  if (typeof raw !== 'string') return null
+
+  const trimmed = raw.trim()
+  return trimmed === '' ? null : trimmed
+}
+
+/**
  * `1:04`, `12:03`, `1:02:03`.
  *
  * Les secondes sont **toujours** sur deux chiffres, les minutes seulement au-delà de l'heure :

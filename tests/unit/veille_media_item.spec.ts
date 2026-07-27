@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import {
+  channelLabel,
   durationLabel,
   durationSecondsOf,
   immichHref,
@@ -119,5 +120,31 @@ test.group('Veille / logique média de la page', () => {
     assert.isNull(durationLabel(null))
     assert.isNull(durationLabel({ durationSeconds: '64' }))
     assert.isNull(durationSecondsOf({ durationSeconds: Number.NaN }))
+  })
+
+  /**
+   * CC-103 — le nom de chaîne. La valeur vient de `videoOwnerChannelTitle` et non de
+   * `snippet.channelTitle`, qui rendrait le propriétaire de la playlist ; ce libellé est ce qui
+   * rend ce piège de l'API visible à l'écran plutôt que constatable en base.
+   */
+  test('rend le nom de chaîne écrit par la collecte', ({ assert }) => {
+    assert.equal(channelLabel({ channelTitle: 'Alex so yes' }), 'Alex so yes')
+    // Les espaces de garde d'un titre recopié tel quel ne doivent pas décaler le séparateur.
+    assert.equal(channelLabel({ channelTitle: '  Kameto Live  ' }), 'Kameto Live')
+  })
+
+  /**
+   * ⚠️ **`null`, jamais `''`** : la page suspend le séparateur `·` au même `v-if` que le nom. Une
+   * chaîne vide afficherait une puce sans rien après — le cas exact que ce repli existe pour
+   * empêcher, et qui vaut pour tout item sans chaîne : un asset Immich, un article, une vidéo
+   * collectée avant CC-87, ou une ligne éditée à la main.
+   */
+  test('ne rend rien plutôt qu’une chaîne vide', ({ assert }) => {
+    assert.isNull(channelLabel({}))
+    assert.isNull(channelLabel(null))
+    assert.isNull(channelLabel({ channelTitle: '' }))
+    assert.isNull(channelLabel({ channelTitle: '   ' }))
+    assert.isNull(channelLabel({ channelTitle: 42 }))
+    assert.isNull(channelLabel({ channelTitle: null }))
   })
 })
