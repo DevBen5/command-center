@@ -19,6 +19,10 @@ import {
   toggleAll,
   toggleSelected,
 } from '../shared/item_selection.js'
+// ⚠️ Types seuls : la provenance est **dérivée au serveur** (`VeilleController.serialize`), pas
+// ici. La page reçoit une décision déjà prise et ne fait que la traduire et la colorer — c'est
+// ce qui lui évite de connaître `dedupKey`, dont elle n'a par ailleurs aucun usage.
+import type { ItemProvenance, SourceKind } from '../shared/item_provenance.js'
 
 defineOptions({ layout: AppLayout })
 
@@ -45,6 +49,8 @@ interface VeilleItem {
   unavailableAt: string | null
   /** Dérivé de `dedup_key` côté serveur. Nul pour tout ce qui ne vient pas d'Immich. */
   immichAssetId: string | null
+  /** Dérivée au serveur elle aussi (CC-104) — source vivante, saisie à la main, ou orpheline. */
+  provenance: ItemProvenance
   createdAt: string
 }
 
@@ -52,6 +58,8 @@ interface VeilleSource {
   id: number
   title: string
   active: boolean
+  /** Ce qui colore la pastille de provenance. Descend depuis toujours, déclaré depuis CC-104. */
+  kind: SourceKind
 }
 
 interface Filters {
@@ -203,6 +211,32 @@ const TYPE_LABELS = computed<Record<VeilleItem['type'], string>>(() => ({
  * Les enveloppes des fonctions de `shared/media_item.ts` — **une ligne chacune**, pour que le
  * template reste lisible et que la logique reste prouvable (CC-60).
  */
+/**
+ * La couleur de la pastille de provenance — par `kind` quand la source vit encore, par `origin`
+ * sinon. Tokens `@theme` uniquement.
+ *
+ * ⚠️ **`warn` pour un orphelin, la même teinte que « plus dans l'album »**, et c'est voulu : les
+ * deux disent une dégradation, et un même item peut porter les deux (un asset Immich dont la
+ * source aurait été supprimée). Leur donner deux couleurs suggérerait deux natures d'information.
+ *
+ * ⚠️ **Le repli est neutre, jamais rien.** Une provenance dont le `kind` n'aurait pas de couleur
+ * afficherait sa pastille sans bordure : un blanc à l'endroit exact que ce lot vient combler.
+ */
+const PROVENANCE_CLASSES: Record<string, string> = {
+  rss: 'border-accent/40 bg-panel-2 text-accent',
+  immich: 'border-aqua/40 bg-panel-2 text-aqua',
+  youtube: 'border-ok/40 bg-panel-2 text-ok',
+  manual: 'border-line-2 bg-panel-2 text-txt-2',
+  orphan: 'border-warn/40 bg-panel-2 text-warn',
+}
+
+const provenanceClass = (p: ItemProvenance): string =>
+  PROVENANCE_CLASSES[p.sourceKind ?? p.origin] ?? PROVENANCE_CLASSES.manual
+
+/** `labelKey` nul = le texte vient de la base (un titre de source ne se traduit pas). */
+const provenanceLabel = (p: ItemProvenance): string =>
+  p.labelKey === null ? (p.text ?? '') : t(p.labelKey, { source: p.text ?? '' })
+
 const isMedia = (item: VeilleItem): boolean => isMediaItem(item.type)
 const thumbnail = (item: VeilleItem): string => thumbnailHref(item.id)
 const duration = (item: VeilleItem): string | null => durationLabel(item.metadata)
@@ -514,6 +548,18 @@ function submitCapture(): void {
             {{ item.content }}
           </p>
           <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11.5px] text-txt-3">
+            <!-- ⚠️ La provenance OUVRE la ligne, et sa position n'est pas un détail : c'est la
+                 première question devant un item qu'on n'a pas ajouté soi-même, et seule une
+                 position fixe à gauche rend la colonne scannable — posée après la date, elle
+                 flotterait au gré de la longueur du nom de chaîne. Elle est aussi le premier
+                 `<span>` de la ligne, ce dont `__tests__/index.spec.ts` a besoin pour continuer
+                 à prouver l'absence de puce orpheline (CC-103). -->
+            <span
+              class="rounded-full border px-2 py-0.5 text-[10.5px]"
+              :class="provenanceClass(item.provenance)"
+            >
+              {{ provenanceLabel(item.provenance) }}
+            </span>
             <span>{{ TYPE_LABELS[item.type] }}</span>
             <!-- ⚠️ La chaîne et SON séparateur sont sous le même `v-if` : les séparer laisserait
                  une puce orpheline sur tout item qui n'a pas de chaîne — c'est-à-dire un asset

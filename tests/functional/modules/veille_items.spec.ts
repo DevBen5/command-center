@@ -34,9 +34,19 @@ test.group('Veille / liste, filtres et recherche', (group) => {
     const response = await client.get('/veille').qs(query).loginAs(user).withInertia()
     response.assertStatus(200)
     return response.inertiaProps as {
-      items: { id: number; title: string }[]
+      items: {
+        id: number
+        title: string
+        provenance: {
+          origin: string
+          sourceKind: string | null
+          labelKey: string | null
+          text: string | null
+        }
+      }[]
       stats: { total: number; articles: number; queue: number; unread: number; tags: number }
       tags: string[]
+      sources: { id: number; title: string; kind: string }[]
       pagination: { total: number; lastPage: number; currentPage: number }
     }
   }
@@ -192,6 +202,79 @@ test.group('Veille / liste, filtres et recherche', (group) => {
     const props = await itemsOf(client, user, { sourceId: feed.id })
     assert.lengthOf(props.items, 1)
     assert.equal(props.items[0].title, 'De la source')
+  })
+
+  /**
+   * CC-104 — la pastille de provenance, **de bout en bout**.
+   *
+   * `tests/unit/veille_item_provenance.spec.ts` prouve la dérivation ; celui-ci prouve qu'elle
+   * arrive à la page. Ce sont deux choses distinctes : la fonction peut être parfaite et le
+   * contrôleur ne jamais l'appeler, ou l'appeler avec une liste de sources vide.
+   *
+   * ⚠️ **Les trois cas dans la MÊME liste, pas trois tests d'un item chacun.** C'est la situation
+   * réelle de l'écran — 102 items dont 48 détachés — et c'est elle qui attrape une dérivation qui
+   * rendrait le même verdict pour tout le monde.
+   */
+  test('chaque item annonce sa provenance', async ({ assert, client }) => {
+    const user = await login()
+    const feed = await VeilleSource.create({
+      kind: 'rss',
+      url: 'https://a.dev/feed',
+      title: 'Korben- Full',
+      fetchIntervalMinutes: 60,
+      active: true,
+    })
+    await item({
+      title: 'Collecté',
+      veilleSourceId: feed.id,
+      dedupKey: 'url:https://a.dev/1',
+      publishedAt: DateTime.now(),
+    })
+    // Une capture manuelle : ni source, ni clé de dédup. C'est ce couple qui la définit.
+    await item({ title: 'Saisi', publishedAt: DateTime.now().minus({ minutes: 1 }) })
+    // Un détaché : sa source a été supprimée, la FK `ON DELETE SET NULL` a laissé la ligne et son
+    // titre survit dans `metadata`. C'est le cas des 48 orphelins relevés sur la base réelle.
+    await item({
+      title: 'Détaché',
+      dedupKey: 'url:https://news.ycombinator.com/item?id=1',
+      metadata: { sourceTitle: 'Hacker News (horaire)' },
+      publishedAt: DateTime.now().minus({ minutes: 2 }),
+    })
+
+    const props = await itemsOf(client, user)
+    const [collecte, saisi, detache] = props.items
+
+    assert.equal(collecte.provenance.origin, 'source')
+    assert.equal(collecte.provenance.sourceKind, 'rss')
+    assert.equal(collecte.provenance.text, 'Korben- Full')
+
+    assert.equal(saisi.provenance.origin, 'manual')
+    assert.equal(saisi.provenance.labelKey, 'veille.index.provenance.manual')
+
+    assert.equal(detache.provenance.origin, 'orphan')
+    assert.equal(detache.provenance.text, 'Hacker News (horaire)')
+  })
+
+  /**
+   * ⚠️ **Le `kind` colore la pastille, et rien d'autre ne le porte jusqu'à la page.** Il descend
+   * parce que `index` envoie les modèles Lucid entiers — une sélection de colonnes ajoutée un
+   * jour pour alléger la charge utile le ferait disparaître **sans rien casser** : les pastilles
+   * des sources vivantes tomberaient toutes sur le repli neutre, ce qui ressemble à une décision
+   * de style plutôt qu'à une panne.
+   */
+  test('le `kind` de chaque source descend jusqu’à la page', async ({ assert, client }) => {
+    const user = await login()
+    await VeilleSource.create({
+      kind: 'immich',
+      url: 'immich:album:un-album',
+      title: 'Immich — album de veille',
+      fetchIntervalMinutes: 60,
+      active: true,
+    })
+
+    const props = await itemsOf(client, user)
+    assert.lengthOf(props.sources, 1)
+    assert.equal(props.sources[0].kind, 'immich')
   })
 
   test('le tri prend la date de publication, pas celle de collecte', async ({ assert, client }) => {
