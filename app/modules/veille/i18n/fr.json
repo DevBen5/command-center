@@ -27,6 +27,15 @@
       "readingQueue": "À lire plus tard",
       "sourcesTitle": "Sources",
       "noSource": "Sans source",
+      "chip": {
+        "heading": "Filtré par",
+        "type": "Type",
+        "source": "Source",
+        "tag": "Tag",
+        "search": "Recherche",
+        "remove": "Retirer le filtre {label}",
+        "clearAll": "Tout effacer"
+      },
       "tags": "Tags"
     },
     "feed": {

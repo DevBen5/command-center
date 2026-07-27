@@ -26,6 +26,7 @@ import type { ItemProvenance, SourceKind } from '../shared/item_provenance.js'
 // La sentinelle est importée, jamais réécrite : `'none'` défini des deux côtés ferait diverger
 // ce qui est cliqué de ce qui est filtré, et la divergence serait muette (CC-105).
 import { NO_SOURCE, type SourceFilter } from '../shared/source_filter.js'
+import { activeFilters, clearAllPatch } from '../shared/active_filters.js'
 
 defineOptions({ layout: AppLayout })
 
@@ -241,6 +242,29 @@ const provenanceClass = (p: ItemProvenance): string =>
 const provenanceLabel = (p: ItemProvenance): string =>
   p.labelKey === null ? (p.text ?? '') : t(p.labelKey, { source: p.text ?? '' })
 
+/**
+ * **Le langage visuel d'un filtre — un seul, celui des pastilles de tag** (CC-65).
+ *
+ * La page en parlait cinq : pastille complète pour les tags, graisse + aqua pour « Non lus »,
+ * graisse + accent pour « À lire plus tard », graisse seule pour les types et les sources,
+ * graisse + warn pour « Sans source ». Sur fond sombre, un changement de graisse est le signal
+ * le plus faible dont on dispose, et il ne dit ni « ceci est un filtre », ni « il est actif »,
+ * ni « voilà comment l'enlever ».
+ *
+ * ⚠️ **Deux états de sélection, pas un.** « Tout » est *sélectionné* sans qu'aucun filtre soit
+ * posé : lui donner l'accent effacerait la distinction que ce lot vient précisément établir —
+ * un filtre posé se voit, et se retire. Il prend donc le neutre.
+ *
+ * ⚠️ **La bordure existe dès l'état inactif, en `transparent`.** Ne la poser qu'à l'actif
+ * décalerait la boîte de 2 px à chaque clic, et toute la colonne sautillerait.
+ */
+const FILTER_ACTIVE = 'border-accent bg-accent-soft text-txt'
+const FILTER_NEUTRAL = 'border-transparent bg-panel-2 text-txt'
+const FILTER_IDLE = 'border-transparent text-txt-2 hover:bg-panel-2'
+
+/** Les filtres posés, et de quoi les retirer un par un. La décision vit dans `shared/`. */
+const posed = computed(() => activeFilters(props.filters, props.sources))
+
 const isMedia = (item: VeilleItem): boolean => isMediaItem(item.type)
 const thumbnail = (item: VeilleItem): string => thumbnailHref(item.id)
 const duration = (item: VeilleItem): string | null => durationLabel(item.metadata)
@@ -349,8 +373,8 @@ function submitCapture(): void {
       <div class="flex flex-col gap-1 p-2">
         <button
           type="button"
-          class="rounded-md px-2.5 py-2 text-left text-[13px]"
-          :class="!filters.type ? 'font-semibold text-txt' : 'text-txt-2 hover:bg-panel-2'"
+          class="rounded-md border px-2.5 py-2 text-left text-[13px] transition-colors"
+          :class="filters.type ? FILTER_IDLE : FILTER_NEUTRAL"
           @click="applyFilters({ type: null })"
         >
           {{ t('veille.index.filters.all') }}
@@ -359,8 +383,8 @@ function submitCapture(): void {
           v-for="(label, type) in TYPE_LABELS"
           :key="type"
           type="button"
-          class="rounded-md px-2.5 py-2 text-left text-[13px]"
-          :class="filters.type === type ? 'font-semibold text-txt' : 'text-txt-2 hover:bg-panel-2'"
+          class="rounded-md border px-2.5 py-2 text-left text-[13px] transition-colors"
+          :class="filters.type === type ? FILTER_ACTIVE : FILTER_IDLE"
           @click="applyFilters({ type: filters.type === type ? null : type })"
         >
           {{ label }}
@@ -370,16 +394,16 @@ function submitCapture(): void {
       <div class="border-t border-line p-2">
         <button
           type="button"
-          class="w-full rounded-md px-2.5 py-2 text-left text-[13px]"
-          :class="filters.unread ? 'font-semibold text-aqua' : 'text-txt-2 hover:bg-panel-2'"
+          class="w-full rounded-md border px-2.5 py-2 text-left text-[13px] transition-colors"
+          :class="filters.unread ? FILTER_ACTIVE : FILTER_IDLE"
           @click="applyFilters({ unread: !filters.unread })"
         >
           {{ t('veille.index.filters.unreadOnly') }}
         </button>
         <button
           type="button"
-          class="w-full rounded-md px-2.5 py-2 text-left text-[13px]"
-          :class="filters.readingQueue ? 'font-semibold text-accent' : 'text-txt-2 hover:bg-panel-2'"
+          class="w-full rounded-md border px-2.5 py-2 text-left text-[13px] transition-colors"
+          :class="filters.readingQueue ? FILTER_ACTIVE : FILTER_IDLE"
           @click="applyFilters({ readingQueue: !filters.readingQueue })"
         >
           {{ t('veille.index.filters.readingQueue') }}
@@ -395,28 +419,33 @@ function submitCapture(): void {
         {{ t('veille.index.filters.sourcesTitle') }}
       </div>
       <div class="flex flex-col gap-1 p-2">
+        <!-- ⚠️ **Une source désactivée reste listée, et c'est délibéré** (CC-65). Ses items déjà
+             collectés existent toujours et restent légitimement filtrables : c'est l'affichage
+             de l'état qui manquait, pas la ligne. `opacity-55` + le mot sont le vocabulaire de
+             `/veille/sources`, et la CLÉ y est reprise telle quelle — deux clés pour le même mot
+             divergeraient à la première retraduction.
+             Le titre cède (`truncate`), le marqueur jamais (`shrink-0`) : dans 222 px, c'est
+             l'état qu'on ne peut pas se permettre de perdre. -->
         <button
           v-for="source in sources"
           :key="source.id"
           type="button"
-          class="truncate rounded-md px-2.5 py-1.5 text-left text-[12px]"
-          :class="
-            filters.sourceId === source.id
-              ? 'font-semibold text-txt'
-              : 'text-txt-2 hover:bg-panel-2'
-          "
+          class="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-left text-[12px] transition-colors"
+          :class="[
+            filters.sourceId === source.id ? FILTER_ACTIVE : FILTER_IDLE,
+            source.active ? '' : 'opacity-55',
+          ]"
           @click="applyFilters({ sourceId: filters.sourceId === source.id ? null : source.id })"
         >
-          {{ source.title }}
+          <span class="truncate">{{ source.title }}</span>
+          <span v-if="!source.active" class="shrink-0 text-[10.5px] text-txt-3">
+            {{ t('veille.sources.disabled') }}
+          </span>
         </button>
         <button
           type="button"
-          class="truncate rounded-md px-2.5 py-1.5 text-left text-[12px]"
-          :class="
-            filters.sourceId === NO_SOURCE
-              ? 'font-semibold text-warn'
-              : 'text-txt-2 hover:bg-panel-2'
-          "
+          class="truncate rounded-md border px-2.5 py-1.5 text-left text-[12px] transition-colors"
+          :class="filters.sourceId === NO_SOURCE ? FILTER_ACTIVE : FILTER_IDLE"
           @click="applyFilters({ sourceId: filters.sourceId === NO_SOURCE ? null : NO_SOURCE })"
         >
           {{ t('veille.index.filters.noSource') }}
@@ -433,12 +462,8 @@ function submitCapture(): void {
           v-for="tag in tags"
           :key="tag"
           type="button"
-          class="rounded-full border px-2.5 py-1 text-[11px]"
-          :class="
-            filters.tag === tag
-              ? 'border-accent bg-accent-soft text-txt'
-              : 'border-line-2 bg-panel-2 text-txt-2'
-          "
+          class="rounded-full border px-2.5 py-1 text-[11px] transition-colors"
+          :class="filters.tag === tag ? FILTER_ACTIVE : 'border-line-2 bg-panel-2 text-txt-2'"
           @click="applyFilters({ tag: filters.tag === tag ? null : tag })"
         >
           #{{ tag }}
@@ -465,6 +490,51 @@ function submitCapture(): void {
         >
           {{ t('veille.index.feed.count', { n: pagination.total }) }}
         </span>
+      </div>
+
+      <!-- Le rappel des filtres actifs (CC-65). En descendant dans la liste on ne savait plus
+           pourquoi elle était courte : le compteur « N éléments » reflète bien le filtre, mais
+           ne dit pas lequel.
+
+           ⚠️ **Il est AU-DESSUS de la barre de sélection, et l'ordre n'est pas indifférent.**
+           Le rappel est stable — il suit le filtre ; la barre de sélection est éphémère, elle
+           apparaît et disparaît au fil des cases cochées. L'éphémère placé au-dessus ferait
+           sauter le rappel à chaque clic sur une case. Empilés dans cet ordre, ils coexistent
+           sans se pousser.
+
+           ⚠️ **Chaque ✕ passe par `applyFilters`**, jamais par une URL construite à côté : c'est
+           lui qui remet la page à 1 et qui retire les inactifs de la query string. Un retrait
+           qui garderait `?page=4` afficherait « Aucun résultat » sur un filtre élargi. -->
+      <div
+        v-if="posed.length > 0"
+        class="flex flex-wrap items-center gap-1.5 border-b border-line px-4 py-2.5 text-[11.5px]"
+      >
+        <span class="text-txt-3">{{ t('veille.index.filters.chip.heading') }}</span>
+        <button
+          v-for="filter in posed"
+          :key="filter.field"
+          type="button"
+          class="flex items-center gap-1.5 rounded-full border px-2.5 py-1 transition-colors hover:border-bad hover:text-bad"
+          :class="FILTER_ACTIVE"
+          :title="t('veille.index.filters.chip.remove', { label: t(filter.labelKey) })"
+          @click="applyFilters(filter.patch)"
+        >
+          <span>
+            {{ t(filter.labelKey)
+            }}<template v-if="filter.valueKey || filter.valueText">
+              : {{ filter.valueKey ? t(filter.valueKey) : filter.valueText }}
+            </template>
+          </span>
+          <span aria-hidden="true">✕</span>
+        </button>
+        <button
+          v-if="posed.length > 1"
+          type="button"
+          class="ml-auto rounded-md px-2 py-1 text-txt-3 transition-colors hover:text-accent"
+          @click="applyFilters(clearAllPatch(posed))"
+        >
+          {{ t('veille.index.filters.chip.clearAll') }}
+        </button>
       </div>
 
       <!-- La barre d'action, seulement quand quelque chose est coché. Elle annonce le nombre
