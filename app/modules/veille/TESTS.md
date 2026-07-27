@@ -44,6 +44,17 @@ présentes en permanence sont dans `CLAUDE.md`, section « Tests ».
   disparaît — sans lui, la régression serait parfaitement silencieuse. Plus les changements
   d'heure (mars et octobre, dont une heure qui n'existe pas ce jour-là), le rattrapage d'une
   fenêtre manquée, la source neuve, et le repli d'un mode `daily` sans heure.
+  - Depuis **CC-102**, un groupe « une source jamais relue depuis la base ». ⚠️ **Il n'utilise pas
+    `makeSource()`, et c'est tout l'intérêt** : le helper pose `lastFetchedAt = null`, donc s'en
+    servir testerait l'état inerte au lieu du défaut. Le champ reste **jamais assigné**, l'état
+    exact d'un objet rendu par `create()`.
+  - **Vérifié mordant**, et la mutation est instructive : l'ancien code restauré, les trois tests
+    rougissent de **deux façons différentes** — `TypeError: Cannot read properties of undefined` en
+    mode intervalle, et `expected false to be true` en mode horaire. Le second est la moitié
+    silencieuse du défaut ; sans un test par branche, elle serait restée.
+  - Le troisième test est le seul du fichier à toucher la base, et il prouve **la prémisse** :
+    `create()` laisse bien `undefined`, pas `null`. Les deux autres reproduisent un état ; celui-là
+    constate qu'il est réel. Si `create()` se mettait à hydrater la colonne, il le dirait.
 - `tests/unit/veille_schedule_draft.spec.ts` — **CC-60**, la logique de `pages/sources.vue` sortie du
   `.vue`. Le test qui porte le lot est **l'heure du driver `pg` face à celle du champ** : une source
   à `'07:00:00'` et un brouillon à `'07:00'` sont la **même** cadence, donc rien à enregistrer.

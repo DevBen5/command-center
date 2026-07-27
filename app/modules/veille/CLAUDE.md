@@ -574,6 +574,23 @@ contrôleur : **repasser en `interval` doit remettre `daily_at` à `null`**, sin
 - ⚠️ **Le test est `=== 'daily'`, jamais `=== 'interval'`** : le défaut est en base, pas sur le
   modèle, donc `create()` sans le champ le laisse `undefined` en mémoire. La non-régression est
   structurelle, pas une convention.
+- ⚠️ **`last_fetched_at` était le même piège, sans la même précaution** (CC-102). `isDue()`
+  comparait à `null` en trois endroits, ce qui manquait l'`undefined` d'une instance non relue —
+  avec **deux conséquences de gravité inégale**, et c'est ce qui rend le cas instructif : la branche
+  intervalle **levait** (`undefined.plus()`), tandis que la branche horaire répondait simplement
+  `false` (`undefined < window` est faux), donc une source neuve n'y collectait **jamais**, en
+  silence. Un plantage se voit ; l'autre moitié, non. `isDue()` normalise désormais en tête
+  (`?? null`) au lieu de comparer trois fois.
+  - ⚠️ **`??`, pas `== null`** : `eqeqeq` est réglé en `always` **sans** `{ null: 'ignore' }`, le
+    test laxiste ne passe pas le lint. Et pas `!lastFetchedAt` non plus : aucune valeur falsy n'est
+    valide pour un `DateTime`, donc ça marcherait — mais poser un test de truthiness dans un modèle
+    juste après ce que CC-101 a coûté serait une invitation à recommencer là où une valeur falsy est
+    légitime.
+  - ⚠️ **`active` et `fetchIntervalMinutes` gardent cette exposition, et elle est pire** : sur une
+    instance non hydratée, `!undefined` fait rendre `false` à `isDue()` **sans lever** — la source
+    n'est jamais due, et rien ne le dit. Inatteignable aujourd'hui, les **trois** sites de création
+    passant ces champs explicitement. Leur poser un repli en dur dupliquerait les défauts de la
+    migration dans le modèle : deux sources de vérité pour une même valeur.
 - ⚠️ **Le driver `pg` rend un `time` en `'07:00:00'`**, là où `<input type="time">` veut `'07:00'` :
   donné tel quel le champ resterait **vide** sans un mot. D'où `normalizeTimeOfDay`, appelé à chaque
   dérivation du brouillon.

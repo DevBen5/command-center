@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import { DateTime, IANAZone } from 'luxon'
+import testUtils from '@adonisjs/core/services/test_utils'
 import veilleConfig from '#config/veille'
 import VeilleSource from '#modules/veille/models/veille_source'
 
@@ -373,5 +374,69 @@ test.group('Veille / horaire — non-régression du mode intervalle', () => {
       source.isDue(local('2026-02-10T08:00')),
       'la cadence en minutes ne s’applique plus'
     )
+  })
+})
+
+/**
+ * CC-102 — `isDue()` sur une instance qui n'a **pas** été relue depuis la base.
+ *
+ * ⚠️ **Ce groupe n'utilise pas `makeSource()`, et c'est tout l'intérêt.** Le helper pose
+ * `lastFetchedAt = null` (ligne 29) : s'en servir testerait l'état inerte au lieu du défaut. Le
+ * champ doit rester **jamais assigné** pour reproduire ce que rend `VeilleSource.create()` — le
+ * défaut de `last_fetched_at` est en base, pas sur le modèle.
+ */
+test.group('Veille / cadence — une source jamais relue depuis la base', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+
+  /**
+   * La branche intervalle : c'est elle qui **levait**. `undefined.plus()` →
+   * `TypeError: Cannot read properties of undefined`.
+   */
+  test('en mode intervalle, elle est due au lieu de lever', ({ assert }) => {
+    const source = new VeilleSource()
+    source.active = true
+    source.fetchIntervalMinutes = 60
+    // `lastFetchedAt` volontairement NON assigné.
+
+    assert.isTrue(source.isDue(local('2026-02-10T07:00')))
+  })
+
+  /**
+   * ⚠️ La branche horaire, elle, **ne levait pas** — elle mentait. `undefined < window` est faux,
+   * donc une source horaire jamais collectée était déclarée **non due**, en contradiction directe
+   * avec « une source neuve collecte tout de suite ». C'est la moitié silencieuse du défaut, et
+   * sans ce test elle serait restée en place.
+   */
+  test('en mode horaire, elle est due tout de suite', ({ assert }) => {
+    const source = new VeilleSource()
+    source.active = true
+    source.fetchIntervalMinutes = 60
+    source.scheduleMode = 'daily'
+    source.dailyAt = '07:00'
+
+    assert.isTrue(
+      source.isDue(local('2026-02-10T03:00')),
+      'due même avant l’heure : jamais collectée'
+    )
+    assert.isTrue(source.isDue(local('2026-02-10T09:00')))
+  })
+
+  /**
+   * ⚠️ **Le test qui prouve la PRÉMISSE**, et le seul qui touche la base. Les deux précédents
+   * reproduisent un état que j'affirme être celui d'un objet fraîchement créé ; celui-ci le
+   * constate. Sans lui, `create()` pourrait se mettre à hydrater la colonne — ou cesser de le
+   * faire — sans que rien ne le dise.
+   */
+  test('c’est bien l’état que rend create() : undefined, pas null', async ({ assert }) => {
+    const source = await VeilleSource.create({
+      kind: 'rss',
+      url: 'https://exemple.dev/feed.xml',
+      title: 'Un flux neuf',
+      fetchIntervalMinutes: 60,
+      active: true,
+    })
+
+    assert.isUndefined(source.lastFetchedAt, 'create() hydrate désormais la colonne')
+    assert.isTrue(source.isDue(local('2026-02-10T07:00')))
   })
 })
