@@ -28,14 +28,18 @@ const dbConfig = defineConfig({
           'app/modules/leitner/migrations',
         ],
       },
-      // Le module leitner n'a volontairement pas de seeder : son contenu est saisi
-      // depuis l'UI, et une donnée de démo écraserait le contenu réel.
+      // ⚠️ Ce qui est déclaré ici tourne à CHAQUE `node ace db:seed`, y compris quand
+      // on ne l'appelle que pour poser ou faire tourner ADMIN_PASSWORD (CC-75) — c'est
+      // le seul outil de rotation, documenté jusqu'en production. Un seeder de contenu
+      // réécrirait donc du contenu réel à chaque changement de mot de passe.
+      // Règle : on n'enregistre ici que des données que l'application produit elle-même
+      // ou qu'aucun écran ne permet de saisir. Le contenu saisi à la main n'a pas de
+      // seeder — ni leitner, ni veille (CC-106).
       seeders: {
         paths: [
           'app/core/auth/seeders',
           'app/modules/services/seeders',
           'app/modules/agents/seeders',
-          'app/modules/veille/seeders',
         ],
       },
     },
