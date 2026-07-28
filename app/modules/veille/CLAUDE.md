@@ -38,6 +38,8 @@ shared/source_filter.ts                  PUR, serveur ET page · le filtre par s
 shared/active_filters.ts                 PUR · quels filtres sont posés, et comment les nommer
 shared/filter_selection.ts               PUR, serveur ET page · un filtre vide n'est pas un filtre
 shared/tags.ts                           PUR, serveur ET page · la forme d'un tag, écrite UNE fois
+shared/bulk_actions.ts                   PUR · la liste fermée des actions groupées + leur retour
+services/veille_bulk_service.ts          les 4 UPDATE groupés — array_append/remove PARAMÉTRÉS
 services/veille_item_query.ts            la requête filtrée du flux — UN endroit, TROIS appelants
 ```
 
@@ -837,6 +839,49 @@ puisque les collecteurs y injectent ; et le texte libre est indispensable, pas o
   **redirige** (302 + erreurs flashées) et devient indiscernable d'un succès. Sans le second,
   supertest suit le 302 d'une valeur acceptée et le test rougit en **403** — rouge pour la mauvaise
   raison, ce qui envoie chercher un problème d'authentification qui n'existe pas.
+
+### Les actions groupées (CC-109)
+
+Quatre gestes sur une sélection — tags, lu / non lu, à lire plus tard — offerts **des deux côtés** :
+sur les cases cochées (`POST /items/bulk`) et sur tout ce que le filtre désigne
+(`POST /items/filtered/bulk`). Ce qui change entre les deux est la façon de désigner l'ensemble,
+jamais ce qu'on lui fait : un seul service applique.
+
+⚠️ **Aucune ne sort de Command Center**, et c'est ce qui les sépare de la suppression. Pas d'ordre
+à tenir entre deux systèmes, pas de partiel à assumer, **pas de confirmation** — exiger un « êtes-vous
+sûr » pour marquer lu banaliserait le seul dialogue du module qui compte. Pas de plafond
+d'identifiants non plus : les 200 de `itemIdsValidator` bornaient ce qui part dans un seul
+`DELETE /api/assets`, il n'y a rien à borner ici.
+
+- ⚠️ **Un seul `UPDATE` par action, jamais un aller-retour par item.** Lire trente lignes, modifier
+  leur tableau en JS et les réécrire une par une serait trente allers-retours **et** une fenêtre de
+  concurrence à chaque ligne. `array_append` / `array_remove` en SQL **paramétré**.
+- ⚠️ **`array_append` NE DÉDUPLIQUE PAS, et `text[]` n'a aucune contrainte.** Sans la garde
+  `NOT (? = ANY(tags))`, poser deux fois `ia` produit `{ia,ia}` : deux pastilles identiques sur la
+  ligne, et un **double comptage dans la barre de tags**, qui agrège par `unnest` — donc un filtre
+  qui existe deux fois.
+- ⚠️ **La même garde rend le compte honnête.** Sans elle, `rowCount` vaudrait la taille de la
+  sélection quoi qu'il arrive, et le retour annoncerait « 30 marqués comme lus » sur trente items
+  déjà lus. C'est ce compte qui décide du ton `info`.
+- ⚠️ **`read_at IS NULL` en garde de « marquer lu »** : c'est un timestamp, pas un booléen. Sans
+  elle, un geste groupé sur une page à moitié lue **réécrirait** la date de tout ce qui l'était
+  déjà — invisible à l'écran, qui n'affiche qu'une pastille.
+- ⚠️ **Les quatre écritures filtrent `deleted_at IS NULL`.** Ce sont des **écritures** : un oubli
+  ne fait pas ressortir un supprimé, il le **modifie**, ce qui ne se voit sur aucun écran.
+- ⚠️ **Le test `deleted_at` doit partir, pour CHAQUE action, de l'état que cette action changerait.**
+  Une première version utilisait un fixture unique (tagué, lu, en file) : le cas `queue.add` était
+  alors inerte — l'item étant déjà dans la file, la garde `reading_queue = false` l'excluait de toute
+  façon, et retirer `deleted_at IS NULL` **ne faisait pas rougir le test**. Vérifié en cassant la
+  requête. C'est exactement le faux-positif décrit pour les six tests de CC-63.
+- ⚠️ **Un tag retiré NE revient PAS à la collecte suivante.** Vérifié plutôt que supposé, le ticket
+  craignant le contraire : `tags` n'apparaît que dans les trois collecteurs, **à l'insertion**, et
+  `insertNewItems` fait `ON CONFLICT (dedup_key) DO NOTHING` — un item déjà en base n'est jamais
+  réécrit. Les seuls `.update()` du module touchent `unavailable_at` et `deleted_at`.
+- ⚠️ **Une action de tag sans tag est refusée au validateur** (`requiredWhen`) : `array_append(tags,
+  NULL)` ajouterait un `NULL` au tableau, que la barre de tags afficherait comme une pastille vide
+  et que le filtre ne retrouverait jamais.
+- Le `switch` du service est **exhaustif**, `default` affecté à `never` — même motif que
+  `collectByKind` : ajouter une action sans sa branche fait échouer `tsc`.
 - **`title` et `url` sont en `text`, plus en `varchar(255)`** : beaucoup d'URL de flux dépassent 255
   caractères, c'était un 500 en pleine collecte. Ne les re-borne pas.
 - **La FK source est `ON DELETE SET NULL`** : supprimer une source n'efface jamais l'historique lu.
