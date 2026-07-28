@@ -842,10 +842,27 @@ puisque les collecteurs y injectent ; et le texte libre est indispensable, pas o
 
 ### Les actions groupées (CC-109)
 
-Quatre gestes sur une sélection — tags, lu / non lu, à lire plus tard — offerts **des deux côtés** :
-sur les cases cochées (`POST /items/bulk`) et sur tout ce que le filtre désigne
-(`POST /items/filtered/bulk`). Ce qui change entre les deux est la façon de désigner l'ensemble,
-jamais ce qu'on lui fait : un seul service applique.
+Quatre gestes — tags, lu / non lu, à lire plus tard — sur **la sélection par cases, et sur elle
+seule** : `POST /items/bulk`.
+
+⚠️ **Une seconde route a existé, sur le filtre, et a été retirée à la passe navigateur.** Ses six
+boutons vivaient dans la **barre de rappel des filtres**, qui s'affiche dès qu'un filtre est posé :
+on y voyait une barre d'actions sur des items alors qu'**aucun item n'était coché**, collée à des
+chips de filtre eux-mêmes cliquables. Le constat d'usage était sans appel — « tant que je n'ai pas
+sélectionné d'article, je ne dois pas voir cette barre ». Une barre d'actions **est** une promesse
+sur ce qui va être touché ; posée sans sélection, elle désigne ce qu'on regarde, c'est-à-dire tout.
+
+- La route, son validateur et ses deux tests sont partis **avec** l'interface : un chemin
+  d'écriture qu'aucun écran n'atteint est du code que personne ne relit, et il aurait vieilli en
+  silence.
+- ⚠️ **La suppression par filtre (CC-108) reste dans cette barre**, et ce n'est pas une
+  incohérence : elle ne porte pas sur une sélection mais sur **le filtre**, ce que son libellé dit
+  en toutes lettres. La distinction est exactement celle que CC-108 avait construite — deux
+  sélections qui ne partagent ni barre ni vocabulaire.
+- ⚠️ **Le défaut de mise en page qui l'accompagnait vaut d'être connu** : la rangée des six boutons
+  et le bouton de suppression portaient **tous deux** un `ml-auto` quand un seul filtre était posé.
+  En `flex-wrap`, deux marges automatiques se disputent la ligne et la mise en page part n'importe
+  où. Un seul `ml-auto` par conteneur flexible.
 
 ⚠️ **Aucune ne sort de Command Center**, et c'est ce qui les sépare de la suppression. Pas d'ordre
 à tenir entre deux systèmes, pas de partiel à assumer, **pas de confirmation** — exiger un « êtes-vous
