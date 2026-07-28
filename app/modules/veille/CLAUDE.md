@@ -37,6 +37,7 @@ shared/item_provenance.ts                PUR, serveur ET page · d'où vient un 
 shared/source_filter.ts                  PUR, serveur ET page · le filtre par source, TROIS états
 shared/active_filters.ts                 PUR · quels filtres sont posés, et comment les nommer
 shared/filter_selection.ts               PUR, serveur ET page · un filtre vide n'est pas un filtre
+shared/tags.ts                           PUR, serveur ET page · la forme d'un tag, écrite UNE fois
 services/veille_item_query.ts            la requête filtrée du flux — UN endroit, TROIS appelants
 ```
 
@@ -800,7 +801,42 @@ n'est jamais touché : vider « Image » en plusieurs passes est le geste normal
 - **`tags` est un `text[]`, pas du JSON** : `@column()` nue, **sans** `prepare: JSON.stringify` ;
   filtrage `whereRaw('? = ANY(tags)', [tag])`. `metadata` est du `jsonb` et porte bien, lui,
   `prepare: JSON.stringify`.
-- `captureValidator` ne couvre **pas** `tags` — ajouter le champ = étendre le validateur.
+
+## Les tags — un libellé affiché ET un paramètre d'URL
+
+`captureValidator` les porte depuis **CC-21**, et c'était le seul champ que l'écran affichait et
+laissait filtrer sans permettre de le saisir : la colonne se remplissait par les collecteurs, puis
+se figeait. Relevé sur la base réelle après CC-106, il ne restait **que quatre tags** — `facebook`,
+`linkedin`, `tiktok`, `youtube` —, tous **devinés** par `networkTagFor` depuis des noms de fichiers.
+Rien que l'utilisateur ait choisi.
+
+⚠️ **C'est ce relevé qui a tranché « saisie libre ou liste fermée ».** Une liste fermée n'aurait
+proposé que ces quatre noms de réseaux : inutilisable le jour de l'installation. Le ticket suggérait
+de regarder `TaxonomyCombobox` (Leitner) — regardé, et **non réutilisé**, exactement comme
+`LeitnerScopeSearch` ne le réutilise pas et pour la même raison : ils partagent une *interaction*,
+pas un *besoin*. Ici on rend **plusieurs** tags, pas une chaîne ; l'ensemble n'est jamais curé
+puisque les collecteurs y injectent ; et le texte libre est indispensable, pas optionnel.
+
+- ⚠️ **La forme d'un tag est dans `shared/tags.ts`, et nulle part ailleurs.** La page normalise à la
+  frappe, le validateur refuse ce qui n'a pas la bonne forme. `IA` et `ia` feraient deux entrées
+  dans la barre de tags et deux filtres `? = ANY(tags)` qui ne se rejoignent jamais — sans qu'aucune
+  erreur ne le signale.
+- ⚠️ **`isValidTag` est un point fixe de `normalizeTag`, jamais une seconde regex.** La première
+  version testait forme et longueur séparément : `\p{L}` acceptant les majuscules, `isValidTag('IA')`
+  répondait **vrai** alors que `normalizeTag('IA')` rend `'ia'`. Un client forgé aurait donc pu
+  stocker `IA`. Écrit `normalizeTag(v) === v`, les deux ne **peuvent pas** diverger.
+- ⚠️ **La normalisation est visible, elle n'est pas silencieuse** : la pastille montre
+  `veille-perso` avant l'envoi. Corriger côté serveur sans le dire laisserait chercher pourquoi le
+  filtre ne trouve rien.
+- ⚠️ **Les accents sont autorisés.** Aucun tag de la base n'en porte, mais `networkTagFor` découpe
+  sur `[^a-z0-9]+` et ne peut structurellement produire que de l'ASCII : l'absence d'accent est un
+  artefact des collecteurs, pas une règle.
+- ⚠️ **La déduplication n'est pas du confort** : `text[]` n'a aucune contrainte, `{ia,ia}` ferait
+  deux pastilles sur la ligne et compterait deux fois dans la barre de tags.
+- ⚠️ **Un test de validation exige `.accept('json')` ET `.redirects(0)`.** Sans le premier, un refus
+  **redirige** (302 + erreurs flashées) et devient indiscernable d'un succès. Sans le second,
+  supertest suit le 302 d'une valeur acceptée et le test rougit en **403** — rouge pour la mauvaise
+  raison, ce qui envoie chercher un problème d'authentification qui n'existe pas.
 - **`title` et `url` sont en `text`, plus en `varchar(255)`** : beaucoup d'URL de flux dépassent 255
   caractères, c'était un 500 en pleine collecte. Ne les re-borne pas.
 - **La FK source est `ON DELETE SET NULL`** : supprimer une source n'efface jamais l'historique lu.
