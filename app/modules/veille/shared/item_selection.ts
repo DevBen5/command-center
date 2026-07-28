@@ -41,9 +41,12 @@ export function toggleSelected(selected: number[], id: number): number[] {
 /**
  * Tout cocher / tout décocher, **à l'échelle de la page affichée seulement**.
  *
- * ⚠️ **Il n'existe pas de « tout sélectionner » inter-pages, et c'est délibéré.** Le rayon
- * d'action d'un clic reste borné aux 50 items sous les yeux : un bouton capable d'emporter toute
- * la table dépasserait de loin ce que la confirmation peut honnêtement annoncer.
+ * ⚠️ **Cette case ne coche que la page**, et il n'y a rien à « corriger » ici : le geste
+ * inter-pages existe depuis CC-108, mais il ne passe **pas** par des cases. La page n'envoie
+ * alors aucune liste d'identifiants — elle envoie le filtre, et le serveur agit sur ce que ce
+ * filtre désigne, après l'avoir recompté. Étendre cette fonction aux autres pages rendrait à la
+ * page une autorité qu'on lui a précisément retirée, et ferait rentrer le geste sous le plafond
+ * de 200 identifiants du validateur.
  */
 export function toggleAll(selected: number[], items: SelectableItem[]): number[] {
   const ids = items.map((item) => item.id)
@@ -69,6 +72,16 @@ export function summarizeSelection(items: SelectableItem[], selected: number[]):
 }
 
 /**
+ * D'où vient l'ensemble qu'on s'apprête à supprimer.
+ *
+ * ⚠️ **Les deux ne se ressemblent pas, et c'est délibéré** (CC-108). « 12 sélectionnés » désigne
+ * ce qu'on a coché sous les yeux ; « les 317 que ce filtre désigne » désigne trois pages qu'on
+ * n'a pas lues. Les confondre est le moyen le plus simple de supprimer 317 items en croyant en
+ * supprimer 12 — le dialogue est le dernier endroit où la différence peut encore se voir.
+ */
+export type SelectionScope = 'selected' | 'filtered'
+
+/**
  * Le texte du dialogue de confirmation — **le seul garde-fou entre un clic et trente photos**.
  *
  * ⚠️ **Il doit dire combien d'assets partent à la corbeille d'Immich**, pas seulement combien
@@ -76,15 +89,30 @@ export function summarizeSelection(items: SelectableItem[], selected: number[]):
  * supprimer une image écrit dans un autre système, et l'utilisateur doit voir la différence
  * **avant** de cliquer, pas après.
  *
+ * ⚠️ **`scope` n'a pas de valeur par défaut**, et c'est voulu : un défaut ferait du cas le moins
+ * dangereux le comportement implicite, donc un appelant distrait annoncerait « 317 sélectionnés »
+ * pour un geste qui en emporte 317 sans que personne les ait vus. Le choix est explicite à chaque
+ * appel.
+ *
+ * ⚠️ **Sur un filtre, le nombre vient du SERVEUR au moment du geste**, pas de ce qu'affichait la
+ * page : une collecte tourne toutes les minutes, et le total a pu bouger depuis le rendu.
+ *
  * Rend `null` quand il n'y a rien à supprimer : pas de dialogue pour un geste sans effet.
  */
-export function confirmationMessage(summary: SelectionSummary): string | null {
+export function confirmationMessage(
+  summary: SelectionSummary,
+  scope: SelectionScope
+): string | null {
   if (summary.total === 0) return null
 
   const elements = `${summary.total} élément${summary.total > 1 ? 's' : ''}`
+  const subject =
+    scope === 'filtered'
+      ? `les ${elements} que ce filtre désigne`
+      : `${elements} sélectionné${summary.total > 1 ? 's' : ''}`
 
   if (summary.media === 0) {
-    return `Supprimer ${elements} de la veille ?`
+    return `Supprimer ${subject} de la veille ?`
   }
 
   const assets =
@@ -93,7 +121,7 @@ export function confirmationMessage(summary: SelectionSummary): string | null {
       : `1 asset partira à la corbeille d’Immich`
 
   return (
-    `Supprimer ${elements} de la veille ?\n\n` +
+    `Supprimer ${subject} de la veille ?\n\n` +
     `⚠️ ${assets} — récupérables tant que la corbeille les conserve, ` +
     `et retirés de ta bibliothèque en attendant.`
   )

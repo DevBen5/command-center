@@ -139,6 +139,21 @@ test.group('Veille / les filtres actifs', () => {
     assert.isEmpty(activeFilters(filters({ type: '', tag: '', search: '' }), SOURCES))
   })
 
+  /**
+   * ⚠️ **LE cas que des `null` explicites ne peuvent pas attraper.** `request.input('type')` rend
+   * `undefined` quand le paramètre est absent, et `JSON.stringify` **supprime les clés
+   * `undefined`** : la prop arrive donc sans le champ du tout. Un test `!== null` y répond vrai,
+   * et une chip s'affiche alors qu'aucun filtre n'est posé — visible à l'écran, invisible à toute
+   * fixture construite avec des `null`.
+   *
+   * Le contrôleur normalise en `null` depuis CC-108 ; ceci est la seconde barrière, et elle est
+   * là parce que la première est une ligne qu'on peut défaire sans s'en apercevoir.
+   */
+  test('un champ absent n’est pas un filtre posé', ({ assert }) => {
+    assert.isEmpty(activeFilters({}, SOURCES))
+    assert.isEmpty(activeFilters({ type: undefined, tag: undefined, sourceId: undefined }, SOURCES))
+  })
+
   test('« tout effacer » fusionne les patchs de ce qui est posé', ({ assert }) => {
     const posed = activeFilters(filters({ type: 'note', tag: 'ia', unread: true }), SOURCES)
 

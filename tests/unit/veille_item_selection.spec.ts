@@ -72,7 +72,7 @@ test.group('Veille / sélection multiple (CC-63)', () => {
   test('LE test du lot : la confirmation annonce les assets qui partent à la corbeille', ({
     assert,
   }) => {
-    const message = confirmationMessage(summarizeSelection(items, [1, 2, 3]))
+    const message = confirmationMessage(summarizeSelection(items, [1, 2, 3]), 'selected')
 
     assert.isNotNull(message)
     assert.include(message!, '3 éléments')
@@ -82,7 +82,7 @@ test.group('Veille / sélection multiple (CC-63)', () => {
   })
 
   test('sans média, la confirmation ne parle pas d’Immich', ({ assert }) => {
-    const message = confirmationMessage(summarizeSelection(items, [1, 4]))
+    const message = confirmationMessage(summarizeSelection(items, [1, 4]), 'selected')
 
     assert.isNotNull(message)
     assert.include(message!, '2 éléments')
@@ -92,18 +92,66 @@ test.group('Veille / sélection multiple (CC-63)', () => {
   })
 
   test('le singulier et le pluriel sont tenus des deux côtés', ({ assert }) => {
-    const seul = confirmationMessage(summarizeSelection(items, [2]))
+    const seul = confirmationMessage(summarizeSelection(items, [2]), 'selected')
     assert.include(seul!, '1 élément ')
     assert.include(seul!, '1 asset partira')
 
-    const plusieurs = confirmationMessage(summarizeSelection(items, [2, 3]))
+    const plusieurs = confirmationMessage(summarizeSelection(items, [2, 3]), 'selected')
     assert.include(plusieurs!, '2 éléments')
     assert.include(plusieurs!, '2 assets partiront')
   })
 
   test('une sélection vide ne demande aucune confirmation', ({ assert }) => {
-    assert.isNull(confirmationMessage(summarizeSelection(items, [])))
+    assert.isNull(confirmationMessage(summarizeSelection(items, []), 'selected'))
     // Un id qui ne correspond à rien d'affiché revient au même.
-    assert.isNull(confirmationMessage(summarizeSelection(items, [999])))
+    assert.isNull(confirmationMessage(summarizeSelection(items, [999]), 'selected'))
+  })
+})
+
+/*
+| CC-108 — le geste passe de 50 items sous les yeux à *n* que personne n'a lus. Le dialogue est le
+| dernier endroit où cette différence peut encore se voir.
+*/
+test.group('Veille / la confirmation distingue les deux gestes', () => {
+  /**
+   * ⚠️ **LE test du lot.** « 12 sélectionnés » et « les 12 que ce filtre désigne » ne décrivent
+   * pas le même geste : le premier porte sur ce qu'on a coché, le second sur trois pages qu'on
+   * n'a pas ouvertes. Les confondre est le moyen le plus simple de supprimer 317 items en croyant
+   * en supprimer 12 — et sur le seul geste destructeur du module, la confusion est définitive.
+   *
+   * L'assertion porte sur les **deux sens** : le mot propre à chaque portée doit être là, et
+   * celui de l'autre ne doit pas y être. Ne vérifier que la présence laisserait passer un message
+   * qui les cumulerait.
+   */
+  test('les deux portées ne se ressemblent pas', ({ assert }) => {
+    const summary = { total: 12, media: 0 }
+
+    const coches = confirmationMessage(summary, 'selected')
+    assert.include(coches!, 'sélectionnés')
+    assert.notInclude(coches!, 'filtre')
+
+    const filtres = confirmationMessage(summary, 'filtered')
+    assert.include(filtres!, 'ce filtre désigne')
+    assert.notInclude(filtres!, 'sélectionné')
+  })
+
+  /**
+   * ⚠️ L'avertissement Immich ne dépend PAS de la portée : un asset part à la corbeille qu'il ait
+   * été coché ou désigné par un filtre. Le distinguer ici ferait croire à deux mécaniques.
+   */
+  test('l’avertissement Immich vaut pour les deux', ({ assert }) => {
+    const summary = { total: 30, media: 4 }
+
+    for (const scope of ['selected', 'filtered'] as const) {
+      const message = confirmationMessage(summary, scope)
+      assert.include(message!, '4 assets partiront')
+      assert.include(message!, 'corbeille')
+    }
+  })
+
+  test('un filtre qui ne désigne rien ne demande aucune confirmation', ({ assert }) => {
+    // Le cas réel : un second onglet a déjà vidé le filtre. Pas de dialogue pour un geste
+    // sans effet — et surtout pas un dialogue annonçant « 0 élément ».
+    assert.isNull(confirmationMessage({ total: 0, media: 0 }, 'filtered'))
   })
 })

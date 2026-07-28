@@ -27,6 +27,7 @@ import type { ItemProvenance, SourceKind } from '../shared/item_provenance.js'
 // ce qui est cliqué de ce qui est filtré, et la divergence serait muette (CC-105).
 import { NO_SOURCE, type SourceFilter } from '../shared/source_filter.js'
 import { activeFilters, clearAllPatch } from '../shared/active_filters.js'
+import { filterPayload } from '../shared/filter_selection.js'
 
 defineOptions({ layout: AppLayout })
 
@@ -118,6 +119,9 @@ const queueItems = computed(() => props.items.filter((item) => item.readingQueue
  */
 const selected = ref<number[]>([])
 
+/** Le décompte serveur est un aller-retour : sans ce verrou, deux clics posent deux dialogues. */
+const deletingFiltered = ref(false)
+
 const selection = computed(() => summarizeSelection(props.items, selected.value))
 
 const isSelected = (item: VeilleItem): boolean => selected.value.includes(item.id)
@@ -135,7 +139,7 @@ function toggleEveryItem(): void {
  * sont concernés, pas seulement combien de lignes disparaissent de l'écran.
  */
 function deleteSelected(): void {
-  const message = confirmationMessage(selection.value)
+  const message = confirmationMessage(selection.value, 'selected')
   if (message === null || !confirm(message)) return
 
   router.post(
@@ -150,6 +154,43 @@ function deleteSelected(): void {
       },
     }
   )
+}
+
+/**
+ * Supprimer **tout ce que le filtre désigne**, au-delà de la page courante (CC-108).
+ *
+ * ⚠️ **Le décompte vient du serveur, pas de `pagination.total`.** Une collecte tourne toutes les
+ * minutes : ce qu'affichait la page a pu dériver depuis le rendu, et la confirmation doit
+ * annoncer ce qui va réellement partir au moment du geste. C'est la seule raison d'être de
+ * l'aller-retour supplémentaire.
+ *
+ * ⚠️ **La même charge utile sert au décompte et à la suppression** (`filterPayload`) : deux
+ * constructions permettraient à ce qui est compté de différer de ce qui est supprimé, et
+ * l'écart ne se verrait qu'après coup.
+ *
+ * ⚠️ **Un échec du décompte n'ouvre pas le dialogue.** Sans compte, la confirmation n'aurait
+ * rien à annoncer, et cliquer « OK » sur un nombre inconnu est précisément ce que ce lot doit
+ * empêcher. Le serveur refuse aussi de son côté — masquer un bouton n'est pas un droit.
+ */
+async function deleteFiltered(): Promise<void> {
+  const payload = filterPayload(props.filters)
+  deletingFiltered.value = true
+
+  try {
+    const response = await fetch(`/veille/items/filtered/count?${new URLSearchParams(payload)}`, {
+      headers: { accept: 'application/json' },
+    })
+    if (!response.ok) return
+
+    const summary = (await response.json()) as { total: number; media: number }
+    const message = confirmationMessage(summary, 'filtered')
+    if (message === null || !confirm(message)) return
+
+    selected.value = []
+    router.post('/veille/items/filtered/delete', payload, { preserveScroll: true })
+  } finally {
+    deletingFiltered.value = false
+  }
 }
 
 /**
@@ -534,6 +575,22 @@ function submitCapture(): void {
           @click="applyFilters(clearAllPatch(posed))"
         >
           {{ t('veille.index.filters.chip.clearAll') }}
+        </button>
+        <!-- ⚠️ **Le geste inter-pages vit ICI, et pas dans la barre de sélection** (CC-108).
+             Trois raisons qui se renforcent : il rattache l'action au filtre qui la définit ;
+             les deux sélections restent distinctes **par construction** plutôt que par un effort
+             de style — « 12 sélectionnés » et « les 317 du filtre » ne partagent ni barre ni
+             vocabulaire ; et cette barre n'existe pas sans filtre posé, donc l'interface **ne
+             peut pas** proposer « vider la veille ». Le serveur refuse quand même : une route est
+             un contrat public, et un `curl` muni d'un cookie valide n'a que faire du rendu Vue. -->
+        <button
+          type="button"
+          :class="posed.length > 1 ? '' : 'ml-auto'"
+          class="rounded-md border border-bad/50 px-2 py-1 text-bad transition-colors hover:border-bad disabled:opacity-40"
+          :disabled="deletingFiltered"
+          @click="deleteFiltered"
+        >
+          {{ t('veille.index.filters.chip.deleteFiltered') }}
         </button>
       </div>
 

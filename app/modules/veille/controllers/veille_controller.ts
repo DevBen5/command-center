@@ -4,12 +4,33 @@ import { DateTime } from 'luxon'
 import immichConfig from '#config/immich'
 import VeilleItem from '#modules/veille/models/veille_item'
 import VeilleSource from '#modules/veille/models/veille_source'
-import VeilleDeletionService from '#modules/veille/services/veille_deletion_service'
+import VeilleDeletionService, {
+  type DeletionOutcome,
+} from '#modules/veille/services/veille_deletion_service'
 import VeilleStatsService from '#modules/veille/services/veille_stats_service'
-import { assetIdFromDedupKey } from '#modules/veille/services/immich_asset'
+import { assetIdFromDedupKey, IMMICH_DEDUP_LIKE } from '#modules/veille/services/immich_asset'
+import {
+  FEED_ORDER,
+  filteredItems,
+  type ItemFilters,
+} from '#modules/veille/services/veille_item_query'
 import { itemProvenance } from '#modules/veille/shared/item_provenance'
-import { NO_SOURCE, parseSourceFilter } from '#modules/veille/shared/source_filter'
-import { captureValidator, itemIdsValidator } from '#modules/veille/validators/veille'
+import { isFilterEmpty } from '#modules/veille/shared/filter_selection'
+import { parseSourceFilter } from '#modules/veille/shared/source_filter'
+import {
+  captureValidator,
+  itemFilterValidator,
+  itemIdsValidator,
+} from '#modules/veille/validators/veille'
+
+/**
+ * ⚠️ **Le refus qui remplace le plafond de 200 identifiants** (CC-108). Il est ici et non dans le
+ * validateur parce que la page a besoin de la même règle : elle n'offre pas le bouton, le serveur
+ * refuse quand même. Les deux, jamais l'un sans l'autre.
+ */
+const EMPTY_FILTER_REFUSAL =
+  'Aucun filtre posé : ce geste emporterait toute la veille. Pose au moins un filtre — ' +
+  'un type, une source, un tag, une recherche — avant de supprimer.'
 
 /** Combien d'items par page. Au-delà, la page devient lourde à afficher autant qu'à parcourir. */
 const PER_PAGE = 50
@@ -31,41 +52,17 @@ export default class VeilleController {
   ) {}
 
   async index({ inertia, request, session }: HttpContext) {
-    const type = request.input('type')
-    const tag = request.input('tag')
-    const search = request.input('search')
-    // ⚠️ Trois états (CC-105), d'où un parse nommé : `Number(…) || null` ne peut pas en porter
-    // un troisième, et faisait retomber `?sourceId=none` sur « aucun filtre » — en silence.
-    const sourceId = parseSourceFilter(request.input('sourceId'))
-    const readingQueue = asBool(request.input('readingQueue'))
-    const unread = asBool(request.input('unread'))
+    const filters = this.readFilters(request)
     const page = Math.max(1, Number(request.input('page')) || 1)
 
     /**
-     * ⚠️ **`visible()`, jamais `query()`** (CC-63) : les items supprimés portent une pierre
-     * tombale et cette requête est la seule à servir la liste, la recherche, le filtrage par tag
-     * et la pagination. Le filtre est donc posé **avant** tous les `if` ci-dessous — un supprimé
-     * ne doit ressortir par aucun chemin, y compris en comptant dans le total d'une page.
+     * ⚠️ **La requête filtrée vit dans `filteredItems`, plus ici** (CC-108). Elle a trois
+     * appelants désormais — cette liste, le décompte qu'annonce la confirmation, et la
+     * suppression par filtre. Dupliquée, elle ferait annoncer 317 puis en emporter 340, sans
+     * qu'une erreur soit levée nulle part. C'est aussi elle qui porte le `visible()` : un
+     * supprimé ne ressort par aucun des trois chemins.
      */
-    const query = VeilleItem.visible()
-      // `id` en second critère rend l'ordre **total**. Sans lui, deux items publiés à la même
-      // seconde peuvent s'échanger entre deux requêtes : la pagination sauterait ou répéterait
-      // une ligne pendant qu'une collecte tourne.
-      .orderByRaw('coalesce(published_at, created_at) DESC, id DESC')
-
-    if (type) query.where('type', type)
-    // `tags` est un `text[]` Postgres : le binding `?` reste paramétré, jamais concaténé.
-    if (tag) query.whereRaw('? = ANY(tags)', [tag])
-    if (search) query.whereRaw("search_vector @@ plainto_tsquery('french', ?)", [search])
-    /**
-     * ⚠️ **Trois branches, et le `if (sourceId)` d'origine ne pouvait pas les porter.** La
-     * sentinelle est une chaîne, donc truthy : laissée à l'ancienne forme, elle serait partie en
-     * `where('veille_source_id', 'none')` sur une colonne `integer`.
-     */
-    if (sourceId === NO_SOURCE) query.whereNull('veille_source_id')
-    else if (sourceId !== null) query.where('veille_source_id', sourceId)
-    if (readingQueue) query.where('reading_queue', true)
-    if (unread) query.whereNull('read_at')
+    const query = filteredItems(filters).orderByRaw(FEED_ORDER)
 
     /**
      * ⚠️ **La page demandée est bornée à la dernière page réelle** (CC-63).
@@ -98,7 +95,7 @@ export default class VeilleController {
       stats,
       tags,
       sources,
-      filters: { type, tag, readingQueue, unread, search, sourceId },
+      filters,
       /**
        * Le retour d'une suppression — même mécanique que l'écran des sources : un flash relu ici
        * et rendu en prop. C'est le seul endroit où un échec Immich peut se lire, la suppression
@@ -141,6 +138,29 @@ export default class VeilleController {
    * `sources` est la liste **entière** chargée par `index`, sans filtre sur `active` : une source
    * désactivée nomme toujours les items qu'elle a collectés.
    */
+  /**
+   * Les six filtres du flux, lus depuis la requête et **normalisés**.
+   *
+   * ⚠️ **`?? null` n'est pas cosmétique, et le mode d'échec est visible à l'écran** (CC-108).
+   * `request.input('type')` rend `undefined` quand le paramètre est absent, et `JSON.stringify`
+   * **supprime les clés `undefined`** : la prop `filters` arrivait donc à la page sans le champ
+   * du tout. Tout test `!== null` côté page y répond vrai — le rappel des filtres actifs (CC-65)
+   * affichait une pastille pour un filtre que personne n'avait posé. Invisible à toute fixture
+   * construite avec des `null` explicites, visible au premier chargement.
+   */
+  private readFilters(request: HttpContext['request']): ItemFilters {
+    return {
+      type: request.input('type') ?? null,
+      tag: request.input('tag') ?? null,
+      search: request.input('search') ?? null,
+      // ⚠️ Trois états (CC-105), d'où un parse nommé : `Number(…) || null` ne peut pas en porter
+      // un troisième, et faisait retomber `?sourceId=none` sur « aucun filtre » — en silence.
+      sourceId: parseSourceFilter(request.input('sourceId')),
+      readingQueue: asBool(request.input('readingQueue')),
+      unread: asBool(request.input('unread')),
+    }
+  }
+
   private serialize(item: VeilleItem, sources: VeilleSource[]) {
     return {
       ...item.serialize(),
@@ -185,10 +205,114 @@ export default class VeilleController {
    * sont restés en place, le message d'Immich remonte **tel quel** — c'est le seul moyen de
    * distinguer « Immich éteint » d'une clé sans la permission `asset.delete`.
    */
+  /**
+   * Combien d'items ce filtre désigne, **et combien d'entre eux partiraient chez Immich** — le
+   * décompte qu'annonce la confirmation avant une suppression par filtre (CC-108).
+   *
+   * ⚠️ **Ce compte est fait au moment du geste, pas au rendu de la page.** Une collecte tourne
+   * toutes les minutes : le total affiché peut avoir dérivé depuis. Ce que la confirmation
+   * annonce doit venir d'ici — c'est toute la raison d'être de cette route.
+   *
+   * ⚠️ **Réponse HTTP nue, pas de l'Inertia** — comme le proxy de vignette. La page l'appelle en
+   * `fetch` **avant** d'afficher son dialogue ; une réponse Inertia y provoquerait une
+   * navigation, donc effacerait le dialogue au moment de le montrer.
+   *
+   * ⚠️ **En `GET`, et pas par confort** : la query string est le seul transport qu'un `fetch` peut
+   * porter sans jeton CSRF, et un décompte n'écrit rien. Le corps de la suppression, lui, part en
+   * `POST` par Inertia, qui pose le jeton.
+   *
+   * ⚠️ **Le nombre de médias est la seule chose que l'utilisateur ne peut pas déduire de
+   * l'écran** : le total, il le lit dans « N éléments » ; combien d'assets Immich vont réellement
+   * à la corbeille, personne ne peut le compter à l'œil sur trois pages.
+   */
+  async countFiltered({ request, response }: HttpContext) {
+    const filters = await this.validatedFilters(request)
+
+    if (isFilterEmpty(filters)) {
+      return response.unprocessableEntity({ error: EMPTY_FILTER_REFUSAL })
+    }
+
+    const [total, media] = await Promise.all([
+      filteredItems(filters).count('* as total'),
+      filteredItems(filters).whereLike('dedup_key', IMMICH_DEDUP_LIKE).count('* as total'),
+    ])
+
+    // ⚠️ Postgres rend `count()` en `bigint`, donc en **chaîne** : sans `Number()`, le dialogue
+    // afficherait une concaténation au lieu d'une addition.
+    return response.ok({
+      total: Number(total[0].$extras.total ?? 0),
+      media: Number(media[0].$extras.total ?? 0),
+    })
+  }
+
+  /**
+   * Supprime **tout ce que le filtre désigne**, au-delà de la page courante (CC-108).
+   *
+   * ⚠️ **La page n'envoie aucun identifiant, elle envoie le critère.** C'est ce qui remplace le
+   * plafond de 200 ids de CC-63 : ce n'est plus la page qui décide de ce qui part, et un client
+   * forgé ne peut pas désigner autre chose que ce qu'un filtre désigne.
+   *
+   * ⚠️ **Un filtre vide est refusé, et ce refus est la garantie principale du lot.** Sans lui, le
+   * bouton devient « vider la veille » derrière un `confirm()` d'une ligne. La page ne l'offre
+   * pas — la barre de rappel n'existe pas sans filtre — mais une route est un contrat public :
+   * `curl` muni d'un cookie valide n'a que faire du rendu Vue. **Les deux, jamais l'un sans
+   * l'autre.**
+   *
+   * ⚠️ **La suppression elle-même passe par `deleteItems`, inchangée.** Immich d'abord et la base
+   * ensuite, rien de marqué si Immich échoue, le partiel assumé, `trashDays()` relu avant chaque
+   * lot, l'idempotence par `deleted_at IS NULL`. Écrire un second chemin de suppression serait la
+   * façon la plus sûre d'en perdre un.
+   */
+  async destroyFiltered({ request, response, session }: HttpContext) {
+    const filters = await this.validatedFilters(request)
+
+    if (isFilterEmpty(filters)) {
+      session.flash('notification', { type: 'error', message: EMPTY_FILTER_REFUSAL })
+      return response.redirect().back()
+    }
+
+    const ids = await filteredItems(filters).select('id')
+    const outcome = await this.deletion.deleteItems(ids.map((item) => item.id))
+
+    this.flashOutcome(session, outcome)
+    return response.redirect().back()
+  }
+
+  /** Le filtre posté ou passé en query string, validé puis ramené aux six champs du flux. */
+  private async validatedFilters(request: HttpContext['request']): Promise<ItemFilters> {
+    const payload = await request.validateUsing(itemFilterValidator)
+
+    return {
+      type: payload.type ?? null,
+      tag: payload.tag ?? null,
+      search: payload.search ?? null,
+      // ⚠️ **Le validateur ne connaît pas la sentinelle, et ne doit pas la connaître** : elle a
+      // trois états qu'un schéma Vine n'exprime pas sans se dédoubler, et deux définitions d'un
+      // même `'none'` sont la panne muette que CC-105 vient de corriger.
+      sourceId: parseSourceFilter(payload.sourceId),
+      readingQueue: payload.readingQueue ?? false,
+      unread: payload.unread ?? false,
+    }
+  }
+
   async destroyMany({ request, response, session }: HttpContext) {
     const { ids } = await request.validateUsing(itemIdsValidator)
     const outcome = await this.deletion.deleteItems(ids)
 
+    this.flashOutcome(session, outcome)
+    return response.redirect().back()
+  }
+
+  /**
+   * Les **trois tons** du retour d'une suppression, jamais le silence — partagés par les deux
+   * chemins (par cases et par filtre) depuis CC-108.
+   *
+   * ⚠️ **Partagés, pas recopiés.** Les deux gestes ont exactement les mêmes issues, et la seule
+   * qui compte vraiment est la troisième : un lot par filtre peut tout à fait ne rien trouver
+   * (un second onglet a déjà supprimé). Un chemin qui l'aurait oubliée aurait laissé le bouton
+   * paraître cassé, sur le geste le plus destructeur du module.
+   */
+  private flashOutcome(session: HttpContext['session'], outcome: DeletionOutcome) {
     if (outcome.error !== null) {
       session.flash('notification', {
         type: 'error',
@@ -217,7 +341,5 @@ export default class VeilleController {
         message: 'Rien à supprimer : ces éléments l’étaient déjà.',
       })
     }
-
-    return response.redirect().back()
   }
 }

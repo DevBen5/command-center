@@ -38,6 +38,38 @@ export const itemIdsValidator = vine.compile(
   })
 )
 
+/**
+ * Le filtre qui voyage (CC-108) — **exactement les six champs du flux, rien de plus**.
+ *
+ * Ce validateur remplace le plafond de 200 identifiants pour un geste qui n'en envoie plus aucun :
+ * la page poste un critère, le serveur rejoue la même requête que `index` et agit sur son
+ * résultat. Ce n'est plus la page qui décide de ce qui part.
+ *
+ * ⚠️ **Ce que ce validateur ne fait PAS, et ne doit pas faire** : refuser un filtre vide. Cette
+ * décision vit dans `shared/filter_selection.ts`, parce que la page en a besoin aussi — elle
+ * n'offre pas le bouton, le serveur refuse quand même. Un refus câblé ici ne serait connu que du
+ * serveur, et la page proposerait un geste qui échoue.
+ *
+ * ⚠️ **`sourceId` reste une chaîne ici, et c'est délibéré.** Il a trois états (`number | 'none' |
+ * null`, CC-105) qu'un schéma Vine n'exprime pas sans se dédoubler ; `parseSourceFilter` les
+ * tranche déjà et il est testé. Redéfinir la sentinelle dans ce fichier la ferait diverger de
+ * celle que la page pose — deux définitions d'un même `'none'`, c'est-à-dire la panne muette que
+ * CC-105 vient de corriger.
+ *
+ * Les bornes de longueur sont là pour ce qu'un client forgé pourrait envoyer, pas pour l'écran :
+ * un `search` de 10 Mo partirait dans un `plainto_tsquery`.
+ */
+export const itemFilterValidator = vine.compile(
+  vine.object({
+    type: vine.enum(['article', 'bookmark', 'note', 'image', 'video'] as const).optional(),
+    tag: vine.string().trim().maxLength(100).optional(),
+    search: vine.string().trim().maxLength(200).optional(),
+    sourceId: vine.string().trim().maxLength(20).optional(),
+    readingQueue: vine.boolean().optional(),
+    unread: vine.boolean().optional(),
+  })
+)
+
 // ---------------------------------------------------------------------------------------------
 // Garde SSRF — le miroir inverse de celle du client LLM
 // ---------------------------------------------------------------------------------------------

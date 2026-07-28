@@ -128,6 +128,22 @@ export function immichDedupKey(assetId: string): string {
   return `${DEDUP_PREFIX}${assetId}`
 }
 
+/**
+ * Le motif `LIKE` qui désigne les clés d'asset Immich — **le préfixe reste défini ici, et ici
+ * seul**.
+ *
+ * Sert au décompte des médias annoncé avant une suppression par filtre (CC-108) : compter en SQL
+ * plutôt qu'en hydratant des milliers de lignes pour lire une chaîne. Écrire `'immich:%'` dans le
+ * contrôleur en ferait une seconde définition du préfixe, à synchroniser avec celle-ci le jour où
+ * elle bouge — exactement ce que ce fichier existe pour empêcher.
+ *
+ * ⚠️ **Ce motif est plus large qu'`assetIdFromDedupKey`**, qui valide en plus la forme de l'UUID.
+ * Une clé `immich:` malformée serait donc comptée comme un média alors que la suppression la
+ * traiterait comme un item local. L'écart va dans le **bon sens** : la confirmation annoncerait
+ * un asset de trop plutôt qu'un de moins.
+ */
+export const IMMICH_DEDUP_LIKE = `${DEDUP_PREFIX}%`
+
 /** L'UUID porté par une clé de dédup Immich, ou `null` si la clé n'en est pas une. */
 export function assetIdFromDedupKey(key: string | null): string | null {
   if (!key || !key.startsWith(DEDUP_PREFIX)) return null

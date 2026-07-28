@@ -204,6 +204,26 @@ router
           .post('/items/delete', [VeilleController, 'destroyMany'])
           .use(middleware.can('veille.items.write'))
 
+        // Agir sur tout ce que le filtre désigne, au-delà de la page courante (CC-108).
+        //
+        // ⚠️ Ces deux routes remplacent le plafond de 200 identifiants : la page n'envoie plus
+        // de liste, elle envoie le **critère**, et le serveur rejoue la requête du flux. Le
+        // décompte est en `GET` — il n'écrit rien, et un `fetch` sans jeton CSRF suffit ; la
+        // suppression est en `POST`, posté par Inertia qui porte le jeton.
+        //
+        // ⚠️ Les deux sont sous `veille.items.write`, **le décompte compris**. Il n'existe que
+        // pour armer la confirmation d'une suppression : sous `veille.view`, un compte en
+        // lecture seule pourrait sonder la taille d'un lot qu'il n'a pas le droit de supprimer.
+        //
+        // ⚠️ Déclarées **avant** `/items/:id/...`, comme `/items/delete` : dans l'autre ordre,
+        // « filtered » serait capté comme un `:id`.
+        router
+          .get('/items/filtered/count', [VeilleController, 'countFiltered'])
+          .use(middleware.can('veille.items.write'))
+        router
+          .post('/items/filtered/delete', [VeilleController, 'destroyFiltered'])
+          .use(middleware.can('veille.items.write'))
+
         // La vignette d'un asset Immich (CC-55). ⚠️ Le paramètre est l'id d'item de **notre**
         // base, jamais l'identifiant Immich : c'est ce qui empêche le proxy de servir n'importe
         // quel asset de la bibliothèque personnelle. Voir `VeilleMediaController`.
