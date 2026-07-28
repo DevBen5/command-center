@@ -34,7 +34,8 @@
         "tag": "Tag",
         "search": "Recherche",
         "remove": "Retirer le filtre {label}",
-        "clearAll": "Tout effacer"
+        "clearAll": "Tout effacer",
+        "deleteFiltered": "Supprimer tout ce que ce filtre affiche"
       },
       "tags": "Tags"
     },

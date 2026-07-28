@@ -17,14 +17,29 @@
 
 import { NO_SOURCE, type SourceFilter } from './source_filter.js'
 
-/** Recopié structurellement depuis la page : voir l'avertissement sur les alias. */
+/**
+ * Recopié structurellement depuis la page : voir l'avertissement sur les alias.
+ *
+ * ⚠️ **`undefined` est admis en plus de `null`, et ce n'est pas de la complaisance de typage.**
+ * `request.input('type')` rend `undefined` quand le paramètre est absent, et `JSON.stringify`
+ * **supprime les clés `undefined`** : la prop arrive donc sans le champ du tout. Un test
+ * `!== null` y répondrait vrai, et une chip « Type : » s'afficherait alors qu'aucun filtre n'est
+ * posé — visible à l'écran, invisible à tout test construit avec des `null` explicites.
+ * `VeilleController.index` normalise désormais en `null`, et cette souplesse-ci est la seconde
+ * barrière.
+ */
 export type FiltersView = {
-  type: string | null
-  tag: string | null
-  search: string | null
-  sourceId: SourceFilter
-  unread: boolean
-  readingQueue: boolean
+  type?: string | null
+  tag?: string | null
+  search?: string | null
+  sourceId?: SourceFilter
+  unread?: boolean
+  readingQueue?: boolean
+}
+
+/** Une valeur de filtre textuelle réellement posée — ni absente, ni nulle, ni vide. */
+function isSet(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value !== ''
 }
 
 /** Le minimum qu'il faut connaître d'une source pour la nommer dans un chip. */
@@ -58,7 +73,7 @@ export function activeFilters(
 ): ActiveFilter[] {
   const posed: ActiveFilter[] = []
 
-  if (filters.type !== null && filters.type !== '') {
+  if (isSet(filters.type)) {
     posed.push({
       field: 'type',
       labelKey: 'veille.index.filters.chip.type',
@@ -69,7 +84,7 @@ export function activeFilters(
     })
   }
 
-  if (filters.sourceId !== null) {
+  if (filters.sourceId !== null && filters.sourceId !== undefined) {
     posed.push({
       field: 'sourceId',
       labelKey: 'veille.index.filters.chip.source',
@@ -78,7 +93,7 @@ export function activeFilters(
     })
   }
 
-  if (filters.tag !== null && filters.tag !== '') {
+  if (isSet(filters.tag)) {
     posed.push({
       field: 'tag',
       labelKey: 'veille.index.filters.chip.tag',
@@ -88,7 +103,7 @@ export function activeFilters(
     })
   }
 
-  if (filters.search !== null && filters.search !== '') {
+  if (isSet(filters.search)) {
     posed.push({
       field: 'search',
       labelKey: 'veille.index.filters.chip.search',

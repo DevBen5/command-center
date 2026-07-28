@@ -17,6 +17,17 @@ export type DeletionOutcome = {
 }
 
 /**
+ * Combien d'assets partent dans un seul `DELETE /api/assets`.
+ *
+ * ⚠️ **Ce n'est pas une limite mesurée, c'est une prudence assumée** : la documentation d'Immich
+ * n'en annonce aucune, et le message d'erreur du module invite déjà à « réessayer par plus petits
+ * lots » sur un 400 — ce qui revient à dire qu'on ne sait pas. 200 est la valeur que CC-63 avait
+ * retenue au validateur comme sûre, ce qui garantit au passage que ce lot ne change **rien** au
+ * comportement d'une suppression par cases.
+ */
+const IMMICH_BATCH = 200
+
+/**
  * La suppression d'items de veille (CC-63) — logique en base, corbeille dans Immich.
  *
  * Deux systèmes, donc deux écritures, donc une fenêtre entre les deux. **Elle n'est pas
@@ -38,13 +49,65 @@ export default class VeilleDeletionService {
   constructor(private client: ImmichClient) {}
 
   /**
-   * Supprime les items désignés, et rend ce qui s'est réellement passé.
+   * ⚠️ **`protected`, et c'est une couture de test délibérée** — même motif
+   * qu'`assertReachableTarget` dans `feed_fetcher`, et pour la même raison : sans elle, la boucle
+   * de découpage ne serait **jamais** exercée. Aucun test n'insère 200 items, donc le `break` au
+   * premier lot en échec et le décompte des items non tentés resteraient du code que rien ne
+   * relit — sur le seul geste destructeur du module. Un test qui l'abaisse à 2 les couvre en
+   * trois lignes.
+   *
+   * Jamais relâchée en production : la valeur par défaut est la seule qui parte à Immich.
+   */
+  protected readonly batchSize: number = IMMICH_BATCH
+
+  /**
+   * Supprime les items désignés, **par lots**, et rend ce qui s'est réellement passé.
+   *
+   * ⚠️ **Le découpage existe parce qu'on ne connaît pas la limite d'Immich** (CC-108). Le message
+   * d'erreur du lot 1 invite déjà à « réessayer par plus petits lots » — c'est un aveu, et il
+   * était sans conséquence tant que le geste était borné à 200 identifiants par le validateur.
+   * CC-108 lève cette borne : un filtre peut désigner des milliers d'items, et les envoyer dans
+   * un seul `DELETE /api/assets` heurterait une limite qu'on découvrirait en la heurtant.
+   *
+   * ⚠️ **Un seul chemin de suppression, jamais deux.** La tentation était d'écrire une
+   * `deleteByFilter` à côté ; elle aurait dupliqué l'ordre Immich-puis-base, le refus sur
+   * corbeille désactivée et le partiel assumé — c'est-à-dire tout ce qui rend ce lot sûr. Le
+   * découpage est donc **ici**, et CC-63 y passe sans changer de comportement : 200 identifiants
+   * au maximum, donc toujours un seul lot.
+   *
+   * ⚠️ **On s'arrête au premier lot en échec.** Continuer rappellerait une instance éteinte
+   * autant de fois qu'il reste de lots, sans aucune chance de succès. Les items non tentés sont
+   * comptés dans `failed` : ils sont restés en place pour la même raison que les autres, et les
+   * annoncer comme non concernés ferait croire le geste plus complet qu'il ne l'est.
    *
    * ⚠️ **Idempotent par le filtre `deleted_at IS NULL`** : un double-clic, un rejeu de requête ou
    * deux onglets ne rappellent pas Immich sur des assets déjà à la corbeille. Un id inconnu ou
-   * déjà supprimé est simplement ignoré — jamais une erreur, il n'y a rien à signaler.
+   * déjà supprimé est simplement ignoré — jamais une erreur, il n'y a rien à signaler. C'est
+   * aussi ce qui rend une reprise après échec sûre : les lots déjà passés ne repartent pas.
    */
   async deleteItems(ids: number[]): Promise<DeletionOutcome> {
+    const outcome: DeletionOutcome = { deleted: 0, trashed: 0, failed: 0, error: null }
+
+    for (let start = 0; start < ids.length; start += this.batchSize) {
+      const batch = await this.deleteBatch(ids.slice(start, start + this.batchSize))
+
+      outcome.deleted += batch.deleted
+      outcome.trashed += batch.trashed
+      outcome.failed += batch.failed
+
+      if (batch.error !== null) {
+        outcome.error = batch.error
+        // Ce qui n'a pas été tenté est resté en place pour la même raison que le reste.
+        outcome.failed += Math.max(0, ids.length - (start + this.batchSize))
+        break
+      }
+    }
+
+    return outcome
+  }
+
+  /** Un lot — le corps historique de `deleteItems`, inchangé dans sa logique. */
+  private async deleteBatch(ids: number[]): Promise<DeletionOutcome> {
     const items = await VeilleItem.visible().whereIn('id', ids)
     if (items.length === 0) return { deleted: 0, trashed: 0, failed: 0, error: null }
 
