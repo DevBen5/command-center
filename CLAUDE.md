@@ -182,6 +182,20 @@ feature reste une tranche verticale (le test suit son composant s'il déménage)
 dossier `tests/frontend/` ne serait ramassé par **aucune** suite Japa — on fabriquerait au niveau
 du runner le faux-négatif silencieux que ces tests existent pour supprimer.
 
+**Un module qui a un `TESTS.md` doit y citer chacun de ses fichiers de test** (CC-112), par son
+chemin relatif au dépôt. `tests/unit/tests_index.spec.ts` le vérifie **dans les deux sens** — une
+spec absente de l'index, un chemin cité qui n'existe plus — et exige en plus qu'une spec de
+`tests/unit/` ou `tests/functional/modules/` porte un préfixe de module (`veille_`, `leitner_`) ou
+figure dans sa liste de specs transverses. Le `CLAUDE.md` de chaque module envoie lire son index
+« avant de modifier un test » ; sans cette garde, la promesse ne tenait pas : celui de veille a
+accumulé huit fichiers absents sur six tickets, tous gates verts.
+
+- ⚠️ **Il asserte la MENTION, pas l'exactitude** — même limite que `db_seeders.spec.ts`, qui asserte
+  la liste *déclarée* et non l'*effet* : une entrée dont la phrase est devenue fausse passe au vert.
+- ⚠️ **Seuls les modules qui ont un `TESTS.md` sont couverts.** `services` et `agents` n'en ont pas,
+  donc leurs tests ne sont indexés nulle part et rien ne le dit. Écrire un index les fait entrer
+  dans la règle ; c'est le seul geste à faire.
+
 **Quand écrire un test de composant : quand il porte de la *logique*, jamais pour du décor.** Un
 filtrage, un état actif, une garde avant requête, un raccourci clavier — oui. Un composant qui ne
 fait que disposer des `<div>` — non, le test ne dirait rien que la relecture ne dit mieux.

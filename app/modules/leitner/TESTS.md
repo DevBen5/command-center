@@ -6,14 +6,15 @@ permanence sont dans `CLAUDE.md`, section « Tests ».
 
 ## Tests de composant (Vitest, `components/__tests__/`)
 
-- `leitner_tabs.spec.ts` — l'onglet actif : query string, slash final, `/revision/ingest/42`, et
-  surtout **un seul** onglet allumé (`/revision` étant préfixe des quatre autres).
-- `ingestion_title.spec.ts` — les deux gardes de `save()` : titre vide et titre inchangé n'envoient
-  **aucune** requête.
-- `taxonomy_combobox.spec.ts` — l'invariant `filtering` : rouvrir la liste après avoir tapé remontre
-  **toute** la taxonomie. ⚠️ Il ne prouve quelque chose que parce qu'il **tape d'abord** :
-  `filtering` vaut déjà `false` au montage, donc ouvrir sans saisie passerait même si la remise à
-  zéro disparaissait. C'est le piège de tout test de composant — voir le `CLAUDE.md` racine.
+- `app/modules/leitner/components/__tests__/leitner_tabs.spec.ts` — l'onglet actif : query string,
+  slash final, `/revision/ingest/42`, et surtout **un seul** onglet allumé (`/revision` étant
+  préfixe des quatre autres).
+- `app/modules/leitner/components/__tests__/ingestion_title.spec.ts` — les deux gardes de `save()` :
+  titre vide et titre inchangé n'envoient **aucune** requête.
+- `app/modules/leitner/components/__tests__/taxonomy_combobox.spec.ts` — l'invariant `filtering` :
+  rouvrir la liste après avoir tapé remontre **toute** la taxonomie. ⚠️ Il ne prouve quelque chose
+  que parce qu'il **tape d'abord** : `filtering` vaut déjà `false` au montage, donc ouvrir sans
+  saisie passerait même si la remise à zéro disparaissait. C'est le piège de tout test de composant — voir le `CLAUDE.md` racine.
 
 ⚠️ **`LeitnerScopeSearch.vue` n'a pas de test de composant** : seuls `LeitnerTabs`, `IngestionTitle`
 et `TaxonomyCombobox` sont couverts. Câbler celui-ci est possible et souhaitable ; en attendant, son
@@ -24,6 +25,14 @@ navigateur.
 
 - `tests/unit/leitner_service.spec.ts` — la règle des boîtes : une note = une assertion sur la boîte
   **et** sur `next_review`.
+- `tests/functional/modules/leitner_intervals.spec.ts` — les intervalles **lus en base**, pas dans
+  la constante. Le test qui porte le lot enchaîne les deux moitiés dans la **même** exécution :
+  boîte 3 réglée à 10 jours, puis une carte notée `good` dont `next_review` tombe à +10. Asserter
+  la persistance seule laisserait passer un `updateBoxIntervals` qui écrit sans que
+  `boxIntervals()` relise — la valeur serait en base et la règle continuerait sur les défauts. Plus
+  le refus d'un intervalle à **0**, vérifié sur l'**état de la ligne** et non sur le code HTTP : à
+  0 jour, une carte réussie resterait due le jour même, donc éternellement en session — le
+  privilège de `again`, et de lui seul.
 - `tests/unit/leitner_due_cards.spec.ts` — la **file et son paquet** (`all` · `theme` · `category`
   via ses thèmes · `unclassified`), l'ordre à l'intérieur d'un paquet, une carte `again` qui y reste,
   et le **refus** d'un id inexistant — le repli muet sur « tout » est le mode d'échec que ce lot
@@ -110,6 +119,22 @@ navigateur.
 
 - `tests/unit/leitner_catalog_service.spec.ts` — les filtres, la suppression multiple, le
   reclassement et les cascades de la taxonomie.
+- `tests/functional/modules/leitner_cards.spec.ts` — le cycle de vie d'une carte **par les routes
+  HTTP** : ce qui atterrit en base est bien ce qui a été saisi. Le module n'ayant aucun seeder,
+  c'est le seul endroit qui prouve les défauts d'une carte créée depuis l'écran (boîte 1, due le
+  jour même, non classée). Deux tests portent le lot : **l'édition ne rejoue pas la progression**
+  — corriger un verso laisse la boîte 3 et son échéance intactes, ce qu'aucun écran ne montre —,
+  et **la taxonomie ne descend plus à
+  `/revision`** alors que le thème de la carte en cours, lui, y est toujours : l'assertion tient
+  les deux moitiés, l'absence seule serait verte sur un preload cassé. Plus le recto vide refusé
+  **sans rien écrire**, et la suppression.
+- `tests/unit/leitner_settings_page.spec.ts` — **CC-67**, le recalage du défilement après un import
+  (`scrollTopKeepingAnchor`). ⚠️ Les deux cas nominaux vont dans des sens **opposés** et sont tous
+  deux **asymétriques** : un signe inversé rendrait le bon résultat sur un delta nul, donc un seul
+  cas — ou deux cas symétriques — ne prouverait rien. Plus le cas témoin (import entièrement
+  dédupliqué : rien ne bouge, surtout pas « un peu ») et l'écrêtage à zéro. Ce qu'il ne voit
+  **pas** : tout le reste du correctif — jsdom ne fait aucun layout, donc ni la hauteur du tableau,
+  ni `scrollTop`, ni le `nextTick` avant la mesure, ni le choix du conteneur défilant.
 - `tests/functional/modules/leitner_backup.spec.ts` — l'**aller-retour** (export → base vidée →
   import → base identique), le seul test qui valide la promesse de l'export. ⚠️ **Sa valeur tient
   entièrement dans son `snapshot()`** : une colonne que cette fonction ne lit pas peut être perdue
@@ -117,6 +142,18 @@ navigateur.
   L'aller-retour porte une révision **jugée** et une **jamais jugée** (`null` doit se relire `null`,
   jamais `0` ni `''`), plus une troisième aux valeurs falsy (`answer: ''`, `thinkingMs: 0`) qui sont
   des mesures et non des absences.
+
+## La lecture seule (CC-72)
+
+- `tests/functional/modules/leitner_readonly.spec.ts` — le rôle « invité » (`leitner.view` +
+  `leitner.stats.view`, rien d'autre) face à **toutes** les écritures du module. ⚠️ **L'assertion
+  qui compte n'est jamais le 403, c'est l'état de la base après le refus** : le module est
+  mono-utilisateur, donc `box`, `next_review` et la ligne unique de `leitner_settings` sont
+  partagés — noter la carte d'un autre ou redéfinir l'espacement des révisions corrompt le contenu
+  du propriétaire, pas un formulaire. Les tests sont **tous côté serveur** : masquer un bouton
+  n'est pas un droit, un `curl` muni d'un cookie valide n'a que faire du rendu Vue. Le dernier
+  couvre le refus sur une **route JSON nue** — un 403 avec corps JSON, jamais une redirection, sans
+  quoi les écrans appelés en `fetch` casseraient au lieu de dire non.
 
 ## L'ingestion
 

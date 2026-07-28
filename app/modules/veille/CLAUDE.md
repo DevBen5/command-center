@@ -931,7 +931,11 @@ d'identifiants non plus : les 200 de `itemIdsValidator` bornaient ce qui part da
 ## Tests
 
 Le détail par fichier est dans [TESTS.md](./TESTS.md) — à lire avant de **modifier un test**, pas
-avant de modifier le module. Ce qui doit rester présent en permanence :
+avant de modifier le module. ⚠️ **Un fichier de test du module absent de cet index fait rougir
+`tests/unit/tests_index.spec.ts`** (CC-112), qui le nomme : l'oubli ne passe plus en silence. Le
+fichier reste écrit **à la main** — rien ne le génère, et la garde asserte la **mention**, jamais
+l'exactitude : une phrase devenue fausse y passe au vert. Ce qui doit rester présent en
+permanence :
 
 - **Aucun test ne touche le réseau** : `fake_feed_fetcher.ts`, `fake_immich_client.ts` et
   `fake_youtube_client.ts` remplacent les clients dans le conteneur (`app.container.swap`), les flux
