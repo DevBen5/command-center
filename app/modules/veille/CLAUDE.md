@@ -35,6 +35,7 @@ shared/item_selection.ts                 PUR · la sélection multiple d'index.v
 shared/source_display.ts                 PUR · le libellé d'une source auto-provisionnée
 shared/item_provenance.ts                PUR, serveur ET page · d'où vient un item
 shared/source_filter.ts                  PUR, serveur ET page · le filtre par source, TROIS états
+shared/active_filters.ts                 PUR · quels filtres sont posés, et comment les nommer
 ```
 
 ⚠️ **Dix fichiers hors du module** : `start/routes.ts`, `providers/veille_provider.ts` (déclaré
@@ -109,6 +110,39 @@ typecheck au lieu de mentir.
 - ⚠️ **Le repli ne masque jamais.** Une source introuvable retombe sur « source supprimée », un
   `kind` sans couleur sur la pastille neutre. Une pastille absente laisserait exactement le trou
   que CC-104 vient combler, et serait indiscernable d'une provenance vide.
+
+## Les filtres du flux — UN langage visuel, à deux états
+
+La page en parlait **cinq** (CC-65) : pastille complète pour les tags, graisse + `aqua` pour
+« Non lus », graisse + `accent` pour « À lire plus tard », graisse seule pour les types et les
+sources, graisse + `warn` pour « Sans source ». Sur fond sombre, un changement de graisse est le
+signal le plus faible dont on dispose, et il ne dit ni « ceci est un filtre », ni « il est actif »,
+ni « voilà comment l'enlever ». C'était la même action présentée de cinq façons — et le cinquième
+langage était né deux tickets plus tôt, ce qui montre le problème mieux qu'un argument.
+
+Tout passe désormais par `FILTER_ACTIVE` / `FILTER_IDLE` / `FILTER_NEUTRAL`, définis en tête
+d'`index.vue`, alignés sur les pastilles de tag — le seul des cinq qui fût lisible.
+
+- ⚠️ **Deux états de sélection, pas un.** « Tout » est *sélectionné* sans qu'aucun filtre soit
+  posé : lui donner l'accent effacerait la distinction que ce lot établit — *un filtre posé se
+  voit, et se retire*. Il prend `FILTER_NEUTRAL`. Ce n'est pas un sixième langage, c'est le même
+  à deux états.
+- ⚠️ **La bordure existe dès l'état inactif, en `transparent`.** Ne la poser qu'à l'actif
+  décalerait la boîte de 2 px à chaque clic, et toute la colonne sautillerait.
+- ⚠️ **Une source désactivée reste listée.** Ses items déjà collectés existent et restent
+  légitimement filtrables : c'est l'affichage de l'état qui manquait, pas la ligne. `opacity-55`
+  + le mot, et **la clé `veille.sources.disabled` est reprise telle quelle** — deux clés pour le
+  même mot divergent à la première retraduction.
+- ⚠️ **Le rappel des filtres est AU-DESSUS de la barre de sélection**, et l'ordre n'est pas
+  indifférent : le rappel est stable (il suit le filtre), la barre de sélection est éphémère
+  (elle apparaît au premier clic sur une case). L'éphémère au-dessus ferait sauter le rappel à
+  chaque coche.
+- ⚠️ **`active_filters.ts` lit `filters`, JAMAIS `items`.** C'est le bug de CC-54 rejoué : dérivé
+  de la liste affichée, le rappel n'annoncerait que les filtres dont il reste quelque chose à
+  l'écran — donc rien quand un filtre ne trouve rien, c'est-à-dire au moment précis où on a
+  besoin de savoir ce qui filtre.
+- ⚠️ **Chaque ✕ passe par `applyFilters`**, jamais par une URL construite à côté : c'est lui qui
+  remet la page à 1 et retire les inactifs de la query string.
 
 ## `type` dit ce que c'est, `kind` dit d'où ça vient
 
