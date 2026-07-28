@@ -70,7 +70,10 @@ présentes en permanence sont dans `CLAUDE.md`, section « Tests ».
   l'apostrophe, l'injection SQL et les caractères spéciaux — avec une assertion sur le **résultat**,
   pas seulement sur l'absence de crash), le filtre par tag accentué, `store`, `toggleQueue`,
   `toggleRead`, la pagination sans chevauchement, et que **la capture manuelle survit à la
-  migration**.
+  migration**. Plus, depuis **CC-111**, ce que la charge utile **ne** porte **pas** : `dedupKey`
+  n'y est plus, et `immichAssetId` et `provenance` y sont toujours. ⚠️ Les deux moitiés dans le
+  même test, sur le même chargement — l'absence seule serait verte sur un `serialize()` cassé de
+  bout en bout. Vérifié mordant : retire `serializeAs: null` du modèle et il rougit.
 
 ## Immich
 

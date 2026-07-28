@@ -132,12 +132,15 @@ export default class VeilleController {
    *
    * ⚠️ **`provenance` suit exactement la même règle** (CC-104), et c'est pour ça qu'elle est ici
    * et pas dans le `<script setup>`. « D'où vient cet item » se déduit de `veille_source_id`, de
-   * la nullité de `dedup_key` et de `metadata.sourceTitle` : tout est déjà dans la charge utile,
-   * la page *pourrait* trancher seule. Mais elle ne lit `dedupKey` nulle part aujourd'hui, et l'y
-   * faire descendre pour ça défairait la décision du paragraphe ci-dessus. Le mode d'échec évité
-   * est silencieux : poser un jour `serializeAs: null` sur `dedupKey` — geste raisonnable, c'est
-   * une clé interne — ferait basculer **tous** les orphelins en « Saisi à la main » sans qu'aucun
-   * test ne rougisse. Ici, la dépendance est un argument nommé.
+   * la nullité de `dedup_key` et de `metadata.sourceTitle` — et depuis CC-111 la page **n'a plus**
+   * `dedupKey` du tout : la colonne porte `serializeAs: null`, elle ne descend plus. Ce qui était
+   * une discipline est devenu une impossibilité, et c'est le bon ordre des deux.
+   *
+   * ⚠️ **Ces deux dérivations sont donc les seules lectrices de la clé côté page, et elles
+   * reçoivent le MODÈLE, pas la charge utile.** Le mode d'échec avait été nommé avant d'exister :
+   * dérivées de `item.serialize()`, elles feraient basculer **tous** les orphelins en « Saisi à la
+   * main » à la seconde où la clé cesse de descendre, sans qu'une erreur soit levée. La dépendance
+   * est un argument nommé — le typecheck casse au lieu de mentir.
    *
    * `sources` est la liste **entière** chargée par `index`, sans filtre sur `active` : une source
    * désactivée nomme toujours les items qu'elle a collectés.

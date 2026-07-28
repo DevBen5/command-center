@@ -5,6 +5,7 @@ import type User from '#core/auth/models/user'
 import { createUserWith } from '#tests/helpers/users'
 import VeilleItem from '#modules/veille/models/veille_item'
 import VeilleSource from '#modules/veille/models/veille_source'
+import { immichDedupKey } from '#modules/veille/services/immich_asset'
 
 /**
  * CC-20 : `VeilleController` n'avait **aucun test** hors le smoke test « la page rend ».
@@ -37,6 +38,7 @@ test.group('Veille / liste, filtres et recherche', (group) => {
       items: {
         id: number
         title: string
+        immichAssetId: string | null
         provenance: {
           origin: string
           sourceKind: string | null
@@ -331,6 +333,53 @@ test.group('Veille / liste, filtres et recherche', (group) => {
 
     assert.equal(detache.provenance.origin, 'orphan')
     assert.equal(detache.provenance.text, 'Hacker News (horaire)')
+  })
+
+  /**
+   * CC-111 : `dedup_key` ne descend plus au navigateur (`serializeAs: null` sur la colonne). Elle
+   * y partait dans chacun des 50 items d'une page, avec l'identifiant d'asset Immich ou de vidéo
+   * YouTube en clair et le schéma de préfixes internes — sans qu'aucun `.vue` ne la lise.
+   *
+   * ⚠️ **L'absence ne se teste pas seule.** Elle serait verte sur un `serialize()` cassé de bout
+   * en bout ; ce qu'on veut prouver, c'est que la charge utile a perdu la clé **sans perdre ce qui
+   * s'en déduit**. Les deux dérivations qui la lisent sont donc vérifiées ici, sur le même
+   * chargement :
+   *
+   * - `immichAssetId` — le proxy de vignette et le lien vers Immich en dépendent (CC-88) ;
+   * - `provenance` — le `CLAUDE.md` du module avait nommé ce mode d'échec avant qu'il existe :
+   *   dérivée de la charge utile, elle ferait basculer **tous les orphelins en « Saisi à la
+   *   main »** dès la clé retirée, sans erreur ni test rouge. Elle est dérivée du modèle Lucid,
+   *   passé en argument nommé — d'où le verdict `orphan` qui tient malgré l'absence.
+   */
+  test('la charge utile ne porte pas `dedupKey`, mais tout ce qui s’en déduit', async ({
+    assert,
+    client,
+  }) => {
+    const user = await login()
+    const assetId = 'a4f7c0d2-1e3b-4c58-9a6d-2f8b70c14e59'
+    await item({
+      type: 'image',
+      title: 'capture.jpg',
+      dedupKey: immichDedupKey(assetId),
+      publishedAt: DateTime.now(),
+    })
+    // Un orphelin : `dedup_key` renseignée, aucune source. C'est le cas que la page distingue
+    // d'une capture manuelle sur la seule nullité de la clé.
+    await item({
+      title: 'Détaché',
+      dedupKey: 'url:https://news.ycombinator.com/item?id=1',
+      metadata: { sourceTitle: 'Hacker News (horaire)' },
+      publishedAt: DateTime.now().minus({ minutes: 1 }),
+    })
+
+    const props = await itemsOf(client, user)
+    const [media, detache] = props.items
+
+    assert.notProperty(media, 'dedupKey')
+    assert.notProperty(detache, 'dedupKey')
+
+    assert.equal(media.immichAssetId, assetId)
+    assert.equal(detache.provenance.origin, 'orphan')
   })
 
   /**

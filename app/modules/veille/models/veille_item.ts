@@ -34,8 +34,22 @@ export default class VeilleItem extends BaseModel {
   /**
    * Clé de déduplication, sous index unique. Nulle pour les captures manuelles : Postgres
    * autorise plusieurs NULL dans un index unique, elles ne se bloquent donc jamais entre elles.
+   *
+   * ⚠️ **`serializeAs: null` — elle ne descend PAS au navigateur** (CC-111). C'est une clé de
+   * routage **interne** : son préfixe aiguille le proxy de vignette, et elle porte l'identifiant
+   * d'asset Immich ou de vidéo YouTube en clair. Rien côté page ne la lit — ce qui s'en déduit
+   * (`immichAssetId`, `provenance`) est dérivé dans `VeilleController.serialize`, précisément
+   * pour que la page n'ait pas à connaître les préfixes.
+   *
+   * ⚠️ **Ne la remets pas dans la charge utile « pour dépanner » un besoin de page.** Ce serait
+   * une seconde source de vérité sur le schéma de préfixes, à tenir synchronisée dans un
+   * template — la décision que ce module a déjà prise deux fois (CC-88, CC-104). Le geste
+   * correct est une dérivation nommée de plus dans `serialize()`.
+   *
+   * `serializeAs` ne touche que la sérialisation : l'accès en mémoire (`item.dedupKey`), les
+   * écritures et le SQL brut de `veille_item_writer` sont inchangés.
    */
-  @column()
+  @column({ serializeAs: null })
   declare dedupKey: string | null
 
   @column()

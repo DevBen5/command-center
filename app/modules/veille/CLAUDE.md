@@ -98,13 +98,27 @@ raison : `immichAssetId` (CC-88) et `provenance` (CC-104). Le préfixe de `dedup
 qui aiguille le proxy de vignette — pas une étiquette d'affichage. Le faire lire par un template
 en ferait une seconde source de vérité à tenir synchronisée.
 
-⚠️ **Le mode d'échec évité est silencieux, et c'est ce qui justifie le détour.** Tout descend
-déjà : `serialize()` n'exclut aucune colonne, donc la page *pourrait* trancher seule. Mais poser
-un jour `serializeAs: null` sur `dedupKey` — geste raisonnable, c'est une clé interne — ferait
-arriver `undefined`, donc **tous les orphelins basculeraient en « Saisi à la main »** sans qu'une
-erreur soit levée ni qu'un test rougisse. L'écran serait *plus faux qu'avant*, puisqu'il
-affirmerait quelque chose au lieu de se taire. Passée en argument nommé, la dépendance casse le
-typecheck au lieu de mentir.
+⚠️ **`dedup_key` ne descend plus au navigateur** (CC-111) : la colonne porte `serializeAs: null`.
+Elle partait dans chacun des 50 items d'une page avec l'UUID d'asset Immich, l'identifiant de vidéo
+YouTube et le schéma de préfixes, **sans qu'aucun `.vue` ne la lise**. Ce n'était pas une faille —
+le proxy de vignette est indexé par l'id d'item de notre base, jamais par l'identifiant d'asset —
+mais une donnée interne qui traversait une frontière sans raison, et qui invitait le prochain
+développeur à la lire dans un template.
+
+⚠️ **Le mode d'échec avait été nommé ici avant d'exister, et c'est ce qui rend ce retrait sûr.**
+Tant que tout descendait, la page *pouvait* trancher seule : dérivée de la charge utile,
+`provenance` aurait fait basculer **tous les orphelins en « Saisi à la main »** à la seconde où la
+clé cesse de descendre — sans erreur, sans test rouge, et l'écran serait *plus faux qu'avant*
+puisqu'il affirmerait quelque chose au lieu de se taire. Les deux dérivations reçoivent le
+**modèle Lucid** en argument nommé, jamais `item.serialize()` : `serializeAs` ne touche pas
+l'accès en mémoire, donc rien n'a bougé côté serveur.
+
+- ⚠️ **Ne la remets pas dans la charge utile pour dépanner un besoin de page** : ce serait une
+  seconde source de vérité sur le schéma de préfixes, dans un template. Le geste correct est une
+  dérivation nommée de plus dans `serialize()` — la troisième, après les deux ci-dessus.
+- La garde est dans `veille_items.spec.ts` (« la charge utile ne porte pas `dedupKey` »), et elle
+  tient les **deux** moitiés : l'absence de la clé, et la survie de `immichAssetId` et de
+  `provenance` sur le même chargement. L'absence seule serait verte sur un `serialize()` cassé.
 
 - `item_provenance.ts` **ne parse jamais `dedupKey`, il teste sa nullité** : `dedup_key` est nul
   pour une capture manuelle, et pour elle seule. C'est tout ce dont la question a besoin.
