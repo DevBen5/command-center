@@ -28,7 +28,18 @@ import type { ItemProvenance, SourceKind } from '../shared/item_provenance.js'
 import { NO_SOURCE, type SourceFilter } from '../shared/source_filter.js'
 import { activeFilters, clearAllPatch } from '../shared/active_filters.js'
 import { filterPayload } from '../shared/filter_selection.js'
-import { addTag, removeTag, TAGS_MAX } from '../shared/tags.js'
+import { addTag, normalizeTag, removeTag, TAGS_MAX } from '../shared/tags.js'
+import { requiresTag, type BulkAction } from '../shared/bulk_actions.js'
+
+/** Les quatre gestes offerts dans les deux barres, dans le même ordre des deux côtés. */
+const BULK_BUTTONS = [
+  { action: 'read', key: 'read' },
+  { action: 'unread', key: 'unread' },
+  { action: 'queue.add', key: 'queueAdd' },
+  { action: 'queue.remove', key: 'queueRemove' },
+  { action: 'tag.add', key: 'tagAdd' },
+  { action: 'tag.remove', key: 'tagRemove' },
+] as const satisfies readonly { action: BulkAction; key: string }[]
 
 defineOptions({ layout: AppLayout })
 
@@ -192,6 +203,54 @@ async function deleteFiltered(): Promise<void> {
   } finally {
     deletingFiltered.value = false
   }
+}
+
+/**
+ * Les actions groupées (CC-109) — sur les cases cochées, ou sur tout ce que le filtre désigne.
+ *
+ * ⚠️ **Aucune ne touche Immich, donc aucune ne demande confirmation.** Exiger un « êtes-vous
+ * sûr » pour marquer lu banaliserait le seul dialogue du module qui compte — celui de la
+ * suppression, qui écrit dans un autre système.
+ *
+ * ⚠️ **Les deux tags passent par `prompt`, et c'est assumé** : le même geste que le `confirm` de
+ * la suppression, sur un écran qui n'a pas de modale. La valeur est normalisée à l'envoi comme à
+ * la capture, et le serveur refuse ce qui n'a pas la bonne forme.
+ */
+function runBulk(action: BulkAction, scope: 'selected' | 'filtered'): void {
+  let tag: string | null = null
+
+  if (requiresTag(action)) {
+    const raw = prompt(t(`veille.index.bulk.prompt.${action === 'tag.add' ? 'add' : 'remove'}`))
+    if (raw === null) return
+
+    tag = normalizeTag(raw)
+    // Un tag inexploitable n'est pas une erreur serveur : on n'envoie simplement rien.
+    if (tag === null) return
+  }
+
+  const payload = { action, ...(tag === null ? {} : { tag }) }
+
+  if (scope === 'filtered') {
+    router.post(
+      '/veille/items/filtered/bulk',
+      { ...payload, ...filterPayload(props.filters) },
+      { preserveScroll: true }
+    )
+    return
+  }
+
+  router.post(
+    '/veille/items/bulk',
+    { ...payload, ids: selected.value },
+    {
+      preserveScroll: true,
+      // La sélection ne survit pas au geste : la liste rechargée porte de nouveaux états, et
+      // ré-agir dessus doit être un choix conscient plutôt qu'un second clic.
+      onFinish: () => {
+        selected.value = []
+      },
+    }
+  )
 }
 
 /**
@@ -618,11 +677,25 @@ function submitCapture(): void {
         <button
           v-if="posed.length > 1"
           type="button"
-          class="ml-auto rounded-md px-2 py-1 text-txt-3 transition-colors hover:text-accent"
+          class="rounded-md px-2 py-1 text-txt-3 transition-colors hover:text-accent"
           @click="applyFilters(clearAllPatch(posed))"
         >
           {{ t('veille.index.filters.chip.clearAll') }}
         </button>
+        <!-- Les actions groupées, sur tout ce que le filtre désigne (CC-109). Même ordre et même
+             vocabulaire que dans la barre de sélection : c'est le même geste, sur un autre
+             ensemble — et c'est la barre qui dit lequel, pas le bouton. -->
+        <span class="ml-auto flex flex-wrap items-center gap-1">
+          <button
+            v-for="entry in BULK_BUTTONS"
+            :key="entry.action"
+            type="button"
+            class="rounded-md border border-line-2 bg-panel px-2 py-1 text-txt-2 transition-colors hover:border-accent hover:text-accent"
+            @click="runBulk(entry.action, 'filtered')"
+          >
+            {{ t(`veille.index.bulk.${entry.key}`) }}
+          </button>
+        </span>
         <!-- ⚠️ **Le geste inter-pages vit ICI, et pas dans la barre de sélection** (CC-108).
              Trois raisons qui se renforcent : il rattache l'action au filtre qui la définit ;
              les deux sélections restent distinctes **par construction** plutôt que par un effort
@@ -653,9 +726,23 @@ function submitCapture(): void {
         <span v-if="selection.media > 0" class="text-txt-3">
           {{ t('veille.index.selection.media', selection.media) }}
         </span>
+        <!-- Les quatre gestes de CC-109, dans le même ordre que la barre de rappel ci-dessus.
+             ⚠️ Aucun ne touche Immich : ni confirmation, ni mot « corbeille ». Le seul dialogue
+             de cette barre reste celui de « Supprimer », et c'est ce qui lui garde son poids. -->
+        <span class="ml-auto flex flex-wrap items-center gap-1">
+          <button
+            v-for="entry in BULK_BUTTONS"
+            :key="entry.action"
+            type="button"
+            class="rounded-md border border-line-2 bg-panel px-2 py-1.5 text-txt-2 transition-colors hover:border-accent hover:text-accent"
+            @click="runBulk(entry.action, 'selected')"
+          >
+            {{ t(`veille.index.bulk.${entry.key}`) }}
+          </button>
+        </span>
         <button
           type="button"
-          class="ml-auto rounded-md border border-line-2 bg-panel px-3 py-1.5 text-txt-2 hover:text-txt"
+          class="rounded-md border border-line-2 bg-panel px-3 py-1.5 text-txt-2 hover:text-txt"
           @click="selected = []"
         >
           {{ t('veille.index.selection.cancel') }}

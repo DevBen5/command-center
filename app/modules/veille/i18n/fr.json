@@ -50,6 +50,18 @@
       "cancel": "Annuler",
       "delete": "Supprimer"
     },
+    "bulk": {
+      "read": "Lu",
+      "unread": "Non lu",
+      "queueAdd": "À lire",
+      "queueRemove": "Retirer d’à lire",
+      "tagAdd": "+ tag",
+      "tagRemove": "− tag",
+      "prompt": {
+        "add": "Quel tag ajouter ? (minuscules, sans espace)",
+        "remove": "Quel tag retirer ?"
+      }
+    },
     "selectItem": "Sélectionner « {title} »",
     "markRead": "Marquer comme lu",
     "markUnread": "Marquer comme non lu",
