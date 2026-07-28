@@ -36,6 +36,8 @@ shared/source_display.ts                 PUR · le libellé d'une source auto-pr
 shared/item_provenance.ts                PUR, serveur ET page · d'où vient un item
 shared/source_filter.ts                  PUR, serveur ET page · le filtre par source, TROIS états
 shared/active_filters.ts                 PUR · quels filtres sont posés, et comment les nommer
+shared/filter_selection.ts               PUR, serveur ET page · un filtre vide n'est pas un filtre
+services/veille_item_query.ts            la requête filtrée du flux — UN endroit, TROIS appelants
 ```
 
 ⚠️ **Dix fichiers hors du module** : `start/routes.ts`, `providers/veille_provider.ts` (déclaré
@@ -552,6 +554,52 @@ tourne, et cette fausseté-là est irréversible.
   un message qui ressemble à « Immich est éteint ».
 - ⚠️ Relevé contre `immich-app/immich` (branche `main`), pas contre la v2.6.1 exactement. L'UI de
   l'instance fait foi.
+
+### Agir sur tout ce que le filtre affiche (CC-108)
+
+Le geste passe des **50 items sous les yeux** à *n* que personne n'a lus. La borne de CC-63 n'a pas
+été retirée, elle a été **remplacée** — c'est la seule façon honnête de lever un plafond posé pour
+une raison.
+
+| | CC-63 | CC-108 |
+|---|---|---|
+| ce que la page envoie | une liste d'identifiants | **le filtre** |
+| la borne | plafond de 200 ids au validateur | le serveur recompte, annonce, et refuse un filtre vide |
+| le rayon | les 50 affichés | ce que le critère désigne |
+
+- ⚠️ **La requête filtrée vit dans `services/veille_item_query.ts`, et nulle part ailleurs.** Elle
+  a trois appelants : la liste, le décompte, la suppression. Dupliquée, elle ferait annoncer 317
+  puis en emporter 340 — sans erreur, sans log, et sans que personne voie passer les 23.
+- ⚠️ **`FEED_ORDER` est appliqué par l'appelant qui affiche, pas par `filteredItems`.** Un
+  `count(*)` sur une requête ordonnée par `coalesce(published_at, created_at)` fait **échouer
+  Postgres** : la colonne n'est ni agrégée ni groupée. Le décompte partait en 500. *Quels items*
+  et *dans quel ordre* sont deux questions ; seule la première intéresse le décompte.
+- ⚠️ **Un filtre vide est refusé, et c'est LA garantie du lot.** Sans ce refus, le bouton devient
+  « vider la veille » derrière un `confirm()` d'une ligne. La page ne l'offre pas — le bouton vit
+  dans la barre de rappel des filtres, qui n'existe pas sans filtre posé — **et le serveur refuse
+  quand même** : une route est un contrat public. Les deux, jamais l'un sans l'autre.
+- ⚠️ **Le décompte vient du serveur, au moment du geste.** Une collecte tourne toutes les minutes ;
+  ce qu'affichait la page a pu dériver. D'où l'aller-retour `GET /veille/items/filtered/count`
+  avant le dialogue — et il est en `GET` parce qu'un `fetch` y va sans jeton CSRF, là où la
+  suppression part en `POST` par Inertia, qui le porte.
+- ⚠️ **`confirmationMessage` prend une portée, et elle n'a PAS de défaut.** « 12 sélectionnés » et
+  « les 317 que ce filtre désigne » ne décrivent pas le même geste ; un défaut ferait du cas le
+  moins dangereux le comportement implicite. Le typecheck a nommé les six appels existants — c'est
+  exactement ce qu'on attendait de lui.
+- ⚠️ **Un seul chemin de suppression.** `destroyFiltered` résout le filtre en identifiants puis
+  appelle `deleteItems` **tel quel**. Une `deleteByFilter` écrite à côté aurait dupliqué l'ordre
+  Immich-puis-base, le refus sur corbeille désactivée et le partiel assumé — tout ce qui rend ce
+  lot sûr.
+- ⚠️ **Le découpage en lots de 200 n'est pas une optimisation.** On ne sait pas si Immich plafonne
+  la taille d'un lot (le message d'erreur invite déjà à « réessayer par plus petits lots », ce qui
+  est un aveu) ; tant que le geste était borné à 200 ids, la question ne se posait pas. On s'arrête
+  au **premier lot en échec** — rappeler une instance éteinte pour chaque lot restant n'a aucune
+  chance — et les items non tentés comptent dans `failed`.
+- ⚠️ **`batchSize` est `protected`, comme `assertReachableTarget` de `feed_fetcher`, et pour la
+  même raison** : aucun test n'insère 200 items, donc sans cette couture la boucle de découpage ne
+  serait exercée par rien. Elle a immédiatement payé — le décompte des non-tentés lisait la
+  constante au lieu de la propriété, un écart invisible en dessous de 200 items, c'est-à-dire
+  invisible partout sauf en production.
 
 ### La suppression en lot, et ce qui la borne
 
