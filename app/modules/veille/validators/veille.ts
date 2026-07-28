@@ -10,10 +10,41 @@ import {
   unitBounds,
   type IntervalUnit,
 } from '#modules/veille/shared/interval'
+import { isValidTag, TAG_MAX_LENGTH, TAGS_MAX } from '#modules/veille/shared/tags'
+
+/**
+ * La forme d'un tag — **une seule définition, celle de `shared/tags.ts`** (CC-21).
+ *
+ * ⚠️ **Cette règle sera réutilisée par le validateur de CC-109**, qui pose des tags sur une
+ * sélection. Ce sont deux gestes avec deux charges utiles, donc deux validateurs — mais *qu'est-ce
+ * qu'un tag valide* est une seule question, et deux réponses divergeraient sans que rien ne le
+ * signale : la capture accepterait ce que l'action groupée refuse.
+ *
+ * ⚠️ **Le message nomme ce qui est autorisé, pas ce qui est refusé.** « Format invalide » sur un
+ * champ dont personne ne connaît les règles envoie chercher au hasard.
+ */
+export const tagRule = vine.createRule(
+  (value: unknown, _options: undefined, field: FieldContext) => {
+    if (typeof value !== 'string') return
+    if (!isValidTag(value)) {
+      field.report(
+        `Un tag s'écrit en minuscules, sans espace, avec des lettres, des chiffres, ` +
+          `« - » ou « _ », et ${TAG_MAX_LENGTH} caractères au maximum.`,
+        'tag',
+        field
+      )
+    }
+  }
+)
 
 /**
  * ⚠️ Cette liste est dupliquée dans `VeilleItemType` (modèle) et dans la contrainte
  * `veille_items_type_check` (migration). Les trois bougent ensemble.
+ *
+ * ⚠️ **`tags` y figure depuis CC-21**, et c'était le seul champ affiché et filtrable de la page
+ * que rien ne permettait de saisir : la colonne se remplissait par les collecteurs et se figeait.
+ * Le validateur **ne normalise pas** — la page l'a déjà fait à la frappe, précisément pour que ce
+ * qui s'affiche soit ce qui est stocké ; ici on refuse ce qui n'a pas la bonne forme.
  */
 export const captureValidator = vine.compile(
   vine.object({
@@ -21,6 +52,7 @@ export const captureValidator = vine.compile(
     title: vine.string().trim().minLength(1).maxLength(500),
     url: vine.string().trim().url().maxLength(2048).optional(),
     content: vine.string().trim().maxLength(50_000).optional(),
+    tags: vine.array(vine.string().use(tagRule())).maxLength(TAGS_MAX).optional(),
   })
 )
 

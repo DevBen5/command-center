@@ -28,6 +28,7 @@ import type { ItemProvenance, SourceKind } from '../shared/item_provenance.js'
 import { NO_SOURCE, type SourceFilter } from '../shared/source_filter.js'
 import { activeFilters, clearAllPatch } from '../shared/active_filters.js'
 import { filterPayload } from '../shared/filter_selection.js'
+import { addTag, removeTag, TAGS_MAX } from '../shared/tags.js'
 
 defineOptions({ layout: AppLayout })
 
@@ -322,20 +323,66 @@ function formatDate(item: VeilleItem): string {
   return new Date(raw).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })
 }
 
-const capture = ref({ type: 'note' as VeilleItem['type'], title: '', url: '' })
+const capture = ref({
+  type: 'note' as VeilleItem['type'],
+  title: '',
+  url: '',
+  tags: [] as string[],
+})
 const capturing = ref(false)
+
+/** Ce qui est en train d'être tapé, avant validation par Entrée ou virgule. */
+const tagDraft = ref('')
+
+/**
+ * Les tags déjà en base qui ne sont pas encore posés sur cette capture (CC-21).
+ *
+ * ⚠️ **Ils viennent de la prop `tags`, servie par le serveur** — la même que la barre latérale,
+ * donc toute la base et non les items affichés. Les dériver de `props.items` rejouerait le bug de
+ * CC-54 : la liste s'effondrerait au tag filtré dès le premier clic, et on ne pourrait plus
+ * proposer que celui-là.
+ */
+const tagSuggestions = computed(() =>
+  props.tags.filter((tag) => !capture.value.tags.includes(tag))
+)
+
+/**
+ * Valide le tag en cours de frappe.
+ *
+ * ⚠️ **La normalisation est appliquée ICI, à la frappe, pas à l'envoi.** Ce qui apparaît en
+ * pastille est exactement ce qui sera stocké : un `IA` transformé en `ia` en silence côté serveur
+ * laisserait chercher pourquoi le filtre ne trouve rien.
+ */
+function commitTag(): void {
+  capture.value.tags = addTag(capture.value.tags, tagDraft.value)
+  tagDraft.value = ''
+}
+
+function dropTag(tag: string): void {
+  capture.value.tags = removeTag(capture.value.tags, tag)
+}
 
 function submitCapture(): void {
   if (!capture.value.title.trim()) return
+  // ⚠️ Un tag tapé mais non validé par Entrée serait perdu au clic sur « Ajouter » — le geste le
+  // plus naturel étant justement de taper puis de soumettre.
+  commitTag()
+
   capturing.value = true
   router.post(
     '/veille',
-    { type: capture.value.type, title: capture.value.title, url: capture.value.url || undefined },
+    {
+      type: capture.value.type,
+      title: capture.value.title,
+      url: capture.value.url || undefined,
+      tags: capture.value.tags.length > 0 ? capture.value.tags : undefined,
+    },
     {
       preserveScroll: true,
       onFinish: () => {
         capturing.value = false
-        capture.value = { type: 'note', title: '', url: '' }
+        capture.value = { type: 'note', title: '', url: '', tags: [] }
+        tagDraft.value = ''
       },
     }
   )
@@ -841,6 +888,49 @@ function submitCapture(): void {
           :placeholder="t('veille.index.capture.urlPlaceholder')"
           class="rounded-md border border-line-2 bg-panel px-2 py-1.5 text-[12px] placeholder:text-txt-3"
         />
+        <!-- Les tags à la capture (CC-21). ⚠️ **C'était le seul champ que l'écran affichait et
+             laissait filtrer sans permettre de le saisir** : la colonne se remplissait par les
+             collecteurs — quatre noms de réseaux devinés depuis des noms de fichiers — puis se
+             figeait. Saisie libre, et non un choix parmi l'existant : sur une base réelle,
+             « l'existant » ne contient rien que l'utilisateur ait choisi. -->
+        <div v-if="capture.tags.length > 0" class="flex flex-wrap gap-1.5">
+          <button
+            v-for="tag in capture.tags"
+            :key="tag"
+            type="button"
+            class="flex items-center gap-1 rounded-full border border-accent bg-accent-soft px-2 py-0.5 text-[11px] text-txt transition-colors hover:border-bad hover:text-bad"
+            :title="t('veille.index.capture.removeTag', { tag })"
+            @click="dropTag(tag)"
+          >
+            #{{ tag }}<span aria-hidden="true">✕</span>
+          </button>
+        </div>
+        <!-- ⚠️ `keydown.enter.prevent` : sans `prevent`, Entrée soumettrait le formulaire au lieu
+             de valider le tag — donc capturerait l'item dès le premier tag tapé. La virgule est
+             le second séparateur, celui qu'on tape sans y penser. -->
+        <input
+          v-if="capture.tags.length < TAGS_MAX"
+          v-model="tagDraft"
+          type="text"
+          :placeholder="t('veille.index.capture.tagsPlaceholder')"
+          class="rounded-md border border-line-2 bg-panel px-2 py-1.5 text-[12px] placeholder:text-txt-3"
+          @keydown.enter.prevent="commitTag"
+          @keydown="(event: KeyboardEvent) => event.key === ',' && (event.preventDefault(), commitTag())"
+        />
+        <!-- Les tags déjà en base, cliquables. Ils viennent de la prop servie par le serveur —
+             toute la base, jamais les items affichés (non-régression de CC-54). -->
+        <div v-if="tagSuggestions.length > 0" class="flex flex-wrap items-center gap-1.5">
+          <span class="text-[10.5px] text-txt-3">{{ t('veille.index.capture.tagsKnown') }}</span>
+          <button
+            v-for="tag in tagSuggestions"
+            :key="tag"
+            type="button"
+            class="rounded-full border border-line-2 bg-panel-2 px-2 py-0.5 text-[11px] text-txt-2 transition-colors hover:border-accent hover:text-accent"
+            @click="capture.tags = addTag(capture.tags, tag)"
+          >
+            #{{ tag }}
+          </button>
+        </div>
         <button
           type="submit"
           class="rounded-md border border-accent bg-accent px-2 py-1.5 text-[12px] text-white disabled:opacity-50"

@@ -83,6 +83,9 @@
       "title": "Capture rapide",
       "titlePlaceholder": "Titre",
       "urlPlaceholder": "URL (optionnel)",
+      "tagsPlaceholder": "Ajouter un tag — Entrée ou virgule",
+      "tagsKnown": "déjà utilisés :",
+      "removeTag": "Retirer le tag #{tag}",
       "submit": "Ajouter"
     }
   },
