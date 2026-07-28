@@ -26,6 +26,18 @@ import { fileURLToPath } from 'node:url'
  * ⚠️ `app/core/**` et `inertia/**` sont hors périmètre pour la même raison, et parce qu'aucune
  * convention de préfixe n'y rattache une spec à quoi que ce soit : les balayer à moitié donnerait
  * une garde qui *paraît* couvrir.
+ *
+ * ⚠️ **La règle de rattachement ne balaie que `tests/unit/` et `tests/functional/modules/`.** Une
+ * spec de module rangée dans `tests/functional/core/` ou `tests/functional/auth/` **et** nommée
+ * sans préfixe échappe donc aux deux sens à la fois : le premier ne la reconnaît pas, la seconde
+ * ne la regarde pas. Il faut les deux erreurs ensemble — mauvais dossier *et* mauvais nom — et
+ * fermer ce cas ferait passer `SPECS_TRANSVERSES` de 8 à 18 entrées, pour lui seul. Limite
+ * assumée, nommée ici plutôt que laissée à découvrir : la liste ci-dessus se lirait sinon comme
+ * exhaustive.
+ *
+ * Suite `unit` parce que cette garde ne lit que le disque — ni routeur, ni registre, ni base.
+ * C'est l'inverse exact de `navigation_registry.spec.ts`, qui doit vivre en `functional` :
+ * `router.toJSON()` et le registre de destinations ne sont peuplés qu'au démarrage du serveur.
  */
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url))
