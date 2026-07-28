@@ -42,6 +42,17 @@ function mediaItem(id: number, title: string, metadata: Record<string, unknown> 
     readAt: null,
     unavailableAt: null,
     immichAssetId: `uuid-${id}`,
+    /**
+     * Dérivée au serveur (CC-104), donc **toujours présente** : la page ne la calcule pas et ne
+     * sait pas s'en passer. L'omettre ici ferait échouer le montage sur une cause qui n'a rien à
+     * voir avec ce que ces tests prouvent.
+     */
+    provenance: {
+      origin: 'manual',
+      sourceKind: null,
+      labelKey: 'veille.index.provenance.manual',
+      text: null,
+    },
     createdAt: '2026-01-01T00:00:00.000Z',
   }
 }
@@ -145,9 +156,19 @@ describe('Veille / index — pluralisation de la sélection', () => {
  * pas. Ce qui compte est ce qui reste : le **nombre de segments**, donc de séparateurs.
  */
 function metaParts(wrapper: ReturnType<typeof mountIndex>, index: number): string[] {
-  return wrapper
-    .findAll('.flex-wrap.text-txt-3')
-    [index].text()
+  const row = wrapper.findAll('.flex-wrap.text-txt-3')[index]
+
+  /**
+   * ⚠️ **La pastille de provenance (CC-104) ouvre la ligne et ne porte AUCUN séparateur.** Sans
+   * la retirer, son libellé se collerait au type et ce test rougirait pour une raison étrangère
+   * à ce qu'il prouve. Elle est le premier `<span>` de la ligne — si quelqu'un la déplace, c'est
+   * ici qu'il faudra suivre, et le commentaire du template le dit dans l'autre sens.
+   */
+  const provenance = row.findAll('span')[0].text()
+
+  return row
+    .text()
+    .replace(provenance, '')
     .split('·')
     .map((part) => part.trim())
     .slice(0, -1)

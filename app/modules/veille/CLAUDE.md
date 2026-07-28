@@ -33,6 +33,7 @@ shared/schedule_draft.ts                 PUR · le brouillon de cadence de sourc
 shared/media_item.ts                     PUR · la logique média d'index.vue
 shared/item_selection.ts                 PUR · la sélection multiple d'index.vue
 shared/source_display.ts                 PUR · le libellé d'une source auto-provisionnée
+shared/item_provenance.ts                PUR, serveur ET page · d'où vient un item
 ```
 
 ⚠️ **Dix fichiers hors du module** : `start/routes.ts`, `providers/veille_provider.ts` (déclaré
@@ -77,6 +78,36 @@ de portée de la suite. Règle (CC-60) : prédicat, dérivation, forme d'un payl
   `./app/modules/*.js`, qui n'existe qu'après un build — Vite ne le résout pas, la page casse.
   Relatif ou npm pur uniquement. Le garde-fou est **`npm run build`**, `tsc` ne lisant pas les
   `.vue` : le build est un gate sur ces fichiers.
+- ⚠️ **`shared/` n'est pas un dossier « page ».** `interval.ts` est importé des deux côtés
+  (`validators/veille.ts`, `models/veille_source.ts`, `pages/sources.vue`), et `item_provenance.ts`
+  est appelé **par le contrôleur**, pas par le template. Ce qui décide y va ; *qui* l'appelle est
+  une seconde question, tranchée cas par cas.
+
+### Ce qui se déduit de `dedup_key` se déduit au SERVEUR
+
+Deux champs de la charge utile sont dérivés dans `VeilleController.serialize`, et pour la même
+raison : `immichAssetId` (CC-88) et `provenance` (CC-104). Le préfixe de `dedup_key`
+(`immich:`, `youtube:`, `url:`, `guid:`, `title:`) est une **clé de routage interne** — c'est lui
+qui aiguille le proxy de vignette — pas une étiquette d'affichage. Le faire lire par un template
+en ferait une seconde source de vérité à tenir synchronisée.
+
+⚠️ **Le mode d'échec évité est silencieux, et c'est ce qui justifie le détour.** Tout descend
+déjà : `serialize()` n'exclut aucune colonne, donc la page *pourrait* trancher seule. Mais poser
+un jour `serializeAs: null` sur `dedupKey` — geste raisonnable, c'est une clé interne — ferait
+arriver `undefined`, donc **tous les orphelins basculeraient en « Saisi à la main »** sans qu'une
+erreur soit levée ni qu'un test rougisse. L'écran serait *plus faux qu'avant*, puisqu'il
+affirmerait quelque chose au lieu de se taire. Passée en argument nommé, la dépendance casse le
+typecheck au lieu de mentir.
+
+- `item_provenance.ts` **ne parse jamais `dedupKey`, il teste sa nullité** : `dedup_key` est nul
+  pour une capture manuelle, et pour elle seule. C'est tout ce dont la question a besoin.
+- ⚠️ **Il rend des clés i18n, pas des libellés** — comme `sourceUrlLabelKey`. Traduire dans
+  `shared/` forcerait ce fichier à connaître `useI18n`, or il doit rester importable par Japa sans
+  compilateur Vue **et** par le contrôleur sans contexte de requête. `labelKey` nul signifie
+  « `text` se suffit » : un titre de source vient de la base et ne se traduit pas.
+- ⚠️ **Le repli ne masque jamais.** Une source introuvable retombe sur « source supprimée », un
+  `kind` sans couleur sur la pastille neutre. Une pastille absente laisserait exactement le trou
+  que CC-104 vient combler, et serait indiscernable d'une provenance vide.
 
 ## `type` dit ce que c'est, `kind` dit d'où ça vient
 

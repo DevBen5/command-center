@@ -7,6 +7,7 @@ import VeilleSource from '#modules/veille/models/veille_source'
 import VeilleDeletionService from '#modules/veille/services/veille_deletion_service'
 import VeilleStatsService from '#modules/veille/services/veille_stats_service'
 import { assetIdFromDedupKey } from '#modules/veille/services/immich_asset'
+import { itemProvenance } from '#modules/veille/shared/item_provenance'
 import { captureValidator, itemIdsValidator } from '#modules/veille/validators/veille'
 
 /** Combien d'items par page. Au-delà, la page devient lourde à afficher autant qu'à parcourir. */
@@ -83,7 +84,7 @@ export default class VeilleController {
     ])
 
     return inertia.render('modules/veille/index', {
-      items: paginator.all().map((item) => this.serialize(item)),
+      items: paginator.all().map((item) => this.serialize(item, sources)),
       pagination: paginator.getMeta(),
       stats,
       tags,
@@ -118,9 +119,25 @@ export default class VeilleController {
    * L'identifiant est dérivé de `dedup_key` côté serveur plutôt que laissé à la page : c'est la
    * seule copie, et le préfixe est un détail d'implémentation qui n'a rien à faire dans un
    * template.
+   *
+   * ⚠️ **`provenance` suit exactement la même règle** (CC-104), et c'est pour ça qu'elle est ici
+   * et pas dans le `<script setup>`. « D'où vient cet item » se déduit de `veille_source_id`, de
+   * la nullité de `dedup_key` et de `metadata.sourceTitle` : tout est déjà dans la charge utile,
+   * la page *pourrait* trancher seule. Mais elle ne lit `dedupKey` nulle part aujourd'hui, et l'y
+   * faire descendre pour ça défairait la décision du paragraphe ci-dessus. Le mode d'échec évité
+   * est silencieux : poser un jour `serializeAs: null` sur `dedupKey` — geste raisonnable, c'est
+   * une clé interne — ferait basculer **tous** les orphelins en « Saisi à la main » sans qu'aucun
+   * test ne rougisse. Ici, la dépendance est un argument nommé.
+   *
+   * `sources` est la liste **entière** chargée par `index`, sans filtre sur `active` : une source
+   * désactivée nomme toujours les items qu'elle a collectés.
    */
-  private serialize(item: VeilleItem) {
-    return { ...item.serialize(), immichAssetId: assetIdFromDedupKey(item.dedupKey) }
+  private serialize(item: VeilleItem, sources: VeilleSource[]) {
+    return {
+      ...item.serialize(),
+      immichAssetId: assetIdFromDedupKey(item.dedupKey),
+      provenance: itemProvenance(item, sources),
+    }
   }
 
   async store({ request, response }: HttpContext) {

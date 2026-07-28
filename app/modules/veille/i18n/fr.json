@@ -45,6 +45,11 @@
     "media": {
       "absent": "absent"
     },
+    "provenance": {
+      "manual": "Saisi à la main",
+      "deleted": "Source supprimée",
+      "deletedNamed": "Source supprimée — {source}"
+    },
     "unavailable": {
       "badge": "plus dans l’album",
       "title": "L’asset n’est plus dans l’album de veille : retiré de l’album, ou supprimé d’Immich."
