@@ -8,6 +8,7 @@ import VeilleDeletionService, {
   type DeletionOutcome,
 } from '#modules/veille/services/veille_deletion_service'
 import VeilleStatsService from '#modules/veille/services/veille_stats_service'
+import VeilleBulkService from '#modules/veille/services/veille_bulk_service'
 import { assetIdFromDedupKey, IMMICH_DEDUP_LIKE } from '#modules/veille/services/immich_asset'
 import {
   FEED_ORDER,
@@ -16,8 +17,10 @@ import {
 } from '#modules/veille/services/veille_item_query'
 import { itemProvenance } from '#modules/veille/shared/item_provenance'
 import { isFilterEmpty } from '#modules/veille/shared/filter_selection'
+import { bulkNotification } from '#modules/veille/shared/bulk_actions'
 import { parseSourceFilter } from '#modules/veille/shared/source_filter'
 import {
+  bulkActionValidator,
   captureValidator,
   itemFilterValidator,
   itemIdsValidator,
@@ -48,7 +51,8 @@ function asBool(value: unknown): boolean {
 export default class VeilleController {
   constructor(
     private stats: VeilleStatsService,
-    private deletion: VeilleDeletionService
+    private deletion: VeilleDeletionService,
+    private bulkService: VeilleBulkService
   ) {}
 
   async index({ inertia, request, session }: HttpContext) {
@@ -280,8 +284,24 @@ export default class VeilleController {
 
   /** Le filtre posté ou passé en query string, validé puis ramené aux six champs du flux. */
   private async validatedFilters(request: HttpContext['request']): Promise<ItemFilters> {
-    const payload = await request.validateUsing(itemFilterValidator)
+    return this.toFilters(await request.validateUsing(itemFilterValidator))
+  }
 
+  /**
+   * Les six champs du flux, depuis une charge utile déjà validée.
+   *
+   * ⚠️ **Séparé de `validatedFilters` parce que DEUX validateurs portent ces champs** — celui du
+   * filtre seul, et celui d'une action groupée par filtre (CC-109), qui y ajoute `action` et
+   * `tag`. Recopier la conversion ferait diverger ce que chaque route comprend d'un même filtre.
+   */
+  private toFilters(payload: {
+    type?: string
+    tag?: string
+    search?: string
+    sourceId?: string
+    readingQueue?: boolean
+    unread?: boolean
+  }): ItemFilters {
     return {
       type: payload.type ?? null,
       tag: payload.tag ?? null,
@@ -293,6 +313,21 @@ export default class VeilleController {
       readingQueue: payload.readingQueue ?? false,
       unread: payload.unread ?? false,
     }
+  }
+
+  /**
+   * Les actions groupées sur les items cochés (CC-109).
+   *
+   * ⚠️ **Aucune ne touche Immich**, contrairement à la suppression : pas de confirmation, pas de
+   * mot « corbeille ». Exiger un « êtes-vous sûr » pour marquer lu banaliserait le seul dialogue
+   * du module qui compte vraiment.
+   */
+  async bulk({ request, response, session }: HttpContext) {
+    const { action, tag, ids } = await request.validateUsing(bulkActionValidator)
+    const affected = await this.bulkService.apply(ids, action, tag ?? null)
+
+    session.flash('notification', bulkNotification(action, affected))
+    return response.redirect().back()
   }
 
   async destroyMany({ request, response, session }: HttpContext) {

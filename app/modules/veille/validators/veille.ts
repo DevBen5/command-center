@@ -11,6 +11,7 @@ import {
   type IntervalUnit,
 } from '#modules/veille/shared/interval'
 import { isValidTag, TAG_MAX_LENGTH, TAGS_MAX } from '#modules/veille/shared/tags'
+import { BULK_ACTIONS } from '#modules/veille/shared/bulk_actions'
 
 /**
  * La forme d'un tag — **une seule définition, celle de `shared/tags.ts`** (CC-21).
@@ -91,14 +92,43 @@ export const itemIdsValidator = vine.compile(
  * Les bornes de longueur sont là pour ce qu'un client forgé pourrait envoyer, pas pour l'écran :
  * un `search` de 10 Mo partirait dans un `plainto_tsquery`.
  */
-export const itemFilterValidator = vine.compile(
+const filterFields = {
+  type: vine.enum(['article', 'bookmark', 'note', 'image', 'video'] as const).optional(),
+  tag: vine.string().trim().maxLength(100).optional(),
+  search: vine.string().trim().maxLength(200).optional(),
+  sourceId: vine.string().trim().maxLength(20).optional(),
+  readingQueue: vine.boolean().optional(),
+  unread: vine.boolean().optional(),
+}
+
+export const itemFilterValidator = vine.compile(vine.object({ ...filterFields }))
+
+/**
+ * Les actions groupées (CC-109) — **un validateur neuf, pas une extension de `captureValidator`**.
+ *
+ * Le ticket l'exigeait, et il avait raison : poser un tag sur une capture et sur trente items sont
+ * deux gestes, avec deux charges utiles et deux routes. Ce qui est partagé, c'est `tagRule` — la
+ * *forme* d'un tag est une seule question, et deux réponses laisseraient la capture accepter ce que
+ * l'action groupée refuse.
+ *
+ * ⚠️ **`requiredWhen` dans un seul sens, et c'est suffisant ici** : un `tag` sans action de tag est
+ * simplement ignoré par le service (le `switch` ne le lit pas), là où une action de tag **sans**
+ * tag écrirait `array_append(tags, NULL)` — Postgres ajoute alors un `NULL` au tableau, que la
+ * barre de tags afficherait comme une pastille vide et que le filtre ne retrouverait jamais.
+ *
+ * ⚠️ **Aucun plafond de 200 identifiants ici**, contrairement à `itemIdsValidator` : ce plafond
+ * bornait ce qui part vers Immich dans un seul `DELETE`, et **aucune de ces actions ne sort de
+ * Command Center**. La borne à 1000 ne protège qu'une charge utile, pas un système tiers.
+ */
+export const bulkActionValidator = vine.compile(
   vine.object({
-    type: vine.enum(['article', 'bookmark', 'note', 'image', 'video'] as const).optional(),
-    tag: vine.string().trim().maxLength(100).optional(),
-    search: vine.string().trim().maxLength(200).optional(),
-    sourceId: vine.string().trim().maxLength(20).optional(),
-    readingQueue: vine.boolean().optional(),
-    unread: vine.boolean().optional(),
+    action: vine.enum(BULK_ACTIONS),
+    tag: vine
+      .string()
+      .use(tagRule())
+      .optional()
+      .requiredWhen('action', 'in', ['tag.add', 'tag.remove']),
+    ids: vine.array(vine.number().positive().withoutDecimals()).minLength(1).maxLength(1000),
   })
 )
 

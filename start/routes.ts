@@ -224,6 +224,21 @@ router
           .post('/items/filtered/delete', [VeilleController, 'destroyFiltered'])
           .use(middleware.can('veille.items.write'))
 
+        // Les actions groupées (CC-109) : tags, lu / non lu, à lire plus tard.
+        //
+        // ⚠️ **Aucune ne sort de Command Center**, contrairement à la suppression : pas de
+        // corbeille Immich, donc pas de confirmation et pas de plafond d'identifiants — ce
+        // plafond bornait ce qui part dans un seul `DELETE /api/assets`.
+        //
+        // ⚠️ **UNE seule route, sur la sélection par cases.** Une seconde, sur le filtre, a
+        // existé le temps d'une passe navigateur : ses six boutons vivaient dans la barre de
+        // rappel des filtres, où ils laissaient croire qu'on agit sur ce qu'on regarde alors
+        // qu'aucun item n'est coché. Retirée avec son interface — la suppression par filtre
+        // reste, elle, parce qu'elle vise le **filtre** et le dit dans son libellé.
+        router
+          .post('/items/bulk', [VeilleController, 'bulk'])
+          .use(middleware.can('veille.items.write'))
+
         // La vignette d'un asset Immich (CC-55). ⚠️ Le paramètre est l'id d'item de **notre**
         // base, jamais l'identifiant Immich : c'est ce qui empêche le proxy de servir n'importe
         // quel asset de la bibliothèque personnelle. Voir `VeilleMediaController`.
