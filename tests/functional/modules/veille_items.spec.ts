@@ -420,6 +420,81 @@ test.group('Veille / capture manuelle et bascules', (group) => {
     }
   })
 
+  /**
+   * CC-21 — **le premier chemin d'écriture des tags par l'application**.
+   *
+   * ⚠️ Avant ce lot, `captureValidator` ne portait pas `tags` : la colonne se remplissait par les
+   * collecteurs et se figeait. Sur la base réelle, les quatre seuls tags qui restent après CC-106
+   * sont des noms de réseaux **devinés** depuis des noms de fichiers Immich — rien que
+   * l'utilisateur ait choisi.
+   */
+  test('la capture pose enfin des tags', async ({ assert, client }) => {
+    const user = await login()
+
+    const response = await client
+      .post('/veille')
+      .json({ type: 'note', title: 'Avec des tags', tags: ['ia', 'self-host'] })
+      .header('referrer', '/veille')
+      .loginAs(user)
+      .withCsrfToken()
+      .redirects(0)
+
+    response.assertStatus(302)
+
+    const created = await VeilleItem.query().firstOrFail()
+    assert.deepEqual(created.tags, ['ia', 'self-host'])
+  })
+
+  /**
+   * ⚠️ **Le validateur ne repasse PAS derrière la normalisation de la page**, et ce test le fixe.
+   * Accepter `IA` ici ferait deux entrées dans la barre de tags pour une même idée, et deux
+   * filtres `? = ANY(tags)` qui ne se rejoignent jamais — sans qu'aucune erreur ne le signale.
+   * Un client forgé n'a pas de page pour normaliser à sa place.
+   */
+  test('un tag mal formé est refusé, pas corrigé en silence', async ({ assert, client }) => {
+    const user = await login()
+
+    for (const mauvais of ['IA', 'veille perso', '-ia', 'a'.repeat(64)]) {
+      /**
+       * ⚠️ **Les deux options comptent, et chacune pour une raison différente.**
+       * `.accept('json')` : sans lui, un refus de validation **redirige** (302 + erreurs
+       * flashées) au lieu de rendre 422 — le test passerait au vert sur un tag accepté, les deux
+       * réponses étant des 302. `.redirects(0)` : sans lui, supertest **suit** le 302 d'un tag
+       * accepté et le test rougit en 403 (le jeton CSRF ne survit pas au saut) — rouge pour la
+       * mauvaise raison, ce qui envoie chercher un problème d'authentification inexistant.
+       * Vérifié en cassant `isValidTag` : le message doit dire « expected 302 to equal 422 ».
+       */
+      const response = await client
+        .post('/veille')
+        .accept('json')
+        .json({ type: 'note', title: 'Refusée', tags: [mauvais] })
+        .loginAs(user)
+        .withCsrfToken()
+        .redirects(0)
+
+      response.assertStatus(422)
+    }
+
+    assert.isEmpty(await VeilleItem.all())
+  })
+
+  test('une capture sans tags reste une capture valide', async ({ assert, client }) => {
+    const user = await login()
+
+    const response = await client
+      .post('/veille')
+      .json({ type: 'note', title: 'Sans tag' })
+      .header('referrer', '/veille')
+      .loginAs(user)
+      .withCsrfToken()
+      .redirects(0)
+
+    response.assertStatus(302)
+
+    const created = await VeilleItem.query().firstOrFail()
+    assert.isEmpty(created.tags)
+  })
+
   test('deux captures manuelles vers la MÊME url ne se bloquent pas', async ({
     assert,
     client,
