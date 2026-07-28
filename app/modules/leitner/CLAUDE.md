@@ -1093,7 +1093,11 @@ erreurs flashées au lieu d'un 422.
 ## Tests
 
 Le détail par fichier est dans [TESTS.md](./TESTS.md) — à lire avant de **modifier un test**, pas
-avant de modifier le module. Ce qui doit rester présent en permanence :
+avant de modifier le module. ⚠️ **Un fichier de test du module absent de cet index fait rougir
+`tests/unit/tests_index.spec.ts`** (CC-112), qui le nomme : l'oubli ne passe plus en silence. Le
+fichier reste écrit **à la main** — rien ne le génère, et la garde asserte la **mention**, jamais
+l'exactitude : une phrase devenue fausse y passe au vert. Ce qui doit rester présent en
+permanence :
 
 - **Aucun test n'appelle un vrai LLM** : `tests/fakes/fake_llm_client.ts` couvre aussi le
   **diagnostic** (`ping`, `listModels`), sans quoi les tests de `/revision/llm` iraient sonder de
