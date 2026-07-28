@@ -20,8 +20,9 @@ import {
   toggleSelected,
 } from '../shared/item_selection.js'
 // ⚠️ Types seuls : la provenance est **dérivée au serveur** (`VeilleController.serialize`), pas
-// ici. La page reçoit une décision déjà prise et ne fait que la traduire et la colorer — c'est
-// ce qui lui évite de connaître `dedupKey`, dont elle n'a par ailleurs aucun usage.
+// ici. La page reçoit une décision déjà prise et ne fait que la traduire et la colorer — c'est ce
+// qui lui évite de connaître `dedupKey`, qu'elle ne reçoit d'ailleurs plus du tout depuis CC-111
+// (`serializeAs: null` sur la colonne).
 import type { ItemProvenance, SourceKind } from '../shared/item_provenance.js'
 // La sentinelle est importée, jamais réécrite : `'none'` défini des deux côtés ferait diverger
 // ce qui est cliqué de ce qui est filtré, et la divergence serait muette (CC-105).
