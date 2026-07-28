@@ -543,9 +543,25 @@ function submitCapture(): void {
             </span>
           </div>
         </div>
+        <!-- ⚠️ L'état « déjà dedans » prend l'accent, mais PAS `bg-accent-soft` : ce fond-là est le
+             vocabulaire d'un *filtre posé* (les pastilles de tag). Un bouton d'état qui l'emprunte
+             brouille la seule distinction visuelle que la page ait entre « ceci filtre la liste »
+             et « ceci décrit l'item ». Le mot suffit à dire l'état, il bascule avec lui.
+             Le `title` lève l'ambiguïté de « Retirer » : la ligne porte aussi une case de
+             sélection dont l'action est la suppression. -->
         <button
           type="button"
-          class="shrink-0 font-mono text-[10.5px] text-txt-3 hover:text-accent"
+          class="shrink-0 rounded-md border px-2.5 py-1 text-[11px] transition-colors"
+          :class="
+            item.readingQueue
+              ? 'border-accent/50 bg-panel-2 text-accent hover:border-accent'
+              : 'border-line-2 bg-panel-2 text-txt-2 hover:border-accent hover:text-accent'
+          "
+          :title="
+            item.readingQueue
+              ? t('veille.index.queue.removeTitle')
+              : t('veille.index.queue.addTitle')
+          "
           @click="toggleQueue(item)"
         >
           {{ item.readingQueue ? t('veille.index.queue.remove') : t('veille.index.queue.add') }}
@@ -582,7 +598,7 @@ function submitCapture(): void {
       </div>
     </div>
 
-    <!-- File de lecture + capture -->
+    <!-- À lire plus tard + capture -->
     <div class="border-l border-line bg-bg-2">
       <div class="flex items-center gap-2 border-b border-line p-4 text-[12px] font-semibold">
         {{ t('veille.index.queue.title') }}
@@ -596,8 +612,9 @@ function submitCapture(): void {
         >
           <div class="text-[12px] font-semibold">{{ item.title }}</div>
         </div>
-        <!-- La colonne ne montre que la file **de la page courante** : le compteur ci-dessus est
-             global, celui-ci non. Le filtre « File de lecture » donne la liste complète. -->
+        <!-- La colonne ne montre que les items mis de côté **de la page courante** : le compteur
+             ci-dessus est global, celui-ci non. Le filtre « À lire plus tard » donne la liste
+             complète. -->
         <button
           v-if="stats.queue > queueItems.length"
           type="button"

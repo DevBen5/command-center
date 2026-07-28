@@ -10,7 +10,7 @@
       "total": "éléments au total",
       "articles": "articles collectés",
       "unread": "non lus",
-      "queue": "en file de lecture",
+      "queue": "à lire plus tard",
       "tags": "tags distincts"
     },
     "types": {
@@ -24,7 +24,7 @@
       "title": "Filtres",
       "all": "Tout",
       "unreadOnly": "Non lus seulement",
-      "readingQueue": "File de lecture",
+      "readingQueue": "À lire plus tard",
       "sourcesTitle": "Sources",
       "tags": "Tags"
     },
@@ -50,10 +50,12 @@
       "title": "L’asset n’est plus dans l’album de veille : retiré de l’album, ou supprimé d’Immich."
     },
     "queue": {
-      "add": "+ file",
-      "remove": "− file",
-      "title": "File de lecture",
-      "seeAll": "voir toute la file ({count})"
+      "add": "Lire plus tard",
+      "addTitle": "Ajouter à « À lire plus tard »",
+      "remove": "Retirer",
+      "removeTitle": "Retirer de « À lire plus tard »",
+      "title": "À lire plus tard",
+      "seeAll": "voir toute la liste ({count})"
     },
     "empty": "Aucun résultat.",
     "pagination": {
