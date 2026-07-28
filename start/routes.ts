@@ -230,13 +230,13 @@ router
         // corbeille Immich, donc pas de confirmation et pas de plafond d'identifiants — ce
         // plafond bornait ce qui part dans un seul `DELETE /api/assets`.
         //
-        // Deux routes, comme pour la suppression : ce qui change est la façon de désigner
-        // l'ensemble (une liste, ou un filtre), pas ce qu'on lui fait.
+        // ⚠️ **UNE seule route, sur la sélection par cases.** Une seconde, sur le filtre, a
+        // existé le temps d'une passe navigateur : ses six boutons vivaient dans la barre de
+        // rappel des filtres, où ils laissaient croire qu'on agit sur ce qu'on regarde alors
+        // qu'aucun item n'est coché. Retirée avec son interface — la suppression par filtre
+        // reste, elle, parce qu'elle vise le **filtre** et le dit dans son libellé.
         router
           .post('/items/bulk', [VeilleController, 'bulk'])
-          .use(middleware.can('veille.items.write'))
-        router
-          .post('/items/filtered/bulk', [VeilleController, 'bulkFiltered'])
           .use(middleware.can('veille.items.write'))
 
         // La vignette d'un asset Immich (CC-55). ⚠️ Le paramètre est l'id d'item de **notre**

@@ -206,7 +206,13 @@ async function deleteFiltered(): Promise<void> {
 }
 
 /**
- * Les actions groupées (CC-109) — sur les cases cochées, ou sur tout ce que le filtre désigne.
+ * Les actions groupées (CC-109) — **sur les cases cochées, et sur elles seules**.
+ *
+ * ⚠️ **Une variante « sur tout ce que le filtre désigne » a existé, et a été retirée à la passe
+ * navigateur.** Ses six boutons vivaient dans la barre de rappel des filtres, qui s'affiche dès
+ * qu'un filtre est posé : on y voyait une barre d'actions sur des items alors qu'aucun item
+ * n'était coché, à côté de chips de filtre cliquables. La suppression par filtre (CC-108) reste,
+ * elle, parce qu'elle vise le **filtre** et le dit dans son libellé.
  *
  * ⚠️ **Aucune ne touche Immich, donc aucune ne demande confirmation.** Exiger un « êtes-vous
  * sûr » pour marquer lu banaliserait le seul dialogue du module qui compte — celui de la
@@ -216,7 +222,7 @@ async function deleteFiltered(): Promise<void> {
  * la suppression, sur un écran qui n'a pas de modale. La valeur est normalisée à l'envoi comme à
  * la capture, et le serveur refuse ce qui n'a pas la bonne forme.
  */
-function runBulk(action: BulkAction, scope: 'selected' | 'filtered'): void {
+function runBulk(action: BulkAction): void {
   let tag: string | null = null
 
   if (requiresTag(action)) {
@@ -228,20 +234,9 @@ function runBulk(action: BulkAction, scope: 'selected' | 'filtered'): void {
     if (tag === null) return
   }
 
-  const payload = { action, ...(tag === null ? {} : { tag }) }
-
-  if (scope === 'filtered') {
-    router.post(
-      '/veille/items/filtered/bulk',
-      { ...payload, ...filterPayload(props.filters) },
-      { preserveScroll: true }
-    )
-    return
-  }
-
   router.post(
     '/veille/items/bulk',
-    { ...payload, ids: selected.value },
+    { action, ...(tag === null ? {} : { tag }), ids: selected.value },
     {
       preserveScroll: true,
       // La sélection ne survit pas au geste : la liste rechargée porte de nouveaux états, et
@@ -682,31 +677,24 @@ function submitCapture(): void {
         >
           {{ t('veille.index.filters.chip.clearAll') }}
         </button>
-        <!-- Les actions groupées, sur tout ce que le filtre désigne (CC-109). Même ordre et même
-             vocabulaire que dans la barre de sélection : c'est le même geste, sur un autre
-             ensemble — et c'est la barre qui dit lequel, pas le bouton. -->
-        <span class="ml-auto flex flex-wrap items-center gap-1">
-          <button
-            v-for="entry in BULK_BUTTONS"
-            :key="entry.action"
-            type="button"
-            class="rounded-md border border-line-2 bg-panel px-2 py-1 text-txt-2 transition-colors hover:border-accent hover:text-accent"
-            @click="runBulk(entry.action, 'filtered')"
-          >
-            {{ t(`veille.index.bulk.${entry.key}`) }}
-          </button>
-        </span>
-        <!-- ⚠️ **Le geste inter-pages vit ICI, et pas dans la barre de sélection** (CC-108).
-             Trois raisons qui se renforcent : il rattache l'action au filtre qui la définit ;
-             les deux sélections restent distinctes **par construction** plutôt que par un effort
-             de style — « 12 sélectionnés » et « les 317 du filtre » ne partagent ni barre ni
-             vocabulaire ; et cette barre n'existe pas sans filtre posé, donc l'interface **ne
-             peut pas** proposer « vider la veille ». Le serveur refuse quand même : une route est
-             un contrat public, et un `curl` muni d'un cookie valide n'a que faire du rendu Vue. -->
+        <!-- ⚠️ **Cette barre décrit un filtre, elle n'agit pas sur des items.**
+             CC-109 y avait posé ses six actions groupées : c'était une erreur, relevée à l'écran.
+             Une barre de gestes sur des items n'a rien à faire là où **aucun item n'est
+             sélectionné** — on croit agir sur ce qu'on regarde, et les chips de filtre voisinent
+             avec des boutons qui écrivent en base. Les six vivent dans la barre de sélection, qui
+             n'apparaît qu'une fois quelque chose de coché.
+
+             ⚠️ **Le geste inter-pages de CC-108 reste ici**, et c'est la seule exception : il ne
+             porte pas sur une sélection mais sur **le filtre lui-même**, ce que son libellé dit en
+             toutes lettres. Il rattache l'action au critère qui la définit, et cette barre
+             n'existant pas sans filtre posé, l'interface ne peut pas proposer « vider la veille ».
+
+             ⚠️ **`ml-auto` sur ce bouton, et sur lui SEUL.** Il y en avait deux — la rangée des six
+             et celui-ci quand un seul filtre était posé : en `flex-wrap`, deux marges automatiques
+             se disputent la ligne et la mise en page part n'importe où. -->
         <button
           type="button"
-          :class="posed.length > 1 ? '' : 'ml-auto'"
-          class="rounded-md border border-bad/50 px-2 py-1 text-bad transition-colors hover:border-bad disabled:opacity-40"
+          class="ml-auto rounded-md border border-bad/50 px-2 py-1 text-bad transition-colors hover:border-bad disabled:opacity-40"
           :disabled="deletingFiltered"
           @click="deleteFiltered"
         >
@@ -726,7 +714,9 @@ function submitCapture(): void {
         <span v-if="selection.media > 0" class="text-txt-3">
           {{ t('veille.index.selection.media', selection.media) }}
         </span>
-        <!-- Les quatre gestes de CC-109, dans le même ordre que la barre de rappel ci-dessus.
+        <!-- Les gestes de CC-109. ⚠️ **Ils ne vivent QUE dans cette barre**, qui n'apparaît
+             qu'une fois quelque chose de coché : une barre d'actions sur des items posée là où
+             aucun item n'est sélectionné laisse croire qu'on agit sur ce qu'on regarde.
              ⚠️ Aucun ne touche Immich : ni confirmation, ni mot « corbeille ». Le seul dialogue
              de cette barre reste celui de « Supprimer », et c'est ce qui lui garde son poids. -->
         <span class="ml-auto flex flex-wrap items-center gap-1">
@@ -735,7 +725,7 @@ function submitCapture(): void {
             :key="entry.action"
             type="button"
             class="rounded-md border border-line-2 bg-panel px-2 py-1.5 text-txt-2 transition-colors hover:border-accent hover:text-accent"
-            @click="runBulk(entry.action, 'selected')"
+            @click="runBulk(entry.action)"
           >
             {{ t(`veille.index.bulk.${entry.key}`) }}
           </button>

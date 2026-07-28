@@ -44,15 +44,6 @@ test.group('Veille / actions groupées', (group) => {
       .redirects(0)
   }
 
-  function bulkFiltered(client: any, user: User, payload: Record<string, unknown>) {
-    return client
-      .post('/veille/items/filtered/bulk')
-      .json(payload)
-      .loginAs(user)
-      .withCsrfToken()
-      .redirects(0)
-  }
-
   /** Les trois lectures d'un item relu en base — le lint refuse `(await …).champ`. */
   async function tagsOf(id: number): Promise<string[]> {
     const found = await VeilleItem.findOrFail(id)
@@ -279,46 +270,17 @@ test.group('Veille / actions groupées', (group) => {
   })
 
   /**
-   * CC-108 + CC-109 : les actions valent aussi sur **tout ce que le filtre désigne**, au-delà de
-   * la page courante.
+   * ⚠️ **Il n'existe qu'UNE route d'action groupée, sur la sélection par cases.** Une seconde, sur
+   * le filtre, a existé le temps d'une passe navigateur : ses boutons vivaient dans la barre de
+   * rappel des filtres, où ils laissaient croire qu'on agit sur ce qu'on regarde alors qu'aucun
+   * item n'est coché. Retirée avec son interface — un chemin d'écriture qu'aucun écran n'atteint
+   * est du code que personne ne relit. La **suppression** par filtre (CC-108) reste, parce qu'elle
+   * vise le filtre et le dit dans son libellé.
    */
-  test('l’action s’applique à tout ce que le filtre désigne', async ({ assert, client }) => {
-    const user = await login()
-    await item({ title: 'Note 1', type: 'note' })
-    await item({ title: 'Note 2', type: 'note' })
-    const article = await item({ title: 'Article', type: 'article' })
-
-    await bulkFiltered(client, user, { action: 'read', type: 'note' })
-
-    const notes = await VeilleItem.query().where('type', 'note')
-    for (const note of notes) assert.isNotNull(note.readAt)
-    // Les deux sens, comme partout dans ce lot.
-    assert.isNull(await readAtOf(article.id))
-  })
-
-  /**
-   * ⚠️ **Le refus sur filtre vide vaut aussi ici.** Rien n'est détruit, mais « marquer toute la
-   * veille comme lue » ne se défait pas item par item sur cent lignes.
-   */
-  test('un filtre vide est refusé, même pour une action non destructrice', async ({
-    assert,
-    client,
-  }) => {
-    const user = await login()
-    const a = await item()
-
-    await bulkFiltered(client, user, { action: 'read' })
-
-    assert.isNull(await readAtOf(a.id))
-  })
-
-  test('les deux routes exigent la capacité d’écriture', async ({ client }) => {
+  test('la route exige la capacité d’écriture', async ({ client }) => {
     const lecteur = await createUserWith(['veille.view'])
 
-    const parIds = await bulk(client, lecteur, { action: 'read', ids: [1] })
-    parIds.assertStatus(403)
-
-    const parFiltre = await bulkFiltered(client, lecteur, { action: 'read', type: 'note' })
-    parFiltre.assertStatus(403)
+    const response = await bulk(client, lecteur, { action: 'read', ids: [1] })
+    response.assertStatus(403)
   })
 })

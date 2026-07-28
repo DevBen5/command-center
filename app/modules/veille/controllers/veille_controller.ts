@@ -22,7 +22,6 @@ import { parseSourceFilter } from '#modules/veille/shared/source_filter'
 import {
   bulkActionValidator,
   captureValidator,
-  filteredBulkValidator,
   itemFilterValidator,
   itemIdsValidator,
 } from '#modules/veille/validators/veille'
@@ -326,33 +325,6 @@ export default class VeilleController {
   async bulk({ request, response, session }: HttpContext) {
     const { action, tag, ids } = await request.validateUsing(bulkActionValidator)
     const affected = await this.bulkService.apply(ids, action, tag ?? null)
-
-    session.flash('notification', bulkNotification(action, affected))
-    return response.redirect().back()
-  }
-
-  /**
-   * La même action, sur **tout ce que le filtre désigne** (CC-108 + CC-109).
-   *
-   * ⚠️ **Le refus sur filtre vide s'applique ici aussi**, et pour une raison plus faible que sur
-   * la suppression — rien n'est détruit — mais réelle : « marquer toute la veille comme lue » est
-   * un geste qu'on ne défait pas item par item sur 102 lignes.
-   */
-  async bulkFiltered({ request, response, session }: HttpContext) {
-    const { action, tag, ...raw } = await request.validateUsing(filteredBulkValidator)
-    const filters = this.toFilters(raw)
-
-    if (isFilterEmpty(filters)) {
-      session.flash('notification', { type: 'error', message: EMPTY_FILTER_REFUSAL })
-      return response.redirect().back()
-    }
-
-    const rows = await filteredItems(filters).select('id')
-    const affected = await this.bulkService.apply(
-      rows.map((row) => row.id),
-      action,
-      tag ?? null
-    )
 
     session.flash('notification', bulkNotification(action, affected))
     return response.redirect().back()

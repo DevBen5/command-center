@@ -120,24 +120,17 @@ export const itemFilterValidator = vine.compile(vine.object({ ...filterFields })
  * bornait ce qui part vers Immich dans un seul `DELETE`, et **aucune de ces actions ne sort de
  * Command Center**. La borne à 1000 ne protège qu'une charge utile, pas un système tiers.
  */
-const bulkFields = {
-  action: vine.enum(BULK_ACTIONS),
-  tag: vine
-    .string()
-    .use(tagRule())
-    .optional()
-    .requiredWhen('action', 'in', ['tag.add', 'tag.remove']),
-}
-
 export const bulkActionValidator = vine.compile(
   vine.object({
-    ...bulkFields,
+    action: vine.enum(BULK_ACTIONS),
+    tag: vine
+      .string()
+      .use(tagRule())
+      .optional()
+      .requiredWhen('action', 'in', ['tag.add', 'tag.remove']),
     ids: vine.array(vine.number().positive().withoutDecimals()).minLength(1).maxLength(1000),
   })
 )
-
-/** La même action, mais sur ce que le filtre désigne (CC-108 + CC-109). */
-export const filteredBulkValidator = vine.compile(vine.object({ ...bulkFields, ...filterFields }))
 
 // ---------------------------------------------------------------------------------------------
 // Garde SSRF — le miroir inverse de celle du client LLM
