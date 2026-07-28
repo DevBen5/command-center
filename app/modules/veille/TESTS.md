@@ -70,10 +70,70 @@ présentes en permanence sont dans `CLAUDE.md`, section « Tests ».
   l'apostrophe, l'injection SQL et les caractères spéciaux — avec une assertion sur le **résultat**,
   pas seulement sur l'absence de crash), le filtre par tag accentué, `store`, `toggleQueue`,
   `toggleRead`, la pagination sans chevauchement, et que **la capture manuelle survit à la
-  migration**. Plus, depuis **CC-111**, ce que la charge utile **ne** porte **pas** : `dedupKey`
-  n'y est plus, et `immichAssetId` et `provenance` y sont toujours. ⚠️ Les deux moitiés dans le
-  même test, sur le même chargement — l'absence seule serait verte sur un `serialize()` cassé de
-  bout en bout. Vérifié mordant : retire `serializeAs: null` du modèle et il rougit.
+  migration**.
+  - Depuis **CC-105**, le filtre par source dans ses **trois** états : ses items, « Sans source »
+    qui ne rend que les détachés, **et** une valeur inexploitable qui rend la liste complète
+    plutôt que rien. Plus « Sans source » **à travers la pagination** — 60 détachés, donc le cas
+    où une sentinelle mal transportée d'une page à l'autre se voit.
+  - Depuis **CC-104**, « chaque item annonce sa provenance » : les **trois** cas dans la MÊME
+    liste, ce qui attrape une dérivation qui rendrait le même verdict pour tout le monde. Et « le
+    `kind` de chaque source descend jusqu'à la page », qui tient le seul porteur de la couleur des
+    pastilles — une sélection de colonnes ajoutée pour alléger la charge utile les ferait toutes
+    tomber sur le repli neutre, ce qui ressemble à une décision de style.
+  - Depuis **CC-21**, la capture qui **pose** enfin des tags, le tag mal formé **refusé et pas
+    corrigé en silence**, et la capture sans tags qui reste valide. ⚠️ Le test du refus porte
+    `.accept('json')` **et** `.redirects(0)` (lignes 518-522) : sans le premier un refus redirige
+    et devient indiscernable d'un succès, sans le second supertest suit le 302 et le test rougit
+    en **403** — rouge pour la mauvaise raison.
+  - Depuis **CC-111**, ce que la charge utile **ne** porte **pas** : `dedupKey` n'y est plus, et
+    `immichAssetId` et `provenance` y sont toujours. ⚠️ Les deux moitiés dans le même test, sur le
+    même chargement — l'absence seule serait verte sur un `serialize()` cassé de bout en bout.
+    Vérifié mordant : retire `serializeAs: null` du modèle et il rougit.
+- `tests/unit/veille_item_provenance.spec.ts` — **CC-104**, la dérivation pure. Les deux cas
+  orphelins **ne diffèrent que par `text`**, d'où l'assertion sur les deux champs : n'asserter que
+  `labelKey` laisserait passer un repli qui perdrait le titre mémorisé. Plus le `kind` qui suit la
+  **source** et non le type de l'item, l'identifiant de source introuvable qui retombe sur
+  l'orphelin **plutôt que sur le vide**, et une liste de sources vide qui ne fait pas mentir la
+  pastille — le cas exact d'un contrôleur qui appellerait la fonction sans lui passer les sources.
+  Un second groupe couvre le titre mémorisé lu dans `metadata`, du `jsonb` dont le contenu dépend
+  de la version qui a écrit la ligne. ⚠️ Ce qu'il ne voit **pas** : la pastille — ni sa couleur, ni
+  sa position, ni le fait qu'elle soit affichée.
+
+## Les filtres
+
+- `tests/unit/veille_source_filter.spec.ts` — **CC-105**, les trois états du filtre par source.
+  **LE test du ticket est `'0'`** : `Number('0') || null` valait `null`, donc l'identifiant `0`
+  subissait le même silence que la sentinelle — filtre annulé, liste inchangée, rien de levé. Plus
+  la sentinelle qui **s'écrit et ne s'approche pas** (`'none '` n'est pas `'none'` : ni
+  `startsWith`, ni `trim`), et une valeur inexploitable qui ne filtre rien sans casser.
+- `tests/unit/veille_active_filters.spec.ts` — **CC-65**, le rappel des filtres posés.
+  ⚠️ **C'est la seule partie testable du lot** : le langage visuel unifié, l'état actif et la
+  bordure transparente ne se vérifient qu'au navigateur. Le test qui compte est **le champ
+  absent** — `request.input()` rend `undefined`, que `JSON.stringify` supprime de la prop : tout
+  test `!== null` côté page y répondait vrai, et une pastille s'affichait pour un filtre que
+  personne n'avait posé. Des `null` explicites ne peuvent pas attraper ce cas. Plus l'ordre fixe
+  des chips (dérivé de l'ordre d'insertion, donc il régresserait en silence), la source
+  introuvable qui affiche son identifiant **plutôt que rien**, les bascules qui se retirent par
+  `false` et non `null`, et « tout effacer » qui fusionne les patchs de ce qui est **posé**.
+- `tests/unit/veille_filter_selection.spec.ts` — **CC-108**, `isFilterEmpty` et `filterPayload`.
+  ⚠️ **`isFilterEmpty` est ce qui remplace le plafond de 200 identifiants de CC-63** : chaque champ
+  est testé **isolément**, un test qui n'aurait vérifié que « tout vide » laisserait passer un
+  champ oublié dans la garde. Plus la chaîne vide qui ne filtre rien donc n'autorise rien, et la
+  charge utile **tout en chaînes** — une seule forme pour deux transports, la query string du
+  décompte et le POST Inertia de la suppression.
+
+## Les tags (CC-21)
+
+- `tests/unit/veille_tags.spec.ts` — la forme d'un tag, écrite une fois. ⚠️ **Le mode d'échec gardé
+  est muet** : un tag est un libellé affiché **et** un paramètre d'URL, donc `IA` et `ia` feraient
+  deux entrées dans la barre et deux filtres qui ne se rejoignent jamais. Le test qui porte le lot
+  est **« le validateur ne repasse pas derrière la normalisation »** — `isValidTag` est un point
+  fixe de `normalizeTag`, pas une seconde regex : écrites séparément, les deux divergeaient sur
+  `'IA'`, que le validateur acceptait alors que la normalisation le refait en `'ia'`. Plus les
+  accents **autorisés** (l'absence d'accent en base est un artefact de `networkTagFor`, pas une
+  règle), l'espace interne qui devient un tiret sans en empiler, la déduplication (`text[]` n'a
+  aucune contrainte), l'**ordre de saisie conservé** — trier réordonnerait les pastilles sous le
+  curseur — et le plafond tenu des deux côtés.
 
 ## Immich
 
@@ -128,6 +188,50 @@ présentes en permanence sont dans `CLAUDE.md`, section « Tests ».
   nombre invérifiable), et le silence sur Immich quand aucun média n'est concerné — un avertissement
   affiché à tort ne se lit plus quand il compte. ⚠️ Ce qu'il ne voit **pas** : le template, les
   cases, et le `confirm()` lui-même.
+
+## Agir sur ce que le filtre désigne (CC-108)
+
+- `tests/functional/modules/veille_filtered_deletion.spec.ts` — le test qui porte le lot est
+  **« le filtre envoyé désigne exactement le même ensemble que la liste »**, et l'assertion va dans
+  les **deux sens** : ce qui devait partir est parti, ce qui ne devait pas est resté. Un test qui
+  n'aurait vérifié qu'un sens serait vert sur une suppression trop large. Plus **le filtre qui
+  traverse la pagination** (le geste dépasse les 50 items affichés, c'est tout l'objet du lot),
+  **le filtre vide refusé sur les deux routes** — sans lui le bouton devient « vider la veille » —,
+  le décompte qui annonce le total **et** les assets Immich concernés, l'idempotence d'un second
+  passage, et les deux routes sous la capacité d'écriture **le décompte compris** : masquer un
+  bouton n'est pas un droit.
+  - Un second groupe couvre **le découpage en lots**. ⚠️ **Aucun test n'insère 200 items** : une
+    sous-classe locale (`SmallBatchDeletion`, `batchSize = 2`) abaisse la taille de lot par la
+    couture `protected` — sans elle, ni l'enchaînement ni le `break` au premier échec ne seraient
+    exercés par quoi que ce soit. Le test qui compte est
+    **« un lot en échec arrête tout, et rien n'est marqué »** — rappeler une instance éteinte pour
+    chaque lot restant n'a aucune chance d'aboutir, et les non-tentés comptent dans `failed`.
+
+## Les actions groupées (CC-109)
+
+- `tests/unit/veille_bulk_actions.spec.ts` — la liste **fermée** des quatre actions et leur retour.
+  ⚠️ **Deux tons, jamais trois** : la suppression en a un troisième parce qu'elle écrit dans
+  Immich, celles-ci ne sortent pas de Command Center. Le cas qui compte est **`info` à zéro ligne
+  touchée** — il arrive pour de vrai (marquer lu une page déjà lue) et sans lui le geste paraît
+  cassé, donc on reclique. Plus un message par action dans les **deux** tons (un libellé partagé du
+  genre « fait » ne dirait pas ce qui a été fait), le compte des lignes **réellement** modifiées, et
+  son pluriel.
+- `tests/functional/modules/veille_bulk_actions.spec.ts` — les quatre `UPDATE`. Le test qui porte le
+  lot est **« poser deux fois le même tag ne le double pas »** : `array_append` ne déduplique pas et
+  `text[]` n'a aucune contrainte, donc sans la garde `NOT (? = ANY(tags))` la ligne porte `{ia,ia}`
+  — deux pastilles identiques et un **double comptage dans la barre de tags**, qui agrège par
+  `unnest`. Plus **« marquer lu ne réécrit pas une date de lecture existante »** (`read_at` est un
+  timestamp, pas un booléen : la réécriture est invisible à l'écran), le refus d'une action de tag
+  **sans tag** (`array_append(tags, NULL)` ferait une pastille vide que le filtre ne retrouve
+  jamais), le tag mal formé refusé ici aussi, le geste sans effet qui le dit, et la route sous la
+  capacité d'écriture.
+  - ⚠️ **« Aucune action ne touche un item supprimé » part, pour chaque action, de l'état que CETTE
+    action changerait.** Une première version utilisait un fixture unique (tagué, lu, en file) :
+    `queue.add` y était inerte — la garde `reading_queue = false` l'excluait de toute façon — et
+    retirer `deleted_at IS NULL` **ne faisait pas rougir le test**. Vérifié en cassant la requête.
+  - ⚠️ **Une seconde route a existé, sur le filtre, et est partie avec son interface** : son
+    validateur et ses deux tests avec elle. Un chemin d'écriture qu'aucun écran n'atteint est du
+    code que personne ne relit.
 
 ## YouTube (CC-84)
 
@@ -211,3 +315,7 @@ présentes en permanence sont dans `CLAUDE.md`, section « Tests ».
     machine, donc `2026-01-01T00:00:00Z` se lit « 01 janv. » ici et « 31 déc. » à l'ouest de
     Greenwich. L'asserter rendrait le test dépendant du poste, pour une valeur que ce lot ne touche
     pas.
+  - ⚠️ **Depuis CC-104, la pastille de provenance ouvre la ligne et ne porte AUCUN séparateur** —
+    l'assertion par segments en tient compte, et ses fixtures portent donc une `provenance`. Elle
+    est dérivée au serveur, donc **toujours présente** : la page ne la calcule pas et ne peut pas
+    s'en passer.
