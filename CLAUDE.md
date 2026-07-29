@@ -166,6 +166,26 @@ providers/    leitner_provider                      → import via #providers/*
   panne mais une dette de traduction. Un `t('mod.clé')` sans clé correspondante s'affiche en **texte
   brut** à l'écran : c'est visible, pas silencieux.
 
+- **Une clé écrite dans un template doit exister, et c'est désormais tenu par un test** (CC-113).
+  `inertia/i18n/__tests__/keys.spec.ts` importe l'instance **réelle** — le vrai `import.meta.glob`,
+  la vraie fusion — extrait les clés littérales de tous les `.vue` du dépôt (les 26, châssis
+  compris, pas seulement les pages) et exige que chacune résolve. « Visible, pas silencieux »
+  restait vrai *pour qui ouvre la page* : aucun runner ne montait de page avec cette instance-là,
+  et une faute de frappe passait tous les gates. Le spec prouve du même coup qu'aucune collision de
+  namespace ne fait lever le boot — ce que `messages.spec.ts`, qui travaille sur des entrées
+  synthétiques, ne peut structurellement pas dire.
+
+  - ⚠️ **Les clés calculées échappent par construction** — ``t(`agents.status.${status}`)``,
+    `t(filter.labelKey)` : 20 sites, listés dans le fichier. Aucune extraction statique ne les
+    atteint, et le sens inverse (une clé déclarée que plus personne n'utilise) n'est pas couvert
+    **à cause d'eux** : il ne saurait pas distinguer une clé morte d'une clé consommée par un de
+    ces 20 sites.
+  - ⚠️ **Seul `fr` est vérifié**, la locale de référence — assertir `en` ferait rougir la dette
+    « FR d'abord » ci-dessus, qui est un état choisi.
+  - ⚠️ **Le plancher n'est pas décoratif** : c'est lui qui empêche la garde de naître inerte, même
+    mode d'échec que `tests_index.spec.ts` (CC-112). Vérifié en cassant le balayage — la garde
+    principale passe alors au **vert** en n'ayant rien comparé, seul le plancher rougit.
+
 ## Les tests : deux runners, et ce que chacun ne voit pas
 
 `npm test` lance **les deux** suites, dans cet ordre : Japa (`node ace test`) puis Vitest
