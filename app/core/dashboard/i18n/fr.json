@@ -1,0 +1,53 @@
+{
+  "home": {
+    "title": "Accueil",
+    "heading": "Ce qui demande votre attention",
+    "subtitle": "Un résumé par module, en direct de la base.",
+    "services": {
+      "title": "Services",
+      "up": "{n} actif | {n} actif | {n} actifs",
+      "down": "{n} arrêté | {n} arrêté | {n} arrêtés",
+      "stopped": "{name} — arrêté",
+      "stoppedHint": "Hors ligne · à redémarrer",
+      "stoppedAction": "redémarrer →",
+      "highRam": "{name} — RAM élevée",
+      "highRamHint": "Mémoire proche de la limite",
+      "ramValue": "{ram} %",
+      "empty": "Tous les services sont sains."
+    },
+    "agents": {
+      "title": "Agents",
+      "active": "{n} actif | {n} actif | {n} actifs",
+      "running": "{n} en cours",
+      "failed": "{name} — en échec",
+      "failedHint": "Voir les logs pour diagnostiquer",
+      "failedAction": "logs →",
+      "runningRow": "{name} — en cours",
+      "runningHint": "Exécution en direct",
+      "runningAction": "suivre →",
+      "empty": "Aucun agent ne requiert d'attention."
+    },
+    "veille": {
+      "title": "Veille",
+      "total": "{n} élément | {n} élément | {n} éléments",
+      "queue": "{n} à lire",
+      "queueRow": "À lire plus tard — {n} élément | À lire plus tard — {n} élément | À lire plus tard — {n} éléments",
+      "queueHint": "Articles mis de côté à lire",
+      "queueAction": "à lire →",
+      "untagged": "{n} capture sans tag | {n} capture sans tag | {n} captures sans tag",
+      "untaggedHint": "À classer dans la base de connaissances",
+      "untaggedAction": "trier →"
+    },
+    "leitner": {
+      "title": "Révision",
+      "due": "{n} due | {n} due | {n} dues",
+      "total": "{n} au total",
+      "dueRow": "{n} carte à réviser aujourd'hui | {n} carte à réviser aujourd'hui | {n} cartes à réviser aujourd'hui",
+      "dueHint": "Répétition espacée — boîtes 1 à 5",
+      "dueAction": "démarrer →",
+      "totalRow": "{n} carte en mémoire | {n} carte en mémoire | {n} cartes en mémoire",
+      "totalHint": "Réparties dans les 5 boîtes Leitner",
+      "totalAction": "voir →"
+    }
+  }
+}
