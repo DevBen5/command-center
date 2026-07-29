@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { Head, Link } from '@inertiajs/vue3'
 import { Bot, Layers, Rss, Server } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 import AppLayout from '~/layouts/AppLayout.vue'
+import type { Cards } from '../shared/cards.js'
 
 defineOptions({ layout: AppLayout })
 
@@ -12,32 +14,33 @@ defineOptions({ layout: AppLayout })
  * `cards.services.down.length` lèverait — et **côté client**, donc invisible pour la suite
  * serveur. C'est la conséquence forcée du filtrage, pas une seconde protection : le droit se
  * joue au serveur, ici on évite seulement d'afficher un cadre vide.
+ *
+ * Le contrat lui-même vit dans `shared/cards.ts` : le spec de composant type ses jeux d'essai
+ * dessus, ce qu'il ne pouvait pas faire tant qu'il était déclaré ici.
  */
-interface Cards {
-  services: {
-    up: number
-    total: number
-    down: string[]
-    highRam: { name: string; ram: number | null }[]
-  } | null
-  agents: {
-    active: number
-    running: { id: number; name: string }[]
-    failed: { id: number; name: string }[]
-  } | null
-  veille: { total: number; queue: number; untagged: number } | null
-  leitner: { due: number; total: number } | null
-}
-
 defineProps<{ cards: Cards }>()
+
+/**
+ * Libellés dans `app/core/dashboard/i18n/fr.json`, sous le namespace `dashboard` (CC-94).
+ *
+ * ⚠️ **Chaque libellé porteur d'un nombre est un message à TROIS formes**, pas deux. La règle de
+ * pluralisation par défaut de vue-i18n mappe `0` sur la forme 1 : `"arrêté | arrêtés"` rendrait
+ * « 0 arrêtés », faux en français. La forme du milieu n'est donc pas une redite — c'est elle qui
+ * conserve le singulier à zéro. Même choix que `services.stats.down` (CC-90).
+ *
+ * ⚠️ **Huit libellés ont été pluralisés, un seul l'était.** Le code ne portait que
+ * `arrêté{{ n > 1 ? 's' : '' }}` ; « éléments », « captures », « cartes », « actifs » et « dues »
+ * étaient figés au pluriel et mentaient à 1 (« 1 cartes à réviser »).
+ */
+const { t } = useI18n()
 </script>
 
 <template>
-  <Head title="Accueil" />
+  <Head :title="t('dashboard.home.title')" />
 
   <div class="mb-[18px]">
-    <div class="text-[20px] font-bold tracking-tight">Ce qui demande votre attention</div>
-    <div class="mt-0.5 text-[13px] text-txt-2">Un résumé par module, en direct de la base.</div>
+    <div class="text-[20px] font-bold tracking-tight">{{ t('dashboard.home.heading') }}</div>
+    <div class="mt-0.5 text-[13px] text-txt-2">{{ t('dashboard.home.subtitle') }}</div>
   </div>
 
   <div class="grid grid-cols-2 gap-5">
@@ -54,11 +57,12 @@ defineProps<{ cards: Cards }>()
         >
           <Server :size="16" :stroke-width="1.5" aria-hidden="true" />
         </div>
-        <h3 class="text-[15px] font-semibold">Services</h3>
+        <h3 class="text-[15px] font-semibold">{{ t('dashboard.home.services.title') }}</h3>
+        <!-- Le séparateur `·` est de la ponctuation entre deux libellés, pas un libellé : chaque
+             compteur a son propre message, puisque chacun a sa propre règle de pluriel. -->
         <span class="ml-auto font-mono text-[11.5px] text-txt-2">
-          {{ cards.services.up }} actifs · {{ cards.services.down.length }} arrêté{{
-            cards.services.down.length > 1 ? 's' : ''
-          }}
+          {{ t('dashboard.home.services.up', cards.services.up) }} ·
+          {{ t('dashboard.home.services.down', cards.services.down.length) }}
         </span>
       </Link>
       <div class="px-[18px] py-2">
@@ -73,11 +77,16 @@ defineProps<{ cards: Cards }>()
           ></span>
           <div class="flex-1">
             <div class="flex items-center gap-2 text-[13.5px] font-semibold">
-              <span class="h-2 w-2 rounded-full bg-bad"></span> {{ name }} — arrêté
+              <span class="h-2 w-2 rounded-full bg-bad"></span>
+              {{ t('dashboard.home.services.stopped', { name }) }}
             </div>
-            <div class="mt-0.5 text-[12px] text-txt-2">Hors ligne · à redémarrer</div>
+            <div class="mt-0.5 text-[12px] text-txt-2">
+              {{ t('dashboard.home.services.stoppedHint') }}
+            </div>
           </div>
-          <span class="font-mono text-[11px] text-txt-3">redémarrer →</span>
+          <span class="font-mono text-[11px] text-txt-3">
+            {{ t('dashboard.home.services.stoppedAction') }}
+          </span>
         </Link>
         <Link
           v-for="svc in cards.services.highRam"
@@ -87,16 +96,24 @@ defineProps<{ cards: Cards }>()
         >
           <span class="min-h-[34px] w-[3px] shrink-0 self-stretch rounded-[3px] bg-line-2"></span>
           <div class="flex-1">
-            <div class="text-[13.5px] font-semibold">{{ svc.name }} — RAM élevée</div>
-            <div class="mt-0.5 text-[12px] text-txt-2">Mémoire proche de la limite</div>
+            <div class="text-[13.5px] font-semibold">
+              {{ t('dashboard.home.services.highRam', { name: svc.name }) }}
+            </div>
+            <div class="mt-0.5 text-[12px] text-txt-2">
+              {{ t('dashboard.home.services.highRamHint') }}
+            </div>
           </div>
-          <span class="font-mono text-[11px] text-txt-3">{{ svc.ram }} %</span>
+          <!-- L'espace avant `%` est une règle typographique française : la valeur passe donc par
+               un message, là où `en` écrira `42%`. -->
+          <span class="font-mono text-[11px] text-txt-3">
+            {{ t('dashboard.home.services.ramValue', { ram: svc.ram }) }}
+          </span>
         </Link>
         <div
           v-if="!cards.services.down.length && !cards.services.highRam.length"
           class="py-3.5 text-[12.5px] text-txt-2"
         >
-          Tous les services sont sains.
+          {{ t('dashboard.home.services.empty') }}
         </div>
       </div>
     </div>
@@ -112,9 +129,10 @@ defineProps<{ cards: Cards }>()
         >
           <Bot :size="16" :stroke-width="1.5" aria-hidden="true" />
         </div>
-        <h3 class="text-[15px] font-semibold">Agents</h3>
+        <h3 class="text-[15px] font-semibold">{{ t('dashboard.home.agents.title') }}</h3>
         <span class="ml-auto font-mono text-[11.5px] text-txt-2">
-          {{ cards.agents.active }} actifs · {{ cards.agents.running.length }} en cours
+          {{ t('dashboard.home.agents.active', cards.agents.active) }} ·
+          {{ t('dashboard.home.agents.running', cards.agents.running.length) }}
         </span>
       </Link>
       <div class="px-[18px] py-2">
@@ -129,11 +147,16 @@ defineProps<{ cards: Cards }>()
           ></span>
           <div class="flex-1">
             <div class="flex items-center gap-2 text-[13.5px] font-semibold">
-              <span class="h-2 w-2 rounded-full bg-bad"></span> {{ agent.name }} — en échec
+              <span class="h-2 w-2 rounded-full bg-bad"></span>
+              {{ t('dashboard.home.agents.failed', { name: agent.name }) }}
             </div>
-            <div class="mt-0.5 text-[12px] text-txt-2">Voir les logs pour diagnostiquer</div>
+            <div class="mt-0.5 text-[12px] text-txt-2">
+              {{ t('dashboard.home.agents.failedHint') }}
+            </div>
           </div>
-          <span class="font-mono text-[11px] text-txt-3">logs →</span>
+          <span class="font-mono text-[11px] text-txt-3">
+            {{ t('dashboard.home.agents.failedAction') }}
+          </span>
         </Link>
         <Link
           v-for="agent in cards.agents.running"
@@ -144,18 +167,22 @@ defineProps<{ cards: Cards }>()
           <span class="min-h-[34px] w-[3px] shrink-0 self-stretch rounded-[3px] bg-line-2"></span>
           <div class="flex-1">
             <div class="flex items-center gap-2 text-[13.5px] font-semibold">
-              <span class="h-2 w-2 animate-pulse rounded-full bg-warn"></span> {{ agent.name }} — en
-              cours
+              <span class="h-2 w-2 animate-pulse rounded-full bg-warn"></span>
+              {{ t('dashboard.home.agents.runningRow', { name: agent.name }) }}
             </div>
-            <div class="mt-0.5 text-[12px] text-txt-2">Exécution en direct</div>
+            <div class="mt-0.5 text-[12px] text-txt-2">
+              {{ t('dashboard.home.agents.runningHint') }}
+            </div>
           </div>
-          <span class="font-mono text-[11px] text-txt-3">suivre →</span>
+          <span class="font-mono text-[11px] text-txt-3">
+            {{ t('dashboard.home.agents.runningAction') }}
+          </span>
         </Link>
         <div
           v-if="!cards.agents.failed.length && !cards.agents.running.length"
           class="py-3.5 text-[12.5px] text-txt-2"
         >
-          Aucun agent ne requiert d'attention.
+          {{ t('dashboard.home.agents.empty') }}
         </div>
       </div>
     </div>
@@ -171,9 +198,10 @@ defineProps<{ cards: Cards }>()
         >
           <Rss :size="16" :stroke-width="1.5" aria-hidden="true" />
         </div>
-        <h3 class="text-[15px] font-semibold">Veille</h3>
+        <h3 class="text-[15px] font-semibold">{{ t('dashboard.home.veille.title') }}</h3>
         <span class="ml-auto font-mono text-[11.5px] text-txt-2">
-          {{ cards.veille.total }} éléments · {{ cards.veille.queue }} à lire
+          {{ t('dashboard.home.veille.total', cards.veille.total) }} ·
+          {{ t('dashboard.home.veille.queue', cards.veille.queue) }}
         </span>
       </Link>
       <div class="px-[18px] py-2">
@@ -184,21 +212,29 @@ defineProps<{ cards: Cards }>()
           <span class="min-h-[34px] w-[3px] shrink-0 self-stretch rounded-[3px] bg-line-2"></span>
           <div class="flex-1">
             <div class="text-[13.5px] font-semibold">
-              À lire plus tard — {{ cards.veille.queue }} éléments
+              {{ t('dashboard.home.veille.queueRow', cards.veille.queue) }}
             </div>
-            <div class="mt-0.5 text-[12px] text-txt-2">Articles mis de côté à lire</div>
+            <div class="mt-0.5 text-[12px] text-txt-2">
+              {{ t('dashboard.home.veille.queueHint') }}
+            </div>
           </div>
-          <span class="font-mono text-[11px] text-txt-3">à lire →</span>
+          <span class="font-mono text-[11px] text-txt-3">
+            {{ t('dashboard.home.veille.queueAction') }}
+          </span>
         </Link>
         <Link href="/veille" class="flex items-center gap-3.5 py-3.5">
           <span class="min-h-[34px] w-[3px] shrink-0 self-stretch rounded-[3px] bg-line-2"></span>
           <div class="flex-1">
             <div class="text-[13.5px] font-semibold">
-              {{ cards.veille.untagged }} captures sans tag
+              {{ t('dashboard.home.veille.untagged', cards.veille.untagged) }}
             </div>
-            <div class="mt-0.5 text-[12px] text-txt-2">À classer dans la base de connaissances</div>
+            <div class="mt-0.5 text-[12px] text-txt-2">
+              {{ t('dashboard.home.veille.untaggedHint') }}
+            </div>
           </div>
-          <span class="font-mono text-[11px] text-txt-3">trier →</span>
+          <span class="font-mono text-[11px] text-txt-3">
+            {{ t('dashboard.home.veille.untaggedAction') }}
+          </span>
         </Link>
       </div>
     </div>
@@ -214,9 +250,10 @@ defineProps<{ cards: Cards }>()
         >
           <Layers :size="16" :stroke-width="1.5" aria-hidden="true" />
         </div>
-        <h3 class="text-[15px] font-semibold">Révision</h3>
+        <h3 class="text-[15px] font-semibold">{{ t('dashboard.home.leitner.title') }}</h3>
         <span class="ml-auto font-mono text-[11.5px] text-txt-2">
-          {{ cards.leitner.due }} dues · {{ cards.leitner.total }} au total
+          {{ t('dashboard.home.leitner.due', cards.leitner.due) }} ·
+          {{ t('dashboard.home.leitner.total', cards.leitner.total) }}
         </span>
       </Link>
       <div class="px-[18px] py-2">
@@ -232,21 +269,29 @@ defineProps<{ cards: Cards }>()
           ></span>
           <div class="flex-1">
             <div class="text-[13.5px] font-semibold">
-              {{ cards.leitner.due }} cartes à réviser aujourd'hui
+              {{ t('dashboard.home.leitner.dueRow', cards.leitner.due) }}
             </div>
-            <div class="mt-0.5 text-[12px] text-txt-2">Répétition espacée — boîtes 1 à 5</div>
+            <div class="mt-0.5 text-[12px] text-txt-2">
+              {{ t('dashboard.home.leitner.dueHint') }}
+            </div>
           </div>
-          <span class="font-mono text-[11px] text-txt-3">démarrer →</span>
+          <span class="font-mono text-[11px] text-txt-3">
+            {{ t('dashboard.home.leitner.dueAction') }}
+          </span>
         </Link>
         <Link href="/revision/settings" class="flex items-center gap-3.5 py-3.5">
           <span class="min-h-[34px] w-[3px] shrink-0 self-stretch rounded-[3px] bg-line-2"></span>
           <div class="flex-1">
             <div class="text-[13.5px] font-semibold">
-              {{ cards.leitner.total }} cartes en mémoire
+              {{ t('dashboard.home.leitner.totalRow', cards.leitner.total) }}
             </div>
-            <div class="mt-0.5 text-[12px] text-txt-2">Réparties dans les 5 boîtes Leitner</div>
+            <div class="mt-0.5 text-[12px] text-txt-2">
+              {{ t('dashboard.home.leitner.totalHint') }}
+            </div>
           </div>
-          <span class="font-mono text-[11px] text-txt-3">voir →</span>
+          <span class="font-mono text-[11px] text-txt-3">
+            {{ t('dashboard.home.leitner.totalAction') }}
+          </span>
         </Link>
       </div>
     </div>
