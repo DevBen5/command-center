@@ -2,9 +2,11 @@ import { inject } from '@adonisjs/core'
 import { DateTime } from 'luxon'
 import type { HttpContext } from '@adonisjs/core/http'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
+import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerFluencyService from '#modules/leitner/services/leitner_fluency_service'
 import LeitnerJudgeService from '#modules/leitner/services/leitner_judge_service'
+import { DEFAULT_BOX, progressBox } from '#modules/leitner/services/leitner_progress'
 import LeitnerService, {
   type ScopeInput,
   type ScopeRefusal,
@@ -53,8 +55,9 @@ export default class LeitnerController {
    * un appel, et **un seul** : le `withQs()` de `review()`. Va lire son commentaire
    * avant de toucher à quoi que ce soit ici — `back()` seul ne conserve rien.
    */
-  async index({ inertia, request, response, session }: HttpContext) {
+  async index({ auth, inertia, request, response, session }: HttpContext) {
     const service = new LeitnerService()
+    const userId = auth.user!.id
 
     let input: ScopeInput
     try {
@@ -66,20 +69,20 @@ export default class LeitnerController {
     }
 
     const boxIntervals = await service.boxIntervals()
-    const stats = await this.globalStats(service)
+    const stats = await this.globalStats(service, userId)
 
     const asked =
       input.scope !== undefined || input.category !== undefined || input.theme !== undefined
 
     if (!asked) {
-      const choices = await service.dueScopeChoices()
+      const choices = await service.dueScopeChoices(userId)
 
       return inertia.render('modules/leitner/index', {
         view: 'choice',
         scope: null,
         choices,
         scopeError: session.flashMessages.get('scopeError') ?? null,
-        boxCounts: await service.boxCounts(),
+        boxCounts: await service.boxCounts(userId),
         boxIntervals,
         stats: { ...stats, dueCount: choices.totalDueCount },
       })
@@ -88,28 +91,34 @@ export default class LeitnerController {
     const resolved = await service.resolveScope(input)
     if (!resolved.ok) return this.rejectScope(session, response, SCOPE_ERRORS[resolved.reason])
 
-    const dueCards = await service.dueCards(resolved.scope)
+    const dueCards = await service.dueCards(userId, resolved.scope)
 
     // La note précédente conditionne l'effet de `hard` (deux d'affilée = boîte 1) :
     // la page en a besoin pour annoncer honnêtement ce que fait le bouton.
-    const lastGrades = await service.lastGrades(dueCards.map((card) => card.id))
+    const lastGrades = await service.lastGrades(
+      userId,
+      dueCards.map((card) => card.id)
+    )
 
     // ⚠️ « Terminé » et « rien à réviser ici » sont **la même file vide** : seul le
     // travail déjà fait aujourd'hui dans ce paquet les sépare. La question ne se
     // pose donc qu'une fois la file épuisée — et la réponse est un booléen, pas un
     // compteur : un chiffre faux serait pire que pas de chiffre.
     const finished =
-      dueCards.length === 0 ? await service.hasReviewedTodayInScope(resolved.scope) : false
+      dueCards.length === 0 ? await service.hasReviewedTodayInScope(userId, resolved.scope) : false
 
     return inertia.render('modules/leitner/index', {
       view: 'session',
       scope: { label: resolved.label, finished },
       dueCards: dueCards.map((card) => ({
         ...card.serialize(),
+        // ⚠️ La boîte vient de la jointure de progression, pas d'une colonne de la carte :
+        // `serialize()` ne rend pas les `$extras`, elle doit être recopiée ici.
+        box: progressBox(card),
         lastGrade: lastGrades.get(card.id) ?? null,
       })),
       // La grille des 5 boîtes suit le paquet : elle décrit ce qu'on révise.
-      boxCounts: await service.boxCounts(resolved.scope),
+      boxCounts: await service.boxCounts(userId, resolved.scope),
       boxIntervals,
       stats: { ...stats, dueCount: dueCards.length },
     })
@@ -120,16 +129,19 @@ export default class LeitnerController {
    * ou pas : ce sont des mesures d'habitude et un inventaire, pas des mesures de thème.
    * Une série de 40 jours qui retomberait à zéro parce qu'on a ouvert un autre thème
    * serait absurde. Seuls `dueCount` et la grille des boîtes suivent le paquet.
+   *
+   * ⚠️ **« Global » veut dire « tous paquets confondus », pas « tous comptes
+   * confondus »** (CC-119) : série, journée et rétention sont celles de `userId`. Seul
+   * `totalCards` reste vraiment commun — c'est un inventaire du contenu, et le contenu
+   * n'appartient à personne.
    */
-  private async globalStats(service: LeitnerService) {
+  private async globalStats(service: LeitnerService, userId: number) {
     const today = DateTime.now().startOf('day')
 
     const totalCards = await LeitnerCard.query().count('* as total')
-    const recentReviews = await LeitnerReview.query().where(
-      'reviewed_at',
-      '>=',
-      today.minus({ days: 30 }).toSQL()!
-    )
+    const recentReviews = await LeitnerReview.query()
+      .where('user_id', userId)
+      .where('reviewed_at', '>=', today.minus({ days: 30 }).toSQL()!)
     // `hard` reste une réussite : la réponse a été rappelée, péniblement.
     // Seul `again` est un échec de rappel.
     const retention =
@@ -140,8 +152,8 @@ export default class LeitnerController {
         : null
 
     return {
-      reviewedToday: await service.reviewedToday(),
-      streak: await service.streakDays(),
+      reviewedToday: await service.reviewedToday(userId),
+      streak: await service.streakDays(userId),
       totalCards: Number(totalCards[0].$extras.total),
       retention,
     }
@@ -171,12 +183,16 @@ export default class LeitnerController {
    * `tests/functional/modules/leitner_scope.spec.ts` → « noter une carte CONSERVE le
    * paquet ».
    */
-  async review({ params, request, response }: HttpContext) {
+  async review({ auth, params, request, response }: HttpContext) {
     const { grade, ...judgment } = await request.validateUsing(reviewValidator)
     const card = await LeitnerCard.findOrFail(params.id)
     // La note vient de l'utilisateur, le reste est de la trace. `grade` est passé tel
     // quel : ce n'est pas parce qu'un verdict ou un chrono l'accompagne qu'il le corrige.
-    await new LeitnerService().review(card, grade, judgment)
+    //
+    // ⚠️ La carte se relit en base par son id, mais **rien de ce qui s'écrit ne lui
+    // appartient** (CC-119) : boîte, échéance et ligne d'historique vont à `auth.user`.
+    // Noter n'a donc plus aucun effet sur ce que voient les autres.
+    await new LeitnerService().review(auth.user!.id, card, grade, judgment)
     return response.redirect().withQs().back()
   }
 
@@ -202,20 +218,32 @@ export default class LeitnerController {
    * verdict `juste`. Le juge n'appelle aucune base — c'est ce qui le garde testable
    * contre un faux client — et la fluence n'appelle aucun LLM. Ne les fusionne pas.
    */
-  async judge({ params, request, response }: HttpContext) {
+  async judge({ auth, params, request, response }: HttpContext) {
     const { answer, thinkingMs, interrupted } = await request.validateUsing(judgeValidator)
     // La carte se relit en base : un `front`/`back` venus du client laisseraient juger
     // une carte qui n'existe pas, et feraient de cette route un proxy vers le LLM local.
     const card = await LeitnerCard.findOrFail(params.id)
+    const userId = auth.user!.id
 
     const judgment = await this.judgeService.judge(card, answer)
+
+    // ⚠️ La boîte de référence est celle de **cette personne** (CC-119), et elle vaut 1
+    // tant qu'elle n'a jamais noté la carte — l'absence de ligne, encore. Passer une
+    // boîte prise ailleurs comparerait la vitesse de quelqu'un à un vivier qui n'est pas
+    // le sien : une suggestion fausse, sans le moindre signe à l'écran.
+    const progress = await LeitnerCardProgress.query()
+      .where('user_id', userId)
+      .where('leitner_card_id', card.id)
+      .first()
 
     return response.json({
       ...judgment,
       // Le chrono ne fait que déplacer un surlignage : sans mesure exploitable ni
       // référence, `suggest` rend exactement ce que le juge proposait — en silence.
       suggestedGrade: await new LeitnerFluencyService().suggest(
+        userId,
         card,
+        progress?.box ?? DEFAULT_BOX,
         judgment.verdict,
         judgment.suggestedGrade,
         { thinkingMs: thinkingMs ?? null, interrupted: interrupted ?? false }

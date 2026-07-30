@@ -98,7 +98,10 @@ travaille sur un wifi partagé. Ne retire pas ce préfixe : rien de ce que le pr
 puisque tout ce qui passe par ces ports tourne sur la même machine.
 
 Le module Leitner a en plus son propre export/import JSON (`/revision/settings`), qui ne couvre que
-son contenu et n'ajoute que ce qui manque — voir `app/modules/leitner/CLAUDE.md`.
+son contenu et n'ajoute que ce qui manque — voir `app/modules/leitner/CLAUDE.md`. ⚠️ **Depuis
+CC-119 ce fichier est PERSONNEL** (format v2) : contenu communal, mais progression et historique de
+celui qui exporte. Sur une installation à plusieurs comptes, il ne sauvegarde donc pas tout —
+`npm run db:backup` reste la seule sauvegarde complète.
 
 ## Le premier compte — `ADMIN_PASSWORD`, et rien d'autre
 
@@ -270,6 +273,18 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
 
    `node ace migration:status` tranche en une seconde. À faire **avant** de conclure qu'un bug
    vient d'ailleurs, et après tout `git pull` qui ramène une migration.
+
+   ⚠️ **Une migration qui DÉPLACE des données ne se prouve pas non plus** : `app_test` est vide,
+   donc son backfill ne s'exécute jamais sous Japa. Elle se vérifie à la main, sur la base de dev,
+   par une **empreinte relevée avant et après** — c'est ce qu'a fait CC-119 en déplaçant la
+   progression Leitner (`md5(string_agg(…))` sur (carte, boîte, échéance), identique avant, après,
+   et après un aller-retour `rollback` → `run`). Sans ça, « les tests passent » ne dit rien de ce
+   qui est arrivé au contenu réel.
+
+   ⚠️ **`migration:rollback --batch=0` déroule TOUT le schéma, il ne revient pas d'un cran.** Sans
+   argument, la commande annule le dernier lot — c'est presque toujours ce qu'on veut. Fais un
+   `npm run db:backup` avant d'y toucher : sur la base de dev, `--batch=0` vide l'unique exemplaire
+   des cartes en une seconde.
 
 3. **Pages Inertia : le nom dérive du chemin du fichier**, résolu à la main dans `inertia/app/app.ts`
    (on retire `/app/` et `/pages/`). `inertia.render('modules/veille/index')` ⇄

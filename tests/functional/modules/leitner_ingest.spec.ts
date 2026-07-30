@@ -7,6 +7,7 @@ import type { ModelAttributes } from '@adonisjs/lucid/types/model'
 import type User from '#core/auth/models/user'
 import { createUserWith } from '#tests/helpers/users'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
+import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerDraftCard from '#modules/leitner/models/leitner_draft_card'
 import LeitnerIngestion from '#modules/leitner/models/leitner_ingestion'
@@ -174,8 +175,9 @@ test.group('Leitner / ingestion d’un cours par un LLM local', (group) => {
 
     const cards = await LeitnerCard.query().preload('theme', (theme) => theme.preload('category'))
     assert.lengthOf(cards, 1)
-    // Une carte issue d'un cours est une carte comme une autre : boîte 1, due aujourd'hui.
-    assert.equal(cards[0].box, 1)
+    // Une carte issue d'un cours est une carte comme une autre : elle n'emporte aucune
+    // progression, donc « boîte 1, due aujourd'hui » pour tout le monde (CC-119).
+    assert.lengthOf(await LeitnerCardProgress.query().where('leitner_card_id', cards[0].id), 0)
     assert.equal(cards[0].theme.name, 'TLS')
     assert.equal(cards[0].theme.category.name, 'Réseau')
   })

@@ -4,6 +4,7 @@ import Service from '#modules/services/models/service'
 import Agent from '#modules/agents/models/agent'
 import VeilleItem from '#modules/veille/models/veille_item'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
+import { joinProgress, whereDue } from '#modules/leitner/services/leitner_progress'
 import { capabilitiesFor } from '#core/auth/services/capability_service'
 
 /**
@@ -39,7 +40,7 @@ export default class HomeController {
       user.isAdmin ? this.#services() : null,
       user.isAdmin ? this.#agents() : null,
       can('veille.view') ? this.#veille() : null,
-      can('leitner.view') ? this.#leitner(today) : null,
+      can('leitner.view') ? this.#leitner(user.id, today) : null,
     ])
 
     return inertia.render('core/dashboard/home', {
@@ -85,14 +86,26 @@ export default class HomeController {
     }
   }
 
-  async #leitner(today: DateTime) {
+  /**
+   * ⚠️ **`due` est personnel, `total` ne l'est pas** (CC-119) : le premier est la file de
+   * ce lecteur — cartes jamais notées comprises —, le second un inventaire du contenu,
+   * qui n'appartient à personne. La définition de « dû » passe par les helpers de
+   * `leitner_progress.ts` plutôt que par un `where` recopié : deux formulations
+   * finiraient par diverger, et la carte d'accueil annoncerait un chiffre que `/revision`
+   * ne montre pas.
+   */
+  async #leitner(userId: number, today: DateTime) {
+    const dueQuery = LeitnerCard.query().count('* as total')
+    joinProgress(dueQuery, userId)
+    whereDue(dueQuery, today)
+
     const [due, total] = await Promise.all([
-      LeitnerCard.query().where('next_review', '<=', today.toSQLDate()!),
+      dueQuery.then((r) => Number(r[0].$extras.total)),
       LeitnerCard.query()
         .count('* as total')
         .then((r) => Number(r[0].$extras.total)),
     ])
 
-    return { due: due.length, total }
+    return { due, total }
   }
 }

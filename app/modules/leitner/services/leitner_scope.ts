@@ -25,6 +25,11 @@ export const ALL_CARDS: CardScope = { kind: 'all' }
  * ⚠️ **Une carte ne connaît que son thème, jamais sa catégorie** : `leitner_cards`
  * n'a pas de `leitner_category_id`. Un paquet de catégorie passe donc par une
  * sous-requête sur `leitner_themes` — et c'est ici, une seule fois, qu'elle s'écrit.
+ *
+ * ⚠️ **La colonne est qualifiée (`leitner_cards.leitner_theme_id`), et il faut la laisser
+ * ainsi** : depuis CC-119, la plupart des appelants joignent `leitner_card_progress`, et
+ * une colonne nue deviendrait ambiguë à la première colonne homonyme ajoutée là-bas —
+ * une erreur SQL, à l'exécution, sur l'écran principal du module.
  */
 export function applyScope(
   query: ModelQueryBuilderContract<typeof LeitnerCard, LeitnerCard>,
@@ -34,13 +39,13 @@ export function applyScope(
     case 'all':
       return
     case 'unclassified':
-      query.whereNull('leitner_theme_id')
+      query.whereNull('leitner_cards.leitner_theme_id')
       return
     case 'theme':
-      query.where('leitner_theme_id', scope.id)
+      query.where('leitner_cards.leitner_theme_id', scope.id)
       return
     case 'category':
-      query.whereIn('leitner_theme_id', (sub) =>
+      query.whereIn('leitner_cards.leitner_theme_id', (sub) =>
         sub.from('leitner_themes').select('id').where('leitner_category_id', scope.id)
       )
   }

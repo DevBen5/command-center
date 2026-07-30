@@ -39,6 +39,7 @@ const inertiaConfig = defineConfig({
       if (!user) return null
 
       return new NavStatsService().collect({
+        id: user.id,
         isAdmin: user.isAdmin,
         capabilities: await capabilitiesFor(ctx),
       })

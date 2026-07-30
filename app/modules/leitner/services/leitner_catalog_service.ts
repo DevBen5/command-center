@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
+import { joinProgress, selectWithBox, whereBox } from '#modules/leitner/services/leitner_progress'
 import { ALL_CARDS, applyScope, type CardScope } from '#modules/leitner/services/leitner_scope'
 
 export interface CardFilters {
@@ -49,20 +50,31 @@ export default class LeitnerCatalogService {
   /**
    * Cartes de l'écran de gestion. Volumétrie personnelle : pas de pagination,
    * on renvoie tout ce qui passe les filtres.
+   *
+   * ⚠️ **Le catalogue est communal, la colonne « boîte » ne l'est pas** (CC-119). Les
+   * cartes affichées sont les mêmes pour tout le monde — c'est du contenu partagé — mais
+   * la boîte de chaque ligne, et le filtre « boîte N », sont ceux de `userId`. Deux
+   * personnes voient donc le même catalogue avec des boîtes différentes, ce qui est le
+   * comportement voulu.
    */
-  async cards(filters: CardFilters = {}): Promise<LeitnerCard[]> {
+  async cards(userId: number, filters: CardFilters = {}): Promise<LeitnerCard[]> {
     const query = LeitnerCard.query()
       .preload('theme', (theme) => theme.preload('category'))
-      .orderBy('id', 'desc')
+      .orderBy('leitner_cards.id', 'desc')
+
+    joinProgress(query, userId)
+    selectWithBox(query)
 
     if (filters.search) {
       const needle = `%${filters.search}%`
-      query.where((builder) => builder.whereILike('front', needle).orWhereILike('back', needle))
+      query.where((builder) =>
+        builder.whereILike('leitner_cards.front', needle).orWhereILike('leitner_cards.back', needle)
+      )
     }
 
     applyScope(query, filtersToScope(filters))
 
-    if (filters.box) query.where('box', filters.box)
+    if (filters.box) whereBox(query, filters.box)
 
     return query
   }
@@ -101,6 +113,13 @@ export default class LeitnerCatalogService {
     return themeId
   }
 
+  /**
+   * ⚠️ **Aucune progression n'est semée à la création** (CC-119) : l'absence de ligne
+   * vaut « boîte 1, due aujourd'hui » **pour tout le monde**, y compris les comptes créés
+   * avant cette carte. Poser une ligne par personne ici obligerait à un re-semis à chaque
+   * nouveau compte comme à chaque nouvelle carte — et une carte créée entre les deux
+   * resterait invisible, sans erreur.
+   */
   async createCard(payload: {
     front: string
     back: string
@@ -110,8 +129,6 @@ export default class LeitnerCatalogService {
       front: payload.front,
       back: payload.back,
       leitnerThemeId: await this.assertTheme(payload.leitnerThemeId),
-      box: 1,
-      nextReview: DateTime.now(),
     })
   }
 
@@ -130,8 +147,9 @@ export default class LeitnerCatalogService {
 
   /**
    * Crée la carte **sauf si** son recto existe déjà sous ce thème : la carte existante
-   * est alors renvoyée telle quelle, jamais écrasée (son verso, sa boîte et son
-   * échéance survivent). Même règle que l'import JSON — c'est le catalogue qui porte
+   * est alors renvoyée telle quelle, jamais écrasée (son verso survit, et la progression
+   * de chacun avec lui — elle ne vit plus sur la carte). Même règle que l'import JSON —
+   * c'est le catalogue qui porte
    * la déduplication, et toute nouvelle source de cartes (import, ingestion LLM) passe
    * par ici plutôt que d'écrire sur `LeitnerCard`.
    */
@@ -157,7 +175,12 @@ export default class LeitnerCatalogService {
     return card
   }
 
-  /** Suppression unitaire ou multiple. Les révisions partent en cascade (FK). */
+  /**
+   * Suppression unitaire ou multiple. Révisions **et** progressions partent en cascade
+   * (FK) — celles de tout le monde : la carte est du contenu communal, la supprimer
+   * efface le travail de chacun dessus. C'est la seule suppression du module qui détruise
+   * des données personnelles sans passer par la suppression d'un compte.
+   */
   async deleteCards(ids: number[]): Promise<number> {
     if (ids.length === 0) return 0
     await LeitnerCard.query().whereIn('id', ids).delete()

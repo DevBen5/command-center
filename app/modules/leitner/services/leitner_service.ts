@@ -1,5 +1,7 @@
 import { DateTime } from 'luxon'
+import db from '@adonisjs/lucid/services/db'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
+import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerSettings from '#modules/leitner/models/leitner_settings'
@@ -7,6 +9,14 @@ import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 import { isUsableMeasure } from '#modules/leitner/services/leitner_fluency'
 import { countByDay, currentStreak } from '#modules/leitner/services/leitner_habits'
 import LeitnerFluencyService from '#modules/leitner/services/leitner_fluency_service'
+import {
+  DEFAULT_BOX,
+  joinProgress,
+  orderByQueue,
+  progressBox,
+  selectWithBox,
+  whereDue,
+} from '#modules/leitner/services/leitner_progress'
 import { ALL_CARDS, applyScope, type CardScope } from '#modules/leitner/services/leitner_scope'
 
 // Intervalle (en jours) avant la prochaine révision, selon la boîte **atteinte**
@@ -123,29 +133,28 @@ export default class LeitnerService {
   */
 
   /**
-   * Les cartes à réviser dans un paquet, dans **l'ordre de la file**.
+   * Les cartes à réviser dans un paquet **pour cette personne**, dans l'ordre de la file.
    *
    * Ordre : la plus en retard d'abord ; à égalité, la moins récemment touchée. Une
    * carte notée `again` reste due aujourd'hui (donc dernière au premier critère) et
    * vient d'être écrite (donc dernière au second) : elle repart en fin de file au
-   * lieu de se re-présenter aussitôt. **Ne trie jamais par `box`** : un échec la
-   * ramène en boîte 1, elle repasserait devant toutes les cartes de boîte ≥ 2 et
-   * se re-présenterait en boucle. Le paquet n'y change rien.
+   * lieu de se re-présenter aussitôt.
    *
-   * ⚠️ `next_review` est une colonne `date` : `toSQLDate()`, jamais `toSQL()` —
-   * l'intervertir passe le typecheck et casse le filtre en silence.
+   * ⚠️ **Une carte sans progression est due**, et c'est ce qui donne sa file à un compte
+   * neuf. Toute la mécanique — jointure externe, `coalesce`, ordre — vit dans
+   * `leitner_progress.ts` : va y lire les trois pièges avant de toucher à cette requête.
    */
-  async dueCards(scope: CardScope = ALL_CARDS): Promise<LeitnerCard[]> {
+  async dueCards(userId: number, scope: CardScope = ALL_CARDS): Promise<LeitnerCard[]> {
     const today = DateTime.now().startOf('day')
 
-    const query = LeitnerCard.query()
-      .preload('theme', (theme) => theme.preload('category'))
-      .where('next_review', '<=', today.toSQLDate()!)
-      .orderBy('next_review', 'asc')
-      .orderBy('updated_at', 'asc')
-      .orderBy('id', 'asc')
+    const query = LeitnerCard.query().preload('theme', (theme) => theme.preload('category'))
 
+    joinProgress(query, userId)
+    selectWithBox(query)
+    whereDue(query, today)
+    orderByQueue(query, today)
     applyScope(query, scope)
+
     return query
   }
 
@@ -193,14 +202,18 @@ export default class LeitnerService {
    * **Une requête pour les comptes**, agrégée en JS : une requête par thème serait un
    * N+1 gratuit.
    */
-  async dueScopeChoices(): Promise<ScopeChoices> {
+  async dueScopeChoices(userId: number): Promise<ScopeChoices> {
     const today = DateTime.now().startOf('day')
 
-    const rows = await LeitnerCard.query()
-      .where('next_review', '<=', today.toSQLDate()!)
-      .select('leitner_theme_id')
+    const dueByThemeQuery = LeitnerCard.query()
+      .select('leitner_cards.leitner_theme_id')
       .count('* as total')
-      .groupBy('leitner_theme_id')
+      .groupBy('leitner_cards.leitner_theme_id')
+
+    joinProgress(dueByThemeQuery, userId)
+    whereDue(dueByThemeQuery, today)
+
+    const rows = await dueByThemeQuery
 
     const dueByTheme = new Map<number, number>()
     let unclassifiedDueCount = 0
@@ -250,13 +263,19 @@ export default class LeitnerService {
    *
    * ⚠️ `reviewed_at` est un `timestamp` — `toSQL()`, là où `dueCards` filtre une
    * colonne `date` avec `toSQLDate()`. Les intervertir passe le typecheck.
+   *
+   * ⚠️ **Le filtre par personne n'est pas cosmétique** : sans lui, l'écran annoncerait
+   * « terminé, bravo » à quelqu'un qui n'a rien révisé, parce qu'un collègue est passé
+   * sur le même thème dans la journée.
    */
-  async hasReviewedTodayInScope(scope: CardScope): Promise<boolean> {
+  async hasReviewedTodayInScope(userId: number, scope: CardScope): Promise<boolean> {
     const startOfDay = DateTime.now().startOf('day')
 
     const query = LeitnerCard.query()
-      .select('id')
-      .whereHas('reviews', (reviews) => reviews.where('reviewed_at', '>=', startOfDay.toSQL()!))
+      .select('leitner_cards.id')
+      .whereHas('reviews', (reviews) =>
+        reviews.where('user_id', userId).where('reviewed_at', '>=', startOfDay.toSQL()!)
+      )
 
     applyScope(query, scope)
     return (await query.first()) !== null
@@ -285,8 +304,14 @@ export default class LeitnerService {
    * le cas que le ticket demande de garantir. Si un jour ce couple pilotait la boîte,
    * `again` cesserait de vouloir dire « remets-la moi » et la règle métier serait à
    * rouvrir, pas à contourner ici.
+   *
+   * ⚠️ **Rien de ce qui est écrit ici n'est partagé** (CC-119) : la boîte, l'échéance et
+   * la ligne d'historique appartiennent à `userId` seul. C'est ce qui rend sûr d'accorder
+   * la note à un collègue — et c'est aussi pourquoi `lastGrade` est lu **par personne** :
+   * la règle du 2ᵉ `hard` d'affilée ne doit jamais traverser deux comptes.
    */
   async review(
+    userId: number,
     card: LeitnerCard,
     grade: Grade,
     // Le type porte la garantie, pas seulement le validateur de la route : ce service
@@ -300,39 +325,59 @@ export default class LeitnerService {
       totalMs?: number | null
       interrupted?: boolean
     } = {}
-  ): Promise<LeitnerCard> {
+  ): Promise<LeitnerCardProgress> {
     const intervals = await this.boxIntervals()
     const answer = judgment.answer?.trim() || null
 
-    // ⚠️ **AVANT l'insertion, et l'ordre n'est pas négociable.** Cette question compte
-    // les révisions déjà enregistrées aujourd'hui pour cette carte : posée après le
-    // `create()` ci-dessous, elle répondrait « oui » y compris sur une première
-    // présentation, et **plus aucune mesure ne serait jamais écrite** — sans erreur,
-    // sans log, avec une colonne éternellement vide et un lot qui paraît livré.
-    const thinkingMs = await this.usableThinkingMs(card, answer, judgment)
+    // ⚠️ **AVANT l'insertion, et l'ordre n'est pas négociable.** Ces deux questions
+    // comptent les révisions **déjà enregistrées** : posées après le `create()` plus bas,
+    // la première répondrait « oui » y compris sur une première présentation (plus aucune
+    // mesure ne serait jamais écrite — sans erreur, sans log, avec une colonne
+    // éternellement vide) et la seconde verrait la note qu'on est en train de poser.
+    const thinkingMs = await this.usableThinkingMs(userId, card, answer, judgment)
+    const lastGrade = await this.lastGrade(userId, card)
 
-    card.box = await this.nextBox(card, grade)
-    card.nextReview =
-      grade === 'again' ? DateTime.now() : DateTime.now().plus({ days: intervals[card.box] })
-    await card.save()
+    // Deux tables au lieu d'une depuis CC-119 : l'invariant « une note = un mouvement de
+    // boîte ET une ligne d'historique » ne tient plus tout seul. Un échec entre les deux
+    // laisserait une boîte avancée sans trace — ou une trace sans mouvement, qui
+    // réarmerait la règle du 2ᵉ `hard` sur une note que la carte n'a jamais reçue.
+    return db.transaction(async (trx) => {
+      // ⚠️ `firstOrNew`, pas `firstOrFail` : l'absence de ligne est l'état normal d'une
+      // première note. La contrainte unique (user_id, card_id) est le rempart contre deux
+      // onglets qui la poseraient au même instant — un échec bruyant, jamais deux lignes.
+      const progress = await LeitnerCardProgress.firstOrNew(
+        { userId, leitnerCardId: card.id },
+        { box: DEFAULT_BOX, nextReview: DateTime.now() },
+        { client: trx }
+      )
 
-    await LeitnerReview.create({
-      leitnerCardId: card.id,
-      grade,
-      // Une réponse vide n'est pas une réponse : `null`, comme les révisions d'avant ce
-      // lot. `verdict` reste `null` quand aucun juge n'a tranché — « jamais jugé » et
-      // « jugé faux » ne doivent pas se confondre en base.
-      answer,
-      verdict: judgment.verdict ?? null,
-      latencyMs: judgment.latencyMs ?? null,
-      thinkingMs,
-      // Le temps total, lui, s'écrit toujours : c'est de l'observation, aucune règle ne
-      // le lit. Il dit surtout la longueur de la réponse tapée — voir la migration.
-      totalMs: judgment.totalMs ?? null,
-      reviewedAt: DateTime.now(),
+      progress.box = this.nextBox(progress.box, grade, lastGrade)
+      progress.nextReview =
+        grade === 'again' ? DateTime.now() : DateTime.now().plus({ days: intervals[progress.box] })
+      await progress.save()
+
+      await LeitnerReview.create(
+        {
+          userId,
+          leitnerCardId: card.id,
+          grade,
+          // Une réponse vide n'est pas une réponse : `null`, comme les révisions d'avant
+          // ce lot. `verdict` reste `null` quand aucun juge n'a tranché — « jamais jugé »
+          // et « jugé faux » ne doivent pas se confondre en base.
+          answer,
+          verdict: judgment.verdict ?? null,
+          latencyMs: judgment.latencyMs ?? null,
+          thinkingMs,
+          // Le temps total, lui, s'écrit toujours : c'est de l'observation, aucune règle
+          // ne le lit. Il dit surtout la longueur de la réponse tapée.
+          totalMs: judgment.totalMs ?? null,
+          reviewedAt: DateTime.now(),
+        },
+        { client: trx }
+      )
+
+      return progress
     })
-
-    return card
   }
 
   /**
@@ -351,6 +396,7 @@ export default class LeitnerService {
    * proposition n'a pas à la connaître : le juge n'est jamais appelé sans réponse.
    */
   private async usableThinkingMs(
+    userId: number,
     card: LeitnerCard,
     answer: string | null,
     judgment: { thinkingMs?: number | null; interrupted?: boolean }
@@ -362,31 +408,41 @@ export default class LeitnerService {
     const measure = {
       thinkingMs: judgment.thinkingMs,
       interrupted: judgment.interrupted ?? false,
-      represented: await new LeitnerFluencyService().wasPresentedToday(card.id),
+      represented: await new LeitnerFluencyService().wasPresentedToday(userId, card.id),
     }
 
     return isUsableMeasure(measure) ? measure.thinkingMs : null
   }
 
-  /** Boîte atteinte par la carte pour cette note, avant enregistrement. */
-  private async nextBox(card: LeitnerCard, grade: Grade): Promise<number> {
+  /**
+   * Boîte atteinte pour cette note, à partir de la boîte courante et de la **note
+   * précédente de la même personne**. Pure : elle ne lit ni base ni horloge, ce qui la
+   * rend assertable directement — et empêche qu'un appelant lui glisse le `lastGrade`
+   * d'un autre compte sans que ça se voie.
+   */
+  private nextBox(box: number, grade: Grade, lastGrade: Grade | null): number {
     switch (grade) {
       case 'again':
         // La boîte est inchangée : `again` remet la carte dans la session, il ne
         // rétrograde pas. Seul `next_review` bouge (à aujourd'hui), dans `review()`.
-        return card.box
+        return box
       case 'hard':
-        return (await this.lastGrade(card)) === 'hard' ? 1 : card.box
+        return lastGrade === 'hard' ? 1 : box
       case 'good':
-        return Math.min(5, card.box + 1)
+        return Math.min(5, box + 1)
       case 'easy':
-        return Math.min(5, card.box + 2)
+        return Math.min(5, box + 2)
     }
   }
 
-  /** Dernière note enregistrée pour cette carte, `null` si jamais révisée. */
-  async lastGrade(card: LeitnerCard): Promise<Grade | null> {
+  /**
+   * Dernière note **de cette personne** sur cette carte, `null` si elle ne l'a jamais
+   * révisée. ⚠️ C'est elle qui arme la règle du 2ᵉ `hard` d'affilée : lue sans filtre,
+   * le `hard` d'un collègue ferait retomber la carte d'un autre en boîte 1.
+   */
+  async lastGrade(userId: number, card: LeitnerCard): Promise<Grade | null> {
     const last = await LeitnerReview.query()
+      .where('user_id', userId)
       .where('leitner_card_id', card.id)
       .orderBy('reviewed_at', 'desc')
       .orderBy('id', 'desc')
@@ -394,12 +450,13 @@ export default class LeitnerService {
     return last?.grade ?? null
   }
 
-  /** Dernière note de chacune des cartes données, en une requête. */
-  async lastGrades(cardIds: number[]): Promise<Map<number, Grade>> {
+  /** Dernière note de cette personne sur chacune des cartes données, en une requête. */
+  async lastGrades(userId: number, cardIds: number[]): Promise<Map<number, Grade>> {
     const grades = new Map<number, Grade>()
     if (cardIds.length === 0) return grades
 
     const reviews = await LeitnerReview.query()
+      .where('user_id', userId)
       .whereIn('leitner_card_id', cardIds)
       .orderBy('reviewed_at', 'asc')
       .orderBy('id', 'asc')
@@ -416,20 +473,31 @@ export default class LeitnerService {
    * de 40 jours qui retomberait à zéro parce qu'on a ouvert un autre thème serait
    * absurde.
    */
-  async boxCounts(scope: CardScope = ALL_CARDS): Promise<Record<number, number>> {
-    const query = LeitnerCard.query().select('box')
+  async boxCounts(userId: number, scope: CardScope = ALL_CARDS): Promise<Record<number, number>> {
+    const query = LeitnerCard.query()
+    joinProgress(query, userId)
+    selectWithBox(query)
     applyScope(query, scope)
 
     const cards = await query
     const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
-    for (const card of cards) counts[card.box] = (counts[card.box] ?? 0) + 1
+    for (const card of cards) {
+      const box = progressBox(card)
+      counts[box] = (counts[box] ?? 0) + 1
+    }
     return counts
   }
 
-  /** Global — mesure d'habitude, jamais restreinte à un paquet (voir `boxCounts`). */
-  async reviewedToday(): Promise<number> {
+  /**
+   * Global au sens du **paquet** — jamais restreint à un thème (voir `boxCounts`) —
+   * mais bien restreint à **une personne** : c'est sa journée de travail, pas celle de
+   * l'installation.
+   */
+  async reviewedToday(userId: number): Promise<number> {
     const startOfDay = DateTime.now().startOf('day')
-    const reviews = await LeitnerReview.query().where('reviewed_at', '>=', startOfDay.toSQL()!)
+    const reviews = await LeitnerReview.query()
+      .where('user_id', userId)
+      .where('reviewed_at', '>=', startOfDay.toSQL()!)
     return reviews.length
   }
 
@@ -439,8 +507,8 @@ export default class LeitnerService {
    * à côté de la meilleure jamais tenue, et **deux boucles auraient fini par diverger**
    * — sur le fuseau, ou sur la question de savoir si aujourd'hui compte.
    */
-  async streakDays(): Promise<number> {
-    const reviews = await LeitnerReview.query().select('reviewed_at')
+  async streakDays(userId: number): Promise<number> {
+    const reviews = await LeitnerReview.query().where('user_id', userId).select('reviewed_at')
     const reviewedDays = new Set(countByDay(reviews).keys())
 
     return currentStreak(reviewedDays, DateTime.now())

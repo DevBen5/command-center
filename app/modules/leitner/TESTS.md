@@ -4,6 +4,21 @@ Sorti de `CLAUDE.md` pour ne pas être chargé à chaque fois qu'on touche au mo
 modifier un test**, pas avant de modifier le module. Les règles qui doivent rester présentes en
 permanence sont dans `CLAUDE.md`, section « Tests ».
 
+⚠️ **Les fabriques du module vivent dans `tests/helpers/leitner.ts`, et `makeCard` ne pose AUCUNE
+progression.** C'est délibéré : une carte neuve n'a pas de ligne, l'absence *est* « boîte 1, due
+aujourd'hui » pour tout le monde. Un helper qui en sèmerait une par commodité ferait passer au vert
+des tests qui ne prouvent alors plus rien du cas réel — celui d'un compte qui découvre le paquet.
+Pour un autre état, il faut dire **pour qui** : `setProgress(userId, cardId, …)`, et les lectures
+`boxOf` / `nextReviewOf` prennent le même couple.
+
+⚠️ **Ce qu'aucun runner ne voit, et ne verra pas : le backfill des migrations de CC-119.**
+`app_test` est migrée à neuf puis déroulée à chaque exécution — jamais une base peuplée ne traverse
+ces migrations sous Japa. La vérification est **manuelle, sur la base de dev**, et elle a été faite :
+empreinte `md5` de (carte, boîte, échéance) relevée avant, après, puis après un aller-retour
+`rollback` → `run` — identique aux trois états sur 224 cartes et 25 révisions réelles. À refaire
+**avant tout `migration:run` sur une base qui porte du contenu**, c'est le seul endroit du lot où
+une erreur se paie en planning perdu.
+
 ## Tests de composant (Vitest, `components/__tests__/`)
 
 - `app/modules/leitner/components/__tests__/leitner_tabs.spec.ts` — l'onglet actif : query string,
@@ -21,10 +36,32 @@ et `TaxonomyCombobox` sont couverts. Câbler celui-ci est possible et souhaitabl
 interaction (focus/blur, chevron, ↑↓ Entrée Échap, le clic qui ouvre la session) se vérifie au
 navigateur.
 
+## Le cloisonnement par personne (CC-119)
+
+- `tests/functional/modules/leitner_multi_user.spec.ts` — le principe directeur de CC-77, éprouvé
+  **par les routes**, des deux côtés de la ligne de partage. Côté cloisonnement : noter ne déplace
+  la file de personne d'autre (**le test qui compte** — c'est l'invariant qui rendra sûr d'ouvrir
+  `leitner.review` en CC-121), un compte neuf voit tout le paquet sans qu'on lui ait rien semé, une
+  carte créée après lui lui est due aussitôt, `again` repart en fin de **sa** file, « terminé,
+  bravo » ne se déclenche pas sur le travail d'un autre, série/journée/rétention et l'onglet Stats
+  ne comptent que les siennes, la pastille de la barre latérale et la carte d'accueil suivent sa
+  file, le catalogue est commun mais la colonne « boîte » ne l'est pas. Côté contenu : supprimer un
+  compte emporte sa progression et son historique, **jamais** une carte, un thème ni une catégorie —
+  et sans aucune vérification de dépendances, ce qui est tout l'intérêt.
+  ⚠️ **Un test multi-utilisateur passe très bien sans cloisonnement** dès lors que les deux comptes
+  ne se marchent jamais dessus. Les trois gardes du lot ont donc été cassées une à une pour
+  vérifier qu'elles rougissent : le `user_id` de la condition de jointure (5 rouges), l'`updated_at`
+  de la progression dans l'ordre de file (3 rouges, dont les deux tests d'ordre pré-existants), et
+  le `select('leitner_cards.*')` (17 rouges — sans lui `ucp.id` écrase `leitner_cards.id`).
+
 ## La règle métier et la file
 
 - `tests/unit/leitner_service.spec.ts` — la règle des boîtes : une note = une assertion sur la boîte
-  **et** sur `next_review`.
+  **et** sur `next_review`, désormais lus sur la progression de la personne. Depuis CC-119 il porte
+  aussi **la règle du 2ᵉ `hard` qui ne traverse pas deux comptes** — le test qui prouve que le
+  cloisonnement de l'historique n'était pas séparable de celui de la progression —, la première
+  note d'une carte jamais vue (l'absence de ligne vaut boîte 1), et le fait que les intervalles
+  restent un réglage d'**installation**, partagé.
 - `tests/functional/modules/leitner_intervals.spec.ts` — les intervalles **lus en base**, pas dans
   la constante. Le test qui porte le lot enchaîne les deux moitiés dans la **même** exécution :
   boîte 3 réglée à 10 jours, puis une carte notée `good` dont `next_review` tombe à +10. Asserter
@@ -36,7 +73,10 @@ navigateur.
 - `tests/unit/leitner_due_cards.spec.ts` — la **file et son paquet** (`all` · `theme` · `category`
   via ses thèmes · `unclassified`), l'ordre à l'intérieur d'un paquet, une carte `again` qui y reste,
   et le **refus** d'un id inexistant — le repli muet sur « tout » est le mode d'échec que ce lot
-  existe pour éviter.
+  existe pour éviter. Depuis CC-119 il tient aussi la jointure de progression : une carte **jamais
+  notée est due** (sans aucune ligne), les comptes de l'écran de choix suivent la personne, et
+  **la carte porte SON id, jamais celui de la ligne de progression** — le pire piège du lot, où un
+  `select *` fait afficher des cartes plausibles dont noter l'une écrit sur une autre.
 - `tests/functional/modules/leitner_scope.spec.ts` — l'écran de choix et ses **comptes dus**, la fin
   d'un paquet (distincte d'un paquet vide dès le départ), et surtout que **noter une carte conserve
   le paquet** : le piège n° 1, celui du `withQs()`. Il **assert l'en-tête `location` brut** —
@@ -90,7 +130,11 @@ navigateur.
   base et prouve le **fenêtrage `toSQL()`** (les fenêtres 7/30/90 cumulent, une révision au-delà de
   90 j n'entre nulle part), la **jointure reviews → cards** du taux d'`again` avec sa remontée à la
   catégorie et « Non classées », et les **deux requêtes de cartes** (le plus d'`again` classé
-  décroissant, les coincées en boîte 1-2 filtrées par le plancher de tentatives). Ce qu'il ne voit
+  décroissant, les coincées en boîte 1-2 filtrées par le plancher de tentatives). Depuis CC-119 il
+  porte aussi le cloisonnement de cet écran : la rétention ignore les révisions des autres, un
+  collègue qui pilonne un thème d'`again` ne fabrique pas mon point faible, et « coincées » croise
+  **deux** filtres distincts — ma boîte (jointure de progression) et mes tentatives (`withCount`
+  filtré) — dont l'un oublié désignerait des cartes que je n'ai jamais vues. Ce qu'il ne voit
   **pas** : le rendu de `stats.vue` (formatage, liens, table dépliable) — pas de test de composant.
 
 ## Le juge et la fluence
@@ -118,7 +162,10 @@ navigateur.
 ## Le catalogue et la sauvegarde
 
 - `tests/unit/leitner_catalog_service.spec.ts` — les filtres, la suppression multiple, le
-  reclassement et les cascades de la taxonomie.
+  reclassement et les cascades de la taxonomie. Plus, depuis CC-119 : une carte créée **ne sème
+  aucune progression**, le catalogue montre la boîte de celui qui regarde, et le filtre « boîte 1 »
+  trouve bien les cartes **sans** ligne — sinon il ne remonterait jamais une carte neuve, le cas le
+  plus fréquent de l'écran.
 - `tests/functional/modules/leitner_cards.spec.ts` — le cycle de vie d'une carte **par les routes
   HTTP** : ce qui atterrit en base est bien ce qui a été saisi. Le module n'ayant aucun seeder,
   c'est le seul endroit qui prouve les défauts d'une carte créée depuis l'écran (boîte 1, due le
@@ -141,19 +188,29 @@ navigateur.
   par l'export sans qu'un seul test ne rougisse — c'est exactement ce qui a laissé passer CC-51.
   L'aller-retour porte une révision **jugée** et une **jamais jugée** (`null` doit se relire `null`,
   jamais `0` ni `''`), plus une troisième aux valeurs falsy (`answer: ''`, `thinkingMs: 0`) qui sont
-  des mesures et non des absences.
+  des mesures et non des absences. Depuis CC-119 le `snapshot()` lit la progression **de
+  l'exportateur** (jointe par `preload` filtré), le format est en **v2**, et un test dédié couvre
+  le point qui protège les sauvegardes existantes : **un fichier v1 reste importable**, sa
+  progression et son historique devenant ceux de celui qui importe. ⚠️ Le cas « version inconnue »
+  de la liste des fichiers invalides est passé de `2` à `99` — laissé à 2, il aurait viré au vert
+  en n'éprouvant plus rien.
 
 ## La lecture seule (CC-72)
 
 - `tests/functional/modules/leitner_readonly.spec.ts` — le rôle « invité » (`leitner.view` +
   `leitner.stats.view`, rien d'autre) face à **toutes** les écritures du module. ⚠️ **L'assertion
-  qui compte n'est jamais le 403, c'est l'état de la base après le refus** : le module est
-  mono-utilisateur, donc `box`, `next_review` et la ligne unique de `leitner_settings` sont
-  partagés — noter la carte d'un autre ou redéfinir l'espacement des révisions corrompt le contenu
-  du propriétaire, pas un formulaire. Les tests sont **tous côté serveur** : masquer un bouton
-  n'est pas un droit, un `curl` muni d'un cookie valide n'a que faire du rendu Vue. Le dernier
-  couvre le refus sur une **route JSON nue** — un 403 avec corps JSON, jamais une redirection, sans
-  quoi les écrans appelés en `fetch` casseraient au lieu de dire non.
+  qui compte n'est jamais le 403, c'est l'état de la base après le refus.** Les tests sont **tous
+  côté serveur** : masquer un bouton n'est pas un droit, un `curl` muni d'un cookie valide n'a que
+  faire du rendu Vue. Le dernier couvre le refus sur une **route JSON nue** — un 403 avec corps
+  JSON, jamais une redirection, sans quoi les écrans appelés en `fetch` casseraient au lieu de dire
+  non.
+  ⚠️ **La moitié de sa justification est tombée avec CC-119, l'autre pas.** `box` et `next_review`
+  ne sont plus des colonnes de la carte : une note d'invité n'atteindrait plus le planning de
+  personne, et c'est précisément ce qui autorisera **CC-121** à lui accorder `leitner.review`.
+  Restent fermées ici les écritures qui touchent du **partagé** — contenu, taxonomie, ingestion, et
+  `leitner_settings` (réglage d'installation). Ce fichier est donc le filet de ce qui doit continuer
+  à refuser **après** CC-121, et la révision reste en outre vérifiée sur la progression du
+  propriétaire **et** sur l'absence de toute ligne écrite pour l'invité.
 
 ## L'ingestion
 

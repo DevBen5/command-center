@@ -1,7 +1,8 @@
-import { DateTime } from 'luxon'
 import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
-import { createUserWith } from '#tests/helpers/users'
+import type User from '#core/auth/models/user'
+import { createAdmin, createUserWith } from '#tests/helpers/users'
+import { boxOf, makeCard as createCard, nextReviewOf, setProgress } from '#tests/helpers/leitner'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerSettings from '#modules/leitner/models/leitner_settings'
 import LeitnerIngestion from '#modules/leitner/models/leitner_ingestion'
@@ -15,10 +16,15 @@ import LeitnerIngestion from '#modules/leitner/models/leitner_ingestion'
  * valide n'a que faire du rendu Vue.
  *
  * ⚠️ **L'assertion qui compte n'est pas le code HTTP mais l'état de la base après le refus.**
- * Le module est mono-utilisateur (CC-70) : `box` et `next_review` sont des colonnes de la
- * carte, pas d'une progression par personne, et `leitner_settings` est une ligne unique et
- * partagée. C'est cette corruption des données du propriétaire qu'on empêche, pas un
- * formulaire.
+ *
+ * ⚠️ **La moitié de sa justification est tombée avec CC-119, l'autre pas — et c'est la
+ * distinction à tenir.** `box` et `next_review` ne sont plus des colonnes de la carte :
+ * une note d'invité n'atteindrait donc plus le planning de personne, et c'est
+ * précisément ce qui autorisera **CC-121** à lui accorder `leitner.review`. Restent
+ * fermées ici les écritures qui touchent du **partagé** : le contenu (cartes, taxonomie),
+ * l'ingestion, et `leitner_settings` — une ligne unique (`check('id = 1')`), parce que
+ * les intervalles sont restés un réglage d'**installation** et non de personne. Ce
+ * fichier reste donc le filet de ce qui doit continuer à refuser après CC-121.
  */
 test.group('Leitner / lecture seule (invité)', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
@@ -28,13 +34,11 @@ test.group('Leitner / lecture seule (invité)', (group) => {
     return createUserWith(['leitner.view', 'leitner.stats.view'])
   }
 
-  function makeCard() {
-    return LeitnerCard.create({
-      front: 'Recto',
-      back: 'Verso',
-      box: 3,
-      nextReview: DateTime.now().plus({ days: 5 }),
-    })
+  /** Une carte, et la progression du **propriétaire** dessus — celle qu'on protège. */
+  async function makeOwnedCard(owner: User) {
+    const card = await createCard('Recto')
+    await setProgress(owner.id, card.id, { box: 3, dueDaysAgo: -5 })
+    return card
   }
 
   test('un invité peut lister les cartes, le catalogue et les stats', async ({ client }) => {
@@ -53,9 +57,9 @@ test.group('Leitner / lecture seule (invité)', (group) => {
     assert,
   }) => {
     const user = await guest()
-    const card = await makeCard()
-    const boxAvant = card.box
-    const dueAvant = card.nextReview.toISODate()
+    const owner = await createAdmin()
+    const card = await makeOwnedCard(owner)
+    const dueAvant = (await nextReviewOf(owner.id, card.id))!.toISODate()
 
     const response = await client
       .post(`/revision/${card.id}/review`)
@@ -66,11 +70,15 @@ test.group('Leitner / lecture seule (invité)', (group) => {
 
     response.assertStatus(403)
 
-    // Le cœur du lot : `easy` aurait envoyé la carte deux boîtes plus loin, pour tout le
-    // monde. Elle n'a pas bougé.
-    await card.refresh()
-    assert.equal(card.box, boxAvant)
-    assert.equal(card.nextReview.toISODate(), dueAvant)
+    // ⚠️ **L'assertion qui compte n'est pas le 403, c'est l'état de la base après le
+    // refus** — et depuis CC-119 elle porte sur la progression du PROPRIÉTAIRE, plus sur
+    // la carte. Le cloisonnement fait qu'une note de l'invité n'atteindrait de toute
+    // façon plus ce planning : ce test garde donc sa valeur ailleurs — il verrouille que
+    // la capacité reste fermée tant que CC-121 ne l'a pas ouverte, et que le refus
+    // n'écrit **rien du tout**, pas même une ligne de progression pour l'invité.
+    assert.equal(await boxOf(owner.id, card.id), 3)
+    assert.equal((await nextReviewOf(owner.id, card.id))!.toISODate(), dueAvant)
+    assert.isNull(await nextReviewOf(user.id, card.id))
   })
 
   test('créer une carte est refusé, et rien n’est écrit', async ({ client, assert }) => {

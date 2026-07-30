@@ -4,7 +4,9 @@ import type { ApiClient } from '@japa/api-client'
 import testUtils from '@adonisjs/core/services/test_utils'
 import type User from '#core/auth/models/user'
 import { createUserWith } from '#tests/helpers/users'
+import { boxOf, makeCard, nextReviewOf, setProgress } from '#tests/helpers/leitner'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
+import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
@@ -22,20 +24,24 @@ test.group('Leitner / export JSON', (group) => {
     return createUserWith(['leitner.backup'])
   }
 
-  /** Une carte révisée, classée sous DevOps · Docker. */
-  async function seedCard() {
+  /** Une carte révisée par `user`, classée sous DevOps · Docker. */
+  async function seedCard(user: User) {
     const category = await LeitnerCategory.create({ name: 'DevOps' })
     const theme = await LeitnerTheme.create({ leitnerCategoryId: category.id, name: 'Docker' })
     await LeitnerTheme.create({ leitnerCategoryId: category.id, name: 'Kubernetes' })
 
-    const card = await LeitnerCard.create({
-      front: 'Rôle du handshake TLS ?',
+    const card = await makeCard('Rôle du handshake TLS ?', {
       back: 'Négocier clés et algorithmes.',
+      themeId: theme.id,
+    })
+    await LeitnerCardProgress.create({
+      userId: user.id,
+      leitnerCardId: card.id,
       box: 3,
-      leitnerThemeId: theme.id,
       nextReview: DateTime.fromISO('2026-07-20'),
     })
     await LeitnerReview.create({
+      userId: user.id,
       leitnerCardId: card.id,
       grade: 'good',
       reviewedAt: DateTime.fromISO('2026-07-13T09:02:00.000Z'),
@@ -47,6 +53,7 @@ test.group('Leitner / export JSON', (group) => {
     })
     // Juge éteint, mesure inexploitable : tout ce qui accompagne la note est `null`.
     await LeitnerReview.create({
+      userId: user.id,
       leitnerCardId: card.id,
       grade: 'hard',
       reviewedAt: DateTime.fromISO('2026-07-14T09:02:00.000Z'),
@@ -57,7 +64,7 @@ test.group('Leitner / export JSON', (group) => {
 
   test('se télécharge en pièce jointe, avec un JSON parsable', async ({ client, assert }) => {
     const user = await login()
-    await seedCard()
+    await seedCard(user)
 
     const response = await client.get('/revision/export').loginAs(user)
 
@@ -73,12 +80,15 @@ test.group('Leitner / export JSON', (group) => {
     assert,
   }) => {
     const user = await login()
-    await seedCard()
+    await seedCard(user)
 
     const response = await client.get('/revision/export').loginAs(user)
     const backup = JSON.parse(response.text())
 
-    assert.equal(backup.version, 1)
+    // ⚠️ **v2 depuis CC-119** : les clés n'ont pas bougé, leur sens si — `box`,
+    // `nextReview` et `reviews` décrivent la progression de **celui qui exporte**, plus
+    // celle du paquet. C'est le critère de bump posé par le `CLAUDE.md` du module.
+    assert.equal(backup.version, 2)
     assert.deepEqual(backup.categories, [{ name: 'DevOps', themes: ['Docker', 'Kubernetes'] }])
 
     assert.lengthOf(backup.cards, 1)
@@ -108,7 +118,7 @@ test.group('Leitner / export JSON', (group) => {
    */
   test('porte la réponse écrite, le verdict et les trois durées', async ({ client, assert }) => {
     const user = await login()
-    await seedCard()
+    await seedCard(user)
 
     const response = await client.get('/revision/export').loginAs(user)
     const [card] = JSON.parse(response.text()).cards
@@ -131,18 +141,17 @@ test.group('Leitner / export JSON', (group) => {
 
   test("une carte non classée n'emporte ni catégorie ni thème", async ({ client, assert }) => {
     const user = await login()
-    await LeitnerCard.create({
-      front: 'Orpheline',
-      back: 'Sans thème.',
-      box: 1,
-      nextReview: DateTime.now(),
-    })
+    await makeCard('Orpheline', { back: 'Sans thème.' })
 
     const response = await client.get('/revision/export').loginAs(user)
     const [card] = JSON.parse(response.text()).cards
 
     assert.notProperty(card, 'category')
     assert.notProperty(card, 'theme')
+    // ⚠️ Une carte que l'exportateur n'a jamais notée sort avec les défauts — c'est ce
+    // que l'absence de ligne veut dire, et ce qu'un import relira à l'identique.
+    assert.equal(card.box, 1)
+    assert.equal(card.nextReview, DateTime.now().toISODate())
   })
 
   test('ne contient aucun id : la taxonomie est désignée par son nom', async ({
@@ -150,7 +159,7 @@ test.group('Leitner / export JSON', (group) => {
     assert,
   }) => {
     const user = await login()
-    await seedCard()
+    await seedCard(user)
 
     const response = await client.get('/revision/export').loginAs(user)
 
@@ -194,10 +203,13 @@ test.group('Leitner / import JSON', (group) => {
    * deux révisions au même horodatage, `reviewed_at` seul rendrait un ordre arbitraire
    * et la comparaison serait instable.
    */
-  async function snapshot() {
+  async function snapshot(user: User) {
     const cards = await LeitnerCard.query()
       .preload('theme', (theme) => theme.preload('category'))
-      .preload('reviews', (reviews) => reviews.orderBy('reviewed_at', 'asc').orderBy('id', 'asc'))
+      .preload('reviews', (reviews) =>
+        reviews.where('user_id', user.id).orderBy('reviewed_at', 'asc').orderBy('id', 'asc')
+      )
+      .preload('progress', (progress) => progress.where('user_id', user.id))
       .orderBy('front', 'asc')
 
     const categories = await LeitnerCategory.query().preload('themes').orderBy('name')
@@ -210,8 +222,11 @@ test.group('Leitner / import JSON', (group) => {
       cards: cards.map((card) => ({
         front: card.front,
         back: card.back,
-        box: card.box,
-        nextReview: card.nextReview.toISODate(),
+        // ⚠️ La progression **de cet utilisateur** — le fichier est personnel depuis
+        // CC-119. Une ligne absente vaut « boîte 1, due aujourd'hui » : c'est ce que
+        // l'export écrit, donc ce que la restauration doit rendre.
+        box: card.progress[0]?.box ?? 1,
+        nextReview: (card.progress[0]?.nextReview ?? DateTime.now()).toISODate(),
         createdAt: card.createdAt.toISO(),
         updatedAt: card.updatedAt.toISO(),
         category: card.theme?.category.name ?? null,
@@ -250,14 +265,19 @@ test.group('Leitner / import JSON', (group) => {
     const revisee = await LeitnerCard.create({
       front: 'Rôle du handshake TLS ?',
       back: 'Négocier clés et algorithmes.',
-      box: 3,
       leitnerThemeId: docker.id,
-      nextReview: DateTime.fromISO('2026-07-20'),
       createdAt: DateTime.fromISO('2026-07-01T08:00:00.000Z'),
       updatedAt: DateTime.fromISO('2026-07-10T09:30:00.000Z'),
     })
+    await LeitnerCardProgress.create({
+      userId: user.id,
+      leitnerCardId: revisee.id,
+      box: 3,
+      nextReview: DateTime.fromISO('2026-07-20'),
+    })
     // Une révision JUGÉE : réponse écrite, verdict, et les trois durées.
     await LeitnerReview.create({
+      userId: user.id,
       leitnerCardId: revisee.id,
       grade: 'good',
       reviewedAt: DateTime.fromISO('2026-07-05T09:02:00.000Z'),
@@ -271,6 +291,7 @@ test.group('Leitner / import JSON', (group) => {
     // `null`, et `null` doit se relire `null` — un `0` restauré tirerait la médiane
     // de la carte vers le bas et lui vaudrait `easy`.
     await LeitnerReview.create({
+      userId: user.id,
       leitnerCardId: revisee.id,
       grade: 'hard',
       reviewedAt: DateTime.fromISO('2026-07-10T09:30:00.000Z'),
@@ -279,6 +300,7 @@ test.group('Leitner / import JSON', (group) => {
     // dévoilé sans rien écrire, mais soumis) et une frappe immédiate. Un export qui
     // filtrerait sur la vérité plutôt que sur `!== null` les perdrait toutes les deux.
     await LeitnerReview.create({
+      userId: user.id,
       leitnerCardId: revisee.id,
       grade: 'again',
       reviewedAt: DateTime.fromISO('2026-07-12T18:00:00.000Z'),
@@ -286,14 +308,10 @@ test.group('Leitner / import JSON', (group) => {
       thinkingMs: 0,
       totalMs: 0,
     })
-    await LeitnerCard.create({
-      front: 'Carte non classée',
-      back: 'Sans thème.',
-      box: 1,
-      nextReview: DateTime.fromISO('2026-07-13'),
-    })
+    const nonClassee = await makeCard('Carte non classée', { back: 'Sans thème.' })
+    await setProgress(user.id, nonClassee.id, { box: 1, dueDaysAgo: 3 })
 
-    const avant = await snapshot()
+    const avant = await snapshot(user)
     const exported = await client.get('/revision/export').loginAs(user)
     const backup = JSON.parse(exported.text())
 
@@ -305,7 +323,7 @@ test.group('Leitner / import JSON', (group) => {
     const response = await upload(client, user, backup)
     response.assertStatus(302)
 
-    assert.deepEqual(await snapshot(), avant)
+    assert.deepEqual(await snapshot(user), avant)
   })
 
   test('un fichier écrit à la main : recto, verso et thème suffisent', async ({
@@ -330,9 +348,11 @@ test.group('Leitner / import JSON', (group) => {
     const card = await LeitnerCard.query()
       .preload('theme', (t) => t.preload('category'))
       .firstOrFail()
-    // Valeurs d'une carte créée depuis l'UI : boîte 1, due aujourd'hui.
-    assert.equal(card.box, 1)
-    assert.equal(card.nextReview.toISODate(), DateTime.now().toISODate())
+    // Valeurs d'une carte créée depuis l'UI : boîte 1, due aujourd'hui. ⚠️ Et **aucune
+    // ligne de progression n'est semée** (CC-119) : le fichier ne dit ni `box` ni
+    // `nextReview`, donc il n'y a rien à matérialiser — l'absence dit déjà exactement ça.
+    assert.equal(await boxOf(user.id, card.id), 1)
+    assert.lengthOf(await LeitnerCardProgress.all(), 0)
     // La taxonomie absente est créée à la volée.
     assert.equal(card.theme.name, 'Docker')
     assert.equal(card.theme.category.name, 'DevOps')
@@ -345,11 +365,14 @@ test.group('Leitner / import JSON', (group) => {
     const user = await login()
     const devops = await LeitnerCategory.create({ name: 'DevOps' })
     const docker = await LeitnerTheme.create({ leitnerCategoryId: devops.id, name: 'Docker' })
-    await LeitnerCard.create({
-      front: 'Carte déjà là',
+    const dejaLa = await makeCard('Carte déjà là', {
       back: 'Elle doit survivre.',
+      themeId: docker.id,
+    })
+    await LeitnerCardProgress.create({
+      userId: user.id,
+      leitnerCardId: dejaLa.id,
       box: 4,
-      leitnerThemeId: docker.id,
       nextReview: DateTime.fromISO('2026-08-01'),
     })
 
@@ -364,8 +387,8 @@ test.group('Leitner / import JSON', (group) => {
     assert.lengthOf(await LeitnerTheme.all(), 2)
 
     const ancienne = await LeitnerCard.findByOrFail('front', 'Carte déjà là')
-    assert.equal(ancienne.box, 4)
-    assert.equal(ancienne.nextReview.toISODate(), '2026-08-01')
+    assert.equal(await boxOf(user.id, ancienne.id), 4)
+    assert.equal((await nextReviewOf(user.id, ancienne.id))!.toISODate(), '2026-08-01')
     assert.lengthOf(await LeitnerCard.all(), 2)
   })
 
@@ -376,13 +399,11 @@ test.group('Leitner / import JSON', (group) => {
     const user = await login()
     const devops = await LeitnerCategory.create({ name: 'DevOps' })
     const docker = await LeitnerTheme.create({ leitnerCategoryId: devops.id, name: 'Docker' })
-    await LeitnerCard.create({
-      front: 'Image ou conteneur ?',
+    const enBase = await makeCard('Image ou conteneur ?', {
       back: 'Déjà en base.',
-      box: 2,
-      leitnerThemeId: docker.id,
-      nextReview: DateTime.fromISO('2026-07-20'),
+      themeId: docker.id,
     })
+    await setProgress(user.id, enBase.id, { box: 2, dueDaysAgo: -10 })
 
     const response = await upload(client, user, {
       cards: [
@@ -410,9 +431,9 @@ test.group('Leitner / import JSON', (group) => {
     assert.equal(report.cardsCreated, 2)
     assert.equal(report.cardsSkipped, 2)
 
-    // L'existante n'a pas été écrasée.
+    // L'existante n'a pas été écrasée — ni son verso, ni ma progression dessus.
     const existante = await LeitnerCard.findByOrFail('back', 'Déjà en base.')
-    assert.equal(existante.box, 2)
+    assert.equal(await boxOf(user.id, existante.id), 2)
     assert.lengthOf(await LeitnerCard.all(), 3)
   })
 
@@ -479,13 +500,12 @@ test.group('Leitner / import JSON', (group) => {
     assert,
   }) => {
     const user = await login()
-    const existante = await LeitnerCard.create({
-      front: 'Rôle du handshake TLS ?',
+    const existante = await makeCard('Rôle du handshake TLS ?', {
       back: 'Négocier clés et algorithmes.',
-      box: 2,
-      nextReview: DateTime.fromISO('2026-07-20'),
     })
+    await setProgress(user.id, existante.id, { box: 2, dueDaysAgo: -10 })
     await LeitnerReview.create({
+      userId: user.id,
       leitnerCardId: existante.id,
       grade: 'good',
       reviewedAt: DateTime.fromISO('2026-07-05T09:02:00.000Z'),
@@ -519,6 +539,44 @@ test.group('Leitner / import JSON', (group) => {
     assert.isNull(revisions[0].answer)
     assert.isNull(revisions[0].verdict)
     assert.isNull(revisions[0].thinkingMs)
+  })
+
+  /**
+   * ⚠️ **Le test qui protège les sauvegardes déjà faites** (CC-119). L'export est passé
+   * en v2 parce que `box`, `nextReview` et `reviews` ont changé de sens — ils décrivent
+   * désormais la progression d'une personne. Refuser v1 pour autant rendrait illisibles,
+   * d'un coup, tous les fichiers écrits avant ce lot : exactement au moment où on en
+   * aurait le plus besoin. Un v1 se relit sans ambiguïté — sa progression était celle de
+   * l'unique compte du moment, elle devient celle de l'importateur.
+   */
+  test('un fichier v1 reste importable, et sa progression devient celle qui importe', async ({
+    client,
+    assert,
+  }) => {
+    const user = await login()
+
+    const response = await upload(client, user, {
+      version: 1,
+      cards: [
+        {
+          front: 'Écrite avant CC-119',
+          back: 'Verso.',
+          box: 4,
+          nextReview: '2026-08-01',
+          reviews: [{ grade: 'good', reviewedAt: '2026-07-05T09:02:00.000Z' }],
+        },
+      ],
+    })
+
+    response.assertStatus(302)
+    assert.isUndefined(response.flashMessages().importErrors)
+
+    const card = await LeitnerCard.findByOrFail('front', 'Écrite avant CC-119')
+    assert.equal(await boxOf(user.id, card.id), 4)
+    assert.equal((await nextReviewOf(user.id, card.id))!.toISODate(), '2026-08-01')
+
+    const review = await LeitnerReview.query().where('leitner_card_id', card.id).firstOrFail()
+    assert.equal(review.userId, user.id)
   })
 
   test('une boîte hors de 1..5 est refusée : sans ce garde-fou, la carte serait éternellement due', async ({
@@ -586,7 +644,10 @@ test.group('Leitner / import JSON', (group) => {
         },
       ],
       ['thème sans catégorie', { cards: [{ front: 'A', back: 'B', theme: 'Docker' }] }],
-      ['version inconnue', { version: 2, cards: [{ front: 'A', back: 'B' }] }],
+      // ⚠️ 99, et surtout plus 2 : depuis CC-119 la version courante EST 2, et 1 reste
+      // lisible. Une valeur encore acceptée ici aurait fait passer ce cas au vert en
+      // n'éprouvant plus rien.
+      ['version inconnue', { version: 99, cards: [{ front: 'A', back: 'B' }] }],
     ]
 
     for (const [libelle, contenu] of invalides) {

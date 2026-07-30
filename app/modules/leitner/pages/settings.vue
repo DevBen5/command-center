@@ -43,6 +43,9 @@ interface Card {
   id: number
   front: string
   back: string
+  // ⚠️ Le catalogue est communal, cette colonne ne l'est pas (CC-119) : c'est la boîte de
+  // celui qui regarde. Deux personnes voient les mêmes cartes avec des boîtes différentes,
+  // et le filtre « boîte N » suit la même règle.
   box: number
   theme: { id: number; name: string; category: { id: number; name: string } } | null
 }

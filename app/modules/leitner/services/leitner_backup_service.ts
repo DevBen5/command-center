@@ -2,9 +2,11 @@ import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
+import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
+import { DEFAULT_BOX } from '#modules/leitner/services/leitner_progress'
 import type { Grade, Verdict } from '#modules/leitner/services/leitner_service'
 
 /**
@@ -22,8 +24,24 @@ import type { Grade, Verdict } from '#modules/leitner/services/leitner_service'
  * importerait un fichier d'aujourd'hui en perdrait les cinq champs **sans un mot**.
  * Bump-la le jour où un champ change de sens ou devient obligatoire — là, un
  * ancien fichier serait vraiment illisible.
+ *
+ * ⚠️ **C'est arrivé en CC-119, d'où le `2`** : `box`, `nextReview` et `reviews` ne
+ * décrivent plus « le paquet », ils décrivent **la progression de celui qui exporte**.
+ * Les clés n'ont pas bougé, leur sens si — exactement le critère posé ci-dessus. Un
+ * fichier v1 relu par un build d'avant CC-119 ne serait pas *faux*, mais un fichier v2
+ * importé sur une installation multi-comptes attribuerait à une personne un historique
+ * qui n'est pas le sien, sans que rien ne le dise.
  */
-export const BACKUP_VERSION = 1
+export const BACKUP_VERSION = 2
+
+/**
+ * Les versions qu'un import accepte, et la seule raison de la liste : **refuser v1
+ * rendrait illisibles toutes les sauvegardes déjà faites**. Un fichier v1 se relit sans
+ * ambiguïté — sa progression et son historique étaient ceux de l'unique utilisateur du
+ * moment, ils deviennent ceux de celui qui importe. C'est exactement ce que fait le
+ * backfill de la migration, appliqué à un fichier.
+ */
+export const READABLE_BACKUP_VERSIONS = [1, 2]
 
 /**
  * Une révision : sa note, son horodatage, et **la trace de ce qui l'a précédée**.
@@ -44,6 +62,13 @@ export interface BackupReview {
   totalMs?: number
 }
 
+/**
+ * ⚠️ **`box`, `nextReview` et `reviews` sont la progression de CELUI QUI EXPORTE**
+ * (v2, CC-119) — pas celle du paquet, qui n'en a plus. Le fichier est donc une
+ * sauvegarde **personnelle du contenu communal** : la taxonomie et les cartes valent
+ * pour tout le monde, la progression pour une seule personne. Exporter à deux produit
+ * deux fichiers au même contenu et aux progressions différentes.
+ */
 export interface BackupCard {
   front: string
   back: string
@@ -156,17 +181,31 @@ function omitNull<T extends object>(fields: T): { [K in keyof T]?: Exclude<T[K],
  * Les intervalles des boîtes (`leitner_settings`) ne sont **pas** du contenu : ils ne
  * font pas partie du fichier. Les échéances, elles, sont exportées telles quelles
  * (`next_review`), donc une restauration ne dépend pas du réglage en vigueur.
+ *
+ * ⚠️ **Le fichier est personnel depuis CC-119** : contenu communal, progression et
+ * historique de celui qui exporte. Voir `BackupCard` et `BACKUP_VERSION`.
  */
 export default class LeitnerBackupService {
-  /** Instantané complet : taxonomie, cartes (boîte, échéance, horodatage) et historique. */
-  async export(): Promise<Backup> {
+  /**
+   * Instantané : taxonomie, cartes, et **la progression de `userId`** (boîte, échéance,
+   * historique). Les cartes qu'il n'a jamais notées sortent avec les défauts d'une carte
+   * neuve — boîte 1, due aujourd'hui — qui est exactement ce que l'absence de ligne veut
+   * dire, et ce qu'un import relira.
+   */
+  async export(userId: number): Promise<Backup> {
     const categories = await LeitnerCategory.query()
       .preload('themes', (themes) => themes.orderBy('name'))
       .orderBy('name')
 
+    // ⚠️ Un `preload` filtré, pas la jointure de `leitner_progress.ts` : ici on veut la
+    // **ligne** (boîte *et* échéance, typées par Lucid), pas un prédicat de file. Le
+    // `hasMany` ne peut rendre qu'une ligne, la contrainte d'unicité s'en charge.
     const cards = await LeitnerCard.query()
       .preload('theme', (theme) => theme.preload('category'))
-      .preload('reviews', (reviews) => reviews.orderBy('reviewed_at', 'asc').orderBy('id', 'asc'))
+      .preload('reviews', (reviews) =>
+        reviews.where('user_id', userId).orderBy('reviewed_at', 'asc').orderBy('id', 'asc')
+      )
+      .preload('progress', (progress) => progress.where('user_id', userId))
       .orderBy('id', 'asc')
 
     return {
@@ -182,8 +221,10 @@ export default class LeitnerBackupService {
         // Une carte non classée n'a ni l'un ni l'autre : on omet les deux clés
         // plutôt que d'écrire `null`, pour que le fichier reste lisible à la main.
         ...(card.theme ? { category: card.theme.category.name, theme: card.theme.name } : {}),
-        box: card.box,
-        nextReview: card.nextReview.toISODate()!,
+        // Aucune ligne de progression = « boîte 1, due aujourd'hui » : le fichier écrit
+        // ce que la règle dit, plutôt qu'une absence que l'import devrait réinterpréter.
+        box: card.progress[0]?.box ?? DEFAULT_BOX,
+        nextReview: (card.progress[0]?.nextReview ?? DateTime.now()).toISODate()!,
         createdAt: card.createdAt.toISO()!,
         updatedAt: card.updatedAt.toISO()!,
         reviews: card.reviews.map((review) => ({
@@ -221,8 +262,19 @@ export default class LeitnerBackupService {
    * carte ne laisse pas 299 cartes derrière lui. Le cas le plus probable est la
    * violation d'unicité de la taxonomie (`leitner_categories.name`, et
    * (catégorie, nom) sur `leitner_themes`).
+   *
+   * ⚠️ **Progression et historique atterrissent sur `userId`, jamais ailleurs**
+   * (CC-119) : le contenu est communal, ce qui l'accompagne ne l'est pas. Importer le
+   * fichier d'un collègue ajoute donc ses cartes **et s'attribue sa progression** — c'est
+   * le comportement voulu (le fichier est une sauvegarde personnelle), mais ce n'est
+   * évidemment pas un moyen de « rendre ses cartes » à quelqu'un.
+   *
+   * ⚠️ **Une carte ignorée ne reçoit AUCUNE progression** — même raison que ses
+   * révisions : la ligne est écrite après le `continue` de déduplication. Une carte déjà
+   * en base garde donc la progression de l'importateur, jamais celle du fichier. C'est ce
+   * qui empêche un ré-import d'écraser un planning en cours.
    */
-  async import(backup: BackupInput): Promise<ImportReport> {
+  async import(userId: number, backup: BackupInput): Promise<ImportReport> {
     const report: ImportReport = {
       cardsCreated: 0,
       cardsSkipped: 0,
@@ -267,12 +319,11 @@ export default class LeitnerBackupService {
             front: card.front,
             back: card.back,
             leitnerThemeId: themeId,
-            // Défauts d'une carte créée depuis l'UI : boîte 1, due aujourd'hui.
-            box: card.box ?? 1,
-            nextReview: card.nextReview ? DateTime.fromISO(card.nextReview) : DateTime.now(),
             // Lucid ne pose `created_at` / `updated_at` que s'ils sont absents : les
-            // horodatages du fichier sont donc conservés tels quels. Ils portent
-            // l'ordre de la file de révision (`next_review` → `updated_at` → `id`).
+            // horodatages du fichier sont donc conservés tels quels. ⚠️ Depuis CC-119 ils
+            // ne portent plus l'ordre de la file — c'est l'`updated_at` de la progression
+            // qui le fait — mais ils restent le repli des cartes jamais notées, donc
+            // toujours l'ordre de départ d'un paquet neuf.
             ...(card.createdAt ? { createdAt: DateTime.fromISO(card.createdAt) } : {}),
             ...(card.updatedAt ? { updatedAt: DateTime.fromISO(card.updatedAt) } : {}),
           },
@@ -280,9 +331,27 @@ export default class LeitnerBackupService {
         )
         report.cardsCreated++
 
+        // ⚠️ **La ligne n'est écrite que si le fichier dit autre chose que le défaut.**
+        // Boîte 1 due aujourd'hui *est* l'absence de progression : la matérialiser pour
+        // chaque carte d'un fichier de saisie en masse (où ni `box` ni `nextReview` ne
+        // sont renseignés) remplirait la table de lignes qui ne disent rien, et ferait
+        // diverger deux représentations du même état.
+        if (card.box !== undefined || card.nextReview !== undefined) {
+          await LeitnerCardProgress.create(
+            {
+              userId,
+              leitnerCardId: created.id,
+              box: card.box ?? DEFAULT_BOX,
+              nextReview: card.nextReview ? DateTime.fromISO(card.nextReview) : DateTime.now(),
+            },
+            { client: trx }
+          )
+        }
+
         for (const review of card.reviews ?? []) {
           await LeitnerReview.create(
             {
+              userId,
               leitnerCardId: created.id,
               grade: review.grade,
               reviewedAt: DateTime.fromISO(review.reviewedAt),

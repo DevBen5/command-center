@@ -1,7 +1,6 @@
-import { DateTime } from 'luxon'
 import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
-import LeitnerCard from '#modules/leitner/models/leitner_card'
+import { makeCard } from '#tests/helpers/leitner'
 import { createAdmin, createUserWith } from '#tests/helpers/users'
 
 // La prop partagée `nav` alimente les pastilles de la barre latérale (AppLayout.vue).
@@ -32,12 +31,10 @@ test.group('Core / stats de navigation', (group) => {
 
   test('compte les cartes dues quand il y en a', async ({ client, assert }) => {
     const admin = await createAdmin()
-    await LeitnerCard.create({
-      front: 'Recto',
-      back: 'Verso',
-      box: 1,
-      nextReview: DateTime.now(),
-    })
+    // ⚠️ Aucune progression : le compteur suit exactement la file de `/revision`, donc
+    // les cartes jamais notées (CC-119). Une jointure interne le laisserait à 0 alors que
+    // l'écran, lui, montrerait la carte — deux chiffres qui se contredisent en silence.
+    await makeCard('Recto')
 
     const response = await client.get('/').loginAs(admin).withInertia()
 

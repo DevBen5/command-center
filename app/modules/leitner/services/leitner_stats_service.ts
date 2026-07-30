@@ -18,6 +18,12 @@ import {
   type HeatmapMonth,
 } from '#modules/leitner/services/leitner_habits'
 import {
+  joinProgress,
+  progressBox,
+  selectWithBox,
+  whereBoxAtMost,
+} from '#modules/leitner/services/leitner_progress'
+import {
   SESSION_GAP_MINUTES,
   groupIntoSessions,
   median,
@@ -123,10 +129,17 @@ export interface ProblemCards {
  * un moment de travail, pas un moment de thème : la découper par thème n'aurait pas
  * de sens, puisqu'une même session peut en traverser plusieurs. Pas de `?theme=` sur
  * cet écran.
+ *
+ * ⚠️ **« Global » veut dire « tous paquets confondus », jamais « tous comptes
+ * confondus »** (CC-119). Chaque méthode de cette classe prend un `userId` et n'existe
+ * que pour lui : une session est un moment de travail **de quelqu'un**, une série est la
+ * sienne, un point faible est le sien. Un filtre oublié ici ne lève rien — il gonfle des
+ * chiffres qui restent parfaitement plausibles, et c'est le pire mode d'échec de cet
+ * écran.
  */
 export default class LeitnerStatsService {
-  async effortStats(): Promise<LeitnerEffortStats> {
-    const sessions = await this.sessions()
+  async effortStats(userId: number): Promise<LeitnerEffortStats> {
+    const sessions = await this.sessions(userId)
     const today = DateTime.now().startOf('day')
 
     const since = (days: number) => {
@@ -174,9 +187,9 @@ export default class LeitnerStatsService {
    * d'une case au voisinage de minuit, sans erreur ni log. Bénéfice de bord : pas de
    * `count(*)`, donc pas de `bigint` rendu en chaîne à reconvertir.
    */
-  async habitStats(): Promise<LeitnerHabitStats> {
+  async habitStats(userId: number): Promise<LeitnerHabitStats> {
     const today = DateTime.now().startOf('day')
-    const reviews = await LeitnerReview.query().select('reviewed_at')
+    const reviews = await LeitnerReview.query().where('user_id', userId).select('reviewed_at')
 
     const counts = countByDay(reviews)
     const days = new Set(counts.keys())
@@ -214,12 +227,13 @@ export default class LeitnerStatsService {
    * ⚠️ `reviewed_at` est un `timestamp` : `.toSQL()`, **jamais** `.toSQLDate()` (réservé à
    * `next_review`, colonne `date`). Les intervertir passe le typecheck et casse le filtre.
    */
-  async retentionByWindow(): Promise<RetentionWindow[]> {
+  async retentionByWindow(userId: number): Promise<RetentionWindow[]> {
     const today = DateTime.now().startOf('day')
     const widest = Math.max(...RETENTION_WINDOW_DAYS)
 
     const reviews = await LeitnerReview.query()
       .select('grade', 'reviewed_at')
+      .where('user_id', userId)
       .where('reviewed_at', '>=', today.minus({ days: widest }).toSQL()!)
 
     return RETENTION_WINDOW_DAYS.map((days) => {
@@ -243,7 +257,7 @@ export default class LeitnerStatsService {
    * aucune 3ᵉ copie de la sous-requête catégorie → thèmes. Patron `db.rawQuery` +
    * `count(*) FILTER` : cf. `VeilleStatsService`, `?` paramétré.
    */
-  async weaknessByTheme(): Promise<WeaknessCategory[]> {
+  async weaknessByTheme(userId: number): Promise<WeaknessCategory[]> {
     const result = await db.rawQuery(
       `SELECT
          c.leitner_theme_id                    AS theme_id,
@@ -251,8 +265,9 @@ export default class LeitnerStatsService {
          count(*) FILTER (WHERE r.grade = ?)   AS again
        FROM leitner_reviews r
        JOIN leitner_cards c ON c.id = r.leitner_card_id
+       WHERE r.user_id = ?
        GROUP BY c.leitner_theme_id`,
-      ['again']
+      ['again', userId]
     )
 
     const rows = result.rows.map(
@@ -281,10 +296,10 @@ export default class LeitnerStatsService {
    * l'historique. La page renvoie chacune vers `/revision/settings` — le seul point de
    * saisie ; `/revision` ne fait que réviser.
    */
-  async problemCards(): Promise<ProblemCards> {
+  async problemCards(userId: number): Promise<ProblemCards> {
     return {
-      mostAgain: await this.mostAgainCards(),
-      stuck: await this.stuckCards(),
+      mostAgain: await this.mostAgainCards(userId),
+      stuck: await this.stuckCards(userId),
     }
   }
 
@@ -303,13 +318,19 @@ export default class LeitnerStatsService {
    * L'`orderBy` fait doublon avec le tri de `groupIntoSessions`, et c'est voulu :
    * l'un dit l'intention ici, l'autre garantit le résultat là-bas.
    */
-  private async sessions(): Promise<LeitnerSession[]> {
+  private async sessions(userId: number): Promise<LeitnerSession[]> {
     const from = DateTime.now().startOf('day').minus({ days: WIDEST_WINDOW_DAYS })
 
     // Comme `reviewedToday` et `streakDays` : on charge les lignes et on compte en JS,
     // sans pagination. Volumétrie personnelle, c'est assumé.
+    //
+    // ⚠️ Le filtre par personne est **structurel ici, pas cosmétique** : l'inférence de
+    // session repose sur l'écart entre deux horodatages consécutifs. Entrelacer deux
+    // comptes fabriquerait des sessions qui n'ont jamais eu lieu, et des « temps par
+    // carte » de quelques secondes — des chiffres plausibles, et faux.
     const reviews = await LeitnerReview.query()
       .select('reviewed_at')
+      .where('user_id', userId)
       .where('reviewed_at', '>=', from.toSQL()!)
       .orderBy('reviewed_at', 'asc')
 
@@ -321,15 +342,15 @@ export default class LeitnerStatsService {
    * carte), mais `whereIn` **perd cet ordre** au chargement des cartes : on le rétablit en
    * JS sur le compte d'`again`. `count(*)` bigint → `Number()`.
    */
-  private async mostAgainCards(): Promise<ProblemCard[]> {
+  private async mostAgainCards(userId: number): Promise<ProblemCard[]> {
     const result = await db.rawQuery(
       `SELECT leitner_card_id AS card_id, count(*) AS again
        FROM leitner_reviews
-       WHERE grade = ?
+       WHERE grade = ? AND user_id = ?
        GROUP BY leitner_card_id
        ORDER BY again DESC, leitner_card_id ASC
        LIMIT ?`,
-      ['again', PROBLEM_CARDS_LIMIT]
+      ['again', userId, PROBLEM_CARDS_LIMIT]
     )
 
     const againByCard = new Map<number, number>()
@@ -338,10 +359,14 @@ export default class LeitnerStatsService {
     const ids = [...againByCard.keys()]
     if (ids.length === 0) return []
 
-    const cards = await LeitnerCard.query()
-      .whereIn('id', ids)
+    const query = LeitnerCard.query()
+      .whereIn('leitner_cards.id', ids)
       .preload('theme', (theme) => theme.preload('category'))
 
+    joinProgress(query, userId)
+    selectWithBox(query)
+
+    const cards = await query
     return cards
       .map((card) => this.toProblemCard(card, againByCard.get(card.id) ?? 0))
       .sort((a, b) => b.count - a.count || a.id - b.id)
@@ -352,13 +377,22 @@ export default class LeitnerStatsService {
    * `STUCK_MIN_REVIEWS` tentatives. Le plancher de tentatives écarte les cartes neuves,
    * qui sont en boîte 1 sans avoir échoué à rien. `withCount` compte les révisions en
    * base ; le filtre et le tri se font en JS, à volumétrie personnelle.
+   *
+   * ⚠️ **La boîte ET le compte de tentatives sont ceux de cette personne** : une carte
+   * qu'un collègue a montée en boîte 5 peut être coincée en boîte 1 pour moi, et c'est
+   * bien la mienne qui compte. Le plancher perdrait tout son sens s'il additionnait les
+   * tentatives de plusieurs comptes — il désignerait des cartes que je n'ai jamais vues.
    */
-  private async stuckCards(): Promise<ProblemCard[]> {
-    const cards = await LeitnerCard.query()
-      .where('box', '<=', STUCK_MAX_BOX)
-      .withCount('reviews')
+  private async stuckCards(userId: number): Promise<ProblemCard[]> {
+    const query = LeitnerCard.query()
+      .withCount('reviews', (reviews) => reviews.where('user_id', userId))
       .preload('theme', (theme) => theme.preload('category'))
 
+    joinProgress(query, userId)
+    selectWithBox(query)
+    whereBoxAtMost(query, STUCK_MAX_BOX)
+
+    const cards = await query
     return cards
       .map((card) => ({ card, reviewCount: Number(card.$extras.reviews_count) }))
       .filter(({ reviewCount }) => reviewCount >= STUCK_MIN_REVIEWS)
@@ -370,6 +404,6 @@ export default class LeitnerStatsService {
   private toProblemCard(card: LeitnerCard, count: number): ProblemCard {
     const theme = card.theme
     const path = theme ? `${theme.category.name} · ${theme.name}` : UNCLASSIFIED_LABEL
-    return { id: card.id, front: card.front, box: card.box, path, count }
+    return { id: card.id, front: card.front, box: progressBox(card), path, count }
   }
 }

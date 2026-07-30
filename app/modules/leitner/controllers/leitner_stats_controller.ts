@@ -14,15 +14,18 @@ import LeitnerStatsService from '#modules/leitner/services/leitner_stats_service
  * HTTP.
  */
 export default class LeitnerStatsController {
-  async index({ inertia }: HttpContext) {
+  async index({ auth, inertia }: HttpContext) {
     const service = new LeitnerStatsService()
+    // ⚠️ Cet écran ne montre **que** le travail de celui qui le regarde (CC-119) : une
+    // série, une heatmap ou un point faible n'ont de sens que rapportés à une personne.
+    const userId = auth.user!.id
 
     return inertia.render('modules/leitner/stats', {
-      habits: await service.habitStats(),
-      stats: await service.effortStats(),
-      retention: await service.retentionByWindow(),
-      weakness: await service.weaknessByTheme(),
-      problemCards: await service.problemCards(),
+      habits: await service.habitStats(userId),
+      stats: await service.effortStats(userId),
+      retention: await service.retentionByWindow(userId),
+      weakness: await service.weaknessByTheme(userId),
+      problemCards: await service.problemCards(userId),
     })
   }
 }
