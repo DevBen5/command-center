@@ -32,10 +32,14 @@ services:
     # (Distinct de --env-file, qui n'alimente que l'interpolation ${...} du compose.)
     env_file:
       - .env.production
-    # La seule surface publiée : l'application, protégée par authentification.
-    # Reverse-proxy / TLS du NAS = un autre ticket de CC-70.
+    # La seule surface publiée : l'application, liée à 127.0.0.1 — seul le reverse
+    # proxy DSM (qui joint localhost:8080) l'atteint. Sans ce préfixe, Docker
+    # publierait sur 0.0.0.0 : l'application serait joignable de tout le réseau
+    # local en HTTP nu — où les cookies `secure` rendent le login impossible — et
+    # un client direct pourrait forger son X-Forwarded-For (TRUST_PROXY=uniquelocal
+    # repose sur ce bind, voir .env.production.example).
     ports:
-      - '8080:8080'
+      - '127.0.0.1:8080:8080'
     depends_on:
       postgres:
         condition: service_healthy
@@ -62,6 +66,11 @@ services:
 
   postgres:
     image: postgres:16-alpine
+    # Nom FIXE : le cron de sauvegarde du NAS (docs/deploiement-nas.md) fait
+    # `docker exec command-center-postgres pg_dump …` — sans ce nom, il dépendrait
+    # du nom de projet compose (le dossier de lancement, un suffixe `-1`…) et le
+    # script casserait au premier renommage.
+    container_name: command-center-postgres
     # ⚠️ Résolus par interpolation depuis --env-file .env.production. Sans le
     # drapeau, ces variables sont vides et postgres REFUSE de démarrer (échec
     # bruyant, pas silencieux).
