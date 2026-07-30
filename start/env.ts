@@ -66,6 +66,34 @@ export default await Env.create(new URL('../', import.meta.url), {
 
   /*
   |----------------------------------------------------------
+  | Store des compteurs du throttle de connexion (CC-78)
+  |----------------------------------------------------------
+  |
+  | `database` partout sauf en test : les compteurs survivent aux redémarrages,
+  | un restart ne rouvre donc pas une fenêtre de brute-force. `memory` est
+  | réservé à `.env.test` — chaque exécution repart à zéro, et rien ne s'écrit
+  | dans `app_test` hors des transactions de test.
+  */
+  LIMITER_STORE: Env.schema.enum(['database', 'memory'] as const),
+
+  /*
+  |----------------------------------------------------------
+  | Proxys de confiance pour X-Forwarded-For (CC-78)
+  |----------------------------------------------------------
+  |
+  | Le throttle de connexion compte par IP : derrière le reverse proxy DSM,
+  | sans cette variable, toutes les requêtes porteraient l'IP du proxy — un
+  | seul attaquant bloquerait tout le monde. Liste d'IP, de CIDR ou de noms
+  | `proxy-addr` (`loopback`, `linklocal`, `uniquelocal`), séparés par des
+  | virgules. Défaut : `loopback`, le défaut d'AdonisJS, explicité.
+  |
+  | ⚠️ Trop large, c'est l'inverse : un client joignant le port en direct
+  | forgerait son X-Forwarded-For et contournerait le throttle par IP.
+  */
+  TRUST_PROXY: Env.schema.string.optional(),
+
+  /*
+  |----------------------------------------------------------
   | Variables for configuring database connection
   |----------------------------------------------------------
   */

@@ -52,6 +52,9 @@ export default defineConfig({
     () => import('@adonisjs/cors/cors_provider'),
     () => import('@adonisjs/lucid/database_provider'),
     () => import('@adonisjs/auth/auth_provider'),
+    // Compteurs du throttle de connexion (CC-78). Après lucid : le store
+    // `database` écrit ses compteurs dans Postgres.
+    () => import('@adonisjs/limiter/limiter_provider'),
     () => import('@adonisjs/inertia/inertia_provider'),
     () => import('@adonisjs/i18n/i18n_provider'),
     // L'ingestion Leitner tourne en tâche de fond dans le processus : un redémarrage

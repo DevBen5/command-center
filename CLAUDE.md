@@ -372,6 +372,28 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
 - **`whereRaw` toujours paramétré** (bindings `?`), jamais concaténé.
 - Toute entrée utilisateur passe par un validateur VineJS. CSRF actif (Shield) : les POST de test
   exigent `.withCsrfToken()`.
+- **La CSP est active** (`config/shield.ts`, CC-78), et `script-src` est strict. Toute ressource
+  externe ajoutée à une page — script, police, image non proxifiée — sera **bloquée en silence** :
+  rien au build, rien aux tests (jsdom ne charge rien), seule la console du navigateur le dit.
+  Ajouter le domaine à la directive concernée **et re-passer l'écran au navigateur**.
+  `style-src 'unsafe-inline'` est un compromis assumé (liaisons `:style` de Vue, barre de
+  progression Inertia — aucun nonce ne les couvre) : ne pas le « durcir » sans passage navigateur
+  complet. `tests/functional/core/security_headers.spec.ts` empêche l'en-tête de disparaître ou de
+  s'affaiblir ; il ne voit **pas** les violations.
+- **`POST /login` est throttlé** (CC-78) : 10 échecs / 15 min par IP, 5 par email. Seuls les
+  **échecs** comptent et un succès efface — c'est ce qui empêche deux comptes derrière un même NAT
+  de se verrouiller mutuellement ; ne pas « simplifier » en comptant tout. Deux variables :
+  `LIMITER_STORE` (**requise au boot** ; `database` partout, `memory` réservé à `.env.test` — les
+  compteurs mémoire survivent aux transactions de test, d'où les `limiter.clear` en setup des
+  specs qui postent `/login`) et `TRUST_PROXY` (à renseigner au déploiement derrière le proxy DSM,
+  sinon toutes les requêtes portent l'IP du proxy et un seul attaquant bloque tout le monde ; trop
+  large, un client direct forge son `X-Forwarded-For` — voir `.env.example`).
+- **Les sessions expirent 7 jours après la connexion**, quelle que soit l'activité
+  (`session_lifetime.ts`, contrôle dans `auth_middleware`) : le store cookie n'a aucune liste
+  serveur, cette borne est la seule chose qui limite un cookie volé rejoué régulièrement. Un
+  tampon absent est **posé, jamais expulsé** (sessions d'avant CC-78, `loginAs` des tests) ; le
+  contrôleur re-tamponne à chaque connexion — retirer l'un des deux bouts recrée une boucle
+  d'expulsion ou une session immortelle. Les liens d'invitation valent **48 h**.
 
 ## Conventions
 
