@@ -1,11 +1,21 @@
 import { DateTime } from 'luxon'
 import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import User from '#core/auth/models/user'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 
 export default class LeitnerReview extends BaseModel {
   @column({ isPrimary: true })
   declare id: number
+
+  /**
+   * Qui a donné cette note (CC-119). **Aucune lecture de cette table ne se fait sans ce
+   * filtre** : la série, la rétention, la règle du 2ᵉ `hard` d'affilée, la médiane de
+   * fluence et l'inférence de session en dépendent toutes. Un filtre oublié ne lève
+   * rien — il mélange deux personnes dans une mesure qui reste plausible.
+   */
+  @column()
+  declare userId: number
 
   @column()
   declare leitnerCardId: number
@@ -67,6 +77,9 @@ export default class LeitnerReview extends BaseModel {
 
   @column.dateTime()
   declare reviewedAt: DateTime
+
+  @belongsTo(() => User)
+  declare user: BelongsTo<typeof User>
 
   @belongsTo(() => LeitnerCard)
   declare leitnerCard: BelongsTo<typeof LeitnerCard>

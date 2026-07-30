@@ -1,6 +1,7 @@
 import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
+import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerDraftCard from '#modules/leitner/models/leitner_draft_card'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
@@ -366,7 +367,8 @@ test.group('LeitnerIngestionService / promotion des brouillons', (group) => {
 
     const cards = await LeitnerCard.query().preload('theme', (theme) => theme.preload('category'))
     assert.lengthOf(cards, 1)
-    assert.equal(cards[0].box, 1)
+    // Aucune progression semée : « boîte 1, due aujourd'hui » est l'absence de ligne.
+    assert.lengthOf(await LeitnerCardProgress.query().where('leitner_card_id', cards[0].id), 0)
     // La taxonomie est créée à la volée, à partir des noms — jamais d'un id.
     assert.equal(cards[0].theme.name, 'TLS')
     assert.equal(cards[0].theme.category.name, 'Réseau')

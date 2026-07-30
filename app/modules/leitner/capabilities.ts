@@ -10,17 +10,27 @@
  * - `leitner.stats.view` — l'onglet Stats (`/revision/stats`), lecture pure de l'effort.
  *   Séparée de `view` : on peut vouloir montrer les cartes sans le tableau d'effort, ou
  *   l'inverse. Accordée à l'invité, elle aussi.
- * - `leitner.review` — **noter une carte** (`box`, `next_review`, `leitner_reviews`) et
+ * - `leitner.review` — **noter une carte** (`leitner_card_progress`, `leitner_reviews`) et
  *   **juger** une réponse écrite. Le juge n'écrit rien mais consomme le LLM local : il suit
- *   la note, pas la lecture. Séparée parce que ces colonnes sont celles de la carte, pas
- *   d'une progression par personne : une note donnée par quelqu'un d'autre déplace le
- *   planning du propriétaire.
+ *   la note, pas la lecture.
+ *   ⚠️ **Sa raison d'être a changé avec CC-119, et il faut le savoir avant de l'accorder.**
+ *   Elle était séparée parce que `box` et `next_review` étaient des colonnes de la **carte** :
+ *   une note donnée par quelqu'un d'autre déplaçait le planning du propriétaire. Ce n'est
+ *   plus vrai — la progression et l'historique sont désormais par personne, et noter
+ *   n'atteint plus rien de partagé. Elle reste séparée pour ce qu'elle coûte encore : le
+ *   juge fait travailler le LLM local. **C'est CC-121 qui l'accorde au rôle invité**, et
+ *   c'est le geste qui ouvre enfin la révision aux collègues.
  * - `leitner.cards.write` — la saisie des cartes : créer, éditer, supprimer, reclasser.
  * - `leitner.taxonomy.write` — les catégories et les thèmes. Séparée de `cards.write` : ce
  *   sont deux gestes d'écriture distincts, l'un sur le contenu, l'autre sur son classement.
  * - `leitner.settings` — les intervalles des boîtes (`/revision/settings/intervals`). Une
  *   ligne unique et partagée (`leitner_settings`, contrainte `id = 1` en base) : un réglage
  *   d'installation, pas de personne.
+ *   ⚠️ **Décision explicite de CC-119, tranchée et non un reste** : au moment de rendre la
+ *   progression personnelle, la question s'est posée de faire de même pour les intervalles.
+ *   Non — ils décrivent la **méthode** de répétition espacée, pas la personne qui la suit.
+ *   La ligne unique reste, et cette capacité reste fermée à l'invité même après CC-121 :
+ *   c'est la dernière écriture du module qui touche du partagé sans être du contenu.
  * - `leitner.ingest` — l'ingestion d'un cours par le LLM local (extraction, brouillons,
  *   promotion). Elle fait sortir des requêtes et écrit en base : c'est déclencher, pas
  *   consulter.

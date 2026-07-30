@@ -1,9 +1,8 @@
-import { DateTime } from 'luxon'
 import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
 import type User from '#core/auth/models/user'
 import { createUserWith } from '#tests/helpers/users'
-import LeitnerCard from '#modules/leitner/models/leitner_card'
+import { makeCard as createCard, setProgress } from '#tests/helpers/leitner'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 
@@ -28,14 +27,15 @@ test.group('Leitner / paquet de révision', (group) => {
     }
   }
 
-  function makeCard(front: string, themeId: number | null, dueInDays = 0) {
-    return LeitnerCard.create({
-      front,
-      back: 'Verso',
-      box: 1,
-      leitnerThemeId: themeId,
-      nextReview: DateTime.now().plus({ days: dueInDays }),
-    })
+  /**
+   * Une carte, éventuellement repoussée de `dueInDays` **pour cette personne** (CC-119).
+   * À 0 on ne pose aucune progression : l'absence vaut déjà « due aujourd'hui », et
+   * c'est l'état d'une carte neuve pour tout le monde.
+   */
+  async function makeCard(user: User, front: string, themeId: number | null, dueInDays = 0) {
+    const card = await createCard(front, { themeId })
+    if (dueInDays !== 0) await setProgress(user.id, card.id, { dueDaysAgo: -dueInDays })
+    return card
   }
 
   async function props(client: any, user: User, url: string) {
@@ -47,11 +47,11 @@ test.group('Leitner / paquet de révision', (group) => {
   test('/revision rend l’écran de choix, avec les comptes DUS', async ({ client, assert }) => {
     const user = await login()
     const { docker, kubernetes } = await taxonomy()
-    await makeCard('Due', docker.id)
+    await makeCard(user, 'Due', docker.id)
     // ⚠️ Le piège de `categoryTree()` : elle compterait celle-ci (total du thème). Un
     // thème de 200 cartes dont 0 est due n'a aucun intérêt ce soir.
-    await makeCard('Pas due', docker.id, 7)
-    await makeCard('Due, non classée', null)
+    await makeCard(user, 'Pas due', docker.id, 7)
+    await makeCard(user, 'Due, non classée', null)
 
     const page = await props(client, user, '/revision')
 
@@ -77,9 +77,9 @@ test.group('Leitner / paquet de révision', (group) => {
   test('?theme=X ne présente QUE les cartes de ce thème', async ({ client, assert }) => {
     const user = await login()
     const { docker, kubernetes } = await taxonomy()
-    await makeCard('Docker', docker.id)
-    await makeCard('Kubernetes', kubernetes.id)
-    await makeCard('Non classée', null)
+    await makeCard(user, 'Docker', docker.id)
+    await makeCard(user, 'Kubernetes', kubernetes.id)
+    await makeCard(user, 'Non classée', null)
 
     const page = await props(client, user, `/revision?theme=${docker.id}`)
 
@@ -99,9 +99,9 @@ test.group('Leitner / paquet de révision', (group) => {
   test('?category=X prend tous les thèmes de la catégorie', async ({ client, assert }) => {
     const user = await login()
     const { devops, docker, kubernetes } = await taxonomy()
-    await makeCard('Docker', docker.id)
-    await makeCard('Kubernetes', kubernetes.id)
-    await makeCard('Non classée', null)
+    await makeCard(user, 'Docker', docker.id)
+    await makeCard(user, 'Kubernetes', kubernetes.id)
+    await makeCard(user, 'Non classée', null)
 
     const page = await props(client, user, `/revision?category=${devops.id}`)
 
@@ -115,8 +115,8 @@ test.group('Leitner / paquet de révision', (group) => {
   test('?scope=unclassified ne prend que les cartes sans thème', async ({ client, assert }) => {
     const user = await login()
     const { docker } = await taxonomy()
-    await makeCard('Docker', docker.id)
-    await makeCard('Non classée', null)
+    await makeCard(user, 'Docker', docker.id)
+    await makeCard(user, 'Non classée', null)
 
     const page = await props(client, user, '/revision?scope=unclassified')
 
@@ -129,7 +129,7 @@ test.group('Leitner / paquet de révision', (group) => {
   test('noter une carte CONSERVE le paquet', async ({ client, assert }) => {
     const user = await login()
     const { docker } = await taxonomy()
-    const card = await makeCard('Docker', docker.id)
+    const card = await makeCard(user, 'Docker', docker.id)
 
     const scopedUrl = `/revision?theme=${docker.id}`
     const response = await client
@@ -153,7 +153,7 @@ test.group('Leitner / paquet de révision', (group) => {
   test('épuiser le paquet rend l’écran de fin', async ({ client, assert }) => {
     const user = await login()
     const { docker } = await taxonomy()
-    const card = await makeCard('Docker', docker.id)
+    const card = await makeCard(user, 'Docker', docker.id)
 
     await client
       .post(`/revision/${card.id}/review`)
@@ -172,7 +172,7 @@ test.group('Leitner / paquet de révision', (group) => {
   test('une carte notée `again` ne termine PAS le paquet', async ({ client, assert }) => {
     const user = await login()
     const { docker } = await taxonomy()
-    const card = await makeCard('Docker', docker.id)
+    const card = await makeCard(user, 'Docker', docker.id)
 
     await client
       .post(`/revision/${card.id}/review`)
@@ -192,7 +192,7 @@ test.group('Leitner / paquet de révision', (group) => {
   test('un paquet vide dès le départ n’est PAS l’écran de fin', async ({ client, assert }) => {
     const user = await login()
     const { docker, kubernetes } = await taxonomy()
-    await makeCard('Docker', docker.id)
+    await makeCard(user, 'Docker', docker.id)
 
     // Rien n'a été fait dans ce thème : lui dire « terminé, bravo » serait faux.
     const page = await props(client, user, `/revision?theme=${kubernetes.id}`)
@@ -204,8 +204,8 @@ test.group('Leitner / paquet de révision', (group) => {
   test('un thème inexistant est refusé — et ne révise PAS tout', async ({ client, assert }) => {
     const user = await login()
     const { docker } = await taxonomy()
-    await makeCard('Docker', docker.id)
-    await makeCard('Non classée', null)
+    await makeCard(user, 'Docker', docker.id)
+    await makeCard(user, 'Non classée', null)
 
     const response = await client
       .get('/revision?theme=999999')
@@ -235,7 +235,7 @@ test.group('Leitner / paquet de révision', (group) => {
   test('`category` et `theme` ensemble : refusé', async ({ client, assert }) => {
     const user = await login()
     const { devops, docker } = await taxonomy()
-    await makeCard('Docker', docker.id)
+    await makeCard(user, 'Docker', docker.id)
 
     const response = await client
       .get(`/revision?category=${devops.id}&theme=${docker.id}`)

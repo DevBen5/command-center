@@ -27,8 +27,11 @@ interface LeitnerCard {
   id: number
   front: string
   back: string
+  // ⚠️ La boîte de **celui qui révise**, pas de la carte (CC-119) : elle vient d'une
+  // table de progression jointe côté serveur, et vaut 1 tant qu'il ne l'a jamais notée.
   box: number
-  // Note de la révision précédente : deux `hard` d'affilée ramènent en boîte 1.
+  // Note de la révision précédente **de cette personne** : deux `hard` d'affilée
+  // ramènent en boîte 1, et la règle ne traverse jamais deux comptes.
   lastGrade: Grade | null
   theme: { id: number; name: string; category: { id: number; name: string } } | null
 }
@@ -80,9 +83,12 @@ const boxIntervalLabel = (box: number): string => labelForBox(props.boxIntervals
 const dueLabel = (box: number): string => labelForDue(props.boxIntervals, box)
 
 /**
- * Noter écrit `box`, `next_review` et une ligne `leitner_reviews` — les colonnes de la
- * carte, pas d'une progression par personne (CC-72). Un invité en lecture seule n'a pas
- * `leitner.review` : il consulte la carte, la retourne, lit le verso, mais ne note pas.
+ * Noter écrit une progression et une ligne d'historique, **qui n'appartiennent qu'à celui
+ * qui note** (CC-119) : plus rien de partagé ne bouge. Un invité en lecture seule n'a
+ * pourtant toujours pas `leitner.review` — il consulte la carte, la retourne, lit le
+ * verso, mais ne note pas. ⚠️ **Il reste donc bloqué sur la première carte**, l'écran
+ * n'ayant pas d'autre mécanisme d'avancement que la note : c'est CC-121 qui lui ouvre la
+ * capacité, pas ce lot.
  *
  * ⚠️ **Masquer n'est pas fermer.** La vraie garde est le middleware sur `POST /:id/review`
  * et `POST /:id/judge` ; ce booléen évite seulement de proposer des boutons qui

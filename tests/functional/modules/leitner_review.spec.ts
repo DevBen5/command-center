@@ -4,7 +4,8 @@ import app from '@adonisjs/core/services/app'
 import testUtils from '@adonisjs/core/services/test_utils'
 import type User from '#core/auth/models/user'
 import { createUserWith } from '#tests/helpers/users'
-import LeitnerCard from '#modules/leitner/models/leitner_card'
+import { boxOf, makeCard as createCard, nextReviewOf, setProgress } from '#tests/helpers/leitner'
+import type LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LlmClient, { LlmUnavailableError } from '#modules/leitner/services/llm_client'
 import FakeLlmClient from '#tests/fakes/fake_llm_client'
@@ -23,8 +24,15 @@ test.group('Leitner / file de révision', (group) => {
     return createUserWith(['leitner.view', 'leitner.review'])
   }
 
-  function makeCard(front: string, box: number) {
-    return LeitnerCard.create({ front, back: 'Verso', box, nextReview: DateTime.now() })
+  /**
+   * Une carte, déjà placée en boîte `box` **pour cette personne** (CC-119). La boîte
+   * n'étant plus une colonne de la carte, il faut dire pour qui — et c'est ce paramètre
+   * qui rend visible, à la relecture, tout test qui mélangerait deux comptes.
+   */
+  async function makeCard(user: User, front: string, box: number) {
+    const card = await createCard(front, { back: 'Verso' })
+    await setProgress(user.id, card.id, { box })
+    return card
   }
 
   async function dueCards(client: any, user: User) {
@@ -47,22 +55,22 @@ test.group('Leitner / file de révision', (group) => {
     assert,
   }) => {
     const user = await login()
-    const card = await makeCard('Ratée', 3)
+    const card = await makeCard(user, 'Ratée', 3)
 
     await review(client, user, card, 'again')
 
-    await card.refresh()
     // `again` ne rétrograde pas : il remet la carte dans la session, sans sanction.
-    assert.equal(card.box, 3)
-    assert.equal(card.nextReview.toISODate(), DateTime.now().toISODate())
+    assert.equal(await boxOf(user.id, card.id), 3)
+    const due = await nextReviewOf(user.id, card.id)
+    assert.equal(due?.toISODate(), DateTime.now().toISODate())
     // Elle est toujours dans la file : on revoit ce qu'on vient de rater.
     assert.lengthOf(await dueCards(client, user), 1)
   })
 
   test('une carte notée `again` repart en fin de file, pas en tête', async ({ client, assert }) => {
     const user = await login()
-    const first = await makeCard('Première', 3)
-    await makeCard('Seconde', 2)
+    const first = await makeCard(user, 'Première', 3)
+    await makeCard(user, 'Seconde', 2)
 
     const before = await dueCards(client, user)
     assert.deepEqual(
@@ -83,8 +91,8 @@ test.group('Leitner / file de révision', (group) => {
 
   test('une carte réussie quitte la session du jour', async ({ client, assert }) => {
     const user = await login()
-    const good = await makeCard('Sue', 2)
-    const hard = await makeCard('Péniblement sue', 2)
+    const good = await makeCard(user, 'Sue', 2)
+    const hard = await makeCard(user, 'Péniblement sue', 2)
 
     await review(client, user, good, 'good')
     await review(client, user, hard, 'hard')
@@ -99,9 +107,10 @@ test.group('Leitner / file de révision', (group) => {
     assert,
   }) => {
     const user = await login()
-    const card = await makeCard('Déjà difficile', 3)
+    const card = await makeCard(user, 'Déjà difficile', 3)
     await review(client, user, card, 'hard')
-    await card.merge({ nextReview: DateTime.now() }).save()
+    // On la ramène dans la file : c'est la progression qui porte l'échéance désormais.
+    await setProgress(user.id, card.id, { box: 3 })
 
     const response = await client.get('/revision?scope=all').loginAs(user).withInertia()
     const props = response.inertiaProps as Record<string, any>
@@ -126,7 +135,7 @@ test.group('Leitner / file de révision', (group) => {
     assert,
   }) => {
     const user = await login()
-    const card = await makeCard('Notée contre le juge', 2)
+    const card = await makeCard(user, 'Notée contre le juge', 2)
 
     // Le cas que le ticket demande de garantir : le juge dit faux, l'utilisateur sait
     // qu'il savait, il clique « Facile ». C'est SA note qui s'applique.
@@ -136,11 +145,11 @@ test.group('Leitner / file de révision', (group) => {
       latencyMs: 320,
     })
 
-    await card.refresh()
     // `easy` = +2 boîtes. Si le verdict avait pesé, on serait resté en boîte 2.
-    assert.equal(card.box, 4)
+    assert.equal(await boxOf(user.id, card.id), 4)
     // L'échéance suit la boîte atteinte : `faux` n'a pas rendu la carte due ce soir.
-    assert.notEqual(card.nextReview.toISODate(), DateTime.now().toISODate())
+    const due = await nextReviewOf(user.id, card.id)
+    assert.notEqual(due?.toISODate(), DateTime.now().toISODate())
 
     const saved = await LeitnerReview.query().where('leitner_card_id', card.id).firstOrFail()
     // Les deux cohabitent en base, et c'est normal : la note dit l'effort de rappel,
@@ -156,14 +165,14 @@ test.group('Leitner / file de révision', (group) => {
     assert,
   }) => {
     const user = await login()
-    const card = await makeCard('Notée sans juge', 3)
+    const card = await makeCard(user, 'Notée sans juge', 3)
 
     // Aucun champ de jugement : c'est l'auto-évaluation d'avant le ticket.
     await review(client, user, card, 'again')
 
-    await card.refresh()
-    assert.equal(card.box, 3)
-    assert.equal(card.nextReview.toISODate(), DateTime.now().toISODate())
+    assert.equal(await boxOf(user.id, card.id), 3)
+    const due = await nextReviewOf(user.id, card.id)
+    assert.equal(due?.toISODate(), DateTime.now().toISODate())
     assert.lengthOf(await dueCards(client, user), 1)
 
     const saved = await LeitnerReview.query().where('leitner_card_id', card.id).firstOrFail()
@@ -178,7 +187,7 @@ test.group('Leitner / file de révision', (group) => {
     assert,
   }) => {
     const user = await login()
-    const card = await makeCard('Répondue pendant une panne', 1)
+    const card = await makeCard(user, 'Répondue pendant une panne', 1)
 
     await review(client, user, card, 'good', { answer: 'Ma réponse.', verdict: null })
 
@@ -190,7 +199,7 @@ test.group('Leitner / file de révision', (group) => {
 
   test('un juge éteint rend 200 et aucun verdict — jamais une erreur', async ({ client }) => {
     const user = await login()
-    const card = await makeCard('À juger', 1)
+    const card = await makeCard(user, 'À juger', 1)
 
     // ⚠️ Le test qui porte l'attendu « repli obligatoire » : LM Studio est mort, et le
     // dévoilement du verso ne doit PAS casser. Un 500 ici bloquerait la révision.
@@ -218,7 +227,7 @@ test.group('Leitner / file de révision', (group) => {
 
   test('le juge rend un verdict et le bouton qu’il suggère', async ({ client, assert }) => {
     const user = await login()
-    const card = await makeCard('À juger aussi', 1)
+    const card = await makeCard(user, 'À juger aussi', 1)
 
     app.container.swap(
       LlmClient,
@@ -264,9 +273,15 @@ test.group('Leitner / file de révision', (group) => {
   */
 
   /** Des mesures passées, donc jamais des re-présentations du jour. */
-  async function withFluencyHistory(card: LeitnerCard, thinkingMs: number, count: number) {
+  async function withFluencyHistory(
+    user: User,
+    card: LeitnerCard,
+    thinkingMs: number,
+    count: number
+  ) {
     for (let index = 0; index < count; index++) {
       await LeitnerReview.create({
+        userId: user.id,
         leitnerCardId: card.id,
         grade: 'good',
         thinkingMs,
@@ -286,9 +301,9 @@ test.group('Leitner / file de révision', (group) => {
 
   test('une réponse juste ET très rapide fait proposer `easy`', async ({ client }) => {
     const user = await login()
-    const card = await makeCard('Bien sue', 2)
+    const card = await makeCard(user, 'Bien sue', 2)
     // Cinq mesures : la carte devient sa propre référence, médiane 10 s.
-    await withFluencyHistory(card, 10_000, 5)
+    await withFluencyHistory(user, card, 10_000, 5)
 
     const response = await judge(client, user, card, { thinkingMs: 3_000, totalMs: 6_000 })
 
@@ -300,10 +315,10 @@ test.group('Leitner / file de révision', (group) => {
 
   test('une carte qui ne se connaît pas encore se compare à sa boîte', async ({ client }) => {
     const user = await login()
-    const known = await makeCard('Voisine de boîte', 2)
-    await withFluencyHistory(known, 10_000, 20)
+    const known = await makeCard(user, 'Voisine de boîte', 2)
+    await withFluencyHistory(user, known, 10_000, 20)
     // La cible n'a aucune mesure à elle : c'est la médiane de la boîte qui sert.
-    const card = await makeCard('Nouvelle en boîte 2', 2)
+    const card = await makeCard(user, 'Nouvelle en boîte 2', 2)
 
     const response = await judge(client, user, card, { thinkingMs: 3_000, totalMs: 6_000 })
 
@@ -319,8 +334,8 @@ test.group('Leitner / file de révision', (group) => {
     client,
   }) => {
     const user = await login()
-    const card = await makeCard('Ratée puis redonnée', 2)
-    await withFluencyHistory(card, 10_000, 5)
+    const card = await makeCard(user, 'Ratée puis redonnée', 2)
+    await withFluencyHistory(user, card, 10_000, 5)
     // ⚠️ Le premier critère du ticket. `again` a laissé la carte due le jour même : la
     // seconde réponse est rapide par **mémoire de travail**, pas par apprentissage.
     // La proposer `easy` reviendrait à promouvoir une carte qu'on vient de rater.
@@ -336,7 +351,7 @@ test.group('Leitner / file de révision', (group) => {
 
   test('une carte sans historique retombe sur la présélection de CC-43', async ({ client }) => {
     const user = await login()
-    const card = await makeCard('Jamais mesurée', 1)
+    const card = await makeCard(user, 'Jamais mesurée', 1)
 
     const response = await judge(client, user, card, { thinkingMs: 200, totalMs: 500 })
 
@@ -351,7 +366,7 @@ test.group('Leitner / file de révision', (group) => {
     assert,
   }) => {
     const user = await login()
-    const card = await makeCard('Interrompue', 2)
+    const card = await makeCard(user, 'Interrompue', 2)
 
     // ⚠️ Le troisième critère du ticket. Le téléphone a sonné pendant la réflexion.
     //
@@ -377,8 +392,8 @@ test.group('Leitner / file de révision', (group) => {
 
   test('une interruption annoncée au juge annule aussi le raffinement', async ({ client }) => {
     const user = await login()
-    const card = await makeCard('Interrompue puis jugée', 2)
-    await withFluencyHistory(card, 10_000, 5)
+    const card = await makeCard(user, 'Interrompue puis jugée', 2)
+    await withFluencyHistory(user, card, 10_000, 5)
 
     // 40 s contre une médiane de 10 s : sans le drapeau, ce serait `hard`. Ce test
     // couvre le **câblage** du drapeau de bout en bout — page → validateur → `suggest` —
@@ -398,7 +413,7 @@ test.group('Leitner / file de révision', (group) => {
     assert,
   }) => {
     const user = await login()
-    const card = await makeCard('Première du jour', 1)
+    const card = await makeCard(user, 'Première du jour', 1)
 
     await review(client, user, card, 'good', {
       answer: 'Ma réponse.',
@@ -420,7 +435,7 @@ test.group('Leitner / file de révision', (group) => {
     assert,
   }) => {
     const user = await login()
-    const card = await makeCard('Redonnée dans la session', 2)
+    const card = await makeCard(user, 'Redonnée dans la session', 2)
 
     await review(client, user, card, 'again', { answer: 'Raté.', thinkingMs: 20_000 })
     await review(client, user, card, 'good', { answer: 'Su, cette fois.', thinkingMs: 900 })
@@ -438,7 +453,7 @@ test.group('Leitner / file de révision', (group) => {
 
   test('une révision sans réponse écrite ne mesure rien', async ({ client, assert }) => {
     const user = await login()
-    const card = await makeCard('Dévoilée sans répondre', 1)
+    const card = await makeCard(user, 'Dévoilée sans répondre', 1)
 
     // Dévoiler sans rien taper n'est pas une tentative de rappel : l'inclure
     // mélangerait deux populations dans la même colonne — le reproche fait à

@@ -402,9 +402,10 @@ router
         router
           .post('/:id/judge', [LeitnerController, 'judge'])
           .use(middleware.can('leitner.review'))
-        // ⚠️ Écrit `box` et `next_review`, qui sont des colonnes de la **carte** et non
-        // d'une progression par personne : une note donnée par quelqu'un d'autre déplace
-        // le planning du propriétaire. C'est la raison d'être de la capacité séparée.
+        // Écrit dans `leitner_card_progress` et `leitner_reviews`, **tous deux portant un
+        // `user_id`** depuis CC-119 : une note n'atteint plus le planning de personne
+        // d'autre. La capacité reste séparée pour ce qu'elle coûte encore (le juge fait
+        // travailler le LLM local) ; c'est CC-121 qui l'accorde à l'invité.
         router
           .post('/:id/review', [LeitnerController, 'review'])
           .use(middleware.can('leitner.review'))

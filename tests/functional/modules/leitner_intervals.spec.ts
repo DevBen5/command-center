@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { createUserWith } from '#tests/helpers/users'
-import LeitnerCard from '#modules/leitner/models/leitner_card'
+import { boxOf, makeCard, nextReviewOf, setProgress } from '#tests/helpers/leitner'
 import LeitnerService from '#modules/leitner/services/leitner_service'
 
 // Les intervalles des boîtes se règlent depuis /revision/settings, comme le reste
@@ -31,12 +31,8 @@ test.group('Leitner / intervalles des boîtes', (group) => {
     assert,
   }) => {
     const user = await login()
-    const card = await LeitnerCard.create({
-      front: 'Recto',
-      back: 'Verso',
-      box: 2,
-      nextReview: DateTime.now(),
-    })
+    const card = await makeCard('Recto')
+    await setProgress(user.id, card.id, { box: 2 })
 
     await client
       .put('/revision/settings/intervals')
@@ -54,10 +50,12 @@ test.group('Leitner / intervalles des boîtes', (group) => {
       .withCsrfToken()
       .redirects(0)
 
-    await card.refresh()
-    assert.equal(card.box, 3)
+    assert.equal(await boxOf(user.id, card.id), 3)
     // Boîte 3 réglée à 10 jours : c'est la base qui fait foi, pas la constante.
-    assert.equal(card.nextReview.toISODate(), DateTime.now().plus({ days: 10 }).toISODate())
+    assert.equal(
+      (await nextReviewOf(user.id, card.id))!.toISODate(),
+      DateTime.now().plus({ days: 10 }).toISODate()
+    )
   })
 
   test('un intervalle à 0 est refusé sans rien écrire en base', async ({ client, assert }) => {

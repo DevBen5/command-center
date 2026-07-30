@@ -7,10 +7,11 @@ import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 import LeitnerBackupService, {
-  BACKUP_VERSION,
   BackupImportError,
+  READABLE_BACKUP_VERSIONS,
 } from '#modules/leitner/services/leitner_backup_service'
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
+import { progressBox } from '#modules/leitner/services/leitner_progress'
 import LeitnerService from '#modules/leitner/services/leitner_service'
 import {
   backupImportValidator,
@@ -37,7 +38,8 @@ export default class LeitnerSettingsController {
   private leitner = new LeitnerService()
   private backup = new LeitnerBackupService()
 
-  async index({ inertia, request, session }: HttpContext) {
+  async index({ auth, inertia, request, session }: HttpContext) {
+    const userId = auth.user!.id
     const filters = {
       search: (request.input('search') as string | undefined)?.trim() || undefined,
       categoryId: toId(request.input('categoryId')),
@@ -46,13 +48,15 @@ export default class LeitnerSettingsController {
       unclassified: request.input('unclassified') === '1',
     }
 
-    const cards = await this.service.cards(filters)
+    const cards = await this.service.cards(userId, filters)
     const { categories, unclassifiedCount } = await this.service.categoryTree()
     const total = await LeitnerCard.query().count('* as total')
     const boxIntervals = await this.leitner.boxIntervals()
 
     return inertia.render('modules/leitner/settings', {
-      cards,
+      // ⚠️ `serialize()` ne rend pas les `$extras` : la boîte, qui vient de la jointure
+      // de progression et non d'une colonne de la carte, doit être recopiée à la main.
+      cards: cards.map((card) => ({ ...card.serialize(), box: progressBox(card) })),
       categories,
       unclassifiedCount,
       totalCards: Number(total[0].$extras.total),
@@ -81,8 +85,10 @@ export default class LeitnerSettingsController {
    * Côté Vue, le lien doit être un `<a href>` natif — un `<Link>` ou un
    * `router.get()` attendrait une réponse Inertia et casserait sur ce JSON.
    */
-  async exportBackup({ response }: HttpContext) {
-    const backup = await this.backup.export()
+  async exportBackup({ auth, response }: HttpContext) {
+    // Le fichier porte la progression de **celui qui le demande** (v2, CC-119) : le
+    // contenu est communal, ce qui l'accompagne ne l'est pas.
+    const backup = await this.backup.export(auth.user!.id)
 
     response.header('content-type', 'application/json; charset=utf-8')
     response.header(
@@ -109,7 +115,7 @@ export default class LeitnerSettingsController {
    * Le retour part en flash et revient en props sur `index` : ni le rapport ni
    * les erreurs ne se perdent dans la redirection.
    */
-  async importBackup({ request, response, session }: HttpContext) {
+  async importBackup({ auth, request, response, session }: HttpContext) {
     const fail = (messages: string[]) => {
       const shown = messages.slice(0, MAX_REPORTED_ERRORS)
       if (messages.length > MAX_REPORTED_ERRORS) {
@@ -153,14 +159,21 @@ export default class LeitnerSettingsController {
     // Une version inconnue est refusée, jamais importée « au mieux » : on ne comprend
     // pas le format, donc on ne devine pas. Un fichier sans version est un fichier
     // écrit à la main, lu comme la version courante.
-    if (backup.version !== undefined && backup.version !== BACKUP_VERSION) {
+    //
+    // ⚠️ **Une LISTE, pas une égalité** (CC-119) : la v1 reste lisible, sans quoi toutes
+    // les sauvegardes faites avant ce lot deviendraient d'un coup des fichiers refusés —
+    // exactement au moment où on en aurait le plus besoin. Sa progression et son
+    // historique étaient ceux de l'unique compte du moment : ils deviennent ceux de
+    // l'importateur, comme le backfill de la migration le fait pour la base.
+    if (backup.version !== undefined && !READABLE_BACKUP_VERSIONS.includes(backup.version)) {
       return fail([
-        `Version de fichier inconnue (${backup.version}). Cette application lit la version ${BACKUP_VERSION}.`,
+        `Version de fichier inconnue (${backup.version}). Cette application lit les ` +
+          `versions ${READABLE_BACKUP_VERSIONS.join(' et ')}.`,
       ])
     }
 
     try {
-      session.flash('importReport', await this.backup.import(backup))
+      session.flash('importReport', await this.backup.import(auth.user!.id, backup))
     } catch (error) {
       // Rien n'a été écrit : l'import vit dans une transaction.
       if (error instanceof BackupImportError) return fail([error.message])

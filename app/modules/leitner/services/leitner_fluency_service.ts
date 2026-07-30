@@ -33,12 +33,18 @@ export default class LeitnerFluencyService {
    *
    * ⚠️ `reviewed_at` est un `timestamp` : `toSQL()`, jamais `toSQLDate()` (qui sert aux
    * colonnes `date` comme `next_review`). Les intervertir passe le typecheck.
+   *
+   * ⚠️ **La question est « MOI, l'ai-je déjà notée aujourd'hui ? »** (CC-119). Sans le
+   * filtre, la révision d'un collègue écarterait ma mesure de fluence : aucune erreur,
+   * aucun badge — juste des propositions qui cessent de s'affiner, et une colonne
+   * `thinking_ms` qui se vide sans qu'on sache pourquoi.
    */
-  async wasPresentedToday(cardId: number): Promise<boolean> {
+  async wasPresentedToday(userId: number, cardId: number): Promise<boolean> {
     const startOfDay = DateTime.now().startOf('day')
 
     const previous = await LeitnerReview.query()
       .select('id')
+      .where('user_id', userId)
       .where('leitner_card_id', cardId)
       .where('reviewed_at', '>=', startOfDay.toSQL()!)
       .first()
@@ -50,14 +56,24 @@ export default class LeitnerFluencyService {
    * La médiane à laquelle comparer : la carte si elle se connaît assez, sa boîte
    * sinon, `null` s'il n'y a pas encore de quoi juger.
    *
-   * Aucun filtre sur les lignes lues, et ce n'est pas un oubli : `thinking_ms` n'est
-   * **écrit** que sur une mesure exploitable (voir `LeitnerService.review`), donc la
-   * colonne ne contient par construction que des mesures comparables. C'est le
-   * couplage écriture/lecture qui rend cette requête aussi simple.
+   * Aucun filtre **sur `thinking_ms`**, et ce n'est pas un oubli : la colonne n'est
+   * **écrite** que sur une mesure exploitable (voir `LeitnerService.review`), donc elle
+   * ne contient par construction que des mesures comparables. C'est le couplage
+   * écriture/lecture qui rend cette requête aussi simple.
+   *
+   * ⚠️ **Le filtre par personne, lui, est indispensable** (CC-119) : la fluence compare
+   * quelqu'un à lui-même. Mélanger les mesures de deux comptes ferait dériver la médiane
+   * vers la vitesse de frappe du plus rapide, et proposerait `easy` à l'autre sur des
+   * cartes qu'il connaît mal. Aucun symptôme visible, juste des suggestions fausses.
+   *
+   * ⚠️ **La boîte de référence est celle de CETTE personne**, donc une sous-requête sur
+   * `leitner_card_progress` — `leitner_cards.box` n'existe plus. Une carte que personne
+   * n'a notée n'apparaît dans aucune boîte : elle n'a de toute façon aucune mesure.
    */
-  async reference(card: LeitnerCard): Promise<number | null> {
+  async reference(userId: number, card: LeitnerCard, box: number): Promise<number | null> {
     const cardRows = await LeitnerReview.query()
       .select('thinking_ms')
+      .where('user_id', userId)
       .where('leitner_card_id', card.id)
       .whereNotNull('thinking_ms')
 
@@ -71,8 +87,15 @@ export default class LeitnerFluencyService {
 
     const boxRows = await LeitnerReview.query()
       .select('thinking_ms')
+      .where('user_id', userId)
       .whereNotNull('thinking_ms')
-      .whereHas('leitnerCard', (cards) => cards.where('box', card.box))
+      .whereIn('leitner_card_id', (sub) =>
+        sub
+          .from('leitner_card_progress')
+          .select('leitner_card_id')
+          .where('user_id', userId)
+          .where('box', box)
+      )
 
     return pickReference(
       cardSamples,
@@ -89,17 +112,19 @@ export default class LeitnerFluencyService {
    * (verdict autre que `juste`, réponse non chronométrée, interruption).
    */
   async suggest(
+    userId: number,
     card: LeitnerCard,
+    box: number,
     verdict: Verdict | null,
     baseGrade: Grade | null,
     measure: Omit<FluencyMeasure, 'represented'>
   ): Promise<Grade | null> {
     if (verdict !== 'juste') return baseGrade
 
-    const represented = await this.wasPresentedToday(card.id)
+    const represented = await this.wasPresentedToday(userId, card.id)
     const full: FluencyMeasure = { ...measure, represented }
     if (!isUsableMeasure(full)) return baseGrade
 
-    return refineGrade(verdict, baseGrade, full, await this.reference(card))
+    return refineGrade(verdict, baseGrade, full, await this.reference(userId, card, box))
   }
 }

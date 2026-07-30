@@ -2,8 +2,12 @@ import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
+import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
+import { progressBox } from '#modules/leitner/services/leitner_progress'
+import { setProgress } from '#tests/helpers/leitner'
+import { createAdmin } from '#tests/helpers/users'
 
 async function makeTaxonomy() {
   const devops = await LeitnerCategory.create({ name: 'DevOps' })
@@ -18,7 +22,11 @@ async function makeTaxonomy() {
 test.group('LeitnerCatalogService / catalogue', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
-  test('une carte créée avec un thème part en boîte 1', async ({ assert }) => {
+  test('une carte créée ne sème AUCUNE progression', async ({ assert }) => {
+    // Elle vaut « boîte 1, due aujourd'hui » pour tout le monde par la seule absence de
+    // ligne (CC-119) — y compris pour les comptes créés avant elle. Semer ici obligerait
+    // à un re-semis à chaque nouveau compte, et une carte créée entre les deux resterait
+    // invisible sans erreur.
     const { kubernetes } = await makeTaxonomy()
 
     const card = await new LeitnerCatalogService().createCard({
@@ -27,11 +35,41 @@ test.group('LeitnerCatalogService / catalogue', (group) => {
       leitnerThemeId: kubernetes.id,
     })
 
-    assert.equal(card.box, 1)
     assert.equal(card.leitnerThemeId, kubernetes.id)
+    assert.lengthOf(await LeitnerCardProgress.query().where('leitner_card_id', card.id), 0)
+  })
+
+  test('le catalogue montre la boîte de celui qui regarde', async ({ assert }) => {
+    // Le contenu est communal, la colonne « boîte » ne l'est pas : deux personnes voient
+    // les mêmes cartes avec des boîtes différentes, et l'absence de ligne vaut 1.
+    const mine = await createAdmin()
+    const theirs = await createAdmin()
+    const service = new LeitnerCatalogService()
+    const card = await service.createCard({ front: 'Partagée', back: '…' })
+    await setProgress(mine.id, card.id, { box: 4 })
+
+    const forMe = await service.cards(mine.id)
+    const forThem = await service.cards(theirs.id)
+    assert.equal(progressBox(forMe[0]), 4)
+    assert.equal(progressBox(forThem[0]), 1)
+  })
+
+  test('le filtre « boîte N » suit la progression de la personne', async ({ assert }) => {
+    const mine = await createAdmin()
+    const theirs = await createAdmin()
+    const service = new LeitnerCatalogService()
+    const card = await service.createCard({ front: 'Partagée', back: '…' })
+    await setProgress(mine.id, card.id, { box: 3 })
+
+    assert.lengthOf(await service.cards(mine.id, { box: 3 }), 1)
+    assert.lengthOf(await service.cards(theirs.id, { box: 3 }), 0)
+    // ⚠️ Le filtre « boîte 1 » doit trouver les cartes SANS ligne, sinon il ne remonterait
+    // jamais une carte neuve — le cas le plus fréquent de l'écran.
+    assert.lengthOf(await service.cards(theirs.id, { box: 1 }), 1)
   })
 
   test('le filtre par catégorie remonte les cartes de tous ses thèmes', async ({ assert }) => {
+    const user = await createAdmin()
     const service = new LeitnerCatalogService()
     const { devops, kubernetes, docker } = await makeTaxonomy()
     const autre = await LeitnerCategory.create({ name: 'Réseau' })
@@ -41,7 +79,7 @@ test.group('LeitnerCatalogService / catalogue', (group) => {
     await service.createCard({ front: 'Image ?', back: '…', leitnerThemeId: docker.id })
     await service.createCard({ front: 'Enregistrement A ?', back: '…', leitnerThemeId: dns.id })
 
-    const cards = await service.cards({ categoryId: devops.id })
+    const cards = await service.cards(user.id, { categoryId: devops.id })
 
     assert.lengthOf(cards, 2)
     assert.sameMembers(
@@ -51,13 +89,14 @@ test.group('LeitnerCatalogService / catalogue', (group) => {
   })
 
   test('le filtre « non classées » ne remonte que les cartes sans thème', async ({ assert }) => {
+    const user = await createAdmin()
     const service = new LeitnerCatalogService()
     const { kubernetes } = await makeTaxonomy()
 
     await service.createCard({ front: 'Classée', back: '…', leitnerThemeId: kubernetes.id })
     await service.createCard({ front: 'Orpheline', back: '…' })
 
-    const cards = await service.cards({ unclassified: true })
+    const cards = await service.cards(user.id, { unclassified: true })
 
     assert.lengthOf(cards, 1)
     assert.equal(cards[0].front, 'Orpheline')
