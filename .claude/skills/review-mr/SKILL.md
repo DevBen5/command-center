@@ -7,8 +7,9 @@ description: |
   à la task YouTrack, politique de documentation.
   Enrichit le contexte via la task YouTrack (projet CC) et les `CLAUDE.md` des modules touchés.
   Produit un rapport soumis à validation AVANT tout post sur la PR.
-  Après un merge, met à jour la base de connaissances YouTrack (articles `CC-A-*`) — synthèse
-  avec pointeurs, jamais recréée.
+  Après un merge, relit la base de connaissances YouTrack EN ENTIER (articles `CC-A-*`, sommaire
+  `CC-A-1`) et corrige ce qui a cessé d'être vrai — synthèse avec pointeurs, jamais recréée,
+  rien d'ajouté sans pertinence.
   Trigger : `/review-mr <numéro>` ou `/review-mr` seul (review la PR de la branche courante).
 ---
 
@@ -80,9 +81,9 @@ sur ce projet.
 
 ⚠️ **États en anglais à l'écriture, en français à la lecture** (`To Verify` ⇄ `À vérifier`).
 
-La **base de connaissances existe** : articles `CC-A-1` à `CC-A-13` dans YouTrack, qui
-**synthétisent** les `CLAUDE.md`, la mémoire de travail et le backlog — avec des pointeurs,
-jamais en copie. Elle peut éclairer le contexte (`search_articles`), mais **les `CLAUDE.md`
+La **base de connaissances existe** : articles `CC-A-*` dans YouTrack (sommaire : `CC-A-1`,
+l'article racine — la liste grandit, ne pas la figer), qui **synthétisent** les `CLAUDE.md`, la
+mémoire de travail et le backlog — avec des pointeurs, jamais en copie. Elle peut éclairer le contexte (`search_articles`), mais **les `CLAUDE.md`
 restent l'autorité** : celui de la racine, et surtout **celui de chaque module touché**
 (`app/modules/<module>/CLAUDE.md`), qui porte les invariants précis et les pièges. Un verdict
 ne s'appuie jamais sur un article de KB sans revérifier contre le code. Les fichiers
@@ -283,24 +284,31 @@ une équipe et à un `discord.config.md` qui n'existe pas ici). Ne pas la reprod
 
 ---
 
-## Étape 7 — Mettre à jour la base de connaissances
+## Étape 7 — Passer la base de connaissances en revue, et l'adapter
 
 **Systématique après un merge** (option [3]), et dès que la PR change quelque chose que la KB
-décrit — même sans merge. La KB (`CC-A-1` à `CC-A-13`) synthétise les `CLAUDE.md`, la mémoire
-et le backlog : une PR mergée qui la laisse intacte la fait **dériver en silence** — elle
-continue de décrire un dépôt qui n'existe plus, et c'est exactement la « doc qui peut mentir »
-contre laquelle l'étape 4 met en garde.
+décrit — même sans merge. La KB synthétise les `CLAUDE.md`, la mémoire et le backlog : une PR
+mergée qui la laisse intacte la fait **dériver en silence** — elle continue de décrire un dépôt
+qui n'existe plus, et c'est exactement la « doc qui peut mentir » contre laquelle l'étape 4 met
+en garde.
 
-1. **Repérer les articles touchés** : `search_articles` sur les notions du diff (module,
-   sécurité, tests, déploiement…), puis `get_article` pour lire l'état réel — ne pas se fier au
-   titre seul.
-2. **Mettre à jour, ne jamais recréer** (`update_article`). La KB est une **synthèse avec
-   pointeurs** vers les `CLAUDE.md` et les tickets, pas une copie : si le `CLAUDE.md` d'un
-   module a gagné une section, l'article la résume en une phrase et pointe vers elle — il ne la
-   duplique pas. Dupliquer créerait une seconde source de vérité à maintenir, ce que la KB
-   existe précisément pour éviter.
-3. **Si rien ne couvre le sujet** : ne pas créer d'article d'office — le signaler dans le
-   rapport et laisser le mainteneur décider. La granularité de la KB est un choix éditorial,
-   pas un automatisme.
-4. Mentionner dans le rapport (ou à sa suite) **quels articles ont été mis à jour**, pour que
-   la trace de review porte aussi celle-là.
+1. **Balayer la KB en entier, pas seulement les articles « du sujet ».** Énumérer depuis le
+   sommaire — `CC-A-1`, l'article racine, liste tous les autres ; ne pas figer la liste ici,
+   elle grandit — puis `get_article` sur **chacun**. Un merge déborde souvent de son module :
+   CC-78 (auth) a périmé l'article Sécurité **et** l'article Backlog. Un `search_articles` par
+   mots-clés ne trouve que ce qu'on a pensé à chercher — il sert à naviguer, pas à garantir la
+   couverture.
+2. Pour chaque article, une seule question : **ce qu'il affirme est-il encore vrai après ce
+   merge ?** Un état de ticket, un « reste ouvert », un compte, une garantie décrite. Ce qui est
+   devenu faux se **corrige en place** (`update_article`) ; ce qui reste vrai ne se touche pas.
+3. **Adapter n'est pas grossir.** Mettre à jour, jamais recréer : la KB est une **synthèse avec
+   pointeurs** vers les `CLAUDE.md` et les tickets, pas une copie — si le `CLAUDE.md` d'un module
+   a gagné une section, l'article la résume en une phrase et pointe vers elle. Une PR ordinaire
+   se solde par **zéro ou quelques retouches** : n'ajouter du contenu que si le merge change
+   quelque chose que la KB doit dire — une garantie nouvelle, une frontière déplacée, une
+   décision actée. Jamais de section nouvelle « parce qu'il y a eu une PR ».
+4. **Si un sujet pertinent n'est couvert par aucun article** : ne pas en créer d'office — le
+   signaler dans le rapport et laisser le mainteneur décider. La granularité de la KB est un
+   choix éditorial, pas un automatisme.
+5. Mentionner dans le rapport **quels articles ont été relus, lesquels mis à jour, et pourquoi**
+   — pour que la trace de review porte aussi celle-là.
