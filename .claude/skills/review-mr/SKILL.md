@@ -7,6 +7,8 @@ description: |
   à la task YouTrack, politique de documentation.
   Enrichit le contexte via la task YouTrack (projet CC) et les `CLAUDE.md` des modules touchés.
   Produit un rapport soumis à validation AVANT tout post sur la PR.
+  Après un merge, met à jour la base de connaissances YouTrack (articles `CC-A-*`) — synthèse
+  avec pointeurs, jamais recréée.
   Trigger : `/review-mr <numéro>` ou `/review-mr` seul (review la PR de la branche courante).
 ---
 
@@ -33,10 +35,10 @@ description: |
 Si aucune PR ne correspond, le dire et s'arrêter — ne pas reviewer le diff local à la place
 (c'est le rôle de `/lead-review`).
 
-⚠️ **Aucune PR n'a encore été ouverte sur ce dépôt à ce jour.** Les commandes ci-dessous sont
-vérifiées au niveau des flags et des champs JSON, mais la séquence n'a jamais été jouée de bout
-en bout. Si une commande se comporte autrement qu'annoncé, le signaler plutôt que d'improviser
-en silence.
+La séquence a été jouée de bout en bout pour la première fois sur la **PR #49** (CC-78,
+2026-07-30) : `gh pr view`, `gh pr diff`, `gh pr comment --body-file` et `gh pr merge` se
+comportent comme annoncé. Si une commande dévie un jour, le signaler plutôt qu'improviser en
+silence.
 
 ---
 
@@ -78,10 +80,13 @@ sur ce projet.
 
 ⚠️ **États en anglais à l'écriture, en français à la lecture** (`To Verify` ⇄ `À vérifier`).
 
-⚠️ Il n'y a **pas de base de connaissances** sur ce projet — ne pas appeler `search_articles`.
-La documentation vit dans les `CLAUDE.md` : celui de la racine, et surtout **celui de chaque
-module touché** (`app/modules/<module>/CLAUDE.md`), qui porte les invariants précis et les
-pièges. Les fichiers `TICKET-*.md` du dépôt sont des archives déjà livrées, pas la spec courante.
+La **base de connaissances existe** : articles `CC-A-1` à `CC-A-13` dans YouTrack, qui
+**synthétisent** les `CLAUDE.md`, la mémoire de travail et le backlog — avec des pointeurs,
+jamais en copie. Elle peut éclairer le contexte (`search_articles`), mais **les `CLAUDE.md`
+restent l'autorité** : celui de la racine, et surtout **celui de chaque module touché**
+(`app/modules/<module>/CLAUDE.md`), qui porte les invariants précis et les pièges. Un verdict
+ne s'appuie jamais sur un article de KB sans revérifier contre le code. Les fichiers
+`TICKET-*.md` du dépôt sont des archives déjà livrées, pas la spec courante.
 
 ### Synthétiser
 
@@ -256,8 +261,13 @@ Que faire ?
 ```bash
 gh pr comment <n> --body-file <fichier>              # [1]
 gh pr review <n> --request-changes --body-file <f>   # [2]
-gh pr merge <n> --squash                             # [3], après [1]
+gh pr merge <n> --merge                              # [3], après [1]
 ```
+
+⚠️ **`--merge`, jamais `--squash`, et on garde la branche** — convention établie du dépôt : la
+découpe atomique des commits (outillage / code+tests / docs) est le produit du travail, un
+squash l'écraserait en un seul bloc illisible. Après le merge : `git checkout master && git
+pull`, puis passer la task en `Done` (le merge est ce qui clôt, cf. `task-flow`).
 
 ⚠️ **Pas de `gh pr review --approve` sur ce dépôt.** GitHub refuse d'approuver sa propre PR, et
 le dépôt est solo : l'approbation échouerait à chaque fois. L'équivalent réel est **merger**,
@@ -270,3 +280,27 @@ d'où l'option [3]. *(Comportement documenté GitHub, non vérifié ici — aucu
 
 Il n'y a **pas de notification Discord** sur ce projet (c'est une étape du skill global, liée à
 une équipe et à un `discord.config.md` qui n'existe pas ici). Ne pas la reproduire.
+
+---
+
+## Étape 7 — Mettre à jour la base de connaissances
+
+**Systématique après un merge** (option [3]), et dès que la PR change quelque chose que la KB
+décrit — même sans merge. La KB (`CC-A-1` à `CC-A-13`) synthétise les `CLAUDE.md`, la mémoire
+et le backlog : une PR mergée qui la laisse intacte la fait **dériver en silence** — elle
+continue de décrire un dépôt qui n'existe plus, et c'est exactement la « doc qui peut mentir »
+contre laquelle l'étape 4 met en garde.
+
+1. **Repérer les articles touchés** : `search_articles` sur les notions du diff (module,
+   sécurité, tests, déploiement…), puis `get_article` pour lire l'état réel — ne pas se fier au
+   titre seul.
+2. **Mettre à jour, ne jamais recréer** (`update_article`). La KB est une **synthèse avec
+   pointeurs** vers les `CLAUDE.md` et les tickets, pas une copie : si le `CLAUDE.md` d'un
+   module a gagné une section, l'article la résume en une phrase et pointe vers elle — il ne la
+   duplique pas. Dupliquer créerait une seconde source de vérité à maintenir, ce que la KB
+   existe précisément pour éviter.
+3. **Si rien ne couvre le sujet** : ne pas créer d'article d'office — le signaler dans le
+   rapport et laisser le mainteneur décider. La granularité de la KB est un choix éditorial,
+   pas un automatisme.
+4. Mentionner dans le rapport (ou à sa suite) **quels articles ont été mis à jour**, pour que
+   la trace de review porte aussi celle-là.
