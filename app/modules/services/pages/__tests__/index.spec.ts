@@ -5,7 +5,8 @@ import fr from '../../i18n/fr.json' with { type: 'json' }
 import Index from '../index.vue'
 
 /*
-| La seule *logique* de la page Services : le pluriel de « arrêté ».
+| Les deux logiques de la page Services : le pluriel de « arrêté », et le masquage
+| hors service (CC-116).
 |
 | Le libellé sous le compteur des services arrêtés était `arrêté{{ stats.down > 1 ? 's' : '' }}` —
 | singulier pour 0 et 1, pluriel au-delà. Externalisé (CC-90), il passe par la pluralisation
@@ -25,12 +26,25 @@ vi.mock('@inertiajs/vue3', () => ({
   router: { post: vi.fn(), get: vi.fn() },
 }))
 
+interface ServiceProps {
+  id: number
+  name: string
+  category: string
+  url: string | null
+  status: 'up' | 'down' | 'unknown'
+  cpuPercent: number | null
+  ramPercent: number | null
+}
+
 const STATS = { total: 4, up: 4, down: 0, cpuAvg: 0, ramAvg: 0 }
 
-/** Monte la page pour un nombre d'arrêtés donné et rend le libellé affiché sous le compteur. */
-function downLabel(down: number): string {
-  const wrapper = mount(Index, {
-    props: { services: [], stats: { ...STATS, down } },
+function mountIndex(props: {
+  dockerDisponible: boolean
+  services: ServiceProps[]
+  stats: typeof STATS
+}) {
+  return mount(Index, {
+    props,
     global: {
       plugins: [
         createI18n({
@@ -41,6 +55,15 @@ function downLabel(down: number): string {
         }),
       ],
     },
+  })
+}
+
+/** Monte la page pour un nombre d'arrêtés donné et rend le libellé affiché sous le compteur. */
+function downLabel(down: number): string {
+  const wrapper = mountIndex({
+    dockerDisponible: true,
+    services: [],
+    stats: { ...STATS, down },
   })
   // Le seul nœud dont le texte est exactement « arrêté » ou « arrêtés » : le libellé du compteur.
   // (Le libellé de statut d'une carte est « ARRÊTÉ » en majuscules, et aucune carte n'est rendue.)
@@ -62,5 +85,50 @@ describe('Services / index', () => {
 
   test('plusieurs services arrêtés passent au pluriel', () => {
     expect(downLabel(3)).toBe('arrêtés')
+  })
+})
+
+/*
+| Hors service (CC-116), la bannière remplace TOUT — pas seulement les cartes.
+|
+| ⚠️ Les tests montent avec un service EN PROPS : n'asserter que la présence de la bannière
+| serait vert même si les cartes restaient rendues à côté. C'est l'absence du nom du service,
+| de la bande d'indicateurs et de la barre d'outils qui prouve le masquage. Vérifié en cassant
+| le `v-else` : les trois assertions négatives rougissent.
+*/
+
+const JELLYFIN: ServiceProps = {
+  id: 1,
+  name: 'Jellyfin',
+  category: 'Média',
+  url: null,
+  status: 'up',
+  cpuPercent: 12,
+  ramPercent: 30,
+}
+
+describe('Services / hors service (CC-116)', () => {
+  test('hors service : la bannière s’affiche et rien d’autre ne se rend', () => {
+    const wrapper = mountIndex({
+      dockerDisponible: false,
+      services: [JELLYFIN],
+      stats: { ...STATS, up: 1, total: 1 },
+    })
+
+    expect(wrapper.text()).toContain(fr.offline.title)
+    expect(wrapper.text()).not.toContain(JELLYFIN.name) // aucune carte
+    expect(wrapper.text()).not.toContain(fr.stats.up) // pas de bande d'indicateurs
+    expect(wrapper.text()).not.toContain(fr.toolbar.restartAll) // pas de barre d'outils
+  })
+
+  test('Docker disponible : pas de bannière, l’écran habituel', () => {
+    const wrapper = mountIndex({
+      dockerDisponible: true,
+      services: [JELLYFIN],
+      stats: { ...STATS, up: 1, total: 1 },
+    })
+
+    expect(wrapper.text()).not.toContain(fr.offline.title)
+    expect(wrapper.text()).toContain(JELLYFIN.name)
   })
 })
