@@ -1,8 +1,43 @@
 # Module Leitner — répétition espacée
 
 Route `/revision` (⚠️ **pas** `/leitner`) · pages Inertia `modules/leitner/{index, settings, stats,
-ingest, ingest_show, llm}` · tables `leitner_cards`, `leitner_reviews`, `leitner_categories`,
-`leitner_themes`, `leitner_settings`, `leitner_ingestions`, `leitner_draft_cards`.
+ingest, ingest_show, llm}` · tables `leitner_cards`, `leitner_card_progress`, `leitner_reviews`,
+`leitner_categories`, `leitner_themes`, `leitner_settings`, `leitner_ingestions`,
+`leitner_draft_cards`.
+
+## ⭐ Le contenu ne connaît aucun utilisateur (CC-119)
+
+C'est **la** ligne de partage du module, et elle dicte le schéma. À tenir sur chaque table ajoutée :
+
+| | Porte un `user_id` ? | À la suppression du compte |
+| --- | --- | --- |
+| **Contenu communal** — cartes, catégories, thèmes, ingestions, brouillons | **Non** | **Rien.** Il survit intact |
+| **Données personnelles** — `leitner_card_progress` (boîte, échéance), `leitner_reviews` (réponses écrites, verdicts, `thinking_ms`) | **Oui** | **`ON DELETE CASCADE`** |
+
+**Conséquence recherchée : supprimer un utilisateur est une opération sûre** — non pas parce qu'on
+a vérifié ses dépendances, mais parce que **rien de partagé ne le référence par construction**.
+C'est ce qui a débloqué CC-80.
+
+⚠️ **Jamais de `CASCADE` sur du contenu.** Si on veut tracer un auteur un jour (`created_by`), c'est
+`ON DELETE SET NULL` : le contenu survit, l'attribution disparaît. Un `CASCADE` ferait s'évaporer
+des cartes en supprimant un compte.
+
+⚠️ **`leitner_settings` reste un réglage d'INSTALLATION, et c'est une décision, pas un reste.** Les
+intervalles décrivent la **méthode** de répétition espacée, pas la personne qui la suit : une seule
+ligne (`check('id = 1')`), un réglage posé par quelqu'un s'applique à tout le monde. C'est la
+dernière écriture du module qui touche du partagé sans être du contenu, et la seule qui doive
+rester fermée à l'invité une fois CC-121 livré.
+
+⚠️ **L'absence de ligne de progression EST une valeur** — « boîte 1, due aujourd'hui » — et rien
+n'est jamais semé, ni à la création d'un compte, ni à celle d'une carte. C'est ce qui donne sa file
+à un nouveau venu et fait entrer une carte créée ce matin dans celle de tout le monde. Semer
+obligerait à un re-semis à chaque compte **et** à chaque carte, et une carte créée entre les deux
+resterait invisible sans erreur. Toute lecture passe donc par une **jointure externe** avec un
+`coalesce` — `services/leitner_progress.ts`, l'unique copie, dont les quatre pièges sont commentés
+sur place.
+
+⚠️ **Le fichier d'export est PERSONNEL depuis la v2** : contenu communal, progression et historique
+de celui qui exporte. Voir la section « Sauvegarde » plus bas.
 
 Cinq écrans, une barre d'onglets : **Révision** (`/revision`) · **Cartes** (`/revision/settings`) ·
 **Stats** (`/revision/stats`) · **Ingestion** (`/revision/ingest`) · **Configuration**
@@ -30,6 +65,8 @@ services/leitner_fluency_service.ts         sa partie base : médianes carte/bo�
                                             aujourd'hui ? »
 services/leitner_scope.ts                   `CardScope` + `applyScope` — l'UNIQUE copie de la
                                             sous-requête catégorie → thèmes
+services/leitner_progress.ts                la PROGRESSION par personne — l'UNIQUE copie de la
+                                            jointure externe, du `coalesce` et de l'ORDRE de file
 services/leitner_sessions.ts                l'INFÉRENCE de session — CODE PUR, sans base ni horloge
 services/leitner_habits.ts                  séries, heatmap, régularité, rythme — CODE PUR, le jour
                                             courant est un PARAMÈTRE
@@ -44,7 +81,9 @@ services/leitner_ingestion_service.ts       découpage, appels LLM, TÂCHE DE FO
 services/leitner_pdf_service.ts             fichier → texte : octets magiques, unpdf, nettoyage, et
                                             les six refus
 services/llm_client.ts                      /v1/chat/completions + sonde /v1/models — INJECTÉ
-models/leitner_settings.ts                  UNE seule ligne (id = 1)
+models/leitner_card_progress.ts             (personne, carte) → boîte + échéance. ABSENCE =
+                                            boîte 1, due aujourd'hui — jamais un trou
+models/leitner_settings.ts                  UNE seule ligne (id = 1) — réglage d'INSTALLATION
 models/leitner_draft_card.ts                une carte PROPOSÉE, rattachée à son ingestion
 validators/leitner.ts                       … · courseIngestion (SANS fichier) · documentExtract
                                             (le seul à porter un fichier) · llmTest (LISTE BLANCHE)
@@ -59,8 +98,8 @@ shared/draft_review.ts                      PUR · la relecture des brouillons d
 shared/settings_page.ts                     PUR · scrollTopKeepingAnchor — le recalage du
                                             défilement après un import (CC-67)
 migrations/                                 cards PUIS reviews PUIS categories/themes PUIS settings
-                                            PUIS ingestions PUIS draft_cards (FK : l'ordre du nom
-                                            de fichier compte)
+                                            PUIS ingestions PUIS draft_cards PUIS card_progress
+                                            (FK : l'ordre du nom de fichier compte)
 ```
 
 **Aucun seeder, et c'est voulu** : tout le contenu est saisi depuis l'UI, `config/database.ts` ne
@@ -72,17 +111,26 @@ Le filet n'est donc pas un seeder mais **l'export JSON** — les cartes n'existe
 autre copie. `./pgdata` survit à un `docker compose down -v` (voir le `CLAUDE.md` racine), pas à une
 corruption ni à un changement de machine.
 
-⚠️ **Huit fichiers hors du module** : `start/routes.ts` · `start/env.ts` et `.env.example` (les
+⚠️ **Dix fichiers hors du module** : `start/routes.ts` · `start/env.ts` et `.env.example` (les
 variables LLM) · `config/llm.ts` · `config/env_isolation.ts` (voir ci-dessous) ·
 `providers/leitner_provider.ts` (le **balayage au démarrage** des
 ingestions interrompues, déclaré dans `adonisrc.ts` sous `environment: ['web']`) ·
 `start/capabilities.ts` (la ligne qui enregistre `capabilities.ts` au registre) ·
-`start/navigation.ts` (celle qui enregistre `destinations.ts`). ⚠️ Oublier l'avant-dernier ne casse
+`start/navigation.ts` (celle qui enregistre `destinations.ts`) · et depuis CC-119
+`app/core/shared/services/nav_stats_service.ts` (le compteur « dû » de la barre latérale) et
+`app/core/dashboard/controllers/home_controller.ts` (la carte d'accueil).
+⚠️ Oublier `start/capabilities.ts` ne casse
 rien tout de suite : les capacités n'entrent pas au registre, personne ne peut les accorder, et le
 module devient inaccessible à tout non-admin — `capabilities_routes.spec.ts` attrape ce cas.
-⚠️ Oublier le dernier est plus sournois : `/revision` disparaît de la barre latérale, et un compte
-qui n'aurait de droits que sur ce module atterrit sur « aucun accès » **alors qu'il y a accès** —
-`navigation_registry.spec.ts` attrape celui-là.
+⚠️ Oublier `start/navigation.ts` est plus sournois : `/revision` disparaît de la barre latérale, et un
+compte qui n'aurait de droits que sur ce module atterrit sur « aucun accès » **alors qu'il y a
+accès** — `navigation_registry.spec.ts` attrape celui-là.
+⚠️ **Les deux derniers comptent « ce qui est dû », donc dépendent de la progression** — et ils
+passent le nom de colonne en **chaîne** : les oublier ne casse **pas** le typecheck, ça casse au
+runtime. Ils appellent les helpers de `leitner_progress.ts` plutôt qu'une seconde formulation de
+« dû » : deux définitions finiraient par diverger, et la pastille annoncerait un nombre que
+`/revision` ne montre pas. `nav.spec.ts`, `dashboard_scope.spec.ts` et `leitner_multi_user.spec.ts`
+les couvrent.
 
 ## Où vit la logique d'une page — `shared/`, jamais le `<script setup>`
 
@@ -697,12 +745,31 @@ ne t'en sers jamais pour calculer une échéance.
   délai (`lastGrade`). Un `hard` séparé du précédent par une autre note ne rétrograde pas — **y
   compris par un `again`**, qui remet donc le compteur à zéro.
 
-⚠️ **L'ordre de la file dépend de cette règle** : `dueCards(scope)` trie `next_review` asc →
+⚠️ **L'ordre de la file dépend de cette règle** : `dueCards(userId, scope)` trie `next_review` asc →
 `updated_at` asc → `id` asc. **Ne trie jamais par `box`** — depuis qu'`again` laisse la boîte intacte,
 un tri par `box` rendrait la carte ratée **à la même place** qu'avant la note : elle se
 re-présenterait aussitôt, en boucle, session bloquée. C'est `updated_at` qui la renvoie en fin de
 file. Le ciblage par thème n'y change rien : le paquet retire des cartes, il ne réordonne pas. La
 requête vit dans le **service**, pas dans le contrôleur.
+
+⚠️ **Et c'est l'`updated_at` de la PROGRESSION, pas celui de la carte** — la traduction la plus
+fragile de CC-119. Noter n'écrit plus sur `leitner_cards`, dont l'`updated_at` ne bouge donc qu'à
+l'édition du contenu : s'y fier laisserait la carte ratée en tête et rejouerait la boucle
+ci-dessus, avec un typecheck vert et toute la suite verte sauf les trois tests d'ordre. Les deux
+`coalesce` de l'ordre vivent dans `leitner_progress.ts`, jamais recopiés — le repli sur
+`leitner_cards.updated_at` ne sert que les cartes **jamais notées**, dont l'âge est tout ce qu'on
+sait.
+
+⚠️ **`review()` écrit deux tables, sous `db.transaction()`.** L'invariant « une note = un mouvement
+de boîte ET une ligne d'historique » ne tenait plus tout seul : un échec entre les deux laisserait
+une boîte avancée sans trace, ou une trace sans mouvement — qui réarmerait la règle du 2ᵉ `hard` sur
+une note que la carte n'a jamais reçue.
+
+⚠️ **La règle du 2ᵉ `hard` lit le `lastGrade` de la personne, jamais celui de la carte.** C'est
+précisément ce qui rendait le cloisonnement de l'historique inséparable de celui de la progression :
+lu sans filtre, le `hard` d'un collègue fait retomber ma carte en boîte 1 sur mon premier `hard` —
+sans erreur, sans log. Même remarque pour `wasPresentedToday` (fluence) et
+`hasReviewedTodayInScope` (« terminé, bravo »).
 
 **Rétention** : `grade !== 'again'` — `hard` compte comme une **réussite** (la réponse a été rappelée,
 péniblement), même depuis qu'il ne fait plus progresser la carte.
@@ -741,13 +808,18 @@ en thèmes sous une catégorie `Import` — une catégorie `Import` vide qui tra
 
 ## Sauvegarde : l'export JSON
 
-`GET /revision/export` rend un instantané complet : taxonomie, cartes et **historique des révisions**.
+`GET /revision/export` rend un instantané : taxonomie, cartes et **historique des révisions**.
 Sans l'historique, une restauration remettrait la série à zéro, viderait la rétention 30 j — et
 surtout **réarmerait la règle du « 2ᵉ `hard` d'affilée »**, qui lit la dernière révision enregistrée.
 
+⚠️ **Le fichier est PERSONNEL depuis la v2 (CC-119)** : la taxonomie et les cartes valent pour tout
+le monde, `box`/`nextReview`/`reviews` sont ceux de **celui qui exporte**. Exporter à deux produit
+deux fichiers au même contenu et aux progressions différentes ; importer celui d'un collègue ajoute
+ses cartes **et s'attribue sa progression** — ce n'est pas un moyen de « rendre ses cartes ».
+
 ```json
 {
-  "version": 1,
+  "version": 2,
   "exportedAt": "2026-07-13T14:12:03.000Z",
   "categories": [{ "name": "DevOps", "themes": ["Docker", "Kubernetes"] }],
   "cards": [{
@@ -821,11 +893,20 @@ route de ce module ne détruit du contenu en masse. Restaurer, c'est importer da
 - **`version` inconnue → refus** avec un message : un import « au mieux » sur un format qu'on ne
   comprend pas écrit des données fausses en silence. Un fichier **sans** `version` est un fichier
   écrit à la main, lu comme la version courante.
-- ⚠️ **`BACKUP_VERSION` vaut toujours `1`, et l'ajout des cinq colonnes ne l'a pas bumpée — c'est un
-  choix.** L'ajout est strictement **additif** : un fichier antérieur reste intégralement lisible,
-  donc le déclarer « autre format » serait faux. **Coût assumé, et c'est le seul** : un checkout
-  d'avant CC-51 qui importerait un fichier d'aujourd'hui en perdrait les cinq champs **sans un mot**.
-  Bump-la le jour où un champ change de sens ou devient obligatoire.
+- ⚠️ **`BACKUP_VERSION` vaut `2` depuis CC-119, et le bump n'est pas décoratif.** L'ajout des cinq
+  colonnes de trace (CC-51) ne l'avait **pas** bumpée, à raison : l'ajout était strictement additif.
+  Ici les clés n'ont pas bougé, leur **sens** si — `box`, `nextReview` et `reviews` décrivent la
+  progression d'une personne, plus celle du paquet. C'est exactement le critère posé alors : « le
+  jour où un champ change de sens ou devient obligatoire ».
+- ⚠️ **L'import accepte 1 ET 2** (`READABLE_BACKUP_VERSIONS`), et c'est une liste, jamais une
+  égalité. Refuser la v1 rendrait illisibles d'un coup **toutes** les sauvegardes faites avant ce
+  lot — au moment précis où on en aurait le plus besoin. Une v1 se relit sans ambiguïté : sa
+  progression était celle de l'unique compte du moment, elle devient celle de l'importateur, ce que
+  le backfill de la migration fait pour la base.
+- ⚠️ **Une carte que l'exportateur n'a jamais notée sort avec `box: 1` et l'échéance du jour** — pas
+  d'omission : c'est ce que l'absence de ligne veut dire, et l'import écrit symétriquement une ligne
+  **seulement** si le fichier dit autre chose que le défaut. Un fichier de saisie en masse ne
+  fabrique donc aucune progression.
 - **Tout ou rien** : `db.transaction()` + `{ client: trx }` sur chaque écriture. Sans ça, un fichier
   qui casse à la 300ᵉ carte laisserait 299 cartes derrière lui.
 - Le retour d'import passe par un **flash** relu dans `index` et renvoyé en props : Inertia ne partage
