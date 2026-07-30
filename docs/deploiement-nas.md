@@ -1,0 +1,373 @@
+# Déploiement sur le NAS — DSM, reverse proxy, Let's Encrypt, sauvegarde, recette
+
+Guide de mise en ligne de Command Center sur un Synology (DS918+, DSM 7, Container Manager),
+derrière `dashboard.bstenger.fr`. Il s'appuie sur le paquet de production livré par CC-73 —
+`Dockerfile`, `docker-compose.prod.yml`, `.env.production.example` — et ne demande **aucun
+changement de code** : tout ce qui suit se fait dans DSM, en SSH, ou chez le registrar.
+
+Ces étapes sont **manuelles et dans cet ordre**. L'ordre n'est pas décoratif : les bloquants
+du §1 se vérifient avant d'ouvrir quoi que ce soit, et le port ne s'ouvre qu'en dernier.
+
+## Vue d'ensemble
+
+```
+Internet ──443──▶ routeur ──443──▶ DSM reverse proxy (TLS, HSTS, HTTP/2)
+                                        │
+                                   localhost:8080  (lié à 127.0.0.1 — invisible du LAN)
+                                        │
+                                   conteneur app ──réseau compose──▶ conteneur postgres
+                                                                     (aucun port publié)
+```
+
+| Port | État | Pourquoi |
+|---|---|---|
+| 443 | **ouvert** (routeur → NAS) | l'unique entrée de l'application |
+| 80 | **ouvert** (routeur → NAS) | challenges Let's Encrypt, renouvellement compris (§6) |
+| 8080 | loopback du NAS seulement | le reverse proxy l'atteint par `localhost` ; le LAN, non |
+| 5432 | réseau du compose seulement | Postgres ne publie **aucun** port en prod |
+| 5433 / 8081 | n'existent pas en prod | liaisons de dev ; Adminer n'est pas dans le compose de prod |
+| 5000 / 5001 | **jamais redirigés** | c'est DSM lui-même — l'exposer n'a rien à voir avec ce projet |
+
+## 1. Bloquants — avant d'ouvrir le port 443
+
+⚠️ **Ces trois points ne sont pas de la checklist, ils sont bloquants.** Une application
+exposée qui rate l'un des trois n'est pas « presque prête », elle est ouverte ou condamnée à
+perdre son contenu.
+
+1. **Le mot de passe du compte propriétaire est fort et posé sur le NAS.** Le mécanisme est
+   celui de CC-75 : `ADMIN_PASSWORD` dans `.env.production` (12 caractères minimum), puis un
+   `db:seed` unique (§4). La ligne se **retire ensuite** : rien d'autre ne la lit, la garder
+   laisse un secret en clair sur le NAS. La reposer et relancer `db:seed` est aussi l'outil de
+   rotation — `updateOrCreate` écrase le mot de passe en place.
+2. **L'image embarque CC-71 et CC-72** (capacités, refus par défaut, Leitner en lecture seule).
+   Sans eux, tout compte authentifié peut tout faire — `POST /revision/ingest` et l'écran de
+   configuration LLM compris. Concrètement : l'image se construit depuis un `master` à jour,
+   et ces deux tickets y sont mergés depuis juillet 2026. Ne déployez jamais une image
+   construite sur une branche antérieure.
+3. **Un dump a été restauré une fois pour de vrai** (§7, dernier paragraphe). Une sauvegarde
+   jamais restaurée n'est pas une sauvegarde, et la base du NAS portera l'unique exemplaire du
+   contenu. Le premier déploiement est le seul moment où ce test ne coûte rien : il n'y a
+   encore rien à perdre.
+
+## 2. Préparer le NAS
+
+**Activer SSH** : Panneau de configuration → Terminal & SNMP → Activer le service SSH. Il
+sert au chargement de l'image (§3), au lancement de la pile (§4) et au test de restauration
+(§7). Les commandes `docker` s'exécutent en `sudo` depuis un compte administrateur DSM.
+
+**Créer les dossiers** (File Station ou SSH) :
+
+```
+/volume1/docker/command-center/          ← docker-compose.prod.yml + .env.production
+/volume1/docker/command-center/pgdata/   ← les données Postgres (PGDATA_PATH)
+/volume1/docker/backups/command-center/  ← les dumps quotidiens (§7)
+```
+
+**Remplir `.env.production`** : copier `docker-compose.prod.yml` et `.env.production.example`
+du dépôt dans `/volume1/docker/command-center/`, renommer l'exemple en `.env.production`, et
+remplir chaque variable en suivant ses commentaires. Points qui changent sur le NAS :
+
+- `PGDATA_PATH=/volume1/docker/command-center/pgdata` — chemin **absolu**, jamais le `./pgdata`
+  par défaut. ⚠️ Ce dossier appartient à Postgres, binaire, lié à PG 16 : ce n'est **pas** une
+  sauvegarde, et il ne se copie pas à chaud.
+- `TRUST_PROXY=uniquelocal` — le reverse proxy DSM joint le conteneur via le bridge Docker
+  (une adresse `172.x`), pas via loopback. Sans cette valeur, le throttle de connexion (CC-78)
+  compterait tous les visiteurs comme une seule IP : un seul attaquant verrouillerait le login
+  de tout le monde. Sûr **uniquement** parce que 8080 est lié à `127.0.0.1` (personne d'autre
+  que le NAS ne joint l'application en direct, donc personne ne forge son `X-Forwarded-For`).
+- `LIMITER_STORE=database` — **requise au boot**, le conteneur ne démarre pas sans elle.
+- `LLM_BASE_URL` / `IMMICH_*` — depuis le NAS, ce sont des adresses du **réseau local**
+  (LM Studio sur le PC, la stack Immich). ⚠️ PC éteint = juge en repli **silencieux** : un
+  invité qui révise ne verra aucune erreur, c'est le comportement voulu. À savoir avant de
+  conclure que « le juge ne marche pas en prod ».
+- `APP_KEY` — la générer une fois (commande dans le fichier), puis ne plus y toucher : la
+  changer invalide toutes les sessions.
+
+## 3. Transférer l'image — il n'y a pas de registry
+
+L'image se construit sur le PC et voyage en fichier :
+
+```bash
+# Sur le PC, dépôt à jour sur master :
+docker build --platform linux/amd64 -t command-center:prod .
+docker save command-center:prod -o command-center-prod.tar
+```
+
+Copier le `.tar` sur le NAS (File Station, ou `scp` vers `/volume1/docker/command-center/`),
+puis en SSH :
+
+```bash
+sudo docker load -i /volume1/docker/command-center/command-center-prod.tar
+```
+
+⚠️ **Ne laissez jamais le NAS construire l'image.** Le compose garde un bloc `build:` pour le
+poste de dev, mais `docker compose up` n'y recourt pas tant que le tag `command-center:prod`
+existe — c'est le cas après le `docker load`. Un build sur le Celeron J3455 (4 Go partagés
+avec DSM) est précisément ce que l'image pré-construite évite. Le `.tar` peut être supprimé
+une fois chargé.
+
+## 4. Démarrer la pile — en SSH, pas par l'import Container Manager
+
+⚠️ **Écart assumé avec le ticket CC-74**, qui prévoyait d'importer le projet compose dans
+Container Manager. Son UI ne sait pas passer `--env-file`, attend un fichier nommé
+`docker-compose.yml`, et lirait un `.env` — il faudrait renommer les deux fichiers et
+entretenir une copie d'environnement qui divergerait de `.env.production`. La commande
+documentée dans l'en-tête du compose marche telle quelle en SSH :
+
+```bash
+cd /volume1/docker/command-center
+sudo docker compose --env-file .env.production -f docker-compose.prod.yml up -d
+```
+
+Le drapeau `--env-file` est **nécessaire** : il alimente l'interpolation `${...}` du bloc
+postgres. Sans lui, Postgres refuse de démarrer — échec bruyant, pas silencieux. Les
+migrations se jouent automatiquement au démarrage du conteneur app (`ENTRYPOINT`), le
+healthcheck interroge `/login`. Les conteneurs restent visibles dans Container Manager
+(onglet **Conteneur**) pour la surveillance CPU/RAM — seul l'onglet « Projet » est ignoré.
+`restart: unless-stopped` fait revenir la pile après un redémarrage du NAS.
+
+**Créer le compte propriétaire** — une seule fois, `ADMIN_PASSWORD` renseignée dans
+`.env.production` (§1) :
+
+```bash
+sudo docker compose --env-file .env.production -f docker-compose.prod.yml \
+  run --rm app node ace db:seed
+```
+
+Le seeder dit à l'écran ce qu'il a fait. **Retirer ensuite la ligne `ADMIN_PASSWORD`.**
+
+## 5. DNS et redirection de ports
+
+- **DNS** : chez le registrar, un enregistrement `A` `dashboard.bstenger.fr` → IP publique
+  de la box (ou un `CNAME` vers le nom DDNS du NAS si l'IP est dynamique).
+- **Routeur** : rediriger **443 → NAS:443** et **80 → NAS:80** (le 80 ne sert qu'aux
+  challenges Let's Encrypt, §6 ; DSM n'y répond qu'une redirection nginx, aucun contenu).
+
+⚠️ **Rien d'autre.** Ni 5433 ni 8081 — ils n'existent pas en prod. Ni 8080 — lié à
+`127.0.0.1` sur le NAS, il ne répondrait de toute façon pas, et c'est voulu : en direct, les
+cookies `secure` rendraient le login impossible en HTTP, et un client qui joint le port
+contournerait le throttle en forgeant son `X-Forwarded-For`. Ni 5000/5001 — DSM ne s'expose
+pas parce qu'un tableau de bord s'expose.
+
+## 6. Reverse proxy DSM et Let's Encrypt
+
+**Reverse proxy** : Panneau de configuration → Portail de connexion → Avancé → Proxy inversé
+→ Créer.
+
+| | Protocole | Nom d'hôte | Port |
+|---|---|---|---|
+| Source | HTTPS | `dashboard.bstenger.fr` | 443 |
+| Destination | HTTP | `localhost` | 8080 |
+
+Sur la source : cocher **HSTS** et activer **HTTP/2**.
+
+**En-têtes personnalisés** (onglet « En-tête personnalisé » de la règle → Créer) :
+
+```
+X-Real-IP           $remote_addr
+X-Forwarded-For     $proxy_add_x_forwarded_for
+X-Forwarded-Proto   $scheme
+```
+
+Ne comptez pas sur des valeurs par défaut de DSM : le throttle par IP et les cookies
+`secure` dépendent de ces en-têtes, et `TRUST_PROXY=uniquelocal` revient à croire ce que le
+proxy y écrit. Explicites, ils survivent aux mises à jour de DSM. La vérification n°7 de la
+recette (§8) prouve qu'ils fonctionnent.
+
+**Let's Encrypt** : Panneau de configuration → Sécurité → Certificat → Ajouter → « Obtenir un
+certificat auprès de Let's Encrypt », domaine `dashboard.bstenger.fr`. Puis Certificat →
+Paramètres : associer l'entrée `dashboard.bstenger.fr:443` (la règle de reverse proxy) à ce
+certificat. DSM renouvelle **automatiquement** tant que le port 80 reste redirigé — le fermer
+« pour faire propre » casserait le renouvellement trois mois plus tard, en silence.
+
+## 7. Sauvegarde — le cron `pg_dump` quotidien
+
+⚠️ **`npm run db:backup` ne convient pas ici** : le script du dépôt appelle
+`docker compose exec` depuis le poste de dev. Sur le NAS, la même logique — dump, vérification,
+rétention en dernier — vit dans un script du Planificateur de tâches, qui parle directement au
+conteneur (`container_name: command-center-postgres`, fixé dans le compose pour ça).
+
+**Créer la tâche** : Panneau de configuration → Planificateur de tâches → Créer → Tâche
+planifiée → Script défini par l'utilisateur. Utilisateur **root**, quotidien (ex. 03h30) :
+
+```sh
+#!/bin/sh
+# Sauvegarde quotidienne Command Center — même logique que scripts/lib/dumps.js :
+# dump → écriture close → vérification → rétention EN DERNIER. Toute sortie en
+# erreur déclenche l'e-mail du Planificateur (voir réglages de la tâche).
+set -eu
+
+DEST=/volume1/docker/backups/command-center
+KEEP=30
+DB_USER=changez_moi        # le DB_USER de .env.production
+FICHIER="$DEST/dump-$(date +%Y-%m-%dT%H-%M-%S).sql"
+
+# Jamais de mkdir : un dossier absent est une erreur à voir, pas à masquer.
+[ -d "$DEST" ] || { echo "Destination absente : $DEST" >&2; exit 1; }
+
+# Écrit sous .part : un dump interrompu ne peut pas passer pour une sauvegarde.
+# L'échec est traité explicitement : le .part est retiré (même geste que
+# scripts/db-backup.js) et le message part dans l'e-mail du Planificateur —
+# `set -e` seul sortirait sans un mot. (Pas de sudo : la tâche tourne en root.)
+docker exec command-center-postgres \
+  pg_dump -U "$DB_USER" -d app --clean --if-exists > "$FICHIER.part" \
+  || { rm -f "$FICHIER.part"; echo "pg_dump a échoué — le conteneur tourne-t-il ?" >&2; exit 1; }
+
+# Les trois marqueurs de scripts/lib/dumps.js. Le marqueur de fin se cherche dans
+# les DERNIERS 8 Ko, pas en dernière ligne : pg_dump écrit un \unrestrict après lui.
+head -c 8192 "$FICHIER.part" | grep -q -- '-- PostgreSQL database dump' \
+  || { rm -f "$FICHIER.part"; echo "Dump invalide : en-tête pg_dump absent." >&2; exit 1; }
+grep -q 'CREATE TABLE' "$FICHIER.part" \
+  || { rm -f "$FICHIER.part"; echo "Dump invalide : aucun CREATE TABLE — base vide ?" >&2; exit 1; }
+tail -c 8192 "$FICHIER.part" | grep -q -- '-- PostgreSQL database dump complete' \
+  || { rm -f "$FICHIER.part"; echo "Dump invalide : marqueur de fin absent — tronqué ?" >&2; exit 1; }
+
+mv "$FICHIER.part" "$FICHIER"
+
+# Rétention : APRÈS un dump vérifié, jamais avant. Ne touche que ce dossier-ci.
+ls -1t "$DEST"/dump-*.sql | tail -n +$((KEEP + 1)) | while read -r vieux; do
+  rm -f "$vieux"
+done
+
+echo "Sauvegarde OK : $FICHIER"
+```
+
+Dans les **Paramètres** de la tâche : cocher « Envoyer les détails d'exécution par e-mail »
+**et** « … uniquement lorsque l'exécution de la tâche se termine anormalement ». Chaque échec
+du script sort en code non nul → e-mail. ⚠️ C'est le seul témoin : un cron qui échoue en
+silence — disque plein, conteneur arrêté — vaut zéro sauvegarde, précisément le jour où on en
+aurait besoin.
+
+⚠️ **`/volume1` est probablement le même volume que `pgdata`** : un disque qui lâche emporte
+la base **et** ses dumps. Ce dossier doit donc partir ailleurs — second volume si le NAS en a
+un, sinon **Hyper Backup** (ou rsync vers une autre machine) planifié **après** l'heure du
+dump, couvrant `/volume1/docker/backups/`. La rétention du script (`KEEP=30`) ne purge que le
+dossier local ; la destination Hyper Backup est l'archive et a sa propre rétention — même
+règle que `BACKUP_KEEP` face à `BACKUP_MIRROR_DIR` sur le poste de dev.
+
+**Restaurer sur le NAS** — relire les marqueurs d'abord (les trois `grep` ci-dessus, à la
+main), puis :
+
+```bash
+sudo docker exec -i command-center-postgres \
+  psql -U <DB_USER> -d app -v ON_ERROR_STOP=1 --quiet < dump-....sql
+```
+
+⚠️ Le dump est fait avec `--clean` : il **supprime** les tables avant de les recréer. Sur un
+fichier tronqué, `ON_ERROR_STOP=1` s'arrêterait au milieu — base à moitié détruite, dump
+incapable de la reconstruire. Un dump qui échoue aux marqueurs ne se restaure pas, et ne se
+supprime **jamais** : il est peut-être le seul qui reste.
+
+**Le test de restauration réel** (bloquant n°3 du §1) se fait au premier déploiement, tant
+qu'il n'y a rien à perdre : seed, saisir deux ou trois cartes, lancer la tâche de sauvegarde à
+la main, supprimer une carte dans l'application, restaurer le dump, vérifier que la carte est
+revenue. Dix minutes, une seule fois — et la chaîne entière est prouvée, pas supposée.
+
+## 8. Recette — une fois en ligne
+
+1. **Depuis l'extérieur du réseau** (partage de connexion mobile) :
+   `https://dashboard.bstenger.fr` répond, certificat valide (émis par Let's Encrypt).
+   Contre-épreuve depuis le LAN : `http://<IP du NAS>:8080` ne répond **pas** — le port est
+   lié à loopback.
+2. **Un compte invité réel** — créé dans l'écran d'administration, lien d'invitation (⚠️
+   valable **48 h**) : il voit la révision Leitner ; il ne voit **ni** Services, **ni**
+   Agents, **ni** Ingestion, **ni** Configuration LLM.
+3. **Le même invité, en `curl`** — la seule vérification qui prouve quelque chose : une route
+   est un contrat public, le masquage des boutons n'est que du confort. Récupérer dans les
+   outils de développement du navigateur (session invité ouverte) les cookies
+   `adonis-session` et `XSRF-TOKEN`, puis :
+
+   ```bash
+   curl -s -o /dev/null -w '%{http_code}\n' \
+     -X POST https://dashboard.bstenger.fr/revision/cards \
+     -H 'Content-Type: application/json' \
+     -H 'Accept: application/json' \
+     -H 'Cookie: adonis-session=<valeur>; XSRF-TOKEN=<valeur brute>' \
+     -H 'X-XSRF-TOKEN: <valeur du cookie XSRF-TOKEN, décodée (%3A → :, etc.)>' \
+     -d '{}'
+   ```
+
+   (`Accept: application/json` rend la contre-épreuve admin ci-dessous déterministe : sans
+   lui, la négociation de contenu répondrait une redirection 302 au lieu du 422.)
+
+   Attendu : **403**. Même appel sur `POST /revision/<id>/review` : **403** aussi.
+
+   ⚠️ **L'en-tête `X-XSRF-TOKEN` n'est pas optionnel.** Sans lui, le 403 observé serait celui
+   de Shield (CSRF), qui tomberait même si les capacités avaient disparu — le test
+   « passerait » sans rien prouver. Pour lever le doute, rejouer la même commande avec les
+   cookies d'une session **admin** : `422` (corps vide rejeté par la validation) — la
+   mécanique passe, seule la capacité bloque l'invité. Et vérifier que la base n'a pas bougé :
+
+   ```bash
+   sudo docker exec command-center-postgres \
+     psql -U <DB_USER> -d app -c "select count(*) from leitner_cards;"
+   ```
+
+   Même valeur avant et après.
+4. **Les logs au démarrage** —
+
+   ```bash
+   cd /volume1/docker/command-center
+   sudo docker compose --env-file .env.production -f docker-compose.prod.yml logs -f app
+   ```
+
+   les migrations jouées, puis
+   `started HTTP server`, et aucune ligne d'erreur. ⚠️ Le balayage des ingestions orphelines
+   tourne bien au boot, mais il n'écrit **que** s'il a trouvé des travaux interrompus
+   (`warn`) ou s'il a échoué (`error`) — sur un démarrage sain, **aucune ligne, et c'est
+   l'état normal**. Ne cherchez pas un message qui n'existe pas.
+5. **Module Services** — ⚠️ **bloquée par CC-116.** Sans socket Docker (jamais monté, décision
+   CC-73), `SystemStatsService` échoue et son `catch {}` volontaire **simule le succès** :
+   l'écran affiche aujourd'hui des conteneurs imaginaires. Tant que CC-116 n'est pas livré,
+   cet écran ment en production — ne pas s'en servir, et prévenir les invités n'est pas utile :
+   ils ne le voient pas (point 2). Une fois CC-116 déployé, vérifier ici la bannière « hors
+   service ».
+6. **CPU et RAM** dans Container Manager après quelques minutes de navigation. Le J3455 est
+   un Celeron de 2016 et les 4 Go se partagent avec DSM : le build Vite n'a pas lieu sur le
+   NAS (image pré-construite), mais surveiller que l'ensemble reste raisonnable.
+7. **Le throttle voit les vraies IP** — depuis le partage de connexion mobile, se tromper
+   volontairement de mot de passe une fois, puis :
+
+   ```bash
+   sudo docker exec command-center-postgres \
+     psql -U <DB_USER> -d app -c "select key from rate_limits;"
+   ```
+
+   Une clé contenant `login_ip_<IP publique du téléphone>` apparaît (préfixée par le store,
+   ex. `rlflx:login_ip_…`). Si l'IP est en `172.x` : les en-têtes du §6 manquent, et le
+   throttle compte tous les visiteurs comme une seule IP — un attaquant verrouillerait le
+   login de tout le monde. (Une connexion réussie efface la clé : faire la lecture avant de
+   se connecter pour de bon.)
+
+## 9. Mettre à jour l'application
+
+Reconstruire sur le PC (master à jour), refaire le transfert du §3, puis :
+
+```bash
+cd /volume1/docker/command-center
+sudo docker compose --env-file .env.production -f docker-compose.prod.yml up -d
+```
+
+Compose recrée le conteneur app (l'image a changé), laisse Postgres et `pgdata` en place, et
+les migrations éventuelles se jouent au démarrage. Lancer une sauvegarde manuelle (§7)
+**avant** une mise à jour qui embarque des migrations : c'est le seul retour arrière qui
+existe — il n'y a ni CI, ni rollback outillé.
+
+## 10. Ce que ce déploiement ne fait pas
+
+- **Aucune surveillance, aucune alerte.** Si le conteneur tombe à 3 h du matin, personne ne le
+  sait. `restart: unless-stopped` couvre le crash, pas la panne silencieuse. Acceptable pour
+  un tableau de bord personnel montré à des collègues — **à condition de le savoir**, et de ne
+  pas y mettre plus tard quelque chose dont on dépendrait. Seul l'e-mail du cron de sauvegarde
+  (§7) est surveillé, et il ne couvre que la sauvegarde.
+- **Pas de mise en production au sens propre** : pas de CI qui construit l'image, pas de
+  déploiement reproductible, pas de retour arrière outillé. Un lot « CI + GHCR » suivra si le
+  besoin apparaît ; le créer d'avance serait deviner.
+- **Le module Services est hors service** (pas de socket Docker — CC-116 ajoutera la bannière
+  qui le dit à l'écran) et **Agents** reste réservé à l'admin : leur usage réel se fait sur le
+  poste de dev.
+- **Le juge LLM et Immich dépendent de machines du LAN** : PC éteint, le juge se replie en
+  silence — c'est voulu, la révision ne tombe jamais.
+- **Les sessions expirent 7 jours après la connexion**, quelle que soit l'activité, et les
+  liens d'invitation valent **48 h** : inviter un collègue, c'est aussi lui dire d'accepter
+  vite.
