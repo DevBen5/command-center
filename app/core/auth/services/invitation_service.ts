@@ -3,8 +3,15 @@ import { DateTime } from 'luxon'
 import UserInvitation from '#core/auth/models/user_invitation'
 import type User from '#core/auth/models/user'
 
-/** Au-delà, le lien ne vaut plus rien et il faut en redemander un. */
-const VALIDITY_DAYS = 7
+/**
+ * Au-delà, le lien ne vaut plus rien et il faut en redemander un.
+ *
+ * 48 h, réduit de 7 jours (CC-78, décision actée) : le jeton passe dans l'URL,
+ * donc peut fuiter par l'historique, un referer ou les journaux d'un proxy —
+ * raccourcir la fenêtre borne la vie d'une fuite. Les invitations émises avant
+ * ce changement gardent l'`expiresAt` déjà en base.
+ */
+const VALIDITY_HOURS = 48
 
 /**
  * Les liens d'invitation par lesquels un compte se donne son premier mot de passe.
@@ -37,7 +44,7 @@ class InvitationService {
     await UserInvitation.create({
       userId: user.id,
       tokenHash: this.#hash(token),
-      expiresAt: DateTime.now().plus({ days: VALIDITY_DAYS }),
+      expiresAt: DateTime.now().plus({ hours: VALIDITY_HOURS }),
       usedAt: null,
     })
 
