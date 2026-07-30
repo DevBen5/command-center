@@ -1,5 +1,9 @@
 {
   "title": "Services",
+  "offline": {
+    "title": "Module hors service",
+    "body": "Ce déploiement n'a pas accès à Docker : l'état réel des conteneurs ne peut être ni lu ni piloté. Plutôt que d'afficher des chiffres inventés, cet écran n'affiche rien."
+  },
   "toolbar": {
     "filter": "Filtrer les services…",
     "category": "Catégorie ▾",

@@ -94,6 +94,21 @@ export default await Env.create(new URL('../', import.meta.url), {
 
   /*
   |----------------------------------------------------------
+  | Accès Docker du déploiement — bannière « hors service » (CC-116)
+  |----------------------------------------------------------
+  |
+  | ⚠️ Ce n'est pas une sonde : « docker échoue » se manifeste identiquement sur
+  | le poste de dev (pas de conteneurs réels, le catch {} de SystemStatsService
+  | simule — assumé) et sur le NAS (socket jamais monté, décision CC-73). Seule
+  | une déclaration du déploiement distingue les deux. Le défaut dépend de
+  | NODE_ENV (config/docker.ts) : disponible en development/test, indisponible
+  | en production — l'oubli va vers la vérité (bannière), jamais vers le
+  | mensonge. Ne poser la variable que pour contredire ce défaut.
+  */
+  DOCKER_AVAILABLE: Env.schema.boolean.optional(),
+
+  /*
+  |----------------------------------------------------------
   | Variables for configuring database connection
   |----------------------------------------------------------
   */
