@@ -1,11 +1,16 @@
 import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
+import limiter from '@adonisjs/limiter/services/main'
 import User from '#core/auth/models/user'
 
 // Chaque test tourne dans une transaction globale, rollbackée à la fin :
 // les utilisateurs créés ici ne polluent jamais les autres tests.
 test.group('Auth / connexion', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
+  // Les compteurs du throttle (CC-78) vivent dans le store mémoire, que la
+  // transaction ne rollback PAS : le test d'échec ci-dessous incrémente, et les
+  // blocages d'autres specs (login_throttle.spec) partagent l'IP 127.0.0.1.
+  group.each.setup(() => limiter.clear(['memory']))
 
   test('redirige un visiteur non authentifié vers /login', async ({ client }) => {
     const response = await client.get('/services').redirects(0)

@@ -1,3 +1,4 @@
+import proxyAddr from 'proxy-addr'
 import env from '#start/env'
 import app from '@adonisjs/core/services/app'
 import { Secret } from '@adonisjs/core/helpers'
@@ -18,6 +19,17 @@ export const appKey = new Secret(env.get('APP_KEY'))
 export const http = defineConfig({
   generateRequestId: true,
   allowMethodSpoofing: false,
+
+  /**
+   * Qui a le droit de parler au nom du client via `X-Forwarded-For` (CC-78).
+   * `request.ip()` — dont dépend le throttle de connexion par IP — remonte la
+   * chaîne des proxys tant qu'ils sont de confiance. Défaut `loopback` : le
+   * défaut d'AdonisJS, explicité pour que la valeur à changer au déploiement
+   * derrière le proxy DSM ait un nom (`TRUST_PROXY`, voir `.env.example`).
+   */
+  trustProxy: proxyAddr.compile(
+    (env.get('TRUST_PROXY') ?? 'loopback').split(',').map((entry) => entry.trim())
+  ),
 
   /**
    * Enabling async local storage will let you access HTTP context
