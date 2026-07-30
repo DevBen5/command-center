@@ -316,12 +316,12 @@ revenue. Dix minutes, une seule fois — et la chaîne entière est prouvée, pa
    tourne bien au boot, mais il n'écrit **que** s'il a trouvé des travaux interrompus
    (`warn`) ou s'il a échoué (`error`) — sur un démarrage sain, **aucune ligne, et c'est
    l'état normal**. Ne cherchez pas un message qui n'existe pas.
-5. **Module Services** — ⚠️ **bloquée par CC-116.** Sans socket Docker (jamais monté, décision
-   CC-73), `SystemStatsService` échoue et son `catch {}` volontaire **simule le succès** :
-   l'écran affiche aujourd'hui des conteneurs imaginaires. Tant que CC-116 n'est pas livré,
-   cet écran ment en production — ne pas s'en servir, et prévenir les invités n'est pas utile :
-   ils ne le voient pas (point 2). Une fois CC-116 déployé, vérifier ici la bannière « hors
-   service ».
+5. **Module Services** — ouvrir `/services` avec le compte propriétaire : l'écran affiche la
+   bannière **« Module hors service »** et **rien d'autre** — ni barre d'outils, ni
+   indicateurs, ni cartes de conteneurs (CC-116). Sans socket Docker (jamais monté, décision
+   CC-73), c'est le défaut en production : rien à configurer. Si des conteneurs s'affichent,
+   `DOCKER_AVAILABLE=true` traîne dans `.env.production` — la retirer. Les invités, eux, ne
+   voient pas cet écran (point 2).
 6. **CPU et RAM** dans Container Manager après quelques minutes de navigation. Le J3455 est
    un Celeron de 2016 et les 4 Go se partagent avec DSM : le build Vite n'a pas lieu sur le
    NAS (image pré-construite), mais surveiller que l'ensemble reste raisonnable.
@@ -363,9 +363,9 @@ existe — il n'y a ni CI, ni rollback outillé.
 - **Pas de mise en production au sens propre** : pas de CI qui construit l'image, pas de
   déploiement reproductible, pas de retour arrière outillé. Un lot « CI + GHCR » suivra si le
   besoin apparaît ; le créer d'avance serait deviner.
-- **Le module Services est hors service** (pas de socket Docker — CC-116 ajoutera la bannière
-  qui le dit à l'écran) et **Agents** reste réservé à l'admin : leur usage réel se fait sur le
-  poste de dev.
+- **Le module Services est hors service** (pas de socket Docker — l'écran l'annonce et ses
+  actions sont neutralisées, CC-116) et **Agents** reste réservé à l'admin : leur usage réel
+  se fait sur le poste de dev.
 - **Le juge LLM et Immich dépendent de machines du LAN** : PC éteint, le juge se replie en
   silence — c'est voulu, la révision ne tombe jamais.
 - **Les sessions expirent 7 jours après la connexion**, quelle que soit l'activité, et les
