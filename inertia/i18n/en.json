@@ -22,8 +22,7 @@
     "host": "Host: {host}",
     "counts": "{services} services · {agents} agents",
     "logout": "Sign out →",
-    "logoutTitle": "Sign out",
-    "language": "Language"
+    "logoutTitle": "Sign out"
   },
   "palette": {
     "placeholder": "Type a command, a service, an agent…",
@@ -43,6 +42,14 @@
     "password": "Password",
     "submit": "Access the dashboard",
     "invalid": "Invalid credentials."
+  },
+  "twoFactor": {
+    "eyebrow": "Verification",
+    "title": "Second factor",
+    "lead": "Enter the six-digit code from your authenticator app, or one of your recovery codes.",
+    "code": "Code",
+    "submit": "Verify",
+    "cancel": "Back to sign in"
   },
   "forbidden": {
     "eyebrow": "Access denied",

@@ -553,27 +553,50 @@ describe('Core / AppLayout', () => {
     complet.unmount()
   })
 
-  test('« Journaux » et « Réglages » ne sont plus proposés', () => {
-    // ⚠️ Les deux pointaient vers `/`, donc vers un refus pour un non-admin sans
-    // `dashboard.view` — et vers l'accueil, pas vers ce qu'elles annonçaient, pour tout le
-    // monde. Ces écrans n'existent pas ; les afficher les promettait (CC-81).
+  test('« Journaux » n’est toujours pas proposé, « Réglages » mène à son écran', () => {
+    // ⚠️ **La règle n'a pas changé, seul le fait a changé.** CC-81 avait retiré les deux parce
+    // qu'elles pointaient vers `/` : un refus pour un non-admin sans `dashboard.view`, et
+    // l'accueil — pas ce qu'elles annonçaient — pour tout le monde. « Journaux » reste absente
+    // parce qu'aucun écran ne la suit ; « Réglages » revient parce que CC-114 lui en a donné un.
+    // Ce test tomberait donc si quelqu'un remettait « Journaux » sans écran derrière, ou si
+    // « Réglages » repointait ailleurs que sur le sien.
     const admin = monter('/')
 
     expect(admin.text()).not.toContain(fr.nav.journaux)
-    expect(admin.text()).not.toContain(fr.nav.reglages)
+    expect(admin.text()).toContain(fr.nav.reglages)
+    expect(admin.findAll('a').map((a) => a.attributes('href'))).toContain('/reglages')
 
     admin.unmount()
   })
 
-  test('sans destination, aucune section n’est titrée à vide', () => {
+  test('« Réglages » est visible même sans le moindre droit', () => {
+    // ⚠️ **C'est la moitié qui compte de l'entrée.** Chacun y règle son propre second facteur,
+    // et un administrateur que `ADMIN_2FA_REQUIRED` renvoie sur cet écran doit pouvoir
+    // l'atteindre depuis la barre. La borner à `is_admin` — comme l'administration — rejouerait
+    // le défaut de CC-81 dans l'autre sens : un écran ouvert que la barre ne montre pas.
+    const nu = monter(
+      '/',
+      { fullName: 'Nu', email: 'nu@example.com', isAdmin: false, capabilities: [] },
+      []
+    )
+
+    const liens = nu.findAll('a').map((a) => a.attributes('href'))
+    expect(liens).toContain('/reglages')
+    expect(liens).not.toContain('/admin/users')
+
+    nu.unmount()
+  })
+
+  test('sans destination, la section « Pilotage » ne reste pas titrée à vide', () => {
     // Un titre « Pilotage » suivi de rien annoncerait une navigation qui n'existe pas : c'est
     // l'écran d'un compte sans droits, ou la page 403 d'un compte qui n'a rien d'autre.
     //
-    // Les trois `div.uppercase` d'un montage plein sont les deux titres de section et le label du
-    // sélecteur de langue. On les compte plutôt que d'assertir leur texte : c'est le seul moyen de
-    // voir apparaître un quatrième titre, ou d'en voir survivre un que son contenu a quitté.
+    // Les deux `div.uppercase` d'un montage plein sont les deux titres de section. On les compte
+    // plutôt que d'assertir leur texte : c'est le seul moyen de voir apparaître un troisième
+    // titre, ou d'en voir survivre un que son contenu a quitté. ⚠️ Ils étaient trois avant
+    // CC-114 — le label du sélecteur de langue, descendu dans `/reglages` avec ses boutons.
     const admin = monter('/')
-    expect(admin.findAll('div.uppercase')).toHaveLength(3)
+    expect(admin.findAll('div.uppercase')).toHaveLength(2)
     admin.unmount()
 
     const nu = monter(
@@ -582,8 +605,11 @@ describe('Core / AppLayout', () => {
       []
     )
 
+    // ⚠️ « Système » survit, lui, et c'est voulu : « Réglages » y est pour tout le monde depuis
+    // CC-114. C'est « Pilotage » qui doit disparaître, faute de destination.
     expect(nu.findAll('div.uppercase')).toHaveLength(1)
-    expect(nu.text()).not.toContain(fr.nav.sectionSysteme)
+    expect(nu.text()).not.toContain(fr.nav.sectionPilotage)
+    expect(nu.text()).toContain(fr.nav.sectionSysteme)
 
     nu.unmount()
   })

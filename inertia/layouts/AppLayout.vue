@@ -4,7 +4,17 @@ import type { Component } from 'vue'
 import { Link, router, usePage } from '@inertiajs/vue3'
 import { useI18n } from 'vue-i18n'
 // Icônes importées nommément : le barrel entier casserait le tree-shaking.
-import { Bot, Box, Layers, LayoutDashboard, Rss, Search, Server, Users } from 'lucide-vue-next'
+import {
+  Bot,
+  Box,
+  Layers,
+  LayoutDashboard,
+  Rss,
+  Search,
+  Server,
+  Settings,
+  Users,
+} from 'lucide-vue-next'
 import { crumbKeys, isDestinationRoot } from './breadcrumb'
 
 interface NavStats {
@@ -39,10 +49,6 @@ const destinations = computed(
 )
 
 const isAdmin = computed(() => currentUser.value?.isAdmin === true)
-const locale = computed(() => (page.props.locale as string | undefined) ?? 'fr')
-const supportedLocales = computed(
-  () => (page.props.supportedLocales as string[] | undefined) ?? ['fr']
-)
 
 interface NavItem {
   key: string
@@ -108,17 +114,24 @@ const navItems = computed<NavItem[]>(() =>
 )
 
 /**
- * ⚠️ **« Journaux » et « Réglages » ont été retirées** : elles pointaient toutes deux vers `/`,
- * une page qui exige `dashboard.view` — donc deux liens vers un refus pour un non-admin, et
- * vers l'accueil (pas vers ce qu'elles annoncent) pour tout le monde. Ces écrans n'existent
- * pas ; les afficher les promettait.
+ * ⚠️ **La règle de cette section, c'est qu'une entrée mène à un écran qui existe.** CC-81 avait
+ * retiré « Journaux » et « Réglages » parce qu'elles pointaient toutes deux vers `/` : un refus
+ * pour un non-admin sans `dashboard.view`, et l'accueil — pas ce qu'elles annonçaient — pour
+ * tout le monde. « Journaux » reste donc absente ; il n'y a toujours pas d'écran derrière.
  *
- * L'administration reste : elle a une vraie page, et elle ne s'ouvre pas par une capacité —
- * sinon un rôle pourrait donner accès à l'écran qui distribue les droits.
+ * « Réglages » revient parce que CC-114 lui en a donné un (`core/settings`). ⚠️ **Elle est
+ * visible par tout le monde, contrairement à l'administration** : chacun y règle son propre
+ * second facteur et sa langue, et un compte que la règle `ADMIN_2FA_REQUIRED` renvoie sur cet
+ * écran doit précisément pouvoir l'atteindre. La borner à `is_admin` rejouerait le défaut de
+ * CC-81 dans l'autre sens — un écran ouvert que la barre ne montre pas.
+ *
+ * L'administration, elle, reste réservée : elle ne s'ouvre pas par une capacité, sinon un rôle
+ * pourrait donner accès à l'écran qui distribue les droits.
  */
-const systemItems = computed<NavItem[]>(() =>
-  isAdmin.value ? [{ key: 'administration', href: '/admin/users', icon: Users }] : []
-)
+const systemItems = computed<NavItem[]>(() => [
+  { key: 'reglages', href: '/reglages', icon: Settings },
+  ...(isAdmin.value ? [{ key: 'administration', href: '/admin/users', icon: Users }] : []),
+])
 
 function isActive(href: string): boolean {
   return href === '/' ? page.url === '/' : page.url.startsWith(href)
@@ -304,11 +317,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 function logout(): void {
   router.post('/logout')
 }
-
-function switchLocale(next: string): void {
-  if (next === locale.value) return
-  router.post('/locale', { locale: next }, { preserveScroll: true })
-}
 </script>
 
 <template>
@@ -402,27 +410,11 @@ function switchLocale(next: string): void {
         </Link>
       </nav>
 
-      <!-- Sélecteur de langue -->
-      <div class="mt-auto px-4 pt-4">
-        <div class="mb-1.5 px-2 text-[10px] tracking-[.14em] text-txt-3 uppercase">
-          {{ t('sidebar.language') }}
-        </div>
-        <div class="inline-flex overflow-hidden rounded-lg border border-line-2">
-          <button
-            v-for="lng in supportedLocales"
-            :key="lng"
-            type="button"
-            class="px-3 py-1.5 text-[11px] font-medium uppercase transition"
-            :class="lng === locale ? 'bg-accent text-white' : 'bg-panel text-txt-2 hover:text-txt'"
-            @click="switchLocale(lng)"
-          >
-            {{ lng }}
-          </button>
-        </div>
-      </div>
-
+      <!-- ⚠️ Le sélecteur de langue vivait ici, faute d'écran où le mettre. Il est descendu dans
+           `/reglages` (CC-114) — c'est un réglage de compte, et la barre n'a pas à en porter un
+           seul par manque de place. Le `mt-auto` qui poussait le bloc en bas a suivi. -->
       <div
-        class="mt-3 flex items-center gap-[11px] border-t border-line px-[22px] py-[18px] text-xs text-txt-2"
+        class="mt-auto flex items-center gap-[11px] border-t border-line px-[22px] py-[18px] text-xs text-txt-2"
       >
         <div
           class="h-[30px] w-[30px] shrink-0 rounded-full bg-linear-to-br from-aqua to-accent"

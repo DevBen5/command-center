@@ -6,6 +6,7 @@ import { loginValidator } from '#core/auth/validators/auth'
 import { landingUrlFor } from '#core/shared/navigation/landing'
 import loginThrottle from '#core/auth/services/login_throttle_service'
 import { LOGIN_STAMP_KEY } from '#core/auth/services/session_lifetime'
+import { PENDING_2FA_KEY, pendingChallengeFor } from '#core/auth/services/two_factor_challenge'
 
 export default class AuthController {
   async show({ inertia }: HttpContext) {
@@ -31,6 +32,23 @@ export default class AuthController {
 
     try {
       const user = await User.verifyCredentials(email, password)
+
+      /**
+       * ⚠️ **Second facteur dû : on ne connecte pas, et on n'efface pas les compteurs.**
+       *
+       * Le compte s'identifie par un marqueur de session (chiffré, signé, expirant) et rien
+       * d'autre — le guard ne reçoit rien tant que le code n'est pas donné.
+       *
+       * Effacer le throttle ici rouvrirait un chemin de force brute sur les six chiffres :
+       * il suffirait de rejouer ce formulaire, dont on connaît le mot de passe, pour remettre
+       * le compteur à zéro entre chaque essai de code. « Un succès efface » (CC-78) veut dire
+       * un succès **complet** — l'effacement vit donc dans `TwoFactorController`.
+       */
+      if (user.hasTotp) {
+        session.put(PENDING_2FA_KEY, pendingChallengeFor(user.id))
+        return response.redirect('/login/2fa')
+      }
+
       // Un succès efface l'ardoise : deux collègues derrière la même IP ne
       // s'accumulent pas l'un sur l'autre jusqu'au blocage.
       await loginThrottle.clearFor(request.ip(), email)
@@ -61,8 +79,12 @@ export default class AuthController {
     return response.redirect(landing)
   }
 
-  async destroy({ auth, response }: HttpContext) {
+  async destroy({ auth, response, session }: HttpContext) {
     await auth.use('web').logout()
+    // `logout()` ne retire que la clé du guard : un demi-tour de connexion posé juste avant
+    // survivrait à la déconnexion, et resterait consommable sur cette machine le temps de son
+    // expiration. Il part avec le reste.
+    session.forget(PENDING_2FA_KEY)
     return response.redirect('/login')
   }
 }

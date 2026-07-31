@@ -1,6 +1,9 @@
+import { DateTime } from 'luxon'
+import encryption from '@adonisjs/core/services/encryption'
 import User from '#core/auth/models/user'
 import Role from '#core/auth/models/role'
 import RoleCapability from '#core/auth/models/role_capability'
+import { generateSecret } from '#core/auth/services/totp'
 
 /**
  * Fabriques de comptes pour les tests.
@@ -59,4 +62,28 @@ export async function createUserWith(capabilities: string[]): Promise<User> {
 /** Un compte non-admin sans rôle ni surcharge : il n'a accès à rien, et c'est le défaut. */
 export async function createUserWithoutAccess(): Promise<User> {
   return createUserWith([])
+}
+
+/**
+ * Active un second facteur **confirmé** sur ce compte et rend son secret en clair (CC-114).
+ *
+ * ⚠️ **Aucune fabrique ne le fait d'office**, et c'est un choix : un compte enrôlé par défaut
+ * ferait passer chaque `POST /login` de la suite par l'étape 2, donc rendrait le chemin sans
+ * second facteur — celui de presque tous les comptes — invisible aux tests. Même raison que
+ * `createUserWith` plutôt que « tout le monde est admin » : ce qui est activé partout n'est
+ * plus vérifié nulle part.
+ *
+ * Écrit directement les colonnes plutôt que de passer par `TwoFactorService.startEnrollment`
+ * + `confirm` : un test qui doit fabriquer un code valide pour poser son décor testerait son
+ * propre décor.
+ */
+export async function enrollTotp(user: User): Promise<string> {
+  const secret = generateSecret()
+
+  user.totpSecret = encryption.encrypt(secret)
+  user.totpConfirmedAt = DateTime.now()
+  user.totpLastStep = null
+  await user.save()
+
+  return secret
 }

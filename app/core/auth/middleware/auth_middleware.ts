@@ -3,6 +3,28 @@ import type { NextFn } from '@adonisjs/core/types/http'
 import type { Authenticators } from '@adonisjs/auth/types'
 import { DateTime } from 'luxon'
 import { LOGIN_STAMP_KEY, isStampExpired } from '#core/auth/services/session_lifetime'
+import { adminTotpRequired } from '#core/auth/services/two_factor_policy'
+
+/**
+ * L'écran où l'on enrôle son second facteur, et les seules routes qu'un compte sous
+ * obligation peut encore atteindre (CC-114).
+ *
+ * ⚠️ **Cette liste est ce qui empêche la boucle.** La redirection ci-dessous vise
+ * `/reglages` : sans l'en exempter, cet écran se redirigerait vers lui-même à l'infini.
+ * `/logout` y est parce que personne ne doit être retenu dans une application, et `/locale`
+ * parce qu'un écran qu'on ne peut pas lire dans sa langue est un écran de moins.
+ *
+ * ⚠️ **Le préfixe, pas l'égalité** : l'enrôlement se fait par des POST vers des sous-chemins
+ * (`/reglages/2fa/enrolement`, `/confirmation`…). Ne libérer que l'URL exacte laisserait
+ * l'écran s'afficher et son formulaire échouer — la boucle serait simplement déplacée d'un
+ * cran, là où elle ressemble à un bug de l'écran plutôt qu'à une règle d'accès.
+ */
+const SETTINGS_URL = '/reglages'
+const ALWAYS_ALLOWED = ['/logout', '/locale']
+
+function isAllowedWhileUnenrolled(url: string): boolean {
+  return url === SETTINGS_URL || url.startsWith(`${SETTINGS_URL}/`) || ALWAYS_ALLOWED.includes(url)
+}
 
 /**
  * Auth middleware is used authenticate HTTP requests and deny
@@ -49,6 +71,30 @@ export default class AuthMiddleware {
       ctx.session.forget(LOGIN_STAMP_KEY)
       await ctx.auth.use('web').logout()
       return ctx.response.redirect(this.redirectTo)
+    }
+
+    /**
+     * Un administrateur sans second facteur, quand la règle l'exige : il est **connecté**, mais
+     * il ne va nulle part avant d'avoir enrôlé (CC-114).
+     *
+     * ⚠️ **Le verrou est ici, pas dans la redirection après connexion.** Envoyer vers cet écran
+     * depuis `auth_controller` serait un confort, pas une garantie : n'importe quelle URL tapée
+     * à la main, n'importe quel signet contournerait la consigne. Un contrôle qui ne vit que
+     * sur le chemin nominal n'en est pas un.
+     *
+     * ⚠️ **Étendre ce middleware plutôt qu'en ajouter un global** n'est pas qu'une commodité :
+     * `capabilities_routes.spec.ts` fige le nombre de middlewares globaux, parce que c'est la
+     * seule chose qui distingue le garde-barrière d'un oubli. Le faire varier pour un contrôle
+     * qui n'a de sens qu'authentifié affaiblirait cette garde-là.
+     */
+    const user = ctx.auth.user!
+    if (
+      adminTotpRequired() &&
+      user.isAdmin &&
+      !user.hasTotp &&
+      !isAllowedWhileUnenrolled(ctx.request.url())
+    ) {
+      return ctx.response.redirect(SETTINGS_URL)
     }
 
     return next()
