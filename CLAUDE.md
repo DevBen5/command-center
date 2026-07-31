@@ -410,6 +410,45 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
   contrôleur re-tamponne à chaque connexion — retirer l'un des deux bouts recrée une boucle
   d'expulsion ou une session immortelle. Les liens d'invitation valent **48 h**.
 
+### Le second facteur TOTP (CC-114)
+
+Optionnel par compte, activé depuis `/profil/securite`. `POST /login` valide le mot de passe puis,
+si le compte est enrôlé, **ne connecte pas** : il pose un marqueur de session expirant (5 min,
+`two_factor_challenge.ts`) et renvoie vers `/login/2fa`, qui seul appelle `auth.login()`. Le
+paramétrage TOTP (SHA-1, 6 chiffres, 30 s) vit dans `totp.ts` et est figé par un vecteur de la
+RFC 6238 — c'est lui qui rend le QR lisible par une application d'authentification, et le changer
+produirait des codes refusés **sans lever d'erreur**.
+
+- ⚠️ **`clearFor` du throttle ne s'appelle qu'à la connexion complète**, jamais après le seul mot
+  de passe. Le remettre à l'étape 1 rouvrirait la force brute sur six chiffres : il suffirait de
+  rejouer `/login`, dont on connaît le mot de passe, pour remettre le compteur à zéro entre chaque
+  essai de code. « Un succès efface » (CC-78) veut dire un succès **complet**.
+- ⚠️ **L'acceptation d'une invitation exige le code, elle aussi.** Ce lien pose un mot de passe
+  **et** connecte : sans ce détour, quiconque l'intercepte entrerait sans jamais croiser le second
+  facteur, quel que soit le soin mis à le vérifier sur `/login`. Une porte fermée d'un seul bout
+  n'est pas fermée.
+- ⚠️ **Le secret est chiffré (APP_KEY), les codes de secours sont hachés (SHA-256).** Ce n'est pas
+  une incohérence : un secret TOTP doit être *relu* à chaque connexion, donc il ne peut pas être
+  haché. Et une APP_KEY changée rend tous les secrets illisibles d'un coup — si les codes de
+  secours en dépendaient, ils tomberaient avec ce qu'ils sont censés rattraper. Un secret
+  indéchiffrable **refuse** la connexion (jamais « pas de TOTP », qui l'ouvrirait) mais laisse
+  passer un code de secours : c'est ce qui en fait une vraie porte et pas une seconde serrure sur
+  le même barillet.
+- ⚠️ **`totp_last_step` est l'anti-rejeu, et il n'est pas décoratif** : un code vaut ~90 s (fenêtre
+  ±1 pas), donc sans lui un code intercepté resservirait dans sa fenêtre.
+- ⚠️ **`ADMIN_2FA_REQUIRED` est opt-in, défaut `false`, et l'oubli va vers l'OUVERTURE** — l'inverse
+  de la règle des routes, délibérément. Fermer par défaut enfermerait dehors l'unique administrateur
+  d'une base existante au premier `git pull`. Le verrou vit dans `auth_middleware`, pas dans la
+  redirection post-connexion : un contrôle qui ne tient que sur le chemin nominal se contourne par
+  une URL tapée à la main. Ses exemptions (`/profil/securite` **et ses sous-chemins**, `/logout`,
+  `/locale`) sont ce qui empêche la boucle de redirection ; `two_factor.spec.ts` prouve que l'écran
+  s'ouvre *et* que ses POST passent.
+- ⚠️ **Rien ne prouve, et rien ne prouvera par test, qu'un téléphone lit le QR.** jsdom ne rend rien.
+  Avant d'allumer `ADMIN_2FA_REQUIRED` sur une installation : passage navigateur, vraie application
+  d'authentification, et noter les codes de secours. La sortie ultime — téléphone **et** codes
+  perdus — est `/admin/users/:id`, donc un **autre** administrateur ; sur une installation à un seul
+  compte, il n'y en a pas.
+
 ## Conventions
 
 - Contrôleurs fins ; la logique va dans les `services/` du module.
