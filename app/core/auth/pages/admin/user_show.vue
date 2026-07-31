@@ -15,6 +15,9 @@ interface Props {
     isActive: boolean
     roleId: number | null
     effective: string[]
+    // L'**état** du second facteur (CC-114), jamais le secret ni un code : un administrateur
+    // a besoin de savoir si ce compte est protégé, pas de quoi s'y connecter.
+    twoFactor: { enabled: boolean; remainingCodes: number }
   }
   overrides: Array<{ capability: string; granted: boolean }>
   roles: Array<{ id: number; name: string }>
@@ -81,6 +84,18 @@ function destroy(): void {
     return
   }
   router.delete(`/admin/users/${props.account.id}`)
+}
+
+function resetTwoFactor(): void {
+  const nom = props.account.fullName ?? props.account.email
+  const message =
+    `Réinitialiser le second facteur de « ${nom} » ? ` +
+    'Ses codes de secours restants seront effacés, et son compte se reconnectera ' +
+    'avec son seul mot de passe jusqu’à ce qu’il se réenrôle.'
+  if (!confirm(message)) {
+    return
+  }
+  router.post(`/admin/users/${props.account.id}/2fa/reset`, {}, { preserveScroll: true })
 }
 
 // Le lien n'arrive qu'ici, dans la réponse à ce clic — jamais dans la page rendue,
@@ -250,6 +265,38 @@ async function issueInvitation(): Promise<void> {
         </div>
         <code class="block break-all font-mono text-[12px] text-aqua">{{ invitationUrl }}</code>
       </div>
+    </section>
+
+    <section class="flex flex-col gap-3 rounded-xl border border-line-2 bg-panel p-4">
+      <h3 class="text-[13px] font-semibold tracking-tight">Second facteur</h3>
+
+      <p class="text-[12.5px] text-txt-2">
+        <template v-if="account.twoFactor.enabled">
+          Actif, avec {{ account.twoFactor.remainingCodes }} code(s) de secours restant(s).
+        </template>
+        <template v-else>
+          Inactif. Ce compte l'active lui-même depuis son écran de sécurité — personne ne peut
+          l'enrôler à sa place, le secret ne se choisit pas.
+        </template>
+      </p>
+
+      <template v-if="account.twoFactor.enabled">
+        <p class="text-[12.5px] text-txt-3">
+          Réinitialiser retire le second facteur et efface les codes de secours restants : c'est
+          la sortie quand le téléphone
+          <strong class="text-txt-2">et</strong> les codes ont disparu. Le compte se reconnecte
+          alors avec son seul mot de passe, et se réenrôle depuis son écran de sécurité.
+        </p>
+        <div>
+          <button
+            type="button"
+            class="rounded-lg border border-warn/40 px-3 py-2 text-[12.5px] text-warn transition hover:border-warn"
+            @click="resetTwoFactor"
+          >
+            Réinitialiser le second facteur
+          </button>
+        </div>
+      </template>
     </section>
 
     <section

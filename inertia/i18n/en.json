@@ -23,7 +23,9 @@
     "counts": "{services} services · {agents} agents",
     "logout": "Sign out →",
     "logoutTitle": "Sign out",
-    "language": "Language"
+    "language": "Language",
+    "security": "Security",
+    "securityTitle": "Second factor and recovery codes"
   },
   "palette": {
     "placeholder": "Type a command, a service, an agent…",
@@ -43,6 +45,41 @@
     "password": "Password",
     "submit": "Access the dashboard",
     "invalid": "Invalid credentials."
+  },
+  "twoFactor": {
+    "eyebrow": "Verification",
+    "title": "Second factor",
+    "lead": "Enter the six-digit code from your authenticator app, or one of your recovery codes.",
+    "code": "Code",
+    "submit": "Verify",
+    "cancel": "Back to sign in"
+  },
+  "security": {
+    "title": "Security",
+    "lead": "The second factor adds a temporary code to your password. It is optional — unless an administrator requires it for your account.",
+    "required": "Your account is an administrator: the second factor is required before reaching the rest of the application.",
+    "statusOn": "Second factor active",
+    "statusOff": "Second factor inactive",
+    "remainingCodes": "{count} recovery codes left",
+    "noCodesLeft": "No recovery code is left. Generate new ones: without them, a lost phone locks this account out.",
+    "start": "Enable the second factor",
+    "restart": "Start enrolment over",
+    "enrollTitle": "Enrolment in progress",
+    "enrollLead": "Scan this QR code with your authenticator app, then enter the code it shows to confirm.",
+    "manualSecret": "Or enter this key manually:",
+    "qrAlt": "Enrolment QR code",
+    "confirm": "Confirm",
+    "confirmPlaceholder": "123456",
+    "disable": "Disable the second factor",
+    "disableConfirm": "Disable the second factor for this account? Remaining recovery codes will be erased.",
+    "regenerate": "Generate new recovery codes",
+    "regenerateConfirm": "Generate new codes? The previous ones stop working immediately.",
+    "codesTitle": "Your recovery codes",
+    "codesLead": "Write them down now: they will never be shown again. Each one works once, and they keep working even if your phone is lost.",
+    "codesDone": "I have saved my codes",
+    "copy": "Copy",
+    "copied": "Copied",
+    "failed": "The operation failed. Try again."
   },
   "forbidden": {
     "eyebrow": "Access denied",

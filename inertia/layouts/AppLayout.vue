@@ -440,9 +440,20 @@ function switchLocale(next: string): void {
             }}
           </div>
         </div>
+        <!-- ⚠️ **Un lien en dur, PAS une destination du registre** (CC-114). `destinations[0]`
+             est la page d'atterrissage après connexion et la racine du fil d'Ariane (CC-83) :
+             y ajouter l'écran de sécurité changerait l'écran d'arrivée de tout le monde. Ce
+             n'est pas une porte d'entrée de module, c'est un réglage de son propre compte. -->
+        <Link
+          href="/profil/securite"
+          class="ml-auto shrink-0 rounded-lg border border-line-2 px-2.5 py-[7px] text-[11px] text-txt-3 transition hover:border-accent hover:text-txt"
+          :title="t('sidebar.securityTitle')"
+        >
+          {{ t('sidebar.security') }}
+        </Link>
         <button
           type="button"
-          class="ml-auto shrink-0 rounded-lg border border-line-2 px-2.5 py-[7px] text-[11px] text-txt-3 transition hover:border-accent hover:text-txt"
+          class="shrink-0 rounded-lg border border-line-2 px-2.5 py-[7px] text-[11px] text-txt-3 transition hover:border-accent hover:text-txt"
           :title="t('sidebar.logoutTitle')"
           @click="logout"
         >

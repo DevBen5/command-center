@@ -1,0 +1,111 @@
+import { describe, expect, test, vi } from 'vitest'
+import { mount } from '@vue/test-utils'
+import { createI18n } from 'vue-i18n'
+// ⚠️ L'attribut `with { type: 'json' }` n'est pas décoratif : ce spec vit sous `app/**`, donc
+// dans le graphe de `tsc` (`tsconfig.json` n'exclut qu'`inertia/**`), et `module: NodeNext`
+// refuse un import JSON sans lui — `npm run build` échoue, pas Vitest. Les specs voisins de
+// `inertia/` n'en ont pas besoin pour cette seule raison.
+import fr from '../../../../../../inertia/i18n/fr.json' with { type: 'json' }
+import Security from '../security.vue'
+
+/*
+| L'écran de sécurité d'un compte (CC-114).
+|
+| Ce qu'il porte de logique, et donc ce qui est couvert ici : **quel bloc s'affiche selon
+| l'état**, et surtout **le bouton de désactivation qui disparaît quand la règle
+| `ADMIN_2FA_REQUIRED` s'applique**. Le reste est de la disposition, que la relecture décrit
+| mieux qu'un test.
+|
+| ⚠️ **Masquer ce bouton n'est PAS le contrôle** : `ProfileSecurityController.disable` lève un
+| refus dans le même cas, et `tests/functional/auth/two_factor.spec.ts` le prouve en postant la
+| route. Ce test-ci vérifie seulement qu'on ne propose pas une action qui échouerait — les deux,
+| jamais l'un sans l'autre.
+|
+| ⚠️ Instance i18n neuve à chaque montage, jamais le singleton d'`inertia/i18n` : `setLocale()`
+| le mute globalement, et deux tests s'influenceraient selon leur ordre.
+*/
+
+vi.mock('@inertiajs/vue3', () => ({
+  router: { post: vi.fn(), reload: vi.fn() },
+  Head: { template: '<div><slot /></div>' },
+}))
+
+vi.mock('~/layouts/AppLayout.vue', () => ({
+  default: { template: '<div><slot /></div>' },
+}))
+
+const ENROLLMENT = {
+  secret: 'JBSWY3DPEHPK3PXP',
+  uri: 'otpauth://totp/Command%20Center:a@b.c?secret=JBSWY3DPEHPK3PXP',
+  qr: 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=',
+}
+
+function monter(props: {
+  enabled: boolean
+  enrollment?: typeof ENROLLMENT | null
+  remainingCodes?: number
+  required?: boolean
+}) {
+  return mount(Security, {
+    props: {
+      enabled: props.enabled,
+      enrollment: props.enrollment ?? null,
+      remainingCodes: props.remainingCodes ?? 0,
+      required: props.required ?? false,
+    },
+    global: {
+      plugins: [
+        createI18n({ legacy: false, locale: 'fr', fallbackLocale: 'fr', messages: { fr } }),
+      ],
+    },
+  })
+}
+
+describe('Core / écran de sécurité', () => {
+  test('propose d’activer quand rien n’est en cours', () => {
+    const wrapper = monter({ enabled: false })
+
+    expect(wrapper.text()).toContain(fr.security.start)
+    expect(wrapper.text()).not.toContain(fr.security.enrollTitle)
+    wrapper.unmount()
+  })
+
+  test('affiche le QR et la clé pendant un enrôlement', () => {
+    const wrapper = monter({ enabled: false, enrollment: ENROLLMENT })
+
+    expect(wrapper.text()).toContain(fr.security.enrollTitle)
+    // La clé en clair compte autant que le QR : toutes les applications ne scannent pas, et
+    // un enrôlement fait depuis la machine qui affiche la page n'a pas de caméra à lui opposer.
+    expect(wrapper.text()).toContain(ENROLLMENT.secret)
+    expect(wrapper.find('img').attributes('src')).toBe(ENROLLMENT.qr)
+    wrapper.unmount()
+  })
+
+  test('le bouton de désactivation disparaît quand la règle l’exige', () => {
+    // ⚠️ **Le geste réel, dans les deux sens.** Monter le seul cas « exigé » passerait même si
+    // le `v-if` avait disparu : c'est la présence du bouton dans l'autre cas qui prouve que le
+    // test observe bien quelque chose.
+    const libre = monter({ enabled: true, remainingCodes: 10 })
+    expect(libre.text()).toContain(fr.security.disable)
+    libre.unmount()
+
+    const contraint = monter({ enabled: true, remainingCodes: 10, required: true })
+    expect(contraint.text()).not.toContain(fr.security.disable)
+    // La régénération des codes, elle, reste ouverte : la règle exige un second facteur, pas
+    // de renoncer à ses codes de secours.
+    expect(contraint.text()).toContain(fr.security.regenerate)
+    contraint.unmount()
+  })
+
+  test('alerte quand plus aucun code de secours ne reste', () => {
+    // Un compte enrôlé sans code de secours est à un téléphone perdu de la porte close, et
+    // rien à l'écran ne le dirait sans cette alerte.
+    const vide = monter({ enabled: true, remainingCodes: 0 })
+    expect(vide.text()).toContain(fr.security.noCodesLeft)
+    vide.unmount()
+
+    const pourvu = monter({ enabled: true, remainingCodes: 3 })
+    expect(pourvu.text()).not.toContain(fr.security.noCodesLeft)
+    pourvu.unmount()
+  })
+})

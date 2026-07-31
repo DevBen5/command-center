@@ -3,6 +3,7 @@ import User from '#core/auth/models/user'
 import invitationService from '#core/auth/services/invitation_service'
 import { acceptInvitationValidator } from '#core/auth/validators/admin'
 import { landingUrlFor } from '#core/shared/navigation/landing'
+import { PENDING_2FA_KEY, pendingChallengeFor } from '#core/auth/services/two_factor_challenge'
 
 /**
  * L'acceptation d'une invitation : un compte se donne son premier mot de passe.
@@ -52,6 +53,23 @@ export default class InvitationController {
     // Consommée **après** l'enregistrement du mot de passe : mourir entre les deux laisse
     // un lien encore utilisable, jamais un compte sans mot de passe et sans moyen d'en poser.
     await invitationService.consume(invitation)
+
+    /**
+     * ⚠️ **Le second facteur est dû ici aussi, et l'omettre le rendrait décoratif** (CC-114).
+     *
+     * Un lien d'invitation pose un mot de passe **et** connecte : c'est le « mot de passe
+     * oublié » du projet. Sans ce détour, quiconque intercepte un lien — historique, referer,
+     * journaux d'un proxy — entrerait sans jamais croiser le second facteur, quel que soit le
+     * soin mis à le vérifier sur `/login`. Une porte qui n'est pas fermée par les deux bouts
+     * n'est pas fermée.
+     *
+     * En pratique ce cas ne se présente qu'à la **réémission** d'un lien sur un compte déjà
+     * enrôlé : un compte fraîchement créé n'a pas encore de TOTP, et suit la voie du dessous.
+     */
+    if (user.hasTotp) {
+      session.put(PENDING_2FA_KEY, pendingChallengeFor(user.id))
+      return response.redirect('/login/2fa')
+    }
 
     await auth.use('web').login(user)
 

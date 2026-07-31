@@ -8,7 +8,7 @@ import { createAdmin, createUserWith } from '#tests/helpers/users'
  * d'un coup, mais plus aucune de ces pages ne traverserait la vérification de capacité :
  * on pourrait en déclarer une avec la mauvaise capacité sans que rien ne rougisse.
  */
-const PAGES: Array<{ route: string; component: string; capability: string | 'admin' }> = [
+const PAGES: Array<{ route: string; component: string; capability: string | 'admin' | 'none' }> = [
   { route: '/', component: 'core/dashboard/home', capability: 'dashboard.view' },
   { route: '/services', component: 'modules/services/index', capability: 'admin' },
   { route: '/agents', component: 'modules/agents/index', capability: 'admin' },
@@ -28,6 +28,11 @@ const PAGES: Array<{ route: string; component: string; capability: string | 'adm
   { route: '/revision/ingest', component: 'modules/leitner/ingest', capability: 'leitner.ingest' },
   { route: '/admin/users', component: 'core/auth/admin/users', capability: 'admin' },
   { route: '/admin/roles', component: 'core/auth/admin/roles', capability: 'admin' },
+  // ⚠️ `'none'`, et c'est la seule de la liste : son écran de sécurité s'ouvre sans capacité
+  // (CC-114), pour la même raison que `/aucun-acces` — exiger un droit accordé par quelqu'un
+  // d'autre pour gérer sa propre sécurité serait un cercle. Un compte nu doit donc y entrer,
+  // et c'est ce que ce test vérifie en lui en donnant un.
+  { route: '/profil/securite', component: 'core/auth/profile/security', capability: 'none' },
 ]
 
 test.group('Modules / accès authentifié', (group) => {
@@ -35,7 +40,10 @@ test.group('Modules / accès authentifié', (group) => {
 
   for (const { route, component, capability } of PAGES) {
     test(`GET ${route} rend le composant ${component}`, async ({ client, assert }) => {
-      const user = capability === 'admin' ? await createAdmin() : await createUserWith([capability])
+      const user =
+        capability === 'admin'
+          ? await createAdmin()
+          : await createUserWith(capability === 'none' ? [] : [capability])
 
       const response = await client.get(route).loginAs(user).withInertia()
 

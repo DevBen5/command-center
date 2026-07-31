@@ -59,6 +59,23 @@ export default await Env.create(new URL('../', import.meta.url), {
 
   /*
   |----------------------------------------------------------
+  | Second facteur obligatoire pour les administrateurs (CC-114)
+  |----------------------------------------------------------
+  |
+  | ⚠️ **Défaut `false`, et l'oubli va vers l'ouverture — délibérément, ici.** C'est
+  | l'inverse de la règle des routes (point 5 du CLAUDE.md), pour une raison qui ne
+  | vaut que pour cette variable : la fermer par défaut enfermerait dehors l'unique
+  | administrateur d'une installation existante au premier `git pull`, et plus
+  | personne n'atteindrait l'écran qui distribue les droits. Le second facteur reste
+  | de toute façon disponible sans elle — elle ne fait que le rendre exigible.
+  |
+  | Ne l'allumer qu'après avoir vérifié l'enrôlement au navigateur, avec un vrai
+  | téléphone : le QR ne se prouve nulle part ailleurs.
+  */
+  ADMIN_2FA_REQUIRED: Env.schema.boolean.optional(),
+
+  /*
+  |----------------------------------------------------------
   | Variables for configuring session package
   |----------------------------------------------------------
   */

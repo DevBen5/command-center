@@ -6,6 +6,7 @@ import UserInvitation from '#core/auth/models/user_invitation'
 import registry from '#core/auth/capabilities/registry'
 import capabilityService from '#core/auth/services/capability_service'
 import invitationService from '#core/auth/services/invitation_service'
+import twoFactor from '#core/auth/services/two_factor_service'
 import {
   createUserValidator,
   updateUserValidator,
@@ -64,6 +65,13 @@ export default class AdminUsersController {
         // Les capacités réellement en vigueur : rôle + surcharges. `is_admin` n'y figure
         // pas — un admin passe outre la vérification, il n'a pas « toutes les capacités ».
         effective: [...fromRole],
+        // ⚠️ L'**état** du second facteur, jamais le secret ni un code (CC-114). Un
+        // administrateur a besoin de savoir si ce compte est protégé et s'il lui reste des
+        // codes ; lui montrer de quoi s'y connecter serait une autre affaire.
+        twoFactor: {
+          enabled: user.hasTotp,
+          remainingCodes: user.hasTotp ? await twoFactor.remainingRecoveryCodes(user) : 0,
+        },
       },
       overrides: overrides.map((one) => ({ capability: one.capability, granted: one.granted })),
       roles: await this.#roleOptions(),
@@ -194,6 +202,31 @@ export default class AdminUsersController {
     await user.delete()
 
     return response.redirect('/admin/users')
+  }
+
+  /**
+   * Retire le second facteur d'un compte (CC-114).
+   *
+   * ⚠️ **C'est la seule porte quand le téléphone ET les codes de secours ont disparu**, et
+   * c'est pour ça qu'elle existe : sans elle, la seule réparation serait un `UPDATE` en SQL.
+   * Elle ne vaut pas élévation de privilège — un administrateur peut déjà réémettre une
+   * invitation, donc reposer le mot de passe de n'importe qui (voir `issueInvitation`).
+   *
+   * ⚠️ **Aucun verrou « pas le dernier admin » ici**, contrairement à la suppression et à la
+   * désactivation : retirer un second facteur n'enlève l'accès à personne, ça le rend
+   * seulement plus simple. Le compte visé reste entier, et se réenrôle depuis son écran de
+   * sécurité — sous la contrainte de `ADMIN_2FA_REQUIRED` s'il est administrateur.
+   */
+  async resetTwoFactor({ response, params, logger }: HttpContext) {
+    const user = await User.findOrFail(params.id)
+
+    await twoFactor.disable(user)
+
+    // Le dépôt n'a pas de journal d'audit ; une ligne de log est le seul endroit où ce geste
+    // laisse une trace. L'identifiant, jamais l'email : les journaux se lisent à plusieurs.
+    logger.info({ userId: user.id }, 'Second facteur réinitialisé par un administrateur')
+
+    return response.redirect(`/admin/users/${user.id}`)
   }
 
   /** Existe-t-il un **autre** administrateur actif que celui-ci ? */

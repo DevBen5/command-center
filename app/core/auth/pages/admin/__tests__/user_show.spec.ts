@@ -25,7 +25,10 @@ vi.mock('@inertiajs/vue3', () => ({
 
 const CATALOG = [{ module: 'leitner', capabilities: ['leitner.view'] }]
 
-function monter(invitation: { expiresAt: string; issuedAt: string } | null) {
+function monter(
+  invitation: { expiresAt: string; issuedAt: string } | null,
+  twoFactor: { enabled: boolean; remainingCodes: number } = { enabled: false, remainingCodes: 0 }
+) {
   return mount(UserShow, {
     props: {
       account: {
@@ -36,6 +39,7 @@ function monter(invitation: { expiresAt: string; issuedAt: string } | null) {
         isActive: true,
         roleId: 2,
         effective: ['leitner.view'],
+        twoFactor,
       },
       overrides: [],
       roles: [{ id: 2, name: 'Leitner view' }],
@@ -63,5 +67,19 @@ describe('Core / fiche utilisateur', () => {
     expect(wrapper.text()).toContain('carine@example.com')
     expect(wrapper.text()).toContain('Invitation en attente')
     wrapper.unmount()
+  })
+
+  test('le bouton de réinitialisation du second facteur n’apparaît que s’il y en a un', () => {
+    // ⚠️ **Le geste réel, dans les deux sens** : monter uniquement le cas « actif » passerait
+    // même si le `v-if` disparaissait. C'est la version négative qui prouve la garde — proposer
+    // de réinitialiser un facteur inexistant enverrait chercher une panne là où il n'y a rien.
+    const sans = monter(null, { enabled: false, remainingCodes: 0 })
+    expect(sans.text()).not.toContain('Réinitialiser le second facteur')
+    sans.unmount()
+
+    const avec = monter(null, { enabled: true, remainingCodes: 7 })
+    expect(avec.text()).toContain('Réinitialiser le second facteur')
+    expect(avec.text()).toContain('7 code(s) de secours restant(s)')
+    avec.unmount()
   })
 })
