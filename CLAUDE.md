@@ -137,7 +137,7 @@ Chaque feature est une tranche verticale complète. Les dossiers AdonisJS par d�
 (`app/models/`, `app/controllers/`, `database/migrations/`, `inertia/pages/`) **n'existent plus**.
 
 ```
-app/core/     auth · dashboard · i18n · shared      → import via #core/*
+app/core/     auth · dashboard · i18n · settings · shared   → import via #core/*
 app/modules/  services · agents · veille · leitner  → import via #modules/*
   └── controllers/ models/ migrations/ seeders/ services/ validators/ pages/
 providers/    leitner_provider                      → import via #providers/*
@@ -412,7 +412,12 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
 
 ### Le second facteur TOTP (CC-114)
 
-Optionnel par compte, activé depuis `/profil/securite`. `POST /login` valide le mot de passe puis,
+Optionnel par compte, activé depuis `/reglages` — l'écran de `core/settings`, où vit aussi le
+sélecteur de langue. ⚠️ **Ce domaine existe pour que l'entrée « Réglages » de la barre latérale ne
+mente pas** : CC-81 l'avait retirée parce qu'elle pointait vers `/`, donc vers un refus pour un
+non-admin. La remettre n'était acceptable qu'avec un écran derrière. Elle est **visible par tout le
+monde**, contrairement à l'administration — chacun y règle son propre facteur, et un compte que
+`ADMIN_2FA_REQUIRED` renvoie là doit pouvoir l'atteindre. `POST /login` valide le mot de passe puis,
 si le compte est enrôlé, **ne connecte pas** : il pose un marqueur de session expirant (5 min,
 `two_factor_challenge.ts`) et renvoie vers `/login/2fa`, qui seul appelle `auth.login()`. Le
 paramétrage TOTP (SHA-1, 6 chiffres, 30 s) vit dans `totp.ts` et est figé par un vecteur de la
@@ -440,7 +445,7 @@ produirait des codes refusés **sans lever d'erreur**.
   de la règle des routes, délibérément. Fermer par défaut enfermerait dehors l'unique administrateur
   d'une base existante au premier `git pull`. Le verrou vit dans `auth_middleware`, pas dans la
   redirection post-connexion : un contrôle qui ne tient que sur le chemin nominal se contourne par
-  une URL tapée à la main. Ses exemptions (`/profil/securite` **et ses sous-chemins**, `/logout`,
+  une URL tapée à la main. Ses exemptions (`/reglages` **et ses sous-chemins**, `/logout`,
   `/locale`) sont ce qui empêche la boucle de redirection ; `two_factor.spec.ts` prouve que l'écran
   s'ouvre *et* que ses POST passent.
 - ⚠️ **Rien ne prouve, et rien ne prouvera par test, qu'un téléphone lit le QR.** jsdom ne rend rien.

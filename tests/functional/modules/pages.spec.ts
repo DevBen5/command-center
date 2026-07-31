@@ -28,11 +28,11 @@ const PAGES: Array<{ route: string; component: string; capability: string | 'adm
   { route: '/revision/ingest', component: 'modules/leitner/ingest', capability: 'leitner.ingest' },
   { route: '/admin/users', component: 'core/auth/admin/users', capability: 'admin' },
   { route: '/admin/roles', component: 'core/auth/admin/roles', capability: 'admin' },
-  // ⚠️ `'none'`, et c'est la seule de la liste : son écran de sécurité s'ouvre sans capacité
-  // (CC-114), pour la même raison que `/aucun-acces` — exiger un droit accordé par quelqu'un
-  // d'autre pour gérer sa propre sécurité serait un cercle. Un compte nu doit donc y entrer,
-  // et c'est ce que ce test vérifie en lui en donnant un.
-  { route: '/profil/securite', component: 'core/auth/profile/security', capability: 'none' },
+  // ⚠️ `'none'`, et c'est la seule de la liste : l'écran de réglages d'un compte s'ouvre sans
+  // capacité (CC-114), pour la même raison que `/aucun-acces` — exiger un droit accordé par
+  // quelqu'un d'autre pour régler son propre compte serait un cercle. Un compte nu doit donc y
+  // entrer, et c'est ce que ce test vérifie en lui en donnant un.
+  { route: '/reglages', component: 'core/settings/index', capability: 'none' },
 ]
 
 test.group('Modules / accès authentifié', (group) => {

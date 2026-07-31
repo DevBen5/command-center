@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { Head, router } from '@inertiajs/vue3'
+import { computed, ref } from 'vue'
+import { Head, router, usePage } from '@inertiajs/vue3'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '~/layouts/AppLayout.vue'
 
@@ -52,10 +52,11 @@ async function postJson(url: string, body?: unknown): Promise<{ recoveryCodes: s
 
   if (!response.ok) {
     // Le serveur nomme l'échec quand il le peut (code invalide, refus). Le repli couvre ce
-    // qu'aucun message ne décrit : une réponse vide, une coupure. ⚠️ Une clé i18n **du
-    // châssis** — les messages de `resources/lang` sont ceux du serveur, vue-i18n ne les a pas.
+    // qu'aucun message ne décrit : une réponse vide, une coupure. ⚠️ Une clé de **ce module**
+    // (`app/core/settings/i18n/`) — les messages de `resources/lang` sont ceux du serveur,
+    // vue-i18n ne les a pas.
     const failure = (await response.json().catch(() => ({}))) as { error?: string }
-    error.value = failure.error ?? t('security.failed')
+    error.value = failure.error ?? t('settings.security.failed')
     return null
   }
 
@@ -63,13 +64,13 @@ async function postJson(url: string, body?: unknown): Promise<{ recoveryCodes: s
 }
 
 function startEnrollment(): void {
-  router.post('/profil/securite/enrolement', {}, { preserveScroll: true })
+  router.post('/reglages/2fa/enrolement', {}, { preserveScroll: true })
 }
 
 async function confirmEnrollment(): Promise<void> {
   error.value = null
   busy.value = true
-  const result = await postJson('/profil/securite/confirmation', { code: code.value })
+  const result = await postJson('/reglages/2fa/confirmation', { code: code.value })
   busy.value = false
   code.value = ''
 
@@ -79,11 +80,11 @@ async function confirmEnrollment(): Promise<void> {
 }
 
 async function regenerate(): Promise<void> {
-  if (!confirm(t('security.regenerateConfirm'))) return
+  if (!confirm(t('settings.security.regenerateConfirm'))) return
 
   error.value = null
   busy.value = true
-  const result = await postJson('/profil/securite/codes')
+  const result = await postJson('/reglages/2fa/codes')
   busy.value = false
 
   if (!result) return
@@ -92,8 +93,8 @@ async function regenerate(): Promise<void> {
 }
 
 function disable(): void {
-  if (!confirm(t('security.disableConfirm'))) return
-  router.post('/profil/securite/desactivation', {}, { preserveScroll: true })
+  if (!confirm(t('settings.security.disableConfirm'))) return
+  router.post('/reglages/2fa/desactivation', {}, { preserveScroll: true })
 }
 
 /**
@@ -111,15 +112,33 @@ async function copyCodes(): Promise<void> {
   await navigator.clipboard.writeText(recoveryCodes.value.join('\n'))
   copied.value = true
 }
+
+/**
+ * La langue — descendue de la barre latérale vers cet écran (CC-114).
+ *
+ * ⚠️ **Rien de neuf côté serveur** : `locale` et `supportedLocales` sont des props partagées
+ * (`config/inertia.ts`) et le changement passe par `POST /locale`, qui existait déjà. Seuls
+ * les boutons ont déménagé — la barre les portait faute d'écran où les mettre.
+ */
+const page = usePage()
+const locale = computed(() => (page.props.locale as string | undefined) ?? 'fr')
+const supportedLocales = computed(
+  () => (page.props.supportedLocales as string[] | undefined) ?? ['fr']
+)
+
+function switchLocale(next: string): void {
+  if (next === locale.value) return
+  router.post('/locale', { locale: next }, { preserveScroll: true })
+}
 </script>
 
 <template>
-  <Head :title="t('security.title')" />
+  <Head :title="t('settings.title')" />
 
   <div class="flex max-w-2xl flex-col gap-6">
     <div>
-      <h2 class="text-lg font-bold tracking-tight">{{ t('security.title') }}</h2>
-      <p class="mt-1 text-[13px] text-txt-3">{{ t('security.lead') }}</p>
+      <h2 class="text-lg font-bold tracking-tight">{{ t('settings.title') }}</h2>
+      <p class="mt-1 text-[13px] text-txt-3">{{ t('settings.lead') }}</p>
     </div>
 
     <!-- Dire *pourquoi* on est arrivé ici quand la règle a forcé le passage : sans ça, la
@@ -128,7 +147,7 @@ async function copyCodes(): Promise<void> {
       v-if="props.required && !props.enabled"
       class="rounded-xl border border-warn/40 bg-warn/10 px-4 py-3 text-[12.5px] text-warn"
     >
-      {{ t('security.required') }}
+      {{ t('settings.security.required') }}
     </p>
 
     <!-- Les codes fraîchement générés : affichés une fois, et une seule. -->
@@ -137,8 +156,10 @@ async function copyCodes(): Promise<void> {
       class="flex flex-col gap-3 rounded-xl border border-accent/40 bg-panel p-4"
     >
       <div>
-        <h3 class="text-[13px] font-semibold tracking-tight">{{ t('security.codesTitle') }}</h3>
-        <p class="mt-1 text-[12.5px] text-txt-3">{{ t('security.codesLead') }}</p>
+        <h3 class="text-[13px] font-semibold tracking-tight">
+          {{ t('settings.security.codesTitle') }}
+        </h3>
+        <p class="mt-1 text-[12.5px] text-txt-3">{{ t('settings.security.codesLead') }}</p>
       </div>
       <ul class="grid grid-cols-2 gap-2">
         <li
@@ -155,36 +176,43 @@ async function copyCodes(): Promise<void> {
           class="rounded-lg border border-line-2 px-3 py-2 text-[12.5px] text-txt-2 transition hover:border-accent hover:text-txt"
           @click="copyCodes"
         >
-          {{ copied ? t('security.copied') : t('security.copy') }}
+          {{ copied ? t('settings.security.copied') : t('settings.security.copy') }}
         </button>
         <button
           type="button"
           class="rounded-lg bg-accent px-3 py-2 text-[12.5px] font-medium text-white transition hover:opacity-90"
           @click="acknowledgeCodes"
         >
-          {{ t('security.codesDone') }}
+          {{ t('settings.security.codesDone') }}
         </button>
       </div>
     </section>
 
     <section class="flex flex-col gap-3 rounded-xl border border-line-2 bg-panel p-4">
+      <div>
+        <h3 class="text-[13px] font-semibold tracking-tight">
+          {{ t('settings.security.title') }}
+        </h3>
+        <p class="mt-1 text-[12.5px] text-txt-3">{{ t('settings.security.lead') }}</p>
+      </div>
+
       <div class="flex items-center gap-2">
         <span
           class="h-2 w-2 shrink-0 rounded-full"
           :class="props.enabled ? 'bg-ok' : 'bg-txt-3'"
           aria-hidden="true"
         ></span>
-        <h3 class="text-[13px] font-semibold tracking-tight">
-          {{ props.enabled ? t('security.statusOn') : t('security.statusOff') }}
-        </h3>
+        <span class="text-[12.5px] font-medium text-txt">
+          {{ props.enabled ? t('settings.security.statusOn') : t('settings.security.statusOff') }}
+        </span>
       </div>
 
       <template v-if="props.enabled">
         <p class="text-[12.5px] text-txt-3">
-          {{ t('security.remainingCodes', { count: props.remainingCodes }) }}
+          {{ t('settings.security.remainingCodes', { count: props.remainingCodes }) }}
         </p>
         <p v-if="props.remainingCodes === 0" class="text-[12.5px] text-warn">
-          {{ t('security.noCodesLeft') }}
+          {{ t('settings.security.noCodesLeft') }}
         </p>
         <div class="flex flex-wrap gap-2">
           <button
@@ -192,7 +220,7 @@ async function copyCodes(): Promise<void> {
             class="rounded-lg border border-line-2 px-3 py-2 text-[12.5px] text-txt-2 transition hover:border-accent hover:text-txt"
             @click="regenerate"
           >
-            {{ t('security.regenerate') }}
+            {{ t('settings.security.regenerate') }}
           </button>
           <!-- ⚠️ Masqué quand la règle l'exige — et **refusé par le serveur** dans le même cas.
                Masquer un bouton n'a jamais fermé une route : les deux, jamais l'un sans l'autre. -->
@@ -202,15 +230,17 @@ async function copyCodes(): Promise<void> {
             class="rounded-lg border border-bad/50 px-3 py-2 text-[12.5px] text-bad transition hover:bg-bad/10"
             @click="disable"
           >
-            {{ t('security.disable') }}
+            {{ t('settings.security.disable') }}
           </button>
         </div>
       </template>
 
       <template v-else-if="props.enrollment">
         <div>
-          <h4 class="text-[12.5px] font-semibold text-txt">{{ t('security.enrollTitle') }}</h4>
-          <p class="mt-1 text-[12.5px] text-txt-3">{{ t('security.enrollLead') }}</p>
+          <h4 class="text-[12.5px] font-semibold text-txt">
+            {{ t('settings.security.enrollTitle') }}
+          </h4>
+          <p class="mt-1 text-[12.5px] text-txt-3">{{ t('settings.security.enrollLead') }}</p>
         </div>
         <!-- Un `<img>` en data:, jamais un SVG injecté : couvert par `img-src 'self' data:`
              sans toucher à la CSP.
@@ -222,10 +252,10 @@ async function copyCodes(): Promise<void> {
              c'est le fond que la spécification QR suppose. -->
         <img
           :src="props.enrollment.qr"
-          :alt="t('security.qrAlt')"
+          :alt="t('settings.security.qrAlt')"
           class="h-44 w-44 rounded-lg bg-white p-2"
         />
-        <p class="text-[12.5px] text-txt-3">{{ t('security.manualSecret') }}</p>
+        <p class="text-[12.5px] text-txt-3">{{ t('settings.security.manualSecret') }}</p>
         <code
           class="rounded-lg border border-line bg-panel-2 px-3 py-2 font-mono text-[12.5px] break-all text-txt"
         >
@@ -237,7 +267,7 @@ async function copyCodes(): Promise<void> {
             type="text"
             inputmode="numeric"
             autocomplete="one-time-code"
-            :placeholder="t('security.confirmPlaceholder')"
+            :placeholder="t('settings.security.confirmPlaceholder')"
             class="w-32 rounded-lg border border-line-2 bg-panel-2 px-3 py-2 text-center font-mono text-[14px] tracking-[.2em] text-txt outline-none focus:border-accent"
           />
           <button
@@ -246,14 +276,14 @@ async function copyCodes(): Promise<void> {
             class="rounded-lg bg-accent px-3 py-2 text-[12.5px] font-medium text-white transition hover:opacity-90 disabled:opacity-60"
             @click="confirmEnrollment"
           >
-            {{ t('security.confirm') }}
+            {{ t('settings.security.confirm') }}
           </button>
           <button
             type="button"
             class="rounded-lg border border-line-2 px-3 py-2 text-[12.5px] text-txt-2 transition hover:border-accent hover:text-txt"
             @click="startEnrollment"
           >
-            {{ t('security.restart') }}
+            {{ t('settings.security.restart') }}
           </button>
         </div>
         <p v-if="error" class="text-[12.5px] text-bad">{{ error }}</p>
@@ -266,10 +296,29 @@ async function copyCodes(): Promise<void> {
             class="rounded-lg bg-accent px-3 py-2 text-[12.5px] font-medium text-white transition hover:opacity-90"
             @click="startEnrollment"
           >
-            {{ t('security.start') }}
+            {{ t('settings.security.start') }}
           </button>
         </div>
       </template>
+    </section>
+
+    <section class="flex flex-col gap-3 rounded-xl border border-line-2 bg-panel p-4">
+      <div>
+        <h3 class="text-[13px] font-semibold tracking-tight">{{ t('settings.language.title') }}</h3>
+        <p class="mt-1 text-[12.5px] text-txt-3">{{ t('settings.language.lead') }}</p>
+      </div>
+      <div class="inline-flex w-fit overflow-hidden rounded-lg border border-line-2">
+        <button
+          v-for="lng in supportedLocales"
+          :key="lng"
+          type="button"
+          class="px-3 py-1.5 text-[11px] font-medium uppercase transition"
+          :class="lng === locale ? 'bg-accent text-white' : 'bg-panel text-txt-2 hover:text-txt'"
+          @click="switchLocale(lng)"
+        >
+          {{ lng }}
+        </button>
+      </div>
     </section>
   </div>
 </template>

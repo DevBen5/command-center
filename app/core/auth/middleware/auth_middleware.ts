@@ -10,20 +10,20 @@ import { adminTotpRequired } from '#core/auth/services/two_factor_policy'
  * obligation peut encore atteindre (CC-114).
  *
  * ⚠️ **Cette liste est ce qui empêche la boucle.** La redirection ci-dessous vise
- * `/profil/securite` : sans l'en exempter, cet écran se redirigerait vers lui-même à
- * l'infini. `/logout` y est parce que personne ne doit être retenu dans une application, et
- * `/locale` parce qu'un écran qu'on ne peut pas lire dans sa langue est un écran de moins.
+ * `/reglages` : sans l'en exempter, cet écran se redirigerait vers lui-même à l'infini.
+ * `/logout` y est parce que personne ne doit être retenu dans une application, et `/locale`
+ * parce qu'un écran qu'on ne peut pas lire dans sa langue est un écran de moins.
  *
  * ⚠️ **Le préfixe, pas l'égalité** : l'enrôlement se fait par des POST vers des sous-chemins
- * (`/profil/securite/enrolement`, `/confirmation`…). Ne libérer que l'URL exacte laisserait
+ * (`/reglages/2fa/enrolement`, `/confirmation`…). Ne libérer que l'URL exacte laisserait
  * l'écran s'afficher et son formulaire échouer — la boucle serait simplement déplacée d'un
  * cran, là où elle ressemble à un bug de l'écran plutôt qu'à une règle d'accès.
  */
-const SECURITY_URL = '/profil/securite'
+const SETTINGS_URL = '/reglages'
 const ALWAYS_ALLOWED = ['/logout', '/locale']
 
 function isAllowedWhileUnenrolled(url: string): boolean {
-  return url === SECURITY_URL || url.startsWith(`${SECURITY_URL}/`) || ALWAYS_ALLOWED.includes(url)
+  return url === SETTINGS_URL || url.startsWith(`${SETTINGS_URL}/`) || ALWAYS_ALLOWED.includes(url)
 }
 
 /**
@@ -94,7 +94,7 @@ export default class AuthMiddleware {
       !user.hasTotp &&
       !isAllowedWhileUnenrolled(ctx.request.url())
     ) {
-      return ctx.response.redirect(SECURITY_URL)
+      return ctx.response.redirect(SETTINGS_URL)
     }
 
     return next()

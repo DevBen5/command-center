@@ -275,7 +275,7 @@ async function issueInvitation(): Promise<void> {
           Actif, avec {{ account.twoFactor.remainingCodes }} code(s) de secours restant(s).
         </template>
         <template v-else>
-          Inactif. Ce compte l'active lui-même depuis son écran de sécurité — personne ne peut
+          Inactif. Ce compte l'active lui-même depuis ses réglages — personne ne peut
           l'enrôler à sa place, le secret ne se choisit pas.
         </template>
       </p>
@@ -285,7 +285,7 @@ async function issueInvitation(): Promise<void> {
           Réinitialiser retire le second facteur et efface les codes de secours restants : c'est
           la sortie quand le téléphone
           <strong class="text-txt-2">et</strong> les codes ont disparu. Le compte se reconnecte
-          alors avec son seul mot de passe, et se réenrôle depuis son écran de sécurité.
+          alors avec son seul mot de passe, et se réenrôle depuis ses réglages.
         </p>
         <div>
           <button

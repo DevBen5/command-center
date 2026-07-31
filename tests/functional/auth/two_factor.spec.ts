@@ -328,7 +328,7 @@ test.group('Auth / second facteur exigé des administrateurs', (group) => {
     return () => overrideAdminTotpRequired(null)
   })
 
-  test('un administrateur sans second facteur est renvoyé vers son écran de sécurité', async ({
+  test('un administrateur sans second facteur est renvoyé vers ses réglages', async ({
     client,
   }) => {
     const admin = await createAdmin()
@@ -336,17 +336,17 @@ test.group('Auth / second facteur exigé des administrateurs', (group) => {
     const response = await client.get('/').loginAs(admin).redirects(0)
 
     response.assertStatus(302)
-    response.assertHeader('location', '/profil/securite')
+    response.assertHeader('location', '/reglages')
   })
 
   test('cet écran s’ouvre — la redirection ne boucle pas', async ({ client }) => {
-    // ⚠️ **L'assertion sans laquelle la précédente serait un piège.** Si l'écran de sécurité
+    // ⚠️ **L'assertion sans laquelle la précédente serait un piège.** Si l'écran de réglages
     // était lui aussi soumis à la règle, il se redirigerait vers lui-même à l'infini : le
     // navigateur afficherait « trop de redirections » et le compte serait enfermé dehors —
     // exactement la panne que la règle est censée éviter.
     const admin = await createAdmin()
 
-    const response = await client.get('/profil/securite').loginAs(admin)
+    const response = await client.get('/reglages').loginAs(admin)
 
     response.assertStatus(200)
   })
@@ -357,13 +357,13 @@ test.group('Auth / second facteur exigé des administrateurs', (group) => {
     const admin = await createAdmin()
 
     const response = await client
-      .post('/profil/securite/enrolement')
+      .post('/reglages/2fa/enrolement')
       .loginAs(admin)
       .withCsrfToken()
       .redirects(0)
 
     response.assertStatus(302)
-    response.assertHeader('location', '/profil/securite')
+    response.assertHeader('location', '/reglages')
 
     await admin.refresh()
     assert.isNotNull(twoFactor.pendingEnrollment(admin))
@@ -406,7 +406,7 @@ test.group('Auth / second facteur exigé des administrateurs', (group) => {
     await enrollTotp(admin)
 
     const response = await client
-      .post('/profil/securite/desactivation')
+      .post('/reglages/2fa/desactivation')
       .loginAs(admin)
       .withCsrfToken()
       .redirects(0)

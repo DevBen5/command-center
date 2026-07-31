@@ -6,7 +6,18 @@ import { adminTotpRequired } from '#core/auth/services/two_factor_policy'
 import { totpConfirmationValidator } from '#core/auth/validators/two_factor'
 
 /**
- * L'écran « Sécurité » d'un compte, pour lui-même (CC-114).
+ * L'écran « Réglages » d'un compte, pour lui-même — aujourd'hui la sécurité et la langue.
+ *
+ * ⚠️ **Ce domaine `core/settings` existe pour que l'entrée de barre latérale ne mente pas.**
+ * CC-81 avait retiré « Réglages » parce qu'elle pointait vers `/`, donc vers un refus pour un
+ * non-admin et vers l'accueil pour tout le monde : un lien qui promettait un écran inexistant.
+ * La remettre n'était acceptable qu'avec un écran derrière — celui-ci. Le ranger dans
+ * `core/auth` aurait forcé le prochain réglage sans rapport avec l'authentification à y
+ * atterrir aussi.
+ *
+ * ⚠️ **La langue n'ajoute aucun code serveur ici** : `locale` et `supportedLocales` sont déjà
+ * des props partagées (`config/inertia.ts`), et le changement passe par `POST /locale`
+ * (`core/i18n`). L'écran ne fait que déplacer les boutons hors de la barre latérale.
  *
  * ⚠️ **Aucune capacité ne le garde, et c'est délibéré** — `auth() + openRoute()`, comme
  * `/aucun-acces`. Deux raisons qui vont dans le même sens : exiger un droit accordé par
@@ -20,12 +31,12 @@ import { totpConfirmationValidator } from '#core/auth/validators/two_factor'
  * n'est pas confirmé, et les codes de secours ne vivent que dans la réponse JSON de l'appel
  * qui vient de les fabriquer — le même choix que le lien d'invitation.
  */
-export default class ProfileSecurityController {
+export default class SettingsController {
   async show({ inertia, auth }: HttpContext) {
     const user = auth.user!
     const pending = twoFactor.pendingEnrollment(user)
 
-    return inertia.render('core/auth/profile/security', {
+    return inertia.render('core/settings/index', {
       enabled: user.hasTotp,
       // Le QR **et** le secret en clair : toutes les applications ne savent pas scanner, et
       // un enrôlement depuis la machine qui affiche la page n'a pas de caméra à lui opposer.
@@ -50,11 +61,11 @@ export default class ProfileSecurityController {
 
     // Déjà actif : le remplacer sans passer par la désactivation laisserait le compte avec un
     // secret non confirmé pendant que l'ancien reste exigé — un état que rien n'affiche.
-    if (user.hasTotp) return response.redirect('/profil/securite')
+    if (user.hasTotp) return response.redirect('/reglages')
 
     await twoFactor.startEnrollment(user)
 
-    return response.redirect('/profil/securite')
+    return response.redirect('/reglages')
   }
 
   /**
@@ -103,7 +114,7 @@ export default class ProfileSecurityController {
 
     await twoFactor.disable(user)
 
-    return response.redirect('/profil/securite')
+    return response.redirect('/reglages')
   }
 
   /**

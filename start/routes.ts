@@ -24,7 +24,7 @@ import { middleware } from '#start/kernel'
 
 const AuthController = () => import('#core/auth/controllers/auth_controller')
 const TwoFactorController = () => import('#core/auth/controllers/two_factor_controller')
-const ProfileSecurityController = () => import('#core/auth/controllers/profile_security_controller')
+const SettingsController = () => import('#core/settings/controllers/settings_controller')
 const InvitationController = () => import('#core/auth/controllers/invitation_controller')
 const AdminUsersController = () => import('#core/auth/controllers/admin_users_controller')
 const AdminRolesController = () => import('#core/auth/controllers/admin_roles_controller')
@@ -109,26 +109,29 @@ router
   .use([middleware.auth(), middleware.openRoute()])
 
 /*
-| Sa propre sécurité — enrôlement du second facteur, codes de secours (CC-114).
+| Les réglages d'un compte, pour lui-même : second facteur, codes de secours, langue (CC-114).
 |
 | `openRoute()` pour la même raison que l'écran ci-dessus, et pas par facilité : exiger une
-| capacité **accordée par quelqu'un d'autre** pour gérer sa propre sécurité serait un cercle,
+| capacité **accordée par quelqu'un d'autre** pour régler son propre compte serait un cercle,
 | et un administrateur que la règle d'enrôlement renvoie ici doit pouvoir y entrer quels que
 | soient ses droits — c'est précisément l'écran dont il ne peut pas sortir sans.
 |
 | Rien n'y est lisible ni modifiable que le sien : chaque action lit `auth.user`, jamais un
 | identifiant venu de la requête. `auth()` reste, elle : cet écran s'adresse à quelqu'un de
 | connecté.
+|
+| Les actions sont préfixées `2fa/` — comme `/admin/users/:id/2fa/reset` — pour qu'un réglage
+| d'une autre nature n'ait pas à s'inventer une place au milieu de celles-ci.
 */
 router
   .group(() => {
-    router.get('/', [ProfileSecurityController, 'show'])
-    router.post('/enrolement', [ProfileSecurityController, 'enroll'])
-    router.post('/confirmation', [ProfileSecurityController, 'confirm'])
-    router.post('/codes', [ProfileSecurityController, 'regenerateCodes'])
-    router.post('/desactivation', [ProfileSecurityController, 'disable'])
+    router.get('/', [SettingsController, 'show'])
+    router.post('/2fa/enrolement', [SettingsController, 'enroll'])
+    router.post('/2fa/confirmation', [SettingsController, 'confirm'])
+    router.post('/2fa/codes', [SettingsController, 'regenerateCodes'])
+    router.post('/2fa/desactivation', [SettingsController, 'disable'])
   })
-  .prefix('/profil/securite')
+  .prefix('/reglages')
   .use([middleware.auth(), middleware.openRoute()])
 
 /*
