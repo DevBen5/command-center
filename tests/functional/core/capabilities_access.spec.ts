@@ -27,8 +27,11 @@ test.group('Core / capacités sur les routes', (group) => {
     const lecture = await client.get('/revision').loginAs(user)
     lecture.assertStatus(200)
 
-    // La note écrit `box` et `next_review` sur la carte : c'est pour ça que `leitner.review`
-    // est séparée de `leitner.view`, et le refus doit tenir sur l'appel direct.
+    // La note écrit la progression et l'historique de celui qui note (`leitner_card_progress`,
+    // `leitner_reviews` — plus des colonnes de la carte depuis CC-119) : `leitner.review`
+    // reste séparée de `leitner.view` parce qu'elle écrit et fait travailler le juge, et le
+    // refus doit tenir sur l'appel direct. Ce qui la porte pour le module Leitner :
+    // `tests/functional/modules/leitner_readonly.spec.ts`.
     const ecriture = await client
       .post('/revision/1/review')
       .json({ grade: 'easy' })

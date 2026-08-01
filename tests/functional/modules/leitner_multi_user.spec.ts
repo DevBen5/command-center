@@ -45,7 +45,7 @@ test.group('Leitner / cloisonnement par personne', (group) => {
   }
 
   test('noter une carte ne déplace la file de personne d’autre', async ({ client, assert }) => {
-    // Le test qui compte : c'est cet invariant qui rendra sûr d'ouvrir `leitner.review`
+    // Le test qui compte : c'est cet invariant qui a rendu sûr d'ouvrir `leitner.review`
     // au rôle invité (CC-121). Avant CC-119, `easy` envoyait la carte deux boîtes plus
     // loin **pour tout le monde** — c'est précisément ce que CC-72 avait dû fermer.
     const mine = await reviewer()
