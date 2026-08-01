@@ -13,13 +13,17 @@
  * - `leitner.review` — **noter une carte** (`leitner_card_progress`, `leitner_reviews`) et
  *   **juger** une réponse écrite. Le juge n'écrit rien mais consomme le LLM local : il suit
  *   la note, pas la lecture.
- *   ⚠️ **Sa raison d'être a changé avec CC-119, et il faut le savoir avant de l'accorder.**
- *   Elle était séparée parce que `box` et `next_review` étaient des colonnes de la **carte** :
- *   une note donnée par quelqu'un d'autre déplaçait le planning du propriétaire. Ce n'est
- *   plus vrai — la progression et l'historique sont désormais par personne, et noter
- *   n'atteint plus rien de partagé. Elle reste séparée pour ce qu'elle coûte encore : le
- *   juge fait travailler le LLM local. **C'est CC-121 qui l'accorde au rôle invité**, et
- *   c'est le geste qui ouvre enfin la révision aux collègues.
+ *   ⚠️ **Sa raison d'être a changé avec CC-119.** Elle était séparée parce que `box` et
+ *   `next_review` étaient des colonnes de la **carte** : une note donnée par quelqu'un
+ *   d'autre déplaçait le planning du propriétaire. Ce n'est plus vrai — la progression et
+ *   l'historique sont par personne, et noter n'atteint plus rien de partagé. Elle reste
+ *   séparée pour ce qu'elle coûte encore : le juge fait travailler le LLM local.
+ *   ⚠️ **Elle est accordée au rôle invité depuis CC-121**, et c'est le geste qui a ouvert
+ *   la révision aux collègues. Le rôle lui-même n'existe **nulle part dans le dépôt** :
+ *   les rôles sont des lignes en base, réglées depuis `/admin/roles`. Rien ici ne l'accorde
+ *   ni ne peut le vérifier — ce que la suite tient, c'est que le profil
+ *   (`view` + `stats.view` + `review`) déroule une session entière sans rien atteindre
+ *   d'autre : `leitner_guest.spec.ts` et `leitner_readonly.spec.ts`, à lire ensemble.
  * - `leitner.cards.write` — la saisie des cartes : créer, éditer, supprimer, reclasser.
  * - `leitner.taxonomy.write` — les catégories et les thèmes. Séparée de `cards.write` : ce
  *   sont deux gestes d'écriture distincts, l'un sur le contenu, l'autre sur son classement.
@@ -39,10 +43,19 @@
  *   la liste blanche des validateurs (loopback + plages privées) est le seul rempart.
  *   Séparée de `settings` parce que le risque n'est pas le même : régler un intervalle
  *   n'atteint aucun réseau.
- * - `leitner.backup` — l'export **et** l'import JSON. L'export est en lecture, donc tentant à
- *   accorder — mais il rend l'intégralité du contenu en un fichier, réponses écrites
- *   comprises. Séparé de `view` pour exactement ça : voir les cartes n'est pas repartir avec
- *   la base. L'import n'ajoute que ce qui manque, mais il ajoute.
+ * - `leitner.backup` — l'export **et** l'import JSON. Deux raisons de la garder fermée, et
+ *   ce ne sont plus celles qu'on croyait (question tranchée en CC-121) :
+ *   ⚠️ **L'import est la raison décisive, et elle ne se devine pas depuis le mot
+ *   « sauvegarde ».** Il *crée* des cartes et de la taxonomie (`LeitnerBackupService.import`),
+ *   donc accorder cette capacité contournerait `leitner.cards.write` **et**
+ *   `leitner.taxonomy.write` d'un seul geste. Une capacité qui en ouvre deux autres par la
+ *   bande est le genre de porte qu'on n'ouvre pas par commodité.
+ *   Côté export, il rend l'intégralité du **contenu communal** en un fichier : voir les
+ *   cartes n'est pas repartir avec la base — c'est ce qui le sépare de `view`.
+ *   ⚠️ **En revanche il ne divulgue les réponses écrites de personne d'autre**, contrairement
+ *   à ce que ce commentaire a dit jusqu'à CC-121 : depuis la v2 (CC-119) `export(userId)`
+ *   filtre `reviews` et `progress` sur `user_id`, le fichier ne porte que la progression et
+ *   l'historique de celui qui exporte.
  */
 export const LEITNER_CAPABILITIES = [
   'leitner.view',

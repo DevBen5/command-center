@@ -25,8 +25,8 @@ des cartes en supprimant un compte.
 ⚠️ **`leitner_settings` reste un réglage d'INSTALLATION, et c'est une décision, pas un reste.** Les
 intervalles décrivent la **méthode** de répétition espacée, pas la personne qui la suit : une seule
 ligne (`check('id = 1')`), un réglage posé par quelqu'un s'applique à tout le monde. C'est la
-dernière écriture du module qui touche du partagé sans être du contenu, et la seule qui doive
-rester fermée à l'invité une fois CC-121 livré.
+dernière écriture du module qui touche du **partagé sans être du contenu** — les autres écritures
+fermées à l'invité le sont parce qu'elles touchent au contenu, au réseau ou aux deux.
 
 ⚠️ **L'absence de ligne de progression EST une valeur** — « boîte 1, due aujourd'hui » — et rien
 n'est jamais semé, ni à la création d'un compte, ni à celle d'une carte. C'est ce qui donne sa file
@@ -38,6 +38,38 @@ sur place.
 
 ⚠️ **Le fichier d'export est PERSONNEL depuis la v2** : contenu communal, progression et historique
 de celui qui exporte. Voir la section « Sauvegarde » plus bas.
+
+### Ce que le rôle invité peut faire depuis CC-121, et ce qu'il ne peut toujours pas
+
+`leitner.review` est **accordée au rôle invité** : un collègue révise pour de vrai — il choisit son
+paquet, note, fait juger sa réponse écrite, et sa session se déroule jusqu'à la file vide. C'est la
+raison d'être de l'épique CC-77, et ça n'a demandé **aucune ligne de code** : la capacité, les deux
+routes et le masquage de l'écran existaient déjà ; c'est le cloisonnement de CC-119 qui les a rendus
+sûrs. Le lot n'a livré que la preuve — `tests/functional/modules/leitner_guest.spec.ts`.
+
+⚠️ **Le « rôle invité » n'existe nulle part dans le dépôt.** Les rôles sont des lignes en base,
+réglées depuis `/admin/roles` ; le seul rôle codé est « Lecteur » (`app/core/auth/seeders/user_seeder.ts`),
+et il ne porte **pas** `leitner.review`. L'accorder est un geste d'administration, pas un
+déploiement — et il ne faut pas « simplifier » en l'ajoutant au seeder : celui-ci rejoue à **chaque
+rotation d'`ADMIN_PASSWORD`** (CC-75, cf. le `CLAUDE.md` racine) et re-accorderait un droit retiré
+depuis l'écran, sans erreur ni log. Même famille que CC-106.
+
+Restent fermées, chacune pour sa raison : `leitner.cards.write` et `leitner.taxonomy.write` (le
+contenu communal), `leitner.ingest` (elle écrit **et** fait sortir des requêtes), `leitner.llm` (la
+surface la plus proche d'une SSRF du dépôt), `leitner.settings` (le réglage d'installation ci-dessus)
+et `leitner.backup`.
+
+⚠️ **`leitner.backup` : la raison qu'on croyait est fausse, celle qui compte est ailleurs.** On la
+gardait fermée parce que « l'export rend l'intégralité du contenu, réponses écrites comprises » —
+vérifié en CC-121, et faux depuis la v2 : `export(userId)` filtre `reviews` et `progress` sur
+`user_id`, le fichier ne porte que la progression et l'historique de **celui qui exporte**. Ce qui la
+ferme vraiment tient en deux points, et le premier est décisif :
+
+- **l'import crée des cartes et de la taxonomie** — l'accorder contournerait `leitner.cards.write`
+  **et** `leitner.taxonomy.write` d'un seul geste. Une capacité qui en ouvre deux autres par la bande
+  ne s'ouvre pas par commodité ;
+- l'export emporte tout le **contenu communal** en un fichier : voir les cartes n'est pas repartir
+  avec la base — c'est ce qui le sépare de `leitner.view`.
 
 Cinq écrans, une barre d'onglets : **Révision** (`/revision`) · **Cartes** (`/revision/settings`) ·
 **Stats** (`/revision/stats`) · **Ingestion** (`/revision/ingest`) · **Configuration**

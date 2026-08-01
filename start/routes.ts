@@ -334,6 +334,9 @@ router
           .use(middleware.can('leitner.backup'))
         // L'import partage la même capacité : il n'ajoute que ce qui manque, mais il ajoute,
         // et c'est le pendant naturel de l'export dans l'écran de sauvegarde.
+        // ⚠️ **C'est lui qui interdit d'accorder `leitner.backup` à un invité** (CC-121) :
+        // il crée cartes et taxonomie, donc l'ouvrir contournerait `leitner.cards.write` et
+        // `leitner.taxonomy.write` par la bande.
         router
           .post('/import', [LeitnerSettingsController, 'importBackup'])
           .use(middleware.can('leitner.backup'))
@@ -447,7 +450,7 @@ router
         // Écrit dans `leitner_card_progress` et `leitner_reviews`, **tous deux portant un
         // `user_id`** depuis CC-119 : une note n'atteint plus le planning de personne
         // d'autre. La capacité reste séparée pour ce qu'elle coûte encore (le juge fait
-        // travailler le LLM local) ; c'est CC-121 qui l'accorde à l'invité.
+        // travailler le LLM local) ; elle est accordée au rôle invité depuis CC-121.
         router
           .post('/:id/review', [LeitnerController, 'review'])
           .use(middleware.can('leitner.review'))

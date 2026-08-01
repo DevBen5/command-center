@@ -84,11 +84,12 @@ const dueLabel = (box: number): string => labelForDue(props.boxIntervals, box)
 
 /**
  * Noter écrit une progression et une ligne d'historique, **qui n'appartiennent qu'à celui
- * qui note** (CC-119) : plus rien de partagé ne bouge. Un invité en lecture seule n'a
- * pourtant toujours pas `leitner.review` — il consulte la carte, la retourne, lit le
- * verso, mais ne note pas. ⚠️ **Il reste donc bloqué sur la première carte**, l'écran
- * n'ayant pas d'autre mécanisme d'avancement que la note : c'est CC-121 qui lui ouvre la
- * capacité, pas ce lot.
+ * qui note** (CC-119) : plus rien de partagé ne bouge. C'est ce qui a permis à **CC-121**
+ * d'accorder `leitner.review` au rôle invité — un collègue déroule désormais une session
+ * entière. ⚠️ **Qui ne porte pas la capacité reste bloqué sur la première carte**, l'écran
+ * n'ayant pas d'autre mécanisme d'avancement que la note : il consulte, retourne, lit le
+ * verso, et rien ne progresse. C'est la raison du bandeau ci-dessous — un décompte
+ * « X cartes dues » sans action possible mentirait sur ce qui va se passer.
  *
  * ⚠️ **Masquer n'est pas fermer.** La vraie garde est le middleware sur `POST /:id/review`
  * et `POST /:id/judge` ; ce booléen évite seulement de proposer des boutons qui
