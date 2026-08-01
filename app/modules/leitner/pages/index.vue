@@ -84,11 +84,12 @@ const dueLabel = (box: number): string => labelForDue(props.boxIntervals, box)
 
 /**
  * Noter écrit une progression et une ligne d'historique, **qui n'appartiennent qu'à celui
- * qui note** (CC-119) : plus rien de partagé ne bouge. Un invité en lecture seule n'a
- * pourtant toujours pas `leitner.review` — il consulte la carte, la retourne, lit le
- * verso, mais ne note pas. ⚠️ **Il reste donc bloqué sur la première carte**, l'écran
- * n'ayant pas d'autre mécanisme d'avancement que la note : c'est CC-121 qui lui ouvre la
- * capacité, pas ce lot.
+ * qui note** (CC-119) : plus rien de partagé ne bouge. C'est ce qui a permis à **CC-121**
+ * d'accorder `leitner.review` au rôle invité — un collègue déroule désormais une session
+ * entière. ⚠️ **Qui ne porte pas la capacité reste bloqué sur la première carte**, l'écran
+ * n'ayant pas d'autre mécanisme d'avancement que la note : il consulte, retourne, lit le
+ * verso, et rien ne progresse. C'est la raison du bandeau ci-dessous — un décompte
+ * « X cartes dues » sans action possible mentirait sur ce qui va se passer.
  *
  * ⚠️ **Masquer n'est pas fermer.** La vraie garde est le middleware sur `POST /:id/review`
  * et `POST /:id/judge` ; ce booléen évite seulement de proposer des boutons qui
@@ -446,12 +447,16 @@ function grade(g: Grade): void {
       <div v-else class="text-[18px] font-bold">{{ t('leitner.index.browseTitle') }}</div>
       <div v-if="scope" class="mt-0.5 flex items-center gap-2 text-[11.5px] text-txt-3">
         <span>{{ t('leitner.index.deckLabel', { label: scope.label }) }}</span>
-        <Link href="/revision" class="text-accent transition hover:opacity-80">{{ t('leitner.index.change') }}</Link>
+        <Link href="/revision" class="text-accent transition hover:opacity-80">{{
+          t('leitner.index.change')
+        }}</Link>
       </div>
     </div>
     <div class="ml-auto flex gap-3">
       <div class="rounded-[12px] border border-line bg-panel px-4 py-2.5 text-center">
-        <div class="font-mono text-[20px] font-bold">{{ t('leitner.index.daysValue', { n: stats.streak }) }}</div>
+        <div class="font-mono text-[20px] font-bold">
+          {{ t('leitner.index.daysValue', { n: stats.streak }) }}
+        </div>
         <div class="text-[10.5px] text-txt-3">{{ t('leitner.index.streakLabel') }}</div>
       </div>
       <div class="rounded-[12px] border border-line bg-panel px-4 py-2.5 text-center">
@@ -528,8 +533,13 @@ function grade(g: Grade): void {
       class="flex min-h-[230px] flex-col items-center justify-center gap-4 rounded-[14px] border border-line-2 bg-panel p-9 text-center"
     >
       <div class="flex flex-wrap items-center justify-center gap-1.5">
-        <span class="rounded-full border border-line-2 bg-panel-2 px-2.5 py-1 text-[11px] text-txt-2">
-          {{ t('leitner.index.cardBox', { box: currentCard.box }) }}<template v-if="canReview"> {{ t('leitner.index.remaining', { n: stats.dueCount }) }}</template>
+        <span
+          class="rounded-full border border-line-2 bg-panel-2 px-2.5 py-1 text-[11px] text-txt-2"
+        >
+          {{ t('leitner.index.cardBox', { box: currentCard.box })
+          }}<template v-if="canReview">
+            {{ t('leitner.index.remaining', { n: stats.dueCount }) }}</template
+          >
         </span>
         <span
           v-if="currentCard.theme"
@@ -564,7 +574,10 @@ function grade(g: Grade): void {
       >
         {{ t('leitner.index.revealButton') }}
       </button>
-      <div v-else class="w-3/5 rounded-[10px] border border-line bg-bg-2 p-4 text-[13px] text-txt-2">
+      <div
+        v-else
+        class="w-3/5 rounded-[10px] border border-line bg-bg-2 p-4 text-[13px] text-txt-2"
+      >
         {{ currentCard.back }}
       </div>
 
@@ -641,7 +654,9 @@ function grade(g: Grade): void {
       class="flex min-h-[230px] flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed border-line-2 bg-bg-2 p-9 text-center"
     >
       <template v-if="scope?.finished">
-        <div class="text-[16px] font-semibold text-ok">{{ t('leitner.index.finishedTitle', { label: scope.label }) }}</div>
+        <div class="text-[16px] font-semibold text-ok">
+          {{ t('leitner.index.finishedTitle', { label: scope.label }) }}
+        </div>
         <div class="max-w-[380px] text-[12.5px] text-txt-2">
           {{ t('leitner.index.finishedHint') }}
         </div>
@@ -670,7 +685,9 @@ function grade(g: Grade): void {
     </div>
 
     <div class="mt-6 mb-3 flex items-center gap-3">
-      <h2 class="text-[12px] font-bold tracking-[.12em] text-txt-2 uppercase">{{ t('leitner.index.boxesTitle') }}</h2>
+      <h2 class="text-[12px] font-bold tracking-[.12em] text-txt-2 uppercase">
+        {{ t('leitner.index.boxesTitle') }}
+      </h2>
       <span class="h-px flex-1 bg-line"></span>
     </div>
     <div class="grid grid-cols-5 gap-3.5">
@@ -680,7 +697,9 @@ function grade(g: Grade): void {
         class="rounded-[12px] border p-4 text-center"
         :class="box <= 3 ? 'border-accent bg-accent-soft' : 'border-line bg-panel'"
       >
-        <div class="text-[10px] tracking-[.1em] text-txt-3 uppercase">{{ t('leitner.index.cardBox', { box }) }}</div>
+        <div class="text-[10px] tracking-[.1em] text-txt-3 uppercase">
+          {{ t('leitner.index.cardBox', { box }) }}
+        </div>
         <div
           class="my-2 font-mono text-[26px] font-bold"
           :class="box <= 3 ? 'text-accent' : 'text-txt'"

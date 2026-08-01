@@ -40,8 +40,9 @@ navigateur.
 
 - `tests/functional/modules/leitner_multi_user.spec.ts` — le principe directeur de CC-77, éprouvé
   **par les routes**, des deux côtés de la ligne de partage. Côté cloisonnement : noter ne déplace
-  la file de personne d'autre (**le test qui compte** — c'est l'invariant qui rendra sûr d'ouvrir
-  `leitner.review` en CC-121), un compte neuf voit tout le paquet sans qu'on lui ait rien semé, une
+  la file de personne d'autre (**le test qui compte** — c'est l'invariant qui a rendu sûr d'ouvrir
+  `leitner.review` au rôle invité en CC-121), un compte neuf voit tout le paquet sans qu'on lui ait
+  rien semé, une
   carte créée après lui lui est due aussitôt, `again` repart en fin de **sa** file, « terminé,
   bravo » ne se déclenche pas sur le travail d'un autre, série/journée/rétention et l'onglet Stats
   ne comptent que les siennes, la pastille de la barre latérale et la carte d'accueil suivent sa
@@ -195,22 +196,47 @@ navigateur.
   de la liste des fichiers invalides est passé de `2` à `99` — laissé à 2, il aurait viré au vert
   en n'éprouvant plus rien.
 
-## La lecture seule (CC-72)
+## Le rôle invité : ce qu'il révise (CC-121), ce qui lui reste fermé (CC-72)
 
-- `tests/functional/modules/leitner_readonly.spec.ts` — le rôle « invité » (`leitner.view` +
-  `leitner.stats.view`, rien d'autre) face à **toutes** les écritures du module. ⚠️ **L'assertion
-  qui compte n'est jamais le 403, c'est l'état de la base après le refus.** Les tests sont **tous
-  côté serveur** : masquer un bouton n'est pas un droit, un `curl` muni d'un cookie valide n'a que
-  faire du rendu Vue. Le dernier couvre le refus sur une **route JSON nue** — un 403 avec corps
-  JSON, jamais une redirection, sans quoi les écrans appelés en `fetch` casseraient au lieu de dire
-  non.
-  ⚠️ **La moitié de sa justification est tombée avec CC-119, l'autre pas.** `box` et `next_review`
-  ne sont plus des colonnes de la carte : une note d'invité n'atteindrait plus le planning de
-  personne, et c'est précisément ce qui autorisera **CC-121** à lui accorder `leitner.review`.
-  Restent fermées ici les écritures qui touchent du **partagé** — contenu, taxonomie, ingestion, et
-  `leitner_settings` (réglage d'installation). Ce fichier est donc le filet de ce qui doit continuer
-  à refuser **après** CC-121, et la révision reste en outre vérifiée sur la progression du
-  propriétaire **et** sur l'absence de toute ligne écrite pour l'invité.
+- `tests/functional/modules/leitner_guest.spec.ts` — le rôle invité **exact** de CC-121
+  (`leitner.view` + `leitner.stats.view` + `leitner.review`) qui déroule une session **entière**,
+  de l'écran de choix à la file vide.
+  ⚠️ **Ce fichier n'existe que pour ce que les autres ne disent pas.** Toute la suite du module
+  tourne déjà sous des comptes non-admin porteurs de `leitner.review` : « un invité peut noter »
+  y est vrai par construction. Ce qu'aucun autre ne fait, c'est **plus d'un tour de boucle** — ils
+  notent une carte et s'arrêtent. Or c'est exactement là que vivait le symptôme rapatrié de CC-81 :
+  l'écran est sans état, la file n'avance **que** par la note, et sans `leitner.review` il n'existait
+  aucun mécanisme d'avancement.
+  ⚠️ **Chaque tour navigue vers `response.headers().location`, jamais vers une URL écrite dans le
+  test** : la session se déroule par ce que le serveur renvoie, donc le `withQs()` (piège n° 1 du
+  module) est éprouvé à *chaque* note. Vérifié en le retirant — le test rougit en nommant l'écran
+  de choix (`expected 'choice' to equal 'session'`), et c'est pour ça que `view` est lu **avant**
+  `dueCards` : sans cette ligne, l'échec serait un accès à `undefined`.
+  Deux gardes du montage, sans lesquelles il passerait au vert sans rien prouver : le compte dû
+  asserté sur l'écran de choix **avant** d'entrer (une file vide dès le départ ferait sortir la
+  boucle au premier tour), et la boucle **bornée à 10** avec un `again` au premier tour — quatre
+  présentations pour trois cartes, la ratée revenant en fin de file. Plus, en sortie : la
+  progression du **propriétaire admin** inchangée, et le juge ouvert à ce profil, prouvé **contre un
+  faux client qui lève** — la réponse étant le verso exact, un verdict `juste` dit du même coup
+  qu'aucun appel n'est parti vers un LM Studio réellement allumé.
+- `tests/functional/modules/leitner_readonly.spec.ts` — le pendant : ce que les capacités
+  **ferment**, en **deux** profils, et il faut les deux. Le *lecteur strict* de CC-72 (`view` +
+  `stats.view`) prouve que `leitner.review` ferme encore — sans ce groupe plus rien ne le dirait,
+  le profil courant la portant désormais. L'*invité* de CC-121 prouve que la révision n'ouvre **rien
+  d'autre** : contenu, taxonomie, intervalles, ingestion, LLM, export **et import**.
+  ⚠️ **L'assertion qui compte n'est jamais le 403, c'est l'état de la base après le refus.** Les
+  tests sont **tous côté serveur** : masquer un bouton n'est pas un droit, un `curl` muni d'un
+  cookie valide n'a que faire du rendu Vue. Le refus sur une **route JSON nue** est couvert deux
+  fois (le juge, l'extraction) — un 403 avec corps JSON, jamais une redirection, sans quoi les
+  écrans appelés en `fetch` casseraient au lieu de dire non.
+  ⚠️ **La moitié de sa justification est tombée avec CC-119, l'autre pas**, et c'est la distinction
+  que le fichier tient : `box` et `next_review` ne sont plus des colonnes de la carte, ce qui a
+  autorisé CC-121 à accorder `leitner.review` ; `leitner_settings` reste une ligne unique et un
+  réglage d'**installation**, donc fermée. Le test de l'import a été vérifié en dégardant la route :
+  il rougit en 302.
+  ⚠️ **Le refus sur `/revision/llm` n'a aucun état à assertir, et c'est assumé** — ces routes
+  n'écrivent rien ; ce qu'elles font, c'est faire émettre au serveur des requêtes vers une URL
+  saisie.
 
 ## L'ingestion
 
