@@ -19,6 +19,10 @@ backups
 # Frontend assets compiled code
 public/assets
 
+# Image de production exportée par `docker save` (§3 de docs/deploiement-nas.md).
+# ~100 Mo, régénérable en une commande, et un `git add -A` l'embarquerait sans un mot.
+*.tar
+
 # Build tools specific
 npm-debug.log
 yarn-error.log
