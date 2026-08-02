@@ -466,8 +466,43 @@ produirait des codes refusés **sans lever d'erreur**.
   dépasse un certain volume : `npm test` affiche `PASSED` mais sort en **code 1**. Range `^1.15.43`.
 - Ne t'ajoutes jamais en tant que co-author sur les commit, si tu vois des commit ou tu es co-author, supprimes toi.
 
-### Habitudes de travail Youtrack
+## Comment travailler sur CE dépôt
 
-Si on travailles avec ou que un skill fais appel a Youtrack :
-- Les noms de sessions doivent correspondre au nom du ticket qui est travaillé (ex : `Ticket CC-42 - $Nom du ticket`)
-- Il faut également une session par Epic, si on créer une session pour gérer une Epic le nom sera (ex : `Epic CC-42 - $Nom de l'epic`)
+> Les principes généraux — style de collaboration, vérification du réel, fabrication de ticket,
+> relais entre conversations, mémoire et compaction — vivent dans `~/.claude/CLAUDE.md` et valent
+> partout. Ici, seulement ce qui est propre à Command Center.
+
+### Les skills du dépôt (`.claude/skills/`)
+
+- **`/lead-review`** — review pre-commit d'un diff à substance, **avant** `/git-commit`.
+- **`/git-commit`** — commits, branches, PR. Applique-le dès qu'il est question de message de
+  commit, de découpe ou de nom de branche.
+- **`/review-mr`** — self-review d'une de mes PR avant merge. Après un merge, il relit la KB
+  YouTrack **en entier** depuis le sommaire `CC-A-1` et corrige ce qui a cessé d'être vrai.
+
+⚠️ **Ces trois noms existent AUSSI en global**, dans une version qui vise l'autre workspace (GitLab,
+NestJS, `develop`, pnpm, `Refs: #SAAS-XX`). **Le skill du dépôt ne masque pas le global** — le
+harness peut charger l'un ou l'autre, constaté deux fois dans une seule session. Après tout
+`/lead-review`, `/git-commit` ou `/review-mr` : vérifier **laquelle a été chargée** (le « Base
+directory » l'indique) et le dire si c'est la mauvaise.
+
+### Le dépôt est solo — il n'y a personne à qui assigner
+
+**Le compte GitHub `@DevBen5` est la seule référence.** Le dépôt est `DevBen5/command-center`, tout
+part de **`master`** et y retourne : il n'y a **ni `develop`, ni lead dev, ni personne d'autre** à
+mentionner ou à assigner. Une PR n'est assignée à personne ; c'est **le propriétaire** qui la merge
+(`gh pr merge --merge`, jamais `--squash`, branche conservée), et toi jamais sans **go explicite**
+(cf. skill `/git-commit`).
+
+### Le suivi et la doc durable
+
+Le backlog **et** la base de connaissance vivent dans le projet **CC** de `devben5.youtrack.cloud` —
+articles `CC-A-1` (sommaire) à `CC-A-13`, accès par le serveur MCP officiel. Avec les `CLAUDE.md` du
+dépôt, c'est **toute** la doc durable : une mémoire de conversation n'est jamais le seul porteur
+d'une information qui doit lui survivre.
+
+⚠️ **Le dépôt fait autorité contre la KB.** Elle est une synthèse navigable, tenue à jour après
+chaque merge — quand elle diverge du code, c'est elle qu'il faut corriger, pas le code.
+
+Commits : Conventional Commits en anglais, atomiques, footer **`CC-XX` nu** — jamais
+`Refs: #CC-XX`, c'est explicitement proscrit.

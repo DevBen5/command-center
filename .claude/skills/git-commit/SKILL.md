@@ -11,14 +11,11 @@ description: |
 
 # Git Commit & Workflow — Command Center
 
-> **Ce skill est la version projet.** Il prend le pas sur le `git-commit` global, qui vise
-> l'autre workspace : monorepo NestJS, `shared-types`, GitLab, branche `develop`, `pnpm`,
-> footer `Refs: #SAAS-XX`, MR assignée au lead.
->
-> ⚠️ **Les deux portent le même nom et restent tous les deux visibles.** Si tu lis une grille
-> qui parle de GitLab, de `develop`, de `pnpm` ou de `Refs: #SAAS-XX`, tu as ouvert la
-> mauvaise : arrête et charge celle-ci. Ici c'est **GitHub, `master`, `npm`, footer `CC-XX`
-> nu**, et il n'y a **personne à qui assigner** — le dépôt est solo.
+> ⚠️ **Une autre grille porte le même nom, et les deux restent visibles.** Elle vise l'autre
+> workspace : monorepo NestJS, GitLab, branche `develop`, `pnpm`, footer `Refs: #SAAS-XX`, MR
+> assignée à un lead. **Ces cinq mots sont le signe que tu as ouvert la mauvaise** : arrête et
+> charge celle-ci. Ici c'est **GitHub, `master`, `npm`, footer `CC-XX` nu** — et le dépôt est solo,
+> `@DevBen5` est la seule référence, il n'y a personne à qui assigner.
 
 ---
 
