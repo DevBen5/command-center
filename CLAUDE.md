@@ -118,18 +118,75 @@ clair dans le code, donc publié avec lui.
 ⚠️ **Changer ce fichier ne désarme pas une base déjà seedée.** Une base créée avant CC-75 porte
 encore l'ancien mot de passe du dépôt, et c'est cette base-là qu'un `npm run db:restore` emporterait
 sur une machine exposée. Reposer `ADMIN_PASSWORD` et relancer `db:seed` **écrase** le mot de passe
-en place (`updateOrCreate`) : c'est l'outil de rotation, et le seul.
+en place (`updateOrCreate`) : c'est l'outil de rotation du **compte propriétaire**, dont l'adresse
+est écrite dans le seeder. Depuis CC-129, `node ace auth:reset-account` en fait autant sur
+n'importe quel compte, sans poser de secret dans un fichier — voir ci-dessous.
 
 ⚠️ **La variable ne sert qu'au seed — retire la ligne ensuite.** Rien d'autre ne la lit ; la garder
 laisse un secret en clair sur la machine sans rien apporter.
 
-**Une rotation ne touche aucun contenu, et ça se maintient** (CC-106). Puisque c'est le seul geste
-pour changer ce mot de passe, tout seeder enregistré dans `config/database.ts` s'exécute à chaque
-rotation — celui de veille replantait ainsi 7 faux articles dans la veille réelle, comptés dans les
+**Une rotation par `db:seed` ne touche aucun contenu, et ça se maintient** (CC-106). Tout seeder
+enregistré dans `config/database.ts` s'exécute à chaque passage — donc à chaque rotation faite par
+ce chemin-là : celui de veille replantait ainsi 7 faux articles dans la veille réelle, comptés dans les
 indicateurs de l'écran. Le fichier ne déclare donc plus que ce qu'aucun écran ne permet de saisir ;
 `tests/unit/db_seeders.spec.ts` asserte cette liste. ⚠️ Il asserte la liste **déclarée**, pas
 l'effet : aucun runner n'exécute `db:seed` de bout en bout, un seeder qui écrirait du contenu depuis
 un path légitime passerait au vert.
+
+### Reprendre la main sur un compte — `node ace auth:reset-account <email>` (CC-129)
+
+```bash
+node ace auth:reset-account quelquun@exemple.fr
+```
+
+Elle repose un mot de passe **et** désarme le second facteur — secret, codes de secours, anti-rejeu.
+C'est le filet sous CC-114, dont la sortie ultime (« un **autre** administrateur ») n'existe pas sur
+une installation à un seul compte : téléphone et codes perdus voulaient dire base inaccessible, avec
+l'unique exemplaire des cartes dedans.
+
+⚠️ **Elle ne crée aucun compte, et le titre de cette section reste donc vrai** : `ADMIN_PASSWORD`
+est toujours le seul chemin vers un *premier* compte. Celle-ci répare un compte qui existe.
+
+⚠️ **Une commande, jamais une route.** Toute sa valeur tient à ce qu'elle exige un accès que le
+réseau ne donne pas — qui a un shell ici a déjà le disque et la base. Exposée en HTTP, même « bien
+protégée », ce serait une porte dérobée sur l'écran de connexion.
+
+⚠️ **Saisie interactive, et elle refuse de tourner sans terminal** plutôt que de retomber sur une
+variable d'environnement : c'est la leçon de CC-75, un secret posé dans un `.env` y reste. Il n'y a
+ni drapeau `--password`, ni variable — rien sur quoi retomber. La garde teste `process.stdin.isTTY`,
+c'est-à-dire **exactement la précondition du prompt masqué** (`enquirer` appelle `stdin.setRawMode`,
+qui n'existe que sur un TTY) : elle ne peut donc pas refuser une invocation où la saisie aurait
+fonctionné. Sur le NAS, `docker compose run` alloue un terminal ; `exec -T` non.
+
+⚠️ **L'ordre des écritures — second facteur d'abord, mot de passe ensuite — n'est pas décoratif.**
+Aucune transaction ne les couvre (les `delete` de `twoFactor.disable` en sortiraient). Interrompue
+au milieu, la commande laisse un compte au pire aussi ouvrable qu'avant. L'ordre inverse laisserait
+un compte au **nouveau** mot de passe et toujours bloqué par son second facteur : l'ancien mot de
+passe perdu pour rien, exactement ce qu'on venait réparer.
+
+**Chaque passage laisse une ligne dans `account_reset_events`**, et le journal en dit autant. Les
+deux, parce qu'ils ne servent pas au même moment : le journal parle à qui lance la commande, mais
+sur le NAS il meurt avec le conteneur jetable de `run --rm`. La ligne en base est ce qui reste dans
+six mois — la seule chose qui distingue « je l'ai fait » de « quelqu'un d'autre l'a fait ». Ni l'un
+ni l'autre ne cite le mot de passe.
+
+```bash
+docker compose exec postgres psql -U root -d app \
+  -c 'select user_email, created_at from account_reset_events order by id desc limit 20'
+```
+
+⚠️ **Ce n'est pas une alarme.** Qui a le shell peut aussi supprimer la ligne : ça attrape l'intrus
+négligent, pas l'intrus soigneux. Son vrai destinataire est le propriétaire légitime, qui est celui
+qui relira ce registre.
+
+⚠️ **Elle ne réactive pas un compte désactivé et ne rend personne administrateur** — elle le
+*signale*. Agir dessus en ferait un outil d'élévation de privilèges.
+
+⚠️ **Elle doit être déployée AVANT d'en avoir besoin.** Le jour où le propriétaire est dehors,
+l'image qui tourne sur le NAS est celle d'avant : il faut d'abord reconstruire et recharger.
+
+⚠️ **Elle ne ferme aucune session déjà ouverte** — le store est `cookie`, il n'existe aucune liste
+côté serveur. Un cookie volé reste valable jusqu'à la borne des 7 jours (CC-78), reset ou pas.
 
 ## Architecture — feature-based
 
@@ -140,11 +197,12 @@ Chaque feature est une tranche verticale complète. Les dossiers AdonisJS par d�
 app/core/     auth · dashboard · i18n · settings · shared   → import via #core/*
 app/modules/  services · agents · veille · leitner  → import via #modules/*
   └── controllers/ models/ migrations/ seeders/ services/ validators/ pages/
-providers/    leitner_provider                      → import via #providers/*
+providers/    leitner_provider · veille_provider    → import via #providers/*
+commands/     reset_account                         → import via #commands/*
 ```
 
 - **Les alias de `package.json` décrivent exactement l'arborescence réelle** : `#core/*`,
-  `#modules/*`, `#providers/*`, plus `#tests/*`, `#start/*`, `#config/*`. Les douze alias hérités du
+  `#modules/*`, `#providers/*`, `#commands/*`, plus `#tests/*`, `#start/*`, `#config/*`. Les douze alias hérités du
   scaffold (`#models/*`, `#controllers/*`, `#services/*`, `#middleware/*`, `#validators/*`,
   `#database/*`…) pointaient vers des dossiers supprimés et ont été **retirés** : un import
   `#models/foo` échoue désormais tout de suite, au lieu de *paraître* correct.
@@ -152,10 +210,23 @@ providers/    leitner_provider                      → import via #providers/*
   `#providers/leitner_provider`, qui balaie au démarrage les ingestions interrompues. Ce n'est pas
   une entorse au découpage par feature : un provider est chargé par le framework au boot, avant
   toute notion de module. La règle « une feature est une tranche verticale » reste vraie pour tout
-  le reste ; ce dossier-là est la seule exception, et elle est structurelle. Le module Leitner le
-  documente comme le 5ᵉ fichier vivant hors de son dossier.
+  le reste ; ce dossier-là est la **première** des deux exceptions, et elle est structurelle. Le
+  module Leitner le documente comme le 5ᵉ fichier vivant hors de son dossier.
+- **`commands/` est à la racine, et c'est la seconde exception — même raison exactement** (CC-129).
+  Le noyau ace ne connaît qu'**un** dossier de commandes : `createAceKernel` construit son
+  `FsLoader` sur `app.commandsPath()`, qui résout `directories.commands` (défaut `"commands"`).
+  ⚠️ **Une commande posée dans un dossier de module n'est pas refusée — elle n'existe simplement
+  pas** : aucune erreur, elle n'apparaît jamais dans `node ace list`. Même famille que le point 1
+  des « choses qui cassent sans lever d'erreur ».
+
+  Les deux contournements possibles sont pires, et c'est ce qui a tranché : le tableau `commands`
+  d'`adonisrc.ts` n'accepte pas une classe — chaque entrée doit exposer `getMetaData()`/
+  `getCommand()`, donc il faudrait écrire un chargeur à la main pour un seul fichier — et pointer
+  `directories.commands` sur `app/core/auth/` est un réglage **global** : la prochaine commande,
+  quel que soit son module, atterrirait dans le dossier de l'auth.
 - **N'utilise pas `node ace make:*` tel quel** : ces commandes génèrent aux chemins par défaut et
-  recréent l'ancienne arborescence. Crée les fichiers directement dans le module.
+  recréent l'ancienne arborescence. Crée les fichiers directement dans le module. Une **commande**
+  ace est la seule exception à cette phrase : son chemin par défaut est le bon, et le seul.
 - **Les traductions d'un module vivent dans le module** (CC-23). Le châssis — `brand`, `nav`,
   `sidebar`, `palette`, `login`, `forbidden`, `noAccess` — reste dans `inertia/i18n/{fr,en}.json`.
   Le contenu **d'une page de module** va dans `app/<couche>/<module>/i18n/<locale>.json` ; au boot,

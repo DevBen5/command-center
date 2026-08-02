@@ -52,8 +52,8 @@ perdre son contenu.
 1. **Le mot de passe du compte propriétaire est fort et posé sur le NAS.** Le mécanisme est
    celui de CC-75 : `ADMIN_PASSWORD` dans `.env.production` (12 caractères minimum), puis un
    `db:seed` unique (§4). La ligne se **retire ensuite** : rien d'autre ne la lit, la garder
-   laisse un secret en clair sur le NAS. La reposer et relancer `db:seed` est aussi l'outil de
-   rotation — `updateOrCreate` écrase le mot de passe en place.
+   laisse un secret en clair sur le NAS. Pour une **rotation** ultérieure, préférez
+   `auth:reset-account` (§4 bis) : il ne pose aucun secret dans un fichier.
 2. **L'image embarque CC-71 et CC-72** (capacités, refus par défaut, Leitner en lecture seule).
    Sans eux, tout compte authentifié peut tout faire — `POST /revision/ingest` et l'écran de
    configuration LLM compris. Concrètement : l'image se construit depuis un `master` à jour,
@@ -150,6 +150,46 @@ sudo docker compose --env-file .env.production -f docker-compose.prod.yml \
 ```
 
 Le seeder dit à l'écran ce qu'il a fait. **Retirer ensuite la ligne `ADMIN_PASSWORD`.**
+
+## 4 bis. Le jour où vous ne pouvez plus entrer
+
+`node ace auth:reset-account <email>` repose un mot de passe sur un compte **et** désarme son
+second facteur — secret TOTP, codes de secours, anti-rejeu (CC-129). C'est la seule issue quand
+le téléphone *et* les codes de secours sont perdus sur une installation à un seul
+administrateur : la sortie prévue par CC-114 est « un **autre** administrateur », qui n'existe
+pas dans ce cas.
+
+```bash
+cd /volumeX/docker/command-center
+sudo docker compose --env-file .env.production -f docker-compose.prod.yml \
+  run --rm app node ace auth:reset-account vous@exemple.fr
+```
+
+Elle affiche le compte trouvé, demande confirmation, puis fait taper le mot de passe **deux
+fois, masqué**. Rien n'est écrit avant la seconde saisie.
+
+⚠️ **`run`, pas `exec -T`.** La commande **refuse** de tourner sans terminal, et ne lit ni
+option ni variable d'environnement : c'est ce qui garantit que le mot de passe ne reste nulle
+part après coup. `docker compose run` alloue un terminal par défaut ; `-T` le retire, et la
+commande s'arrête alors en expliquant pourquoi.
+
+⚠️ **Elle doit être déjà déployée le jour où elle sert.** Une image construite avant CC-129 ne
+la contient pas — et c'est précisément le jour où vous êtes dehors qu'il faudrait reconstruire
+et recharger. Vérifiez-la **maintenant**, une fois, sur un compte de test :
+`… run --rm app node ace list` doit afficher `auth:reset-account`.
+
+⚠️ **Chaque passage laisse une ligne** dans `account_reset_events` — le journal, lui, meurt
+avec le conteneur jetable de `run --rm`. C'est cette table qui permet, des mois plus tard, de
+distinguer un geste que vous avez fait d'un geste que vous n'avez pas fait :
+
+```bash
+sudo docker compose --env-file .env.production -f docker-compose.prod.yml \
+  exec postgres psql -U root -d app \
+  -c 'select user_email, created_at from account_reset_events order by id desc limit 20'
+```
+
+⚠️ **Elle ne ferme pas les sessions déjà ouvertes** : le store est `cookie`, il n'existe aucune
+liste côté serveur. Un cookie volé reste valable jusqu'à sa borne de 7 jours (CC-78).
 
 ## 5. DNS — le CNAME chez le registrar
 
@@ -471,6 +511,26 @@ revenue. Dix minutes, une seule fois — et la chaîne entière est prouvée, pa
    blocage automatique, 2FA sur les comptes administrateurs, aucun compte nommé `admin`.
    ⚠️ À vérifier **une fois pour le NAS**, pas par application — mais c'est ce déploiement
    qui a ouvert le 443, donc c'est ici que ça se contrôle.
+9. **La porte de service répond** (§4 bis) — c'est la vérification à faire **maintenant**,
+   parce que le jour où elle sert, vous ne pourrez plus entrer pour la réparer :
+
+   ```bash
+   cd /volumeX/docker/command-center
+   # a) elle existe dans l'image déployée
+   sudo docker compose --env-file .env.production -f docker-compose.prod.yml \
+     run --rm app node ace list | grep auth:reset-account
+   # b) elle refuse quand il n'y a pas de terminal — c'est le -T qui le retire
+   sudo docker compose --env-file .env.production -f docker-compose.prod.yml \
+     run --rm -T app node ace auth:reset-account vous@exemple.fr
+   ```
+
+   Attendu : (a) la ligne s'affiche ; (b) la commande s'arrête en disant qu'elle exige un
+   terminal, **sans rien modifier**. Puis, sur un **compte de test** (jamais le vôtre du
+   premier coup), la même invocation **sans** `-T` : elle doit afficher le compte, demander
+   confirmation, et faire taper le mot de passe deux fois.
+
+   ⚠️ **C'est le seul endroit où la garde se vérifie pour de vrai.** Aucun test du dépôt ne
+   voit ce qu'il advient d'un TTY à travers `docker compose run` et une session SSH.
 
 ## 9. Mettre à jour l'application
 
