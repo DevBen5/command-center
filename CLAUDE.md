@@ -147,6 +147,16 @@ l'unique exemplaire des cartes dedans.
 ⚠️ **Elle ne crée aucun compte, et le titre de cette section reste donc vrai** : `ADMIN_PASSWORD`
 est toujours le seul chemin vers un *premier* compte. Celle-ci répare un compte qui existe.
 
+⚠️ **La règle de longueur d'un mot de passe est désormais écrite à TROIS endroits, et rien ne les
+lie.** `acceptInvitationValidator` (`validators/admin.ts`) est la source — c'est elle que voit
+l'utilisateur ; `user_seeder.ts` en recopie le **minimum** ; `commands/reset_account.ts` en recopie
+le minimum **et** le maximum. Les trois ne sont donc déjà pas identiques, et **aucun test ne
+rougirait** si le validateur passait à 14 caractères : les deux copies continueraient d'accepter ce
+que le formulaire refuse, c'est-à-dire de poser en base des mots de passe que l'application juge
+trop faibles. Une seule constante partagée serait mieux ; en attendant, **changer la règle veut dire
+changer les trois fichiers dans le même lot** — le relevé est du 2026-08-02, vérifie-le avant de t'y
+fier.
+
 ⚠️ **Une commande, jamais une route.** Toute sa valeur tient à ce qu'elle exige un accès que le
 réseau ne donne pas — qui a un shell ici a déjà le disque et la base. Exposée en HTTP, même « bien
 protégée », ce serait une porte dérobée sur l'écran de connexion.
