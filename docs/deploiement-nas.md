@@ -1,22 +1,37 @@
 # Déploiement sur le NAS — DSM, reverse proxy, Let's Encrypt, sauvegarde, recette
 
 Guide de mise en ligne de Command Center sur un Synology (DS918+, DSM 7, Container Manager),
-derrière `dashboard.bstenger.fr`. Il s'appuie sur le paquet de production livré par CC-73 —
+derrière un sous-domaine à soi. Il s'appuie sur le paquet de production livré par CC-73 —
 `Dockerfile`, `docker-compose.prod.yml`, `.env.production.example` — et ne demande **aucun
 changement de code** : tout ce qui suit se fait dans DSM, en SSH, ou chez le registrar.
 
 Ces étapes sont **manuelles et dans cet ordre**. L'ordre n'est pas décoratif : les bloquants
 du §1 se vérifient avant d'ouvrir quoi que ce soit, et le port ne s'ouvre qu'en dernier.
 
+⚠️ **Les valeurs de l'installation réelle ne sont pas dans ce fichier — le dépôt est public.**
+Nom d'hôte, DDNS, adresse de contact et numéro de volume vivent dans la base de connaissance
+YouTrack, qui est privée. Ce guide écrit des **repères** à remplacer, et ils sont choisis pour
+qu'un copier-coller distrait échoue bruyamment plutôt que de fabriquer quelque chose ailleurs :
+
+| Repère | Ce qu'il désigne |
+|---|---|
+| `app.exemple.fr` | le nom public de l'application |
+| `exemple.fr` | la zone DNS, chez le registrar |
+| `<ddns>.freeboxos.fr` | le nom DDNS qui suit l'IP publique de la box |
+| `vous@exemple.fr` | l'adresse de contact du certificat |
+| `/volumeX` | le volume du NAS — **`X` est un numéro à remplacer**, ce n'est pas toujours 1 |
+
 ## Vue d'ensemble
 
 ```
-Internet ──443──▶ routeur ──443──▶ DSM reverse proxy (TLS, HSTS, HTTP/2)
-                                        │
-                                   localhost:8080  (lié à 127.0.0.1 — invisible du LAN)
-                                        │
-                                   conteneur app ──réseau compose──▶ conteneur postgres
-                                                                     (aucun port publié)
+app.exemple.fr  ──CNAME──▶  <ddns>.freeboxos.fr  (DDNS Freebox → IP publique)
+        │
+   Internet ──443──▶ Freebox ──443──▶ DSM reverse proxy (TLS, HSTS, HTTP/2)
+                                             │  trie par nom d'hôte
+                                        localhost:8080  (lié à 127.0.0.1 — invisible du LAN)
+                                             │
+                                        conteneur app ──réseau compose──▶ conteneur postgres
+                                                                          (aucun port publié)
 ```
 
 | Port | État | Pourquoi |
@@ -58,16 +73,16 @@ sert au chargement de l'image (§3), au lancement de la pile (§4) et au test de
 **Créer les dossiers** (File Station ou SSH) :
 
 ```
-/volume1/docker/command-center/          ← docker-compose.prod.yml + .env.production
-/volume1/docker/command-center/pgdata/   ← les données Postgres (PGDATA_PATH)
-/volume1/docker/backups/command-center/  ← les dumps quotidiens (§7)
+/volumeX/docker/command-center/          ← docker-compose.prod.yml + .env.production
+/volumeX/docker/command-center/pgdata/   ← les données Postgres (PGDATA_PATH)
+/volumeX/docker/backups/command-center/  ← les dumps quotidiens (§7)
 ```
 
 **Remplir `.env.production`** : copier `docker-compose.prod.yml` et `.env.production.example`
-du dépôt dans `/volume1/docker/command-center/`, renommer l'exemple en `.env.production`, et
+du dépôt dans `/volumeX/docker/command-center/`, renommer l'exemple en `.env.production`, et
 remplir chaque variable en suivant ses commentaires. Points qui changent sur le NAS :
 
-- `PGDATA_PATH=/volume1/docker/command-center/pgdata` — chemin **absolu**, jamais le `./pgdata`
+- `PGDATA_PATH=/volumeX/docker/command-center/pgdata` — chemin **absolu**, jamais le `./pgdata`
   par défaut. ⚠️ Ce dossier appartient à Postgres, binaire, lié à PG 16 : ce n'est **pas** une
   sauvegarde, et il ne se copie pas à chaud.
 - `TRUST_PROXY=uniquelocal` — le reverse proxy DSM joint le conteneur via le bridge Docker
@@ -93,11 +108,11 @@ docker build --platform linux/amd64 -t command-center:prod .
 docker save command-center:prod -o command-center-prod.tar
 ```
 
-Copier le `.tar` sur le NAS (File Station, ou `scp` vers `/volume1/docker/command-center/`),
+Copier le `.tar` sur le NAS (File Station, ou `scp` vers `/volumeX/docker/command-center/`),
 puis en SSH :
 
 ```bash
-sudo docker load -i /volume1/docker/command-center/command-center-prod.tar
+sudo docker load -i /volumeX/docker/command-center/command-center-prod.tar
 ```
 
 ⚠️ **Ne laissez jamais le NAS construire l'image.** Le compose garde un bloc `build:` pour le
@@ -115,7 +130,7 @@ entretenir une copie d'environnement qui divergerait de `.env.production`. La co
 documentée dans l'en-tête du compose marche telle quelle en SSH :
 
 ```bash
-cd /volume1/docker/command-center
+cd /volumeX/docker/command-center
 sudo docker compose --env-file .env.production -f docker-compose.prod.yml up -d
 ```
 
@@ -136,12 +151,44 @@ sudo docker compose --env-file .env.production -f docker-compose.prod.yml \
 
 Le seeder dit à l'écran ce qu'il a fait. **Retirer ensuite la ligne `ADMIN_PASSWORD`.**
 
-## 5. DNS et redirection de ports
+## 5. DNS — le CNAME chez le registrar
 
-- **DNS** : chez le registrar, un enregistrement `A` `dashboard.bstenger.fr` → IP publique
-  de la box (ou un `CNAME` vers le nom DDNS du NAS si l'IP est dynamique).
-- **Routeur** : rediriger **443 → NAS:443** et **80 → NAS:80** (le 80 ne sert qu'aux
-  challenges Let's Encrypt, §6 ; DSM n'y répond qu'une redirection nginx, aucun contenu).
+C'est la chaîne déjà en place pour les autres applications du NAS, et elle ne change pas
+ici : la zone est gérée chez le registrar (**Hostinger**), et l'adresse publique de la box
+est suivie par le **DDNS Freebox**, `<ddns>.freeboxos.fr`.
+
+Chez le registrar → zone DNS de `exemple.fr` → ajouter :
+
+| Type | Nom | Contenu | TTL |
+|---|---|---|---|
+| `CNAME` | `app` | `<ddns>.freeboxos.fr` | par défaut (14400) suffit |
+
+⚠️ **Un `CNAME` vers le DDNS, jamais un `A` vers l'IP publique.** L'IP de la box change ;
+c'est Free qui met à jour le `A` du nom DDNS, et le CNAME suit sans qu'on ait rien à faire.
+Un `A` figé rendrait le site injoignable au prochain changement d'IP, sans prévenir.
+
+⚠️ **Le TTL du CNAME ne gouverne PAS la réactivité au changement d'IP.** Un résolveur met en
+cache le CNAME (TTL du registrar) *et* le `A` du nom DDNS (TTL Free) séparément : c'est le
+second qui décide de la vitesse de bascule. Descendre le TTL du registrar à 60 ne gagne
+rien — inutile de s'en préoccuper.
+
+**Attendre que ça résolve avant de continuer.** Le §6 fait venir Let's Encrypt frapper à ce
+nom : sans propagation, la demande de certificat échoue avec une erreur qui accuse le DNS.
+
+```bash
+nslookup app.exemple.fr
+# doit rendre l'IP publique de la box (via le nom DDNS)
+```
+
+**Redirection de ports sur la Freebox** — **443 → NAS:443** et **80 → NAS:80**. C'est un
+geste qui se fait **une seule fois pour le NAS**, pas une fois par application : toutes
+entrent par le même 443 et sont triées par nom d'hôte au niveau du reverse proxy DSM. Si
+d'autres applications sont déjà exposées, il n'y a rien à toucher ici.
+
+⚠️ **Le port 80 reste ouvert en permanence** — il ne sert à aucun contenu (DSM n'y répond
+qu'une redirection nginx), uniquement aux challenges Let's Encrypt, **renouvellement
+automatique compris** (§6). Le fermer « pour faire propre » ne casse rien tout de suite : le
+certificat expire trois mois plus tard, en silence.
 
 ⚠️ **Rien d'autre.** Ni 5433 ni 8081 — ils n'existent pas en prod. Ni 8080 — lié à
 `127.0.0.1` sur le NAS, il ne répondrait de toute façon pas, et c'est voulu : en direct, les
@@ -149,19 +196,67 @@ cookies `secure` rendraient le login impossible en HTTP, et un client qui joint 
 contournerait le throttle en forgeant son `X-Forwarded-For`. Ni 5000/5001 — DSM ne s'expose
 pas parce qu'un tableau de bord s'expose.
 
+⚠️ **Cette application ne s'atteint pas en `http://<IP du NAS>:8080`, contrairement aux
+autres.** C'est le seul écart avec l'habitude, et il est délibéré : le compose publie
+`127.0.0.1:8080:8080`. Le reverse proxy la joint quand même — il tourne *sur* le NAS, donc
+`localhost` le mène à destination. Ne « corrigez » pas le compose en `8080:8080` parce que
+l'adresse LAN ne répond pas : ça ouvrirait le login en HTTP nu (où les cookies `secure`
+l'empêchent de fonctionner de toute façon) et ça retirerait la seule chose qui rend
+`TRUST_PROXY=uniquelocal` sûr — n'importe quelle machine du réseau pourrait alors forger son
+`X-Forwarded-For` et faire verrouiller le login de n'importe qui. Pour vérifier que
+l'application répond avant d'avoir un certificat, en SSH sur le NAS :
+`curl -I http://127.0.0.1:8080/login` → `200`.
+
 ## 6. Reverse proxy DSM et Let's Encrypt
 
-**Reverse proxy** : Panneau de configuration → Portail de connexion → Avancé → Proxy inversé
-→ Créer.
+**L'ordre des trois étapes est imposé, pas préféré** : le DNS (§5) doit résoudre pour que
+Let's Encrypt puisse valider, et la règle de reverse proxy doit exister pour apparaître dans
+la liste des services à certifier. DNS → proxy → certificat → association.
 
-| | Protocole | Nom d'hôte | Port |
-|---|---|---|---|
-| Source | HTTPS | `dashboard.bstenger.fr` | 443 |
-| Destination | HTTP | `localhost` | 8080 |
+### 6.1 La règle de proxy inversé
 
-Sur la source : cocher **HSTS** et activer **HTTP/2**.
+Panneau de configuration → **Portail de connexion** → **Avancé** → **Proxy inversé** →
+**Créer**.
 
-**En-têtes personnalisés** (onglet « En-tête personnalisé » de la règle → Créer) :
+| Champ | Valeur |
+|---|---|
+| Nom du proxy inversé | `command-center` |
+| **Source** — Protocole | `HTTPS` |
+| **Source** — Nom d'hôte | `app.exemple.fr` |
+| **Source** — Port | `443` |
+| Activer HSTS | ☑ **coché** |
+| Profil de contrôle d'accès | Non configuré |
+| **Destination** — Protocole | `HTTP` |
+| **Destination** — Nom d'hôte | `localhost` |
+| **Destination** — Port | **`8080`** |
+
+Dans l'onglet **Paramètres personnalisés** de la règle, activer **HTTP/2**.
+
+⚠️ **Le port de destination est `8080`, pas `3333`.** 3333 est le port du serveur de
+développement (`npm run dev`) ; l'image de production écoute sur 8080, et c'est ce que le
+compose publie.
+
+⚠️ **Destination en `HTTP`, et c'est correct.** Le TLS s'arrête au reverse proxy ; entre lui
+et le conteneur, tout reste sur le NAS, sur la boucle locale. Mettre `HTTPS` ici ferait
+échouer la connexion — le conteneur ne sert pas de TLS.
+
+⚠️ **HSTS est collant.** Une fois l'en-tête servi, le navigateur refusera tout `http://` sur
+ce nom pendant la durée du `max-age`, même si la règle est supprimée. C'est voulu ici, mais
+c'est un aller simple : il faut vider l'état HSTS du navigateur pour revenir en arrière.
+
+**Profil de contrôle d'accès : Non configuré** — l'application a son propre login, son
+throttle (CC-78) et son second facteur optionnel (CC-114). Un profil DSM (filtrage par IP)
+n'aurait de sens que devant une application qui n'authentifie pas elle-même.
+
+**Pas d'en-têtes WebSocket ici.** Le bouton « Créer → WebSocket » de l'onglet En-tête
+personnalisé (qui pose `Upgrade: $http_upgrade` et `Connection: $connection_upgrade`) est
+nécessaire aux applications qui tiennent une connexion permanente — Command Center n'en
+ouvre aucune : ni WebSocket, ni SSE, ni Transmit. Les poser ne casserait rien, mais ce
+serait du décor.
+
+### 6.2 En-têtes personnalisés — la ceinture, pas la bretelle
+
+Onglet **En-tête personnalisé** de la règle → **Créer** → **Proxy** :
 
 ```
 X-Real-IP           $remote_addr
@@ -169,16 +264,44 @@ X-Forwarded-For     $proxy_add_x_forwarded_for
 X-Forwarded-Proto   $scheme
 ```
 
-Ne comptez pas sur des valeurs par défaut de DSM : le throttle par IP et les cookies
-`secure` dépendent de ces en-têtes, et `TRUST_PROXY=uniquelocal` revient à croire ce que le
-proxy y écrit. Explicites, ils survivent aux mises à jour de DSM. La vérification n°7 de la
-recette (§8) prouve qu'ils fonctionnent.
+**Honnêteté sur ce point** : DSM 7 écrit déjà ces trois `proxy_set_header` dans la
+configuration nginx qu'il génère — c'est pour cette raison que les autres applications du
+NAS fonctionnent sans que personne n'ait rien ajouté. Les réécrire explicitement coûte trois
+lignes et les rend indépendants d'un changement de comportement à une mise à jour de DSM.
+Ce n'est **pas** ce qui prouve qu'ils arrivent : la vérification n°7 de la recette (§8) le
+prouve, en lisant l'IP réellement vue par le throttle.
 
-**Let's Encrypt** : Panneau de configuration → Sécurité → Certificat → Ajouter → « Obtenir un
-certificat auprès de Let's Encrypt », domaine `dashboard.bstenger.fr`. Puis Certificat →
-Paramètres : associer l'entrée `dashboard.bstenger.fr:443` (la règle de reverse proxy) à ce
-certificat. DSM renouvelle **automatiquement** tant que le port 80 reste redirigé — le fermer
-« pour faire propre » casserait le renouvellement trois mois plus tard, en silence.
+⚠️ **Le sélecteur Requête / Réponse compte.** Ces trois en-têtes vont vers le **backend** :
+posés côté « Réponse », ils partiraient au navigateur et ne serviraient à rien — sans erreur,
+sans avertissement.
+
+Pourquoi ça compte : `TRUST_PROXY=uniquelocal` revient à croire ce que le proxy écrit dans
+`X-Forwarded-For`, et le throttle par IP comme les cookies `secure` en dépendent.
+
+### 6.3 Le certificat Let's Encrypt
+
+Panneau de configuration → **Sécurité** → **Certificat** → **Ajouter** → « Ajouter un
+nouveau certificat » → « Procurez-vous un certificat auprès de Let's Encrypt » :
+
+| Champ | Valeur |
+|---|---|
+| Description | `command-center` |
+| Nom de domaine | `app.exemple.fr` |
+| Courrier électronique | `vous@exemple.fr` |
+
+⚠️ **Obtenir le certificat ne le branche pas** — et c'est l'étape qu'on oublie. Il faut
+ensuite **Certificat → Paramètres**, trouver la ligne `app.exemple.fr:443` (elle n'existe
+que parce que la règle du §6.1 a été créée avant) et y choisir le certificat
+`command-center`. Sans ce geste, le navigateur reçoit le certificat auto-signé de DSM
+et affiche un avertissement : on croit alors que Let's Encrypt a échoué, alors qu'il a
+réussi.
+
+Entre la création de la règle et l'association, l'hôte répond avec ce certificat par défaut.
+C'est transitoire et sans gravité.
+
+DSM renouvelle **automatiquement**, environ 30 jours avant l'expiration, par le port 80
+(§5). L'association survit au renouvellement ; elle ne survit pas à un certificat
+**recréé** à la main — dans ce cas, repasser par Certificat → Paramètres.
 
 ## 7. Sauvegarde — le cron `pg_dump` quotidien
 
@@ -197,7 +320,7 @@ planifiée → Script défini par l'utilisateur. Utilisateur **root**, quotidien
 # erreur déclenche l'e-mail du Planificateur (voir réglages de la tâche).
 set -eu
 
-DEST=/volume1/docker/backups/command-center
+DEST=/volumeX/docker/backups/command-center
 KEEP=30
 DB_USER=changez_moi        # le DB_USER de .env.production
 FICHIER="$DEST/dump-$(date +%Y-%m-%dT%H-%M-%S).sql"
@@ -238,10 +361,10 @@ du script sort en code non nul → e-mail. ⚠️ C'est le seul témoin : un cro
 silence — disque plein, conteneur arrêté — vaut zéro sauvegarde, précisément le jour où on en
 aurait besoin.
 
-⚠️ **`/volume1` est probablement le même volume que `pgdata`** : un disque qui lâche emporte
+⚠️ **`/volumeX` est probablement le même volume que `pgdata`** : un disque qui lâche emporte
 la base **et** ses dumps. Ce dossier doit donc partir ailleurs — second volume si le NAS en a
 un, sinon **Hyper Backup** (ou rsync vers une autre machine) planifié **après** l'heure du
-dump, couvrant `/volume1/docker/backups/`. La rétention du script (`KEEP=30`) ne purge que le
+dump, couvrant `/volumeX/docker/backups/`. La rétention du script (`KEEP=30`) ne purge que le
 dossier local ; la destination Hyper Backup est l'archive et a sa propre rétention — même
 règle que `BACKUP_KEEP` face à `BACKUP_MIRROR_DIR` sur le poste de dev.
 
@@ -266,7 +389,7 @@ revenue. Dix minutes, une seule fois — et la chaîne entière est prouvée, pa
 ## 8. Recette — une fois en ligne
 
 1. **Depuis l'extérieur du réseau** (partage de connexion mobile) :
-   `https://dashboard.bstenger.fr` répond, certificat valide (émis par Let's Encrypt).
+   `https://app.exemple.fr` répond, certificat valide (émis par Let's Encrypt).
    Contre-épreuve depuis le LAN : `http://<IP du NAS>:8080` ne répond **pas** — le port est
    lié à loopback.
 2. **Un compte invité réel** — créé dans l'écran d'administration, lien d'invitation (⚠️
@@ -279,7 +402,7 @@ revenue. Dix minutes, une seule fois — et la chaîne entière est prouvée, pa
 
    ```bash
    curl -s -o /dev/null -w '%{http_code}\n' \
-     -X POST https://dashboard.bstenger.fr/revision/cards \
+     -X POST https://app.exemple.fr/revision/cards \
      -H 'Content-Type: application/json' \
      -H 'Accept: application/json' \
      -H 'Cookie: adonis-session=<valeur>; XSRF-TOKEN=<valeur brute>' \
@@ -307,7 +430,7 @@ revenue. Dix minutes, une seule fois — et la chaîne entière est prouvée, pa
 4. **Les logs au démarrage** —
 
    ```bash
-   cd /volume1/docker/command-center
+   cd /volumeX/docker/command-center
    sudo docker compose --env-file .env.production -f docker-compose.prod.yml logs -f app
    ```
 
@@ -338,13 +461,23 @@ revenue. Dix minutes, une seule fois — et la chaîne entière est prouvée, pa
    throttle compte tous les visiteurs comme une seule IP — un attaquant verrouillerait le
    login de tout le monde. (Une connexion réussie efface la clé : faire la lecture avant de
    se connecter pour de bon.)
+8. **L'IP publique nue ne sert pas le portail DSM** — toujours depuis l'extérieur, ouvrir
+   `https://<IP publique de la box>`. Rediriger 443 vers le NAS a un effet de bord qui n'a
+   rien à voir avec les ports 5000/5001 : **nginx sert son hôte par défaut** à toute requête
+   HTTPS dont le nom d'hôte ne correspond à aucune règle de proxy inversé, et sur DSM cet
+   hôte par défaut est le **portail DSM**. Si l'écran de connexion apparaît, l'administration
+   du NAS est offerte à Internet — ce qui pèse plus lourd que tout ce que ce document
+   protège. Parades : profil de contrôle d'accès sur DSM (Portail de connexion → DSM),
+   blocage automatique, 2FA sur les comptes administrateurs, aucun compte nommé `admin`.
+   ⚠️ À vérifier **une fois pour le NAS**, pas par application — mais c'est ce déploiement
+   qui a ouvert le 443, donc c'est ici que ça se contrôle.
 
 ## 9. Mettre à jour l'application
 
 Reconstruire sur le PC (master à jour), refaire le transfert du §3, puis :
 
 ```bash
-cd /volume1/docker/command-center
+cd /volumeX/docker/command-center
 sudo docker compose --env-file .env.production -f docker-compose.prod.yml up -d
 ```
 
