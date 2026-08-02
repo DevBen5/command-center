@@ -21,6 +21,7 @@
     "#modules/*": "./app/modules/*.js",
     "#core/*": "./app/core/*.js",
     "#providers/*": "./providers/*.js",
+    "#commands/*": "./commands/*.js",
     "#tests/*": "./tests/*.js",
     "#start/*": "./start/*.js",
     "#config/*": "./config/*.js"
