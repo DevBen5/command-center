@@ -61,7 +61,8 @@ function contient(descripteur, taille, aiguille) {
  * ⚠️ **Ce n'est pas une restauration.** Cette vérification attrape la troncature — le
  * mode d'échec réel : disque plein, conteneur tué en plein dump, copie coupée vers le
  * NAS. Elle ne dira RIEN d'un dump syntaxiquement complet mais logiquement inutilisable.
- * La seule preuve qu'un dump se recharge reste de le recharger (CC-69, point ouvert).
+ * La seule preuve qu'un dump se recharge reste de le recharger — voir
+ * `docs/restauration-verifiee.md` (CC-153) pour la procédure et son dernier résultat.
  *
  * @returns `{ ok: true }`, ou `{ ok: false, raison }` qui nomme ce qui manque.
  */
