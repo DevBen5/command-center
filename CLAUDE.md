@@ -296,6 +296,12 @@ divergence entre `app` et `app_test` (point 2 des « choses qui cassent sans lev
 l'apparence, ni une phrase fausse dans un message de commit. Le fichier porte cette liste en tête :
 elle s'y maintient, pas ici.
 
+⚠️ **Toucher à `.github/workflows/` demande le scope `workflow` sur le jeton, et GitHub refuse le
+push sans lui** — API comprise, sans contournement côté client (`refusing to allow an OAuth App to
+create or update workflow …`). Le message nomme la cause, pas le remède : `gh auth refresh -h
+github.com -s workflow`. Le jeton de ce poste l'a depuis CC-149 ; une autre machine, ou une
+rotation de jeton, le reperdra — et le refus arrive **après** que tout le travail est écrit.
+
 **Les tests de composant sont co-localisés**, pas rassemblés dans `tests/`. Deux raisons : la
 feature reste une tranche verticale (le test suit son composant s'il déménage), et surtout un
 dossier `tests/frontend/` ne serait ramassé par **aucune** suite Japa — on fabriquerait au niveau
