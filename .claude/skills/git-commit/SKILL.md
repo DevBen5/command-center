@@ -105,7 +105,7 @@ Format : `<type>(<scope>): <sujet>`
 | `docs` | Documentation seule (README, CLAUDE.md, SKILL.md, commentaires) |
 | `test` | Tests seuls, non livrés avec la feature qu'ils couvrent |
 | `build` | Chaîne de build |
-| `ci` | Intégration continue — **rien ne l'utilise pour l'instant** (pas de `.github/` dans ce dépôt), conservé pour le jour où un workflow existera |
+| `ci` | Intégration continue — `.github/workflows/ci.yml`, la CI de garde (CC-149). Ce dépôt en a **une seule** : toute retouche de ses déclencheurs, de ses gates ou de son bloc `env:` passe par ce type |
 | `perf` | Performance |
 | `style` | Formatage seul (Prettier/ESLint — éviter de le commiter seul) |
 
