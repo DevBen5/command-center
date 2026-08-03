@@ -91,6 +91,9 @@ remplir chaque variable en suivant ses commentaires. Points qui changent sur le 
   de tout le monde. Sûr **uniquement** parce que 8080 est lié à `127.0.0.1` (personne d'autre
   que le NAS ne joint l'application en direct, donc personne ne forge son `X-Forwarded-For`).
 - `LIMITER_STORE=database` — **requise au boot**, le conteneur ne démarre pas sans elle.
+- `APP_URL=https://app.exemple.fr` — **requise au boot** (CC-136), le nom public derrière le
+  reverse proxy, pas une adresse interne. En dérive le `secure` des cookies de session et CSRF ;
+  laissée en HTTP sur un hôte non local, elle ne bloque rien mais l'avertit dans les logs.
 - `LLM_BASE_URL` / `IMMICH_*` — depuis le NAS, ce sont des adresses du **réseau local**
   (LM Studio sur le PC, la stack Immich). ⚠️ PC éteint = juge en repli **silencieux** : un
   invité qui révise ne verra aucune erreur, c'est le comportement voulu. À savoir avant de
