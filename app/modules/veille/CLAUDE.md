@@ -43,7 +43,7 @@ services/veille_bulk_service.ts          les 4 UPDATE groupés — array_append/
 services/veille_item_query.ts            la requête filtrée du flux — UN endroit, TROIS appelants
 ```
 
-⚠️ **Dix fichiers hors du module** : `start/routes.ts`, `providers/veille_provider.ts` (déclaré
+⚠️ **Onze fichiers hors du module** : `start/routes.ts`, `providers/veille_provider.ts` (déclaré
 dans `adonisrc.ts`, `environment: ['web']`), `config/veille.ts` (fuseau des collectes horaires),
 `config/immich.ts` et `config/youtube.ts` · `config/env_isolation.ts` (la garde qui éteint les deux
 clients en test, CC-101) · `start/env.ts` · `.env.example`,
@@ -51,7 +51,9 @@ clients en test, CC-101) · `start/env.ts` · `.env.example`,
 rien tout de suite : les capacités n'entrent pas au registre, plus personne ne peut les accorder, et
 le module devient inaccessible à tout non-admin. Oublier le dernier retire `/veille` de la barre
 latérale et fait atterrir sur « aucun accès » un compte qui n'aurait de droits que sur ce module —
-`navigation_registry.spec.ts` l'attrape.
+`navigation_registry.spec.ts` l'attrape. Depuis CC-137, `config/modules.ts` s'y ajoute : c'est lui
+qui décide si `veille` existe du tout sur l'installation, consulté par les quatre fichiers de
+registre ci-dessus avant qu'ils n'enregistrent quoi que ce soit pour ce module.
 
 ## Pas de seeder, et c'est une décision (CC-106)
 

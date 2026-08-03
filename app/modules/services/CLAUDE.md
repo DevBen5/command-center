@@ -11,9 +11,11 @@ destinations.ts                        l'entrée `/services` de la barre latéra
 
 ⚠️ **`destinations.ts` déclare `admin`, jamais une capacité**, et le module n'a toujours pas de
 `capabilities.ts` : une capacité pourrait être accordée par un rôle, donc depuis un écran — sur un
-module qui pilote Docker. Quatre fichiers hors du module : `start/routes.ts`, `start/navigation.ts`,
+module qui pilote Docker. Cinq fichiers hors du module : `start/routes.ts`, `start/navigation.ts`,
 et depuis CC-116 `config/docker.ts` et `start/env.ts` (`DOCKER_AVAILABLE`, reflétée dans
-`.env.example` et `.env.production.example`).
+`.env.example` et `.env.production.example`). Depuis CC-137, `config/modules.ts` : c'est lui qui
+décide si `services` existe du tout sur l'installation (indépendamment de `DOCKER_AVAILABLE`, qui ne
+gouverne que l'écran quand le module EST activé).
 
 ## Hors service sans Docker (CC-116)
 
