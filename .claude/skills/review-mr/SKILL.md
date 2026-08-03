@@ -7,9 +7,9 @@ description: |
   à la task YouTrack, politique de documentation.
   Enrichit le contexte via la task YouTrack (projet CC) et les `CLAUDE.md` des modules touchés.
   Produit un rapport soumis à validation AVANT tout post sur la PR.
-  Après un merge, relit la base de connaissances YouTrack EN ENTIER (articles `CC-A-*`, sommaire
-  `CC-A-1`) et corrige ce qui a cessé d'être vrai — synthèse avec pointeurs, jamais recréée,
-  rien d'ajouté sans pertinence.
+  Ne relit PAS la base de connaissances YouTrack (KB) après le merge — ce balayage complet vit
+  désormais dans le skill séparé `/kb-sync`, déclenché à la main, pour ne pas peser en tokens
+  sur chaque review.
   Trigger : `/review-mr <numéro>` ou `/review-mr` seul (review la PR de la branche courante).
 ---
 
@@ -282,33 +282,6 @@ d'où l'option [3]. *(Comportement documenté GitHub, non vérifié ici — aucu
 Il n'y a **pas de notification Discord** sur ce projet (c'est une étape du skill global, liée à
 une équipe et à un `discord.config.md` qui n'existe pas ici). Ne pas la reproduire.
 
----
-
-## Étape 7 — Passer la base de connaissances en revue, et l'adapter
-
-**Systématique après un merge** (option [3]), et dès que la PR change quelque chose que la KB
-décrit — même sans merge. La KB synthétise les `CLAUDE.md`, la mémoire et le backlog : une PR
-mergée qui la laisse intacte la fait **dériver en silence** — elle continue de décrire un dépôt
-qui n'existe plus, et c'est exactement la « doc qui peut mentir » contre laquelle l'étape 4 met
-en garde.
-
-1. **Balayer la KB en entier, pas seulement les articles « du sujet ».** Énumérer depuis le
-   sommaire — `CC-A-1`, l'article racine, liste tous les autres ; ne pas figer la liste ici,
-   elle grandit — puis `get_article` sur **chacun**. Un merge déborde souvent de son module :
-   CC-78 (auth) a périmé l'article Sécurité **et** l'article Backlog. Un `search_articles` par
-   mots-clés ne trouve que ce qu'on a pensé à chercher — il sert à naviguer, pas à garantir la
-   couverture.
-2. Pour chaque article, une seule question : **ce qu'il affirme est-il encore vrai après ce
-   merge ?** Un état de ticket, un « reste ouvert », un compte, une garantie décrite. Ce qui est
-   devenu faux se **corrige en place** (`update_article`) ; ce qui reste vrai ne se touche pas.
-3. **Adapter n'est pas grossir.** Mettre à jour, jamais recréer : la KB est une **synthèse avec
-   pointeurs** vers les `CLAUDE.md` et les tickets, pas une copie — si le `CLAUDE.md` d'un module
-   a gagné une section, l'article la résume en une phrase et pointe vers elle. Une PR ordinaire
-   se solde par **zéro ou quelques retouches** : n'ajouter du contenu que si le merge change
-   quelque chose que la KB doit dire — une garantie nouvelle, une frontière déplacée, une
-   décision actée. Jamais de section nouvelle « parce qu'il y a eu une PR ».
-4. **Si un sujet pertinent n'est couvert par aucun article** : ne pas en créer d'office — le
-   signaler dans le rapport et laisser le mainteneur décider. La granularité de la KB est un
-   choix éditorial, pas un automatisme.
-5. Mentionner dans le rapport **quels articles ont été relus, lesquels mis à jour, et pourquoi**
-   — pour que la trace de review porte aussi celle-là.
+⚠️ **Ce skill ne relit plus la KB YouTrack après le merge.** Ce balayage complet (les 13
+articles `CC-A-*`) vivait ici en étape 7 ; il a été détaché dans `/kb-sync` (2026-08-03),
+déclenché à la main — à lancer quand la KB a pris du retard, pas systématiquement à chaque PR.
