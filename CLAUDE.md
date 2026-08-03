@@ -31,7 +31,10 @@ sur-le-champ plutôt que laissé à passer pour une sauvegarde. À la **restaura
 
 - ⚠️ **Ce n'est pas une restauration à blanc.** Ça attrape la troncature — disque plein, conteneur
   tué en plein dump, copie coupée — pas un dump complet mais logiquement inutilisable. La seule
-  preuve qu'un dump se recharge reste de le recharger ; **ce point est encore ouvert** (CC-69).
+  preuve qu'un dump se recharge reste de le recharger : **prouvé sur le poste de dev par CC-153**
+  (22/22 tables identiques, base jetable, empreinte avant/après) — procédure rejouable dans
+  `docs/restauration-verifiee.md`. ⚠️ Ça ne couvre que la chaîne du poste ; la chaîne du NAS (cron
+  `pg_dump`, `docs/deploiement-nas.md` §7) reste, elle, non prouvée par un test réel.
 - Le marqueur de fin est cherché dans les **derniers 8 Ko**, pas en dernière ligne : `pg_dump`
   écrit un `\unrestrict <jeton>` **après** lui. Le chercher en fin de fichier rejetterait tous les
   vrais dumps.
