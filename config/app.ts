@@ -1,6 +1,6 @@
 import proxyAddr from 'proxy-addr'
 import env from '#start/env'
-import app from '@adonisjs/core/services/app'
+import appUrl from '#config/app_url'
 import { Secret } from '@adonisjs/core/helpers'
 import { defineConfig } from '@adonisjs/core/http'
 
@@ -46,7 +46,9 @@ export const http = defineConfig({
     path: '/',
     maxAge: '2h',
     httpOnly: true,
-    secure: app.inProduction,
+    // Dérivé d'APP_URL, pas de NODE_ENV (CC-136) — hérité par le cookie XSRF-TOKEN de Shield,
+    // qui ne définit pas ses propres `cookieOptions`. Même raison que config/session.ts.
+    secure: appUrl.secureCookies,
     sameSite: 'lax',
   },
 })

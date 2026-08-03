@@ -28,6 +28,32 @@ export default await Env.create(new URL('../', import.meta.url), {
 
   /*
   |----------------------------------------------------------
+  | URL publique de l'application — dérive le `secure` des cookies (CC-136)
+  |----------------------------------------------------------
+  |
+  | ⚠️ **Remplace la dérivation depuis `NODE_ENV`.** `config/session.ts` et `config/app.ts`
+  | posaient `secure: app.inProduction` : sur l'image Docker (`NODE_ENV=production` imposé par
+  | le `Dockerfile`), le cookie de session ET le cookie CSRF de Shield portaient donc `secure`
+  | même pour qui ouvre `http://localhost:8080` en local — le navigateur refuse d'émettre un
+  | cookie `secure` en HTTP nu, la session ne s'établit jamais, et `/login` se recharge sans le
+  | moindre message d'erreur. La vraie question n'est pas « suis-je en production ? » mais
+  | « suis-je servi en TLS ? », et les deux divergent dès qu'il existe plus d'une installation.
+  |
+  | ⚠️ **Obligatoire, et l'oubli va vers le refus** — même doctrine que `LIMITER_STORE` (CC-78) :
+  | un défaut permissif dégraderait en silence la connexion d'une installation déjà en ligne, et
+  | un cookie non-`secure` ne se remarque qu'en lisant l'onglet Application d'un navigateur. Une
+  | application qui refuse de démarrer se diagnostique en dix secondes.
+  |
+  | `format: 'url', tld: false` valide un schéma (`http:`/`https:`) et un hôte, sans exiger de
+  | domaine — `http://localhost:8080` et `http://192.168.1.50:8080` sont des valeurs légitimes.
+  | La dérivation elle-même (`secure`, et la détection d'un HTTP non local) vit dans
+  | `config/app_url.ts`, fonction pure pour rester testable sans dépendre du `.env` de la
+  | machine qui lance les tests.
+  */
+  APP_URL: Env.schema.string({ format: 'url', tld: false }),
+
+  /*
+  |----------------------------------------------------------
   | Fuseau des collectes de veille à heure fixe
   |----------------------------------------------------------
   |

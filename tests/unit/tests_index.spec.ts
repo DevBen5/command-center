@@ -57,6 +57,7 @@ const DOSSIERS_PARTAGES = ['tests/unit', 'tests/functional/modules']
  * plutôt qu'un fichier que plus aucun index ne réclame.
  */
 const SPECS_TRANSVERSES = [
+  'tests/unit/app_url.spec.ts', // dérivation du secure des cookies depuis APP_URL (CC-136)
   'tests/unit/capability_service.spec.ts', // le noyau des capacités
   'tests/unit/db_dumps.spec.ts', // la logique de sauvegarde de `scripts/lib/`
   'tests/unit/db_seeders.spec.ts', // la liste des seeders déclarés
