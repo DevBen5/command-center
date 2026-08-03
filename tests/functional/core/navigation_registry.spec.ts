@@ -4,6 +4,21 @@ import type { RouteJSON } from '@adonisjs/http-server/types'
 import capabilities from '#core/auth/capabilities/registry'
 import navigation from '#core/shared/navigation/registry'
 import { declarationOf } from '#core/auth/capabilities/route_declaration'
+import enabledModules, { KNOWN_MODULES, type ModuleName } from '#config/modules'
+
+/**
+ * ⚠️ **Relatif aux modules activés (CC-137), pas une liste en dur.** Avant ce lot, les
+ * quatre modules détachables étaient toujours présents ; ils sont maintenant conditionnés
+ * par `MODULES`. `.env.test` les active tous (`tests/unit/modules_config.spec.ts` le
+ * garantit), donc cette table décrit ce qu'un module enregistre **quand il est activé** —
+ * elle ne fait plus l'hypothèse qu'il l'est toujours.
+ */
+const DESTINATION_PAR_MODULE: Record<ModuleName, string> = {
+  services: 'services → /services',
+  agents: 'agents → /agents',
+  veille: 'veille → /veille',
+  leitner: 'revision → /revision',
+}
 
 /**
  * Le registre des destinations décide de **deux** choses : ce que montre la barre latérale, et
@@ -25,15 +40,22 @@ test.group('Core / registre des destinations', () => {
     // redirige vers la première destination ouvrable. Cette assertion est aussi le seul filet
     // contre un module oublié dans `start/navigation.ts` — l'oubli ne casse rien de visible, il
     // envoie sur « aucun accès » un compte qui a pourtant des droits.
+    //
+    // ⚠️ **Relatif à `enabledModules`, jamais un tableau littéral** (CC-137) : un module cité
+    // ici mais absent de `MODULES` ne serait de toute façon jamais enregistré par
+    // `start/navigation.ts`, donc un littéral figé mentirait dès que l'installation de test
+    // n'active plus tout. Ce que ce test garde, c'est l'ORDRE et la présence — pas l'hypothèse
+    // que tout est toujours activé.
+    const attendu = [
+      'accueil → /',
+      ...KNOWN_MODULES.filter((module) => enabledModules.has(module)).map(
+        (module) => DESTINATION_PAR_MODULE[module]
+      ),
+    ]
+
     assert.deepEqual(
       navigation.all().map((destination) => `${destination.key} → ${destination.href}`),
-      [
-        'accueil → /',
-        'services → /services',
-        'agents → /agents',
-        'veille → /veille',
-        'revision → /revision',
-      ]
+      attendu
     )
   })
 

@@ -1,4 +1,5 @@
 import type { ApplicationService } from '@adonisjs/core/types'
+import modules from '#config/modules'
 
 /**
  * Le point d'accroche de la **collecte automatique** des flux de veille.
@@ -16,11 +17,19 @@ import type { ApplicationService } from '@adonisjs/core/types'
  * ⚠️ Contrairement à Leitner, **aucun balayage au démarrage** : la collecte ne persiste aucun
  * statut « en cours », donc un redémarrage en pleine passe ne laisse rien de sale derrière lui.
  * La passe est idempotente (contrainte d'unicité sur `dedup_key`) et sera rejouée au tick suivant.
+ *
+ * ⚠️ **Module désactivable (CC-137)** : sans `veille` dans `MODULES`, `ready()` ne fait rien —
+ * la table `veille_sources` n'existe pas, et sans cette garde le provider tournait quand même,
+ * alignait Immich/YouTube et démarrait la boucle, qui aurait échoué à CHAQUE tick contre une
+ * table absente (constaté à la vérification manuelle du lot : la collecte spamme l'erreur
+ * `relation "veille_sources" does not exist` toutes les minutes, indéfiniment).
  */
 export default class VeilleProvider {
   constructor(protected app: ApplicationService) {}
 
   async ready() {
+    if (!modules.has('veille')) return
+
     const logger = await this.app.container.make('logger')
 
     /**
@@ -64,6 +73,8 @@ export default class VeilleProvider {
   }
 
   async shutdown() {
+    if (!modules.has('veille')) return
+
     const { stopScheduler } = await import('#modules/veille/services/veille_scheduler')
     stopScheduler()
   }

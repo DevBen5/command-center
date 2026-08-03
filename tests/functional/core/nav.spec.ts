@@ -2,6 +2,7 @@ import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { makeCard } from '#tests/helpers/leitner'
 import { createAdmin, createUserWith } from '#tests/helpers/users'
+import enabledModules from '#config/modules'
 
 // La prop partagée `nav` alimente les pastilles de la barre latérale (AppLayout.vue).
 // Le rendu du badge n'est pas testable côté serveur, mais la donnée dont il dépend l'est :
@@ -93,5 +94,51 @@ test.group('Core / stats de navigation', (group) => {
 
     assert.isFalse(props.user.isAdmin)
     assert.sameMembers(props.user.capabilities, ['dashboard.view', 'leitner.view'])
+  })
+})
+
+/**
+ * Un module désactivé (CC-137), pour un ADMINISTRATEUR.
+ *
+ * ⚠️ **C'est le cas que `NavStatsService` aurait manqué sans `modules.has(...)`** : un admin
+ * passe outre les capacités (`viewer.isAdmin` court-circuite `can(...)`), donc sans cette
+ * garde ses quatre sections auraient continué d'interroger `services`/`agents`/`veille_items`/
+ * `leitner_cards` même module désactivé — une table absente sur une vraie installation
+ * `MODULES` réduite, une requête qui réussit ici parce que `.env.test` garde les tables.
+ *
+ * Le chemin « route absente » (404) n'est pas testable dans ce process — `start/routes.ts`
+ * lit `MODULES` une seule fois, au démarrage — donc cette suite ne mute que le singleton
+ * `enabledModules`, comme `services_offline.spec.ts` le fait pour `dockerConfig.disponible`.
+ */
+test.group('Core / stats de navigation — module désactivé (CC-137)', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+  group.each.setup(() => {
+    enabledModules.delete('services')
+    enabledModules.delete('agents')
+    enabledModules.delete('veille')
+    enabledModules.delete('leitner')
+    return () => {
+      enabledModules.add('services')
+      enabledModules.add('agents')
+      enabledModules.add('veille')
+      enabledModules.add('leitner')
+    }
+  })
+
+  test('un administrateur ne reçoit aucune section des modules désactivés', async ({
+    client,
+    assert,
+  }) => {
+    const admin = await createAdmin()
+
+    const response = await client.get('/').loginAs(admin).withInertia()
+
+    response.assertStatus(200)
+    const props = response.inertiaProps as Record<string, any>
+
+    assert.isNull(props.nav.services)
+    assert.isNull(props.nav.agents)
+    assert.isNull(props.nav.veille)
+    assert.isNull(props.nav.leitner)
   })
 })

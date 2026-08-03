@@ -25,13 +25,29 @@
 
 import registry from '#core/shared/navigation/registry'
 import { DASHBOARD_DESTINATIONS } from '#core/dashboard/destinations'
-import { SERVICES_DESTINATIONS } from '#modules/services/destinations'
-import { AGENTS_DESTINATIONS } from '#modules/agents/destinations'
-import { VEILLE_DESTINATIONS } from '#modules/veille/destinations'
-import { LEITNER_DESTINATIONS } from '#modules/leitner/destinations'
+import modules from '#config/modules'
 
 registry.register('dashboard', DASHBOARD_DESTINATIONS)
-registry.register('services', SERVICES_DESTINATIONS)
-registry.register('agents', AGENTS_DESTINATIONS)
-registry.register('veille', VEILLE_DESTINATIONS)
-registry.register('leitner', LEITNER_DESTINATIONS)
+
+// ⚠️ Un `await import()` par module, conditionné par `MODULES` (CC-137) : un module
+// désactivé n'enregistre pas sa destination, exactement comme s'il avait été oublié ici
+// avant ce lot — `navigation_registry.spec.ts` continue de l'attraper.
+if (modules.has('services')) {
+  const { SERVICES_DESTINATIONS } = await import('#modules/services/destinations')
+  registry.register('services', SERVICES_DESTINATIONS)
+}
+
+if (modules.has('agents')) {
+  const { AGENTS_DESTINATIONS } = await import('#modules/agents/destinations')
+  registry.register('agents', AGENTS_DESTINATIONS)
+}
+
+if (modules.has('veille')) {
+  const { VEILLE_DESTINATIONS } = await import('#modules/veille/destinations')
+  registry.register('veille', VEILLE_DESTINATIONS)
+}
+
+if (modules.has('leitner')) {
+  const { LEITNER_DESTINATIONS } = await import('#modules/leitner/destinations')
+  registry.register('leitner', LEITNER_DESTINATIONS)
+}

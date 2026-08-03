@@ -6,6 +6,7 @@ import VeilleItem from '#modules/veille/models/veille_item'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import { joinProgress, whereDue } from '#modules/leitner/services/leitner_progress'
 import { capabilitiesFor } from '#core/auth/services/capability_service'
+import modules from '#config/modules'
 
 /**
  * Le tableau de bord : un résumé par module, **réduit à ce que le lecteur a le droit de voir**.
@@ -36,11 +37,16 @@ export default class HomeController {
 
     // ⚠️ Les requêtes elles-mêmes sont conditionnées, pas seulement leur publication : ce qu'on
     // n'a pas le droit de voir n'est pas chargé du tout.
+    //
+    // ⚠️ `modules.has(...)` en tête de chaque condition (CC-137) : un administrateur passe
+    // outre les capacités, mais pas l'existence du module. Sans cette garde, un module
+    // désactivé (donc sans sa migration jouée) ferait échouer la requête sur une table
+    // absente — un module qu'on peut *voir* désactivé mais qui plante encore l'accueil.
     const [services, agents, veille, leitner] = await Promise.all([
-      user.isAdmin ? this.#services() : null,
-      user.isAdmin ? this.#agents() : null,
-      can('veille.view') ? this.#veille() : null,
-      can('leitner.view') ? this.#leitner(user.id, today) : null,
+      modules.has('services') && user.isAdmin ? this.#services() : null,
+      modules.has('agents') && user.isAdmin ? this.#agents() : null,
+      modules.has('veille') && can('veille.view') ? this.#veille() : null,
+      modules.has('leitner') && can('leitner.view') ? this.#leitner(user.id, today) : null,
     ])
 
     return inertia.render('core/dashboard/home', {

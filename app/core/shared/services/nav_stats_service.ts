@@ -5,6 +5,7 @@ import Agent from '#modules/agents/models/agent'
 import VeilleItem from '#modules/veille/models/veille_item'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import { joinProgress, whereDue } from '#modules/leitner/services/leitner_progress'
+import modules from '#config/modules'
 
 /**
  * ⚠️ Chaque section vaut `null` quand celui qui regarde n'y a pas accès — à distinguer d'un
@@ -49,8 +50,13 @@ export default class NavStatsService {
     const can = (capability: string) => viewer.isAdmin || viewer.capabilities.has(capability)
 
     // Services et Agents sont réservés à `is_admin` : aucune capacité n'y donne accès.
+    //
+    // ⚠️ `modules.has(...)` en tête de chaque condition (CC-137) : un module désactivé n'a
+    // pas sa migration jouée, donc pas sa table. Sans cette garde, un administrateur (qui
+    // passe outre les capacités) ferait échouer la requête sur une table absente à chaque
+    // chargement de page.
     const [services, agents, veille, leitner] = await Promise.all([
-      viewer.isAdmin
+      modules.has('services') && viewer.isAdmin
         ? Promise.all([
             Service.query()
               .count('* as total')
@@ -58,7 +64,7 @@ export default class NavStatsService {
             countWhere(Service, 'status', 'down'),
           ]).then(([total, down]) => ({ total, down }))
         : null,
-      viewer.isAdmin
+      modules.has('agents') && viewer.isAdmin
         ? Promise.all([
             Agent.query()
               .count('* as total')
@@ -66,7 +72,7 @@ export default class NavStatsService {
             countWhere(Agent, 'status', 'failed'),
           ]).then(([total, failed]) => ({ total, failed }))
         : null,
-      can('veille.view')
+      modules.has('veille') && can('veille.view')
         ? VeilleItem.query()
             .where('reading_queue', true)
             .count('* as total')
@@ -75,7 +81,7 @@ export default class NavStatsService {
       // ⚠️ Le compteur suit exactement la file de `/revision` — donc la progression de
       // ce lecteur, et les cartes qu'il n'a jamais notées (CC-119). Un compte neuf voit
       // ici le paquet entier, ce qui est bien ce que l'écran lui montrera.
-      can('leitner.view') ? this.dueForViewer(viewer.id, today) : null,
+      modules.has('leitner') && can('leitner.view') ? this.dueForViewer(viewer.id, today) : null,
     ])
 
     return { services, agents, veille, leitner, host: os.hostname() }

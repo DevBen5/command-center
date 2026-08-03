@@ -54,6 +54,18 @@ export default await Env.create(new URL('../', import.meta.url), {
 
   /*
   |----------------------------------------------------------
+  | Modules activés sur cette installation (CC-137)
+  |----------------------------------------------------------
+  |
+  | ⚠️ **Vide ou absente = noyau seul**, même doctrine que les routes (l'oubli va vers le
+  | refus). Liste séparée par des virgules parmi `services`, `agents`, `veille`, `leitner`
+  | (`config/modules.ts`, qui seul connaît le nom des modules). Un nom inconnu fait échouer
+  | le démarrage plutôt que d'être ignoré en silence.
+  */
+  MODULES: Env.schema.string.optional(),
+
+  /*
+  |----------------------------------------------------------
   | Fuseau des collectes de veille à heure fixe
   |----------------------------------------------------------
   |

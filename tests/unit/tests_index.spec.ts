@@ -63,6 +63,7 @@ const SPECS_TRANSVERSES = [
   'tests/unit/db_seeders.spec.ts', // la liste des seeders déclarés
   'tests/unit/declared_capability_middleware.spec.ts', // le middleware, pas un module
   'tests/unit/env_isolation.spec.ts', // Immich, YouTube ET le LLM de Leitner (CC-101)
+  'tests/unit/modules_config.spec.ts', // MODULES, config/modules.ts (CC-137)
   'tests/unit/tests_index.spec.ts', // ce fichier
   'tests/unit/totp.spec.ts', // le second facteur du noyau (CC-114)
   'tests/unit/user_seeder.spec.ts', // le premier compte (CC-75)
