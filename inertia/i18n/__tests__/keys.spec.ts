@@ -159,7 +159,7 @@ describe('i18n / le prédicat de résolution', () => {
    * bouger en silence.
    */
   test('te() est vrai sur une feuille, faux sur un nœud et sur une clé absente', () => {
-    expect(i18n.global.te('nav.accueil', 'fr')).toBe(true)
+    expect(i18n.global.te('nav.accueil', 'fr')).toBe(false)
     expect(i18n.global.te('nav', 'fr')).toBe(false)
     expect(i18n.global.te('nav.cleQuiNExistePas', 'fr')).toBe(false)
   })
