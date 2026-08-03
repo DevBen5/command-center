@@ -31,6 +31,25 @@ protège un contenu qui n'appartient à aucune base en particulier.
 | `leitner-linux-expert.json` | Linux · Commandes — expert | 44 |
 | `leitner-owasp-top10.json` | Sécurité · OWASP | 27 |
 | `leitner-breadcrumb.json` | Web Development · UX | 1 |
+| `leitner-command-center-socle-architecture.json` | Le socle technique · AdonisJS et la base / Inertia et Vue / Les deux runners de test / Les mots qui reviennent — et L'architecture de ce dépôt · La tranche verticale / Les registres / Ce qui casse sans lever d'erreur | 56 |
+
+⚠️ **Ce tableau est tenu à la main, et rien ne le vérifie.** Aucun test ne balaie ce dossier : un
+fichier ajouté sans sa ligne, ou une ligne dont le compte a cessé d'être juste, passe tous les
+gates. C'est exactement le mode d'échec que `tests/unit/tests_index.spec.ts` a fermé pour les
+`TESTS.md` des modules (CC-112) ; ici il reste ouvert, et il le restera tant que le dossier tient en
+une poignée de fichiers.
+
+### Le paquet « Command Center »
+
+`leitner-command-center-socle-architecture.json` est le seul paquet qui parle **de ce dépôt
+lui-même** : le vocabulaire et les pièges qu'on rencontre en y développant. Il est écrit pour être
+révisé par quelqu'un qui travaille ici, pas comme une introduction générale — chaque carte de piège
+renvoie à une décision réelle du projet.
+
+⚠️ **Ses versos sont en prose, sans blocs de code, et c'est délibéré** : le Markdown des cartes
+n'est pas rendu aujourd'hui (CC-133), donc des backticks s'afficheraient tels quels. Quand CC-133
+sera livré, les versos pourront être enrichis — l'import n'écrasant rien, une version corrigée du
+fichier ne créera pas de doublons.
 
 ## Le format, en trois champs
 
@@ -40,11 +59,18 @@ appartient toujours à une catégorie, et un fichier qui n'en déclare qu'un est
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "categories": [{ "name": "Linux", "themes": ["Commandes — débutant"] }],
   "cards": [{ "category": "Linux", "theme": "Commandes — débutant", "front": "…", "back": "…" }]
 }
 ```
+
+⚠️ **`version` vaut `2` depuis CC-119 — les quatre premiers paquets déclarent encore `1`, et c'est
+sans conséquence ici.** Ce champ ne décrit qu'une chose : le sens de `box`, `nextReview` et
+`reviews`, qui sont devenus **la progression de celui qui exporte** plutôt que celle du paquet. Les
+fichiers de ce dossier n'en portent aucune, donc les deux versions s'y valent. Un paquet écrit
+aujourd'hui déclare néanmoins `2`, la version courante ; `1` reste accepté à l'import pour que les
+sauvegardes antérieures restent lisibles.
 
 La taxonomie est désignée **par son nom, jamais par un id** : le fichier est autoportant, et les
 catégories/thèmes manquants sont créés à l'import. Le contrat complet vit dans

@@ -1,0 +1,362 @@
+{
+  "version": 2,
+  "categories": [
+    {
+      "name": "Le socle technique",
+      "themes": [
+        "AdonisJS et la base",
+        "Inertia et Vue",
+        "Les deux runners de test",
+        "Les mots qui reviennent"
+      ]
+    },
+    {
+      "name": "L'architecture de ce dépôt",
+      "themes": ["La tranche verticale", "Les registres", "Ce qui casse sans lever d'erreur"]
+    }
+  ],
+  "cards": [
+    {
+      "category": "Le socle technique",
+      "theme": "AdonisJS et la base",
+      "front": "AdonisJS — quel rôle exact dans ce projet ?",
+      "back": "Le framework serveur. Il tient les routes, les contrôleurs, la connexion à la base, la session et les commandes. Tout ce qui répond à une requête HTTP avant que Vue n'affiche quoi que ce soit."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "AdonisJS et la base",
+      "front": "Qu'est-ce que Lucid ?",
+      "back": "L'ORM d'AdonisJS — la couche qui transforme une ligne de table en objet JavaScript. On écrit User.findBy('email', …) au lieu d'un SELECT à la main. ORM veut dire « mapping objet-relationnel »."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "AdonisJS et la base",
+      "front": "Une migration décrit d'abord quoi — la structure ou les données ?",
+      "back": "La structure : créer une table, ajouter une colonne, poser une contrainte. Déplacer des données existantes est un cas particulier, plus rare et beaucoup plus risqué — c'est ce qu'a fait CC-119 en sortant la progression des cartes."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "AdonisJS et la base",
+      "front": "Pourquoi une suite de tests verte ne dit-elle RIEN du schéma de la base de dev ?",
+      "back": "Parce que npm test migre app_test à neuf puis la déroule : il ne touche jamais la base app. Les deux peuvent diverger indéfiniment, et l'écart n'apparaît qu'au premier appel de la colonne manquante. node ace migration:status tranche en une seconde."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "AdonisJS et la base",
+      "front": "Une migration jamais jouée, dont l'appel vit dans une boucle de fond : pourquoi est-ce le pire cas ?",
+      "back": "L'erreur part dans une colonne last_error que personne ne consulte spontanément, et on croit à une panne du service distant. C'est arrivé sur CC-63 : le message accusait Immich, la cause était une colonne deleted_at jamais créée."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "AdonisJS et la base",
+      "front": "Pourquoi un seeder est-il dangereux dans CE dépôt ?",
+      "back": "Parce que tout seeder déclaré dans config/database.ts rejoue à CHAQUE db:seed — donc à chaque rotation du mot de passe propriétaire. Celui de veille replantait ainsi 7 faux articles dans la veille réelle, indiscernables du collecté et comptés dans les indicateurs de l'écran."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "AdonisJS et la base",
+      "front": "Que fait migration:rollback --batch=0 ?",
+      "back": "Il déroule TOUT le schéma, il ne revient pas d'un cran. Sans argument, la commande annule le dernier lot — c'est presque toujours ce qu'on veut. Le --batch=0 a vidé la base de dev une fois ; sauvegarde avant d'y toucher."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "AdonisJS et la base",
+      "front": "Qu'est-ce qu'une commande « ace » ?",
+      "back": "Une commande qu'on lance dans le terminal de la machine, pas une route HTTP : node ace migration:run, node ace auth:reset-account. Elle exige un accès que le réseau ne donne pas — c'est précisément ce qui fait sa sûreté."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "AdonisJS et la base",
+      "front": "Où doivent vivre les commandes ace, et que se passe-t-il si on se trompe de dossier ?",
+      "back": "Dans commands/ à la racine — le framework impose ce chemin et n'en balaie aucun autre. Une commande posée dans un dossier de module n'est pas refusée : elle n'apparaît simplement jamais dans node ace list. Aucune erreur, aucun message."
+    },
+
+    {
+      "category": "Le socle technique",
+      "theme": "Inertia et Vue",
+      "front": "Inertia — qu'est-ce qu'il t'évite d'écrire, exactement ?",
+      "back": "Une API. Sans lui il faudrait des routes JSON côté serveur et des appels fetch côté client. Avec lui, le contrôleur rend une page et lui passe ses données en props directement ; Vue les reçoit comme si elles étaient déjà là."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "Inertia et Vue",
+      "front": "« Inertia sert de front à l'application » — qu'est-ce que cette formulation rate ?",
+      "back": "Le front, c'est Vue. Inertia est la colle entre le serveur et Vue : il supprime la couche API qui existerait sinon entre les deux. C'est un protocole, pas une bibliothèque d'interface."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "Inertia et Vue",
+      "front": "Comment le nom d'une page Inertia est-il déterminé ?",
+      "back": "Il dérive du chemin du fichier, résolu à la main dans inertia/app/app.ts. inertia.render('modules/veille/index') correspond à app/modules/veille/pages/index.vue. Un écart échoue au runtime, pas au build."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "Inertia et Vue",
+      "front": "Qu'est-ce qu'une « prop » ?",
+      "back": "Une donnée qu'un composant reçoit de l'extérieur — du serveur via Inertia, ou d'un composant parent. C'est son seul canal d'entrée : un composant ne va pas chercher ses données, on les lui donne."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "Inertia et Vue",
+      "front": "Vue — quelle différence entre un composant et une page ?",
+      "back": "Un composant est un morceau d'interface réutilisable dans son propre fichier .vue, avec son gabarit, sa logique et son style ensemble. Une page est le composant racine d'un écran, que le serveur nomme : elle en assemble d'autres."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "Inertia et Vue",
+      "front": "Tailwind « utility-first » — qu'est-ce que ça change concrètement ?",
+      "back": "On ne fabrique pas de classes CSS nommées : on compose des classes courtes directement dans le gabarit. Et aucune couleur en dur — uniquement les jetons @theme déclarés dans inertia/css/app.css."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "Inertia et Vue",
+      "front": "Pourquoi le CSS ne se prouve-t-il qu'au build ?",
+      "back": "Une classe Tailwind mal formée ne génère aucune règle et ne lève rien. Le lint, le typecheck et toute la suite de tests peuvent être verts sur une classe qui ne produit rien. Seul npm run build lit le CSS réellement produit."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "Inertia et Vue",
+      "front": "Qu'est-ce qu'une SPA ?",
+      "back": "Single Page Application : une application où naviguer ne recharge pas la page entière, seul le contenu change. C'est ce qu'Inertia produit, sans qu'on ait à écrire le routage côté client."
+    },
+
+    {
+      "category": "Le socle technique",
+      "theme": "Les deux runners de test",
+      "front": "npm test lance deux suites. Lesquelles ? (Attention : le lint n'en fait pas partie.)",
+      "back": "Japa, puis Vitest. Le lint est un gate séparé — npm run lint. Il y a en tout quatre gates distincts : lint, typecheck, test, build."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "Les deux runners de test",
+      "front": "Que couvre Japa, et où vivent ses fichiers ?",
+      "back": "Le serveur : routes, services, base, contrats HTTP. Ses fichiers vivent dans tests/unit/ et tests/functional/."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "Les deux runners de test",
+      "front": "Que couvre Vitest, et où vivent ses fichiers ?",
+      "back": "Les composants Vue. Ses fichiers sont co-localisés — à côté du .vue qu'ils testent, dans un dossier __tests__/ — et non rassemblés dans tests/."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "Les deux runners de test",
+      "front": "Pourquoi les tests de composant sont-ils co-localisés plutôt que rassemblés ?",
+      "back": "Deux raisons. La feature reste une tranche verticale : le test suit son composant s'il déménage. Et surtout, un dossier tests/frontend/ ne serait ramassé par aucune suite — on fabriquerait au niveau du runner le faux-négatif silencieux que ces tests existent pour supprimer."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "Les deux runners de test",
+      "front": "Qu'est-ce que jsdom, et que ne fait-il pas ?",
+      "back": "Un faux navigateur en mémoire, utilisé par Vitest pour monter des composants. Il ne fait AUCUN layout : ni CSS, ni couleur, ni position. Il ne charge non plus aucune ressource externe."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "Les deux runners de test",
+      "front": "« Les tests ne voient pas le navigateur » — quels DEUX autres angles morts cette phrase rate-t-elle ?",
+      "back": "npm test ne touche jamais la base de dev : app et app_test peuvent diverger indéfiniment. Et aucun gate ne lit le CSS produit. Le navigateur n'est qu'un des trois angles morts."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "Les deux runners de test",
+      "front": "Quand faut-il écrire un test de composant, et quand faut-il s'en abstenir ?",
+      "back": "Quand le composant porte de la LOGIQUE : un filtrage, un état actif, une garde avant requête, un raccourci clavier. Jamais pour du décor — un composant qui ne fait que disposer des blocs ne dirait rien que la relecture ne dit mieux."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "Les deux runners de test",
+      "front": "Quelle différence entre un test unitaire et un test fonctionnel ?",
+      "back": "L'unitaire prend une fonction isolée et vérifie ce qu'elle rend. Le fonctionnel traverse l'application comme le ferait un vrai client : il appelle une route, puis vérifie la réponse ET l'état de la base."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "Les deux runners de test",
+      "front": "Pourquoi les POST de test doivent-ils porter un jeton CSRF ?",
+      "back": "Parce que la protection CSRF est active dans l'application. Un POST sans jeton est rejeté — dans le test exactement comme dans le navigateur. C'est le test qui doit se conformer, pas la protection qui doit se désactiver."
+    },
+
+    {
+      "category": "Le socle technique",
+      "theme": "Les mots qui reviennent",
+      "front": "Qu'est-ce qu'une TAXONOMIE ?",
+      "back": "Un système de classement hiérarchique, où chaque élément se range à une seule place. Le mot vient de la biologie — règne, embranchement, classe, ordre — et désigne aujourd'hui toute classification à niveaux."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "Les mots qui reviennent",
+      "front": "La taxonomie du module Leitner — quelle est sa forme exacte ?",
+      "back": "Deux niveaux : catégorie, puis thème. Une carte appartient à un thème, un thème à une catégorie. Le classement va toujours par paire — une carte non classée n'a ni l'un ni l'autre, jamais l'un sans l'autre."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "Les mots qui reviennent",
+      "front": "Que veut dire « idempotent » ?",
+      "back": "Se dit d'une opération qu'on peut rejouer autant de fois qu'on veut sans changer le résultat. L'import Leitner l'est : il n'ajoute que ce qui manque, donc réimporter le même fichier ne duplique rien."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "Les mots qui reviennent",
+      "front": "Que veut dire « l'oubli va vers le refus » ?",
+      "back": "Qu'un oubli produit une fermeture, jamais une ouverture. Une route sans condition d'accès déclarée répond 403 ; une capacité inconnue est refusée. C'est le contraire d'un modèle où il faudrait penser à interdire chaque chose."
+    },
+    {
+      "category": "Le socle technique",
+      "theme": "Les mots qui reviennent",
+      "front": "Qu'est-ce qu'un « gate » ?",
+      "back": "Une vérification qui doit passer avant d'aller plus loin : lint, typecheck, test, build. Un gate rouge bloque. Ce qui coûte cher, ce n'est pas un gate rouge — c'est ce qu'aucun gate ne voit."
+    },
+
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "La tranche verticale",
+      "front": "Que veut dire « architecture feature-based » dans ce dépôt ?",
+      "back": "Chaque feature est une tranche verticale complète : ses contrôleurs, modèles, migrations, services, validateurs et pages vivent dans SON dossier. Les dossiers AdonisJS par défaut — app/models/, app/controllers/ — n'existent plus."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "La tranche verticale",
+      "front": "Que désignent les alias #core/* et #modules/* ?",
+      "back": "Des raccourcis d'import déclarés dans package.json. #core est ce qui est transverse — auth, dashboard, i18n, réglages. #modules sont les features : services, agents, veille, leitner."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "La tranche verticale",
+      "front": "Pourquoi ne faut-il pas utiliser node ace make:* tel quel ?",
+      "back": "Parce que ces commandes génèrent aux chemins par défaut et recréeraient l'ancienne arborescence. On crée les fichiers directement dans le module. Une commande ace est la seule exception : son chemin par défaut est le bon, et le seul possible."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "La tranche verticale",
+      "front": "Quelles sont les DEUX exceptions au découpage par feature, et pourquoi ?",
+      "back": "providers/ et commands/, tous deux à la racine, pour la même raison : le framework impose ces chemins et n'en balaie aucun autre. Ce ne sont pas des entorses mais des contraintes structurelles — ils sont chargés avant toute notion de module."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "La tranche verticale",
+      "front": "Où vivent les traductions d'un module ?",
+      "back": "Dans le module, sous i18n/<locale>.json. Seul le châssis — barre, palette, connexion — reste dans inertia/i18n/. Au démarrage les fichiers des modules sont ramassés et rangés sous un namespace égal au nom du dossier du module."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "La tranche verticale",
+      "front": "Que se passe-t-il si deux modules déclarent le même namespace i18n ?",
+      "back": "Ça lève au démarrage. Jamais d'écrasement silencieux — c'est un choix : une collision qui passerait inaperçue ferait disparaître les libellés d'un module sans que rien ne l'indique."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "La tranche verticale",
+      "front": "Une clé de traduction qui n'existe pas — que voit-on à l'écran ?",
+      "back": "La clé elle-même, en texte brut. Visible, donc pas silencieux — mais encore faut-il ouvrir la page. D'où le test qui extrait les clés de tous les .vue du dépôt et exige que chacune existe."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "La tranche verticale",
+      "front": "Pourquoi la logique pure est-elle systématiquement sortie des composants Vue ?",
+      "back": "Parce que ce qui reste dans un composant n'est atteignable par aucun exécuteur de test. C'est la raison de messages.ts pour l'i18n, de breadcrumb.ts pour le fil d'Ariane, de dumps.js pour les sauvegardes : séparés du reste pour être testables."
+    },
+
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "Les registres",
+      "front": "Qu'est-ce qu'une CAPACITÉ ?",
+      "back": "Un droit nommé — veille.view, leitner.review — qu'un rôle accorde à un compte. Chaque route déclare la capacité qu'elle exige, et le middleware refuse si le compte ne la porte pas."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "Les registres",
+      "front": "Une route neuve sans condition d'accès déclarée répond 403. Pourquoi est-ce le BON défaut ? (Ce n'est pas une question de message d'erreur.)",
+      "back": "Parce que l'oubli va vers le refus, jamais vers l'ouverture. Une route qu'on a oublié de sécuriser est une route que PERSONNE n'a sécurisée : l'ouvrir serait le pire résultat possible. Le 403 déroute sur une route qu'on vient d'écrire, mais c'est le sens voulu."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "Les registres",
+      "front": "Pourquoi n'existe-t-il aucune capacité « tout » ou « * » ?",
+      "back": "Parce que l'accès total est le booléen is_admin, jamais une liste qu'il faudrait tenir à jour à chaque ajout. C'est ce qui rend sûres les routes que personne n'a encore écrites : une capacité inconnue tombe dans le refus sans qu'aucune ligne ne l'ait interdite."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "Les registres",
+      "front": "Masquer un bouton dans l'interface, est-ce un droit ?",
+      "back": "Non. Une route est un contrat public : elle répond que le bouton soit affiché ou non, et un appel direct muni d'un cookie de session valide n'a que faire du rendu Vue. Le middleware ferme ; le masquage évite seulement de proposer une action qui échouerait. Les deux, jamais l'un sans l'autre."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "Les registres",
+      "front": "Qu'est-ce qu'une DESTINATION ?",
+      "back": "La porte d'entrée d'un module — l'écran vers lequel on envoie quelqu'un qui n'a rien demandé. Le registre en tire trois choses : les entrées de la barre latérale, la page d'atterrissage après connexion, et la racine du fil d'Ariane."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "Les registres",
+      "front": "Pourquoi la racine du fil d'Ariane n'est-elle jamais « / » ?",
+      "back": "Parce que / exige la capacité dashboard.view. Un lien codé en dur là répondrait 403 aux comptes qui ne l'ont pas — et c'est le seul élément cliquable de la barre du haut. La racine est la première destination du registre, donc la même que l'atterrissage, par construction."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "Les registres",
+      "front": "Un module oublié dans le registre de navigation : que se passe-t-il ?",
+      "back": "Son entrée disparaît de la barre, et un compte qui n'aurait de droits QUE sur lui atterrit sur « aucun accès » alors qu'il en a. L'oubli va bien vers le refus, mais ici il ment : il refuse quelqu'un qui avait le droit."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "Les registres",
+      "front": "Comment un refus doit-il être renvoyé, et pourquoi cette forme précisément ?",
+      "back": "En LEVANT une exception, jamais en écrivant la réponse à la main. Les pages d'erreur ne sont consultées que par le gestionnaire d'exceptions : une réponse écrite directement court-circuite la page 403 et rend du JSON brut au navigateur. Rien ne le signale — un 403 reste un 403."
+    },
+
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "Ce qui casse sans lever d'erreur",
+      "front": "Qu'est-ce qu'un TEST INERTE ?",
+      "back": "Un test vert qui ne prouve rien : il passe même quand le code qu'il est censé garder est cassé. C'est pire que pas de test — il donne une confiance qu'aucune vérification ne soutient."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "Ce qui casse sans lever d'erreur",
+      "front": "Comment attrape-t-on un test inerte ?",
+      "back": "Par MUTATION : on casse volontairement la ligne que le test protège et on vérifie qu'il rougit. S'il reste vert, il ne prouvait rien. Trois tests inertes ont été démasqués en une seule journée sur ce dépôt par ce seul geste."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "Ce qui casse sans lever d'erreur",
+      "front": "Pourquoi « monter un composant puis assertir » ne prouve-t-il souvent rien ?",
+      "back": "Parce qu'un composant part souvent déjà dans l'état qu'on observe. Il faut reproduire le geste RÉEL — taper, fermer, rouvrir — sinon le test passerait aussi bien si le comportement disparaissait complètement."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "Ce qui casse sans lever d'erreur",
+      "front": "Pourquoi ne faut-il JAMAIS figer un bug connu dans un test ?",
+      "back": "Parce que le test rendrait le bug incorrigible sans rougir : le corriger ferait échouer la suite. On couvre le geste attendu, jamais l'état bogué du moment."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "Ce qui casse sans lever d'erreur",
+      "front": "Une garde bâtie sur un balayage de fichiers : quel est son mode d'échec ?",
+      "back": "Elle naît inerte si rien n'asserte que le balayage a trouvé quelque chose — comparer une liste vide à une liste vide est vert. Il faut un PLANCHER, « au moins N éléments », jamais un compte exact qui rougirait à chaque ajout légitime."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "Ce qui casse sans lever d'erreur",
+      "front": "Pourquoi une garde d'ABSENCE ne se teste-t-elle jamais seule ?",
+      "back": "Parce que « ce champ n'est pas dans la réponse » reste vert si la réponse est cassée de bout en bout. Il faut assertir, sur le même chargement, que ce qui devait rester est toujours là."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "Ce qui casse sans lever d'erreur",
+      "front": "Une migration qui DÉPLACE des données : comment la prouver ?",
+      "back": "Pas par les tests — la base de test est vide, le déplacement ne s'y exécute jamais. On relève une empreinte de l'existant avant, après, et après un aller-retour rollback puis run, sur la base réelle. « Les tests passent » ne dit rien de ce qui est arrivé au contenu."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "Ce qui casse sans lever d'erreur",
+      "front": "Qu'est-ce qu'un FAUX NÉGATIF SILENCIEUX ?",
+      "back": "Un dispositif censé signaler un problème et qui ne le fait pas, sans que rien n'ait l'air anormal. C'est le fil rouge de tout ce projet : un plantage se voit, une valeur plausible et fausse non."
+    },
+    {
+      "category": "L'architecture de ce dépôt",
+      "theme": "Ce qui casse sans lever d'erreur",
+      "front": "Trois choses qu'aucun test de ce dépôt ne prouvera jamais — lesquelles ?",
+      "back": "Qu'un téléphone lit le QR code du second facteur, qu'une couleur est bien celle qu'on croit, et qu'une sauvegarde de la base se recharge. Elles se vérifient au navigateur, en interrogeant la base, ou en rechargeant pour de vrai. L'honnêteté est de nommer ce qui n'est pas couvert."
+    }
+  ]
+}
