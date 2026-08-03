@@ -1,0 +1,156 @@
+# =============================================================================
+# CI de garde (CC-149) — rejoue les trois gates du dépôt à chaque PR vers master.
+#
+# Deux bénéfices, et le second est celui qui compte le plus ici.
+#
+#   1. Les gates ont réellement tourné. Le verdict s'affiche sur la PR, lisible par
+#      quiconque, sans dépendre de la bonne foi ni de la mémoire de qui l'a ouverte.
+#   2. La suite ne dépend pas du poste. Il n'existe AUCUN `.env` sur un runner, donc
+#      la classe de bug mesurée en CC-88 — une valeur vide dans `.env.test` qui ne
+#      masque rien et laisse passer le `.env` réel de la machine, parce que le
+#      chargeur d'@adonisjs/env fusionne sur la *truthiness* — y est structurellement
+#      impossible. C'est le seul environnement dont on puisse le dire.
+#
+# ⚠️ CE QU'ELLE N'ATTRAPE PAS, et ça se lit avant de se fier au badge. Aucun des
+#    problèmes qui ont réellement mordu ce projet ne serait tombé dans ce filet :
+#      - le passage navigateur — jsdom ne fait aucun layout, et `curl` n'y substitue
+#        rien (CC-136 : un cookie `Secure` réexpédié sur http://localhost sans refus) ;
+#      - la divergence entre `app` et `app_test` — la suite migre `app_test` à neuf et
+#        ne dit RIEN du schéma de la base de dev (point 2 des « choses qui cassent
+#        sans lever d'erreur » du CLAUDE.md racine) ;
+#      - l'apparence : une couleur, une icône fausse, un alignement ;
+#      - une phrase fausse dans un message de commit.
+#    Un badge vert de plus est exactement la fausse confiance que le CLAUDE.md racine
+#    passe son temps à démonter. Cette CI se vend pour ce qu'elle fait — pas comme une
+#    preuve que le lot est bon.
+#
+# ⚠️ Si le job rougit APRÈS avoir affiché `PASSED` : la cause n'est pas dans les tests.
+#    C'est `@swc/core` ré-épinglé en version exacte — `npm test` sort alors en code 1
+#    en affichant `PASSED`. Range `^1.15.43` ; ne ré-épingle pas pour faire taire le rouge.
+#
+# Périmètre (CC-149) : aucune publication, aucune image, aucun secret, aucune écriture.
+# La construction et la publication de l'image sur GHCR restent le point 5 de CC-142.
+# =============================================================================
+name: CI
+
+on:
+  # `push` sur master seul, et `pull_request` vers master : déclencher `push` sur toutes
+  # les branches ferait tourner le job DEUX fois par PR (une fois par événement), pour
+  # deux verdicts identiques.
+  #
+  # ⚠️ Conséquence à connaître : sur une branche de travail, le SEUL signal est
+  # l'événement `pull_request`. Un workflow ajouté par une PR s'y applique bien — GitHub
+  # prend le fichier depuis la ref de merge, pas depuis master.
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# Ce workflow ne publie rien et n'écrit nulle part : son jeton n'a que la lecture.
+permissions:
+  contents: read
+
+# Une PR mise à jour annule le run devenu obsolète — il portait sur des commits que
+# personne ne relira.
+#
+# ⚠️ **Jamais sur `master`**, et ce n'est pas une précaution théorique : deux PR mergées
+# coup sur coup annuleraient le run du premier merge, qui resterait donc SANS verdict.
+# Un run annulé n'est pas rouge — il est gris, et un état de master non vérifié qui ne
+# rougit pas est exactement ce que ce workflow existe pour empêcher.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+jobs:
+  gates:
+    name: typecheck · lint · Japa · Vitest
+    runs-on: ubuntu-latest
+    # ⚠️ `adonisrc.ts` pose `forceExit: false` : un handle resté ouvert fait PENDRE le
+    # process au lieu de le terminer. Sans cette borne, le défaut de GitHub est de
+    # 360 minutes, consommées en silence par un run coincé.
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        # La même version majeure que `docker-compose.yml:3` : Japa migre une vraie base.
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: root
+          POSTGRES_PASSWORD: root
+          # Crée directement la base des tests. `docker/init-db.sql` n'a pas d'équivalent
+          # ici et n'en a pas besoin : il n'existe aucune base `app` sur un runner.
+          POSTGRES_DB: app_test
+        ports:
+          - '5432:5432'
+        # Les étapes ne démarrent qu'une fois le service sain, sinon la migration de Japa
+        # partirait sur un Postgres qui n'écoute pas encore.
+        options: >-
+          --health-cmd "pg_isready -U root -d app_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    # ⚠️ EN CLAIR, et surtout PAS dans des secrets GitHub. Ce sont les coordonnées d'une
+    # base jetable qui vit trois minutes dans un conteneur du runner : les ranger comme
+    # des secrets donnerait l'illusion qu'il y a quelque chose à protéger, et rendrait la
+    # CI illisible pour qui la reprend. Valeurs reprises telles quelles de `.env.example`.
+    #
+    # ⚠️ Ne pose ICI que ce que `.env.test` ne fournit pas — le reste vient du fichier
+    # versionné, qui fait foi :
+    #   - `DB_DATABASE` vient de `.env.test:3` (app_test), et c'est la seule chose qui
+    #     isole les tests de la base de dev ;
+    #   - `MODULES` vient de `.env.test:22` et doit rester COMPLET : un MODULES réduit
+    #     ferait passer la suite au vert en n'exécutant plus la moitié du dépôt — le mode
+    #     d'échec « garde qui naît inerte » (CC-112, CC-113). `modules_config.spec.ts`
+    #     rougit si un module y manque ;
+    #   - `NODE_ENV` est posée par `node ace test` lui-même ;
+    #   - `TZ` n'est PAS posée : le runner est en UTC, ce qui est déjà la valeur de
+    #     `.env.example:1` et le défaut de `node:22-alpine`. La poser masquerait une
+    #     dépendance au poste au lieu de la révéler.
+    # Et surtout pas de valeurs vides pour Immich / YouTube / LLM « au cas où » : elles
+    # ne feraient rien. L'isolation vit dans `config/env_isolation.ts`.
+    env:
+      # Valeur de test, sans le moindre rapport avec l'APP_KEY d'un déploiement. Le dépôt
+      # est public, donc ces logs le sont aussi : rien de ce bloc ne protège quoi que ce soit.
+      APP_KEY: ci-only-not-a-secret-0123456789
+      LOG_LEVEL: info
+      DB_HOST: 127.0.0.1
+      # Entre guillemets : YAML lirait `5432` comme un entier, et une valeur d'`env:`
+      # doit être une chaîne.
+      DB_PORT: '5432'
+      DB_USER: root
+      DB_PASSWORD: root
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Suit l'image de production (`Dockerfile:20` et `:38` — node:22-alpine) : c'est
+          # la CI qui suit l'image, jamais l'inverse. `package.json` n'a pas de champ
+          # `engines` et n'en gagne pas un ici, ce serait une seconde source de vérité.
+          node-version: '22'
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      - name: typecheck
+        run: npm run typecheck
+
+      # ⚠️ `eslint .` SEUL — volontairement pas de `prettier --check`. Quinze fichiers .vue
+      # sont hors format Prettier dans master (dette connue) : la CI naîtrait rouge sur une
+      # dette sans rapport avec elle. Le format est un autre ticket.
+      - name: lint
+        run: npm run lint
+
+      # ⚠️ Les deux suites en DEUX étapes, là où `npm test` les enchaîne par `&&`.
+      # Sémantique identique — l'échec de la première empêche la seconde et rend le job
+      # rouge — mais l'UI affiche alors deux verdicts distincts : on VOIT que Vitest a
+      # tourné. Avec la commande composée, seule la sortie de Japa s'affiche, et rien ne
+      # distingue « Vitest a passé » de « Vitest n'a jamais démarré ».
+      - name: tests back (Japa)
+        run: npm run test:back
+
+      - name: tests front (Vitest)
+        run: npm run test:front
