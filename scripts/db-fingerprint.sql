@@ -11,7 +11,13 @@
 -- Une ligne par table : nom, nombre de lignes, md5 agrégé de toutes les colonnes. Deux
 -- bases avec le même contenu produisent une sortie byte-à-byte identique (`diff`).
 
-DROP TABLE IF EXISTS fp;
+-- ⚠️ `pg_temp.` n'est pas décoratif, ne le retire pas. Sans préfixe, le `search_path`
+-- cherche `public` dès qu'aucune table temporaire n'existe : ce DROP viserait alors une
+-- table `public.fp` si le schéma venait à en porter une. Ce fichier se lance contre `app`
+-- (l'empreinte AVANT), la base qui porte l'unique exemplaire du contenu. Un DROP non
+-- qualifié n'a rien à faire là. Qualifié, il est inoffensif sur une session neuve —
+-- « schema pg_temp does not exist, skipping », un NOTICE sur stderr, hors du CSV.
+DROP TABLE IF EXISTS pg_temp.fp;
 CREATE TEMP TABLE fp (tablename text, cnt bigint, hash text);
 
 DO $$
