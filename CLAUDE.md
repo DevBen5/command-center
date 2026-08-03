@@ -635,13 +635,17 @@ produirait des codes refusés **sans lever d'erreur**.
 - **`/lead-review`** — review pre-commit d'un diff à substance, **avant** `/git-commit`.
 - **`/git-commit`** — commits, branches, PR. Applique-le dès qu'il est question de message de
   commit, de découpe ou de nom de branche.
-- **`/review-mr`** — self-review d'une de mes PR avant merge. Après un merge, il relit la KB
-  YouTrack **en entier** depuis le sommaire `CC-A-1` et corrige ce qui a cessé d'être vrai.
+- **`/review-mr`** — self-review d'une de mes PR avant merge. Ne relit **plus** la KB YouTrack
+  après merge — voir `/kb-sync`.
+- **`/kb-sync`** — balaie la KB YouTrack (`CC-A-1` à `CC-A-13`) en entier et corrige ce qui a
+  cessé d'être vrai. Détaché de `/review-mr` (2026-08-03, coût en tokens) : **à lancer à la
+  main**, plus jamais systématiquement à chaque PR. N'existe qu'en version dépôt, pas de
+  version globale.
 
-⚠️ **Ces trois noms existent AUSSI en global**, dans une version qui vise l'autre workspace (GitLab,
-NestJS, `develop`, pnpm, `Refs: #SAAS-XX`). **Le skill du dépôt ne masque pas le global** — le
-harness peut charger l'un ou l'autre, constaté deux fois dans une seule session. Après tout
-`/lead-review`, `/git-commit` ou `/review-mr` : vérifier **laquelle a été chargée** (le « Base
+⚠️ **Les trois premiers de ces noms existent AUSSI en global**, dans une version qui vise l'autre
+workspace (GitLab, NestJS, `develop`, pnpm, `Refs: #SAAS-XX`). **Le skill du dépôt ne masque pas le
+global** — le harness peut charger l'un ou l'autre, constaté deux fois dans une seule session. Après
+tout `/lead-review`, `/git-commit` ou `/review-mr` : vérifier **laquelle a été chargée** (le « Base
 directory » l'indique) et le dire si c'est la mauvaise.
 
 ### Le dépôt est solo — il n'y a personne à qui assigner
