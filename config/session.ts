@@ -1,5 +1,5 @@
 import env from '#start/env'
-import app from '@adonisjs/core/services/app'
+import appUrl from '#config/app_url'
 import { defineConfig, stores } from '@adonisjs/session'
 
 const sessionConfig = defineConfig({
@@ -25,7 +25,9 @@ const sessionConfig = defineConfig({
   cookie: {
     path: '/',
     httpOnly: true,
-    secure: app.inProduction,
+    // Dérivé d'APP_URL, pas de NODE_ENV (CC-136) : sinon un cookie `secure` en HTTP nu
+    // empêcherait toute connexion locale (`http://localhost:8080`), en silence.
+    secure: appUrl.secureCookies,
     sameSite: 'lax',
   },
 

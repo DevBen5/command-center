@@ -35,9 +35,11 @@ services:
     # La seule surface publiée : l'application, liée à 127.0.0.1 — seul le reverse
     # proxy DSM (qui joint localhost:8080) l'atteint. Sans ce préfixe, Docker
     # publierait sur 0.0.0.0 : l'application serait joignable de tout le réseau
-    # local en HTTP nu — où les cookies `secure` rendent le login impossible — et
-    # un client direct pourrait forger son X-Forwarded-For (TRUST_PROXY=uniquelocal
-    # repose sur ce bind, voir .env.production.example).
+    # local en HTTP nu — mots de passe et cookies de session en clair (CC-136 ;
+    # APP_URL, désormais obligatoire, ne protège que contre l'usage prévu de ce
+    # bind, pas contre un accès direct qui le contournerait) — et un client direct
+    # pourrait forger son X-Forwarded-For (TRUST_PROXY=uniquelocal repose sur ce
+    # bind, voir .env.production.example).
     ports:
       - '127.0.0.1:8080:8080'
     depends_on:
