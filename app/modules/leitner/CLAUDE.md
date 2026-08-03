@@ -143,14 +143,17 @@ Le filet n'est donc pas un seeder mais **l'export JSON** — les cartes n'existe
 autre copie. `./pgdata` survit à un `docker compose down -v` (voir le `CLAUDE.md` racine), pas à une
 corruption ni à un changement de machine.
 
-⚠️ **Dix fichiers hors du module** : `start/routes.ts` · `start/env.ts` et `.env.example` (les
+⚠️ **Onze fichiers hors du module** : `start/routes.ts` · `start/env.ts` et `.env.example` (les
 variables LLM) · `config/llm.ts` · `config/env_isolation.ts` (voir ci-dessous) ·
 `providers/leitner_provider.ts` (le **balayage au démarrage** des
 ingestions interrompues, déclaré dans `adonisrc.ts` sous `environment: ['web']`) ·
 `start/capabilities.ts` (la ligne qui enregistre `capabilities.ts` au registre) ·
 `start/navigation.ts` (celle qui enregistre `destinations.ts`) · et depuis CC-119
 `app/core/shared/services/nav_stats_service.ts` (le compteur « dû » de la barre latérale) et
-`app/core/dashboard/controllers/home_controller.ts` (la carte d'accueil).
+`app/core/dashboard/controllers/home_controller.ts` (la carte d'accueil). Depuis CC-137,
+`config/modules.ts` s'y ajoute : c'est lui qui décide si `leitner` existe du tout sur
+l'installation — les quatre fichiers ci-dessus (routes, capabilities, navigation, migrations
+de `config/database.ts`) le consultent avant d'enregistrer quoi que ce soit pour ce module.
 ⚠️ Oublier `start/capabilities.ts` ne casse
 rien tout de suite : les capacités n'entrent pas au registre, personne ne peut les accorder, et le
 module devient inaccessible à tout non-admin — `capabilities_routes.spec.ts` attrape ce cas.

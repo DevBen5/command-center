@@ -19,9 +19,19 @@
 
 import registry from '#core/auth/capabilities/registry'
 import { DASHBOARD_CAPABILITIES } from '#core/dashboard/capabilities'
-import { VEILLE_CAPABILITIES } from '#modules/veille/capabilities'
-import { LEITNER_CAPABILITIES } from '#modules/leitner/capabilities'
+import modules from '#config/modules'
 
 registry.register('dashboard', DASHBOARD_CAPABILITIES)
-registry.register('veille', VEILLE_CAPABILITIES)
-registry.register('leitner', LEITNER_CAPABILITIES)
+
+// ⚠️ Services et Agents n'ont pas de capabilities.ts (voir plus haut) : rien à conditionner
+// pour eux. Veille et Leitner passent par un `await import()` — un module désactivé (CC-137)
+// n'entre donc pas au registre, exactement comme s'il avait été oublié ici avant ce lot.
+if (modules.has('veille')) {
+  const { VEILLE_CAPABILITIES } = await import('#modules/veille/capabilities')
+  registry.register('veille', VEILLE_CAPABILITIES)
+}
+
+if (modules.has('leitner')) {
+  const { LEITNER_CAPABILITIES } = await import('#modules/leitner/capabilities')
+  registry.register('leitner', LEITNER_CAPABILITIES)
+}

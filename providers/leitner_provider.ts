@@ -1,4 +1,5 @@
 import type { ApplicationService } from '@adonisjs/core/types'
+import modules from '#config/modules'
 
 /**
  * Le point d'accroche du **balayage au démarrage** de l'ingestion Leitner.
@@ -14,11 +15,17 @@ import type { ApplicationService } from '@adonisjs/core/types'
  * n'a de sens que pour le processus qui sert les requêtes. En `console` (`node ace
  * migration:run`) ou en `test`, il n'y a pas de tâche de fond à récupérer, et la table
  * peut même ne pas exister encore.
+ *
+ * ⚠️ **Module désactivable (CC-137)** : sans `leitner` dans `MODULES`, `ready()` ne fait
+ * rien — même raison que la table qui peut ne pas exister encore, sauf que là elle
+ * n'existera JAMAIS sur cette installation.
  */
 export default class LeitnerProvider {
   constructor(protected app: ApplicationService) {}
 
   async ready() {
+    if (!modules.has('leitner')) return
+
     const logger = await this.app.container.make('logger')
 
     try {

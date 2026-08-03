@@ -334,11 +334,20 @@ lèverait TS2307. Contrepartie : les composants y sont typés `any` — le typec
 les props passées à `mount()`, un test qui se trompe échoue à l'exécution. La lever demanderait
 `vue-tsc` pour tout le dépôt.
 
-## Six choses qui cassent sans lever d'erreur
+## Sept choses qui cassent sans lever d'erreur
 
-1. **Nouveau module → l'enregistrer dans `config/database.ts`**, dans `migrations.paths` *et*
-   `seeders.paths`. Rien n'est auto-découvert : un path oublié = migration jamais jouée, en silence.
-   L'ordre des tableaux est l'ordre d'exécution (contraintes FK).
+1. **Nouveau module → l'enregistrer dans `config/modules.ts`** (`KNOWN_MODULES`,
+   `MODULE_MIGRATION_PATHS`, `MODULE_SEEDER_PATHS`) — **pas directement dans
+   `config/database.ts`** (CC-137). Ce dernier ne fait plus que dériver ses `migrations.paths` et
+   `seeders.paths` de `migrationPathsFor`/`seederPathsFor`. Rien n'est auto-découvert : un module
+   oublié de `KNOWN_MODULES` = migration jamais jouée, en silence. L'ordre de `KNOWN_MODULES` reste
+   l'ordre d'exécution (contraintes FK).
+
+   ⚠️ **Le mode d'échec que CC-137 a ouvert : coder un chemin en dur dans `config/database.ts`,
+   « pour aller plus vite ».** Les migrations tournent, les tests restent verts, et rien ne le
+   dit — mais le module vient de naître **non désactivable** : il apparaîtra toujours, quoi que
+   dise `MODULES`, parce que son chemin ne passe plus par le filtre. Ce n'est pas un plantage,
+   c'est l'absence silencieuse d'un comportement qu'on croyait acquis.
 
 2. **Migration neuve → la jouer sur la base de dev** (`node ace migration:run`). Le cousin du
    précédent, et il mord même quand tout est correct : la migration écrite, le path enregistré,
@@ -398,6 +407,12 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
    une liste qu'il faudrait tenir à jour à chaque ajout. Ne retourne jamais le modèle « pour
    simplifier » : c'est ce qui rend sûres les routes que personne n'a encore écrites.
 
+   ⚠️ **Depuis CC-137, cet enregistrement est CONDITIONNEL** : `start/capabilities.ts` n'enregistre
+   les capacités d'un module que si `MODULES` l'active. Un module hors de `MODULES` n'a donc
+   AUCUNE capacité au registre — à ne pas confondre avec la faute de frappe ci-dessus : l'une est
+   un module qu'on a choisi d'éteindre, l'autre une capacité mal orthographiée dans un module
+   allumé. Les deux produisent le même symptôme (capacité absente du registre), pas la même cause.
+
 6. **Module neuf → déclarer sa destination** dans son `destinations.ts`, enregistré par
    `start/navigation.ts` (CC-81). C'est le pendant exact du point précédent, sur l'autre registre.
 
@@ -453,6 +468,44 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
    `response.forbidden({…})` : `statusPages` n'est consulté que par le gestionnaire d'**exceptions**,
    donc une réponse écrite à la main court-circuite la page 403 et rend du JSON brut au navigateur.
    Rien ne le signale — un 403 reste un 403.
+
+   ⚠️ **Depuis CC-137, `start/navigation.ts` conditionne de la même façon que `start/capabilities.ts`
+   au point précédent** : un module hors de `MODULES` n'a pas de destination enregistrée. Son
+   entrée disparaît de la barre pour une raison structurelle — le module est éteint —, pas par
+   l'oubli que le paragraphe ci-dessus décrit sur un module allumé.
+
+7. **Rendre un module détachable ne s'arrête pas aux quatre registres** (CC-137). La liste complète
+   des endroits à conditionner sur `MODULES`, tenue à jour ici parce qu'un module futur qui en
+   oublie un ne plante pas — il fuit silencieusement :
+
+   - les quatre registres de démarrage, chacun lu **une seule fois au boot** : `start/routes.ts`,
+     `start/capabilities.ts`, `start/navigation.ts`, `config/database.ts` (via `config/modules.ts`,
+     voir le point 1) ;
+   - ⚠️ **les providers de tâche de fond** (`providers/`) — le point dur du lot, trouvé en faisant
+     tourner un vrai serveur avec `MODULES` réduit plutôt qu'en le déduisant du code : sans garde,
+     `VeilleProvider` et `LeitnerProvider` démarrent au boot quel que soit `MODULES`, et un module
+     désactivé dont le provider tourne quand même **spamme une erreur SQL à chaque tick,
+     indéfiniment**, contre une table qui n'existe pas — constaté, pas seulement redouté. Chaque
+     provider doit lire `isModuleEnabled(...)` en tête de `ready()` (et de `shutdown()` s'il en a
+     un) ;
+   - les points de couplage hors module qui interrogent plusieurs modules à la fois
+     (`app/core/dashboard/controllers/home_controller.ts`,
+     `app/core/shared/services/nav_stats_service.ts`) — ils ne passent jamais par le `Set` lu au
+     boot, mais par `isModuleEnabled(...)`, relu à chaque requête.
+
+   ⚠️ **La distinction entre les deux façons de lire `config/modules.ts` n'est pas cosmétique.**
+   Les quatre registres lisent le `Set` **une seule fois, au démarrage** : le muter en cours de
+   route (comme le font les tests, sur le modèle de `dockerConfig.disponible`, CC-116) ne retire
+   AUCUNE route déjà commitée ni AUCUNE capacité déjà enregistrée. `isModuleEnabled(...)`, lui, est
+   relu à **chaque appel** — c'est la seule des deux formes qu'un test peut faire varier sans
+   redémarrer le process, et c'est pour ça qu'un admin qui court-circuite les capacités
+   (`HomeController`, `NavStatsService`) reste protégé même sans redémarrage entre deux requêtes.
+
+   ⚠️ **`.env.test` doit garder `MODULES` NON VIDE.** Le chargeur d'`@adonisjs/env` fusionne par
+   truthiness, jamais par présence : une valeur vide n'y masquerait rien, le `.env` réel de la
+   machine qui lance les tests passerait derrière — le mécanisme mesuré en CC-88 sur
+   `IMMICH_BASE_URL`, documenté en détail dans `.env.test`. `tests/unit/modules_config.spec.ts`
+   rougit si `MODULES` cesse d'activer tous les modules connus en environnement de test.
 
 ## Sécurité — ne pas régresser
 

@@ -4,6 +4,7 @@ import Service from '#modules/services/models/service'
 import Agent from '#modules/agents/models/agent'
 import VeilleItem from '#modules/veille/models/veille_item'
 import { createAdmin, createUserWith } from '#tests/helpers/users'
+import enabledModules from '#config/modules'
 
 /**
  * Ce que le tableau de bord **envoie**, pas ce qu'il affiche.
@@ -98,5 +99,44 @@ test.group('Core / portée du tableau de bord', (group) => {
     const hrefs = props.destinations.map((destination: { href: string }) => destination.href)
 
     assert.deepEqual(hrefs, ['/', '/revision'])
+  })
+})
+
+/**
+ * Un module désactivé (CC-137), pour un ADMINISTRATEUR — le pendant de la suite ci-dessus
+ * pour `HomeController`. Même raisonnement que `nav.spec.ts` : un admin passe outre les
+ * capacités, `modules.has(...)` est donc la seule garde qui empêche une requête sur une
+ * table absente d'une vraie installation `MODULES` réduite.
+ */
+test.group('Core / tableau de bord — module désactivé (CC-137)', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+  group.each.setup(() => {
+    enabledModules.delete('services')
+    enabledModules.delete('agents')
+    enabledModules.delete('veille')
+    enabledModules.delete('leitner')
+    return () => {
+      enabledModules.add('services')
+      enabledModules.add('agents')
+      enabledModules.add('veille')
+      enabledModules.add('leitner')
+    }
+  })
+
+  test('un administrateur ne reçoit aucune carte des modules désactivés', async ({
+    client,
+    assert,
+  }) => {
+    const admin = await createAdmin()
+
+    const response = await client.get('/').loginAs(admin).withInertia()
+
+    response.assertStatus(200)
+    const props = response.inertiaProps as Record<string, any>
+
+    assert.isNull(props.cards.services)
+    assert.isNull(props.cards.agents)
+    assert.isNull(props.cards.veille)
+    assert.isNull(props.cards.leitner)
   })
 })

@@ -29,7 +29,8 @@ destinations.ts                     l'entrée `/agents` de la barre latérale �
 ⚠️ **`destinations.ts` déclare `admin`, jamais une capacité**, et le module n'a toujours pas de
 `capabilities.ts` : c'est la même frontière que ci-dessus, vue depuis la navigation. Une capacité
 pourrait être accordée par un rôle, donc depuis un écran — sur un module qui exécute des commandes
-shell. Deux fichiers hors du module : `start/routes.ts` et `start/navigation.ts`.
+shell. Trois fichiers hors du module : `start/routes.ts`, `start/navigation.ts`, et depuis CC-137
+`config/modules.ts` — c'est lui qui décide si `agents` existe du tout sur l'installation.
 
 - Statuts : `active` · `idle` · `running` · `failed`.
 - `run()` met `active` si la commande réussit, et **`running` si elle échoue** — le `catch {}` simule

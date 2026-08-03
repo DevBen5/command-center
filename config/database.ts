@@ -1,5 +1,6 @@
 import env from '#start/env'
 import { defineConfig } from '@adonisjs/lucid'
+import enabledModules, { migrationPathsFor, seederPathsFor } from '#config/modules'
 
 const dbConfig = defineConfig({
   connection: 'postgres',
@@ -18,15 +19,14 @@ const dbConfig = defineConfig({
       // de ce tableau, puis trie chaque dossier (naturalSort). L'ordre ci-dessous
       // garantit un ordre d'exécution global cohérent ; à l'intérieur du module
       // leitner, cards passe avant reviews grâce au tri numérique.
+      //
+      // ⚠️ Seuls les modules activés par `MODULES` (CC-137) apportent leur chemin —
+      // `migrationPathsFor`/`seederPathsFor` (`config/modules.ts`) filtrent dans l'ordre
+      // canonique. Un module absent de la liste n'a donc aucune migration jouée : pas de
+      // table, pas de données.
       migrations: {
         naturalSort: true,
-        paths: [
-          'app/core/auth/migrations',
-          'app/modules/services/migrations',
-          'app/modules/agents/migrations',
-          'app/modules/veille/migrations',
-          'app/modules/leitner/migrations',
-        ],
+        paths: ['app/core/auth/migrations', ...migrationPathsFor(enabledModules)],
       },
       // ⚠️ Ce qui est déclaré ici tourne à CHAQUE `node ace db:seed`, y compris quand
       // on ne l'appelle que pour poser ou faire tourner ADMIN_PASSWORD (CC-75) — c'est
@@ -36,11 +36,7 @@ const dbConfig = defineConfig({
       // ou qu'aucun écran ne permet de saisir. Le contenu saisi à la main n'a pas de
       // seeder — ni leitner, ni veille (CC-106).
       seeders: {
-        paths: [
-          'app/core/auth/seeders',
-          'app/modules/services/seeders',
-          'app/modules/agents/seeders',
-        ],
+        paths: ['app/core/auth/seeders', ...seederPathsFor(enabledModules)],
       },
     },
   },
