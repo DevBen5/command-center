@@ -51,15 +51,21 @@ permissions:
   contents: read
 
 # Une PR mise à jour annule le run devenu obsolète — il portait sur des commits que
-# personne ne relira.
+# personne ne relira. Le groupe reste constant par PR (`github.ref` ne change pas d'un
+# push à l'autre sur la même PR), donc chaque nouveau push y retrouve le précédent et
+# l'annule.
 #
-# ⚠️ **Jamais sur `master`**, et ce n'est pas une précaution théorique : deux PR mergées
-# coup sur coup annuleraient le run du premier merge, qui resterait donc SANS verdict.
-# Un run annulé n'est pas rouge — il est gris, et un état de master non vérifié qui ne
-# rougit pas est exactement ce que ce workflow existe pour empêcher.
+# ⚠️ **CC-160** : `cancel-in-progress: false` seul ne suffit PAS à protéger master — il
+# ne protège que le run EN COURS. GitHub ne garde qu'UN SEUL run en attente par groupe :
+# un troisième push rapproché annule le deuxième (celui qui attendait), même avec ce
+# réglage. Constaté le 2026-08-04 : trois merges coup sur coup ont laissé le run du
+# milieu annulé — gris, jamais rouge, verdict jamais rendu. La protection vient donc du
+# groupe lui-même : sur `push` (restreint à master par le déclencheur ci-dessous), le
+# groupe est unique par SHA. Deux pushes ne partagent alors jamais de groupe, donc aucun
+# ne peut jamais mettre l'autre en file ni l'annuler.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   gates:
@@ -122,9 +128,9 @@ jobs:
       DB_PASSWORD: root
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           # Suit l'image de production (`Dockerfile:20` et `:38` — node:22-alpine) : c'est
           # la CI qui suit l'image, jamais l'inverse. `package.json` n'a pas de champ
