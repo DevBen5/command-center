@@ -106,35 +106,39 @@ CC-119 ce fichier est PERSONNEL** (format v2) : contenu communal, mais progressi
 celui qui exporte. Sur une installation à plusieurs comptes, il ne sauvegarde donc pas tout —
 `npm run db:backup` reste la seule sauvegarde complète.
 
-## Le premier compte — `ADMIN_PASSWORD`, et rien d'autre
+## Le premier compte — l'écran d'installation, et rien d'autre (CC-138)
 
-`node ace db:seed` sur une base neuve ne crée **aucun compte** tant que `ADMIN_PASSWORD` n'est pas
-renseignée dans `.env` (12 caractères minimum, la même exigence que le formulaire d'invitation).
-Renseignée, le seed crée le compte propriétaire avec ce mot de passe ; le seeder le dit à l'écran
-dans les deux cas.
+Sur une base qui ne porte **aucun compte**, l'application redirige vers `/installation` : nom,
+email, mot de passe (12 caractères minimum, la même constante que partout — voir CC-147 plus bas)
+et le **jeton d'installation**. Le compte créé est **administrateur** — sans le drapeau, personne
+ne pourrait ensuite atteindre l'écran qui distribue les droits. `ADMIN_PASSWORD` n'existe plus :
+plus rien ne la lit, une ligne restée dans un `.env` est inerte (CC-75 avait retiré le mot de
+passe du code ; CC-138 retire le secret du fichier).
 
-C'est le seul chemin vers un premier compte : l'écran d'administration exige déjà d'être
-administrateur, et aucune page ne fabrique de compte pour un visiteur. Un seed sans la variable
-n'ouvre donc rien, et c'est le but (CC-75) — le seeder posait auparavant un mot de passe écrit en
-clair dans le code, donc publié avec lui.
+⚠️ **La garde qui rend l'écran sûr, et elle est double.** *(1)* L'écran n'est atteignable que si
+la table `users` est **vide**, et la condition se relit à chaque requête dans l'état de la base —
+jamais un drapeau posé à côté, qui pourrait mentir dans le sens qui rouvre la porte. Le contrôle
+« aucun compte » et l'insertion tiennent dans **la même transaction**, sérialisée par
+`pg_advisory_xact_lock` (`installation_service.ts`) : dans une table vide il n'y a rien à
+verrouiller, et sans ce verrou deux POST simultanés feraient **deux** administrateurs sous READ
+COMMITTED. La spec `installation.spec.ts` le prouve par deux POST réellement concurrents — hors
+transaction globale, qui sérialiserait tout d'office et rendrait le test décoratif. *(2)* Le
+**jeton** (modèle Jenkins, décision CC-128) couvre la fenêtre entre « port ouvert » et « compte
+créé » : sur une application joignable d'Internet, « le premier qui se connecte » est le premier
+scanner qui passe. Imprimé aux journaux au démarrage **seulement si `users` est vide**
+(`providers/installation_provider.ts`), en mémoire seulement (un redémarrage en change la valeur,
+les journaux portent toujours la courante), comparé à **temps constant**, jamais rendu dans une
+réponse HTTP — erreurs comprises — et throttlé comme `/login` (10 échecs / 15 min par IP, seuls
+les échecs de **jeton** comptent).
 
-⚠️ **Changer ce fichier ne désarme pas une base déjà seedée.** Une base créée avant CC-75 porte
-encore l'ancien mot de passe du dépôt, et c'est cette base-là qu'un `npm run db:restore` emporterait
-sur une machine exposée. Reposer `ADMIN_PASSWORD` et relancer `db:seed` **écrase** le mot de passe
-en place (`updateOrCreate`) : c'est l'outil de rotation du **compte propriétaire**, dont l'adresse
-est écrite dans le seeder. Depuis CC-129, `node ace auth:reset-account` en fait autant sur
-n'importe quel compte, sans poser de secret dans un fichier — voir ci-dessous.
-
-⚠️ **La variable ne sert qu'au seed — retire la ligne ensuite.** Rien d'autre ne la lit ; la garder
-laisse un secret en clair sur la machine sans rien apporter.
-
-**Une rotation par `db:seed` ne touche aucun contenu, et ça se maintient** (CC-106). Tout seeder
-enregistré dans `config/database.ts` s'exécute à chaque passage — donc à chaque rotation faite par
-ce chemin-là : celui de veille replantait ainsi 7 faux articles dans la veille réelle, comptés dans les
-indicateurs de l'écran. Le fichier ne déclare donc plus que ce qu'aucun écran ne permet de saisir ;
-`tests/unit/db_seeders.spec.ts` asserte cette liste. ⚠️ Il asserte la liste **déclarée**, pas
-l'effet : aucun runner n'exécute `db:seed` de bout en bout, un seeder qui écrirait du contenu depuis
-un path légitime passerait au vert.
+⚠️ **`node ace db:seed` ne fait plus RIEN, et c'est asserté** : plus aucun seeder n'est enregistré
+(`config/database.ts` déclare `paths: []`, `tests/unit/db_seeders.spec.ts` rougit si un path
+réapparaît). C'est la fin du chantier CC-106 — les trois derniers seeders écrivaient du contenu de
+démo (9 services, 4 agents fictifs) ou l'identité du propriétaire en dur. Le rôle « Lecteur »,
+seule donnée de référence du lot, vit désormais dans une migration **idempotente**
+(`1785880000000_seed_lecteur_role.ts`, `on conflict do nothing`, `down` volontairement vide).
+⚠️ La **rotation** du mot de passe propriétaire ne passe donc plus par le seed : `/reglages`
+(connecté, CC-147) ou `auth:reset-account` (CC-129) ci-dessous.
 
 ### Reprendre la main sur un compte — `node ace auth:reset-account <email>` (CC-129)
 
@@ -147,16 +151,16 @@ C'est le filet sous CC-114, dont la sortie ultime (« un **autre** administrateu
 une installation à un seul compte : téléphone et codes perdus voulaient dire base inaccessible, avec
 l'unique exemplaire des cartes dedans.
 
-⚠️ **Elle ne crée aucun compte, et le titre de cette section reste donc vrai** : `ADMIN_PASSWORD`
-est toujours le seul chemin vers un *premier* compte. Celle-ci répare un compte qui existe.
+⚠️ **Elle ne crée aucun compte, et le titre de cette section reste donc vrai** : l'écran
+d'installation est le seul chemin vers un *premier* compte. Celle-ci répare un compte qui existe.
 
 ⚠️ **La règle de longueur d'un mot de passe vit dans une seule constante partagée**
 (`app/core/auth/constants/password_rules.ts`, `MIN_PASSWORD_LENGTH`/`MAX_PASSWORD_LENGTH`) depuis
-CC-147. `acceptInvitationValidator` et `changePasswordValidator` (`validators/admin.ts` et
-`validators/auth.ts`) la lisent — ce sont eux que voit l'utilisateur — et `user_seeder.ts` /
-`commands/reset_account.ts` font de même plutôt que de la recopier. Avant CC-147 elle était écrite à
-trois endroits sans rien qui les lie, et aucun test ne rougissait si l'un divergeait des deux
-autres ; **changer la règle ne demande plus qu'un seul fichier.**
+CC-147. `acceptInvitationValidator`, `changePasswordValidator` et `installationValidator`
+(`validators/admin.ts` et `validators/auth.ts`) la lisent — ce sont eux que voit l'utilisateur —
+et `commands/reset_account.ts` fait de même plutôt que de la recopier. Avant CC-147 elle était
+écrite à trois endroits sans rien qui les lie, et aucun test ne rougissait si l'un divergeait des
+deux autres ; **changer la règle ne demande plus qu'un seul fichier.**
 
 ⚠️ **Une commande, jamais une route.** Toute sa valeur tient à ce qu'elle exige un accès que le
 réseau ne donne pas — qui a un shell ici a déjà le disque et la base. Exposée en HTTP, même « bien
@@ -208,7 +212,7 @@ Chaque feature est une tranche verticale complète. Les dossiers AdonisJS par d�
 app/core/     auth · dashboard · i18n · settings · shared   → import via #core/*
 app/modules/  services · agents · veille · leitner  → import via #modules/*
   └── controllers/ models/ migrations/ seeders/ services/ validators/ pages/
-providers/    leitner_provider · veille_provider    → import via #providers/*
+providers/    installation_provider · leitner_provider · veille_provider    → import via #providers/*
 commands/     reset_account                         → import via #commands/*
 ```
 
@@ -359,11 +363,11 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
 ## Sept choses qui cassent sans lever d'erreur
 
 1. **Nouveau module → l'enregistrer dans `config/modules.ts`** (`KNOWN_MODULES`,
-   `MODULE_MIGRATION_PATHS`, `MODULE_SEEDER_PATHS`) — **pas directement dans
-   `config/database.ts`** (CC-137). Ce dernier ne fait plus que dériver ses `migrations.paths` et
-   `seeders.paths` de `migrationPathsFor`/`seederPathsFor`. Rien n'est auto-découvert : un module
-   oublié de `KNOWN_MODULES` = migration jamais jouée, en silence. L'ordre de `KNOWN_MODULES` reste
-   l'ordre d'exécution (contraintes FK).
+   `MODULE_MIGRATION_PATHS`) — **pas directement dans `config/database.ts`** (CC-137). Ce dernier
+   ne fait plus que dériver ses `migrations.paths` de `migrationPathsFor` ; ses `seeders.paths`
+   sont **vides et le restent** (CC-138, voir « Le premier compte »). Rien n'est auto-découvert :
+   un module oublié de `KNOWN_MODULES` = migration jamais jouée, en silence. L'ordre de
+   `KNOWN_MODULES` reste l'ordre d'exécution (contraintes FK).
 
    ⚠️ **Le mode d'échec que CC-137 a ouvert : coder un chemin en dur dans `config/database.ts`,
    « pour aller plus vite ».** Les migrations tournent, les tests restent verts, et rien ne le

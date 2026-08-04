@@ -59,10 +59,11 @@ registre ci-dessus avant qu'ils n'enregistrent quoi que ce soit pour ce module.
 
 Le module en a porté un jusqu'à CC-106 : 7 articles fictifs, `updateOrCreateMany('title', …)`,
 enregistré dans `config/database.ts`. Ce qui l'a condamné n'est pas le contenu de démo, c'est **ce
-à quoi `node ace db:seed` est couplé** : c'est le seul chemin vers un premier compte et le seul
-outil de rotation d'`ADMIN_PASSWORD` (CC-75), documenté jusqu'en production. Changer le mot de
-passe administrateur replantait donc 7 faux articles dans la veille réelle — indiscernables du
-collecté, et comptés dans les indicateurs de l'écran.
+à quoi `node ace db:seed` était couplé à l'époque** : le seul chemin vers un premier compte et le
+seul outil de rotation d'`ADMIN_PASSWORD` (CC-75). Changer le mot de passe administrateur
+replantait donc 7 faux articles dans la veille réelle — indiscernables du collecté, et comptés
+dans les indicateurs de l'écran. (Depuis CC-138, plus AUCUN seeder n'existe : le premier compte
+vient de l'écran d'installation, et `db:seed` ne fait plus rien.)
 
 ⚠️ **Ne réintroduis pas de données de démo ici**, quelle qu'en soit la forme. Un item de veille est
 soit collecté, soit saisi à la main : dans les deux cas la base est sa seule copie, et `db:seed`

@@ -48,10 +48,11 @@ routes et le masquage de l'écran existaient déjà ; c'est le cloisonnement de 
 sûrs. Le lot n'a livré que la preuve — `tests/functional/modules/leitner_guest.spec.ts`.
 
 ⚠️ **Le « rôle invité » n'existe nulle part dans le dépôt.** Les rôles sont des lignes en base,
-réglées depuis `/admin/roles` ; le seul rôle codé est « Lecteur » (`app/core/auth/seeders/user_seeder.ts`),
-et il ne porte **pas** `leitner.review`. L'accorder est un geste d'administration, pas un
-déploiement — et il ne faut pas « simplifier » en l'ajoutant au seeder : celui-ci rejoue à **chaque
-rotation d'`ADMIN_PASSWORD`** (CC-75, cf. le `CLAUDE.md` racine) et re-accorderait un droit retiré
+réglées depuis `/admin/roles` ; le seul rôle codé est « Lecteur » — posé par une migration
+idempotente depuis CC-138 (`app/core/auth/migrations/1785880000000_seed_lecteur_role.ts`, les
+seeders n'existent plus) — et il ne porte **pas** `leitner.review`. L'accorder est un geste
+d'administration, pas un déploiement — et il ne faut pas « simplifier » en l'ajoutant à la
+migration : une migration future qui re-poserait la capacité re-accorderait un droit retiré
 depuis l'écran, sans erreur ni log. Même famille que CC-106.
 
 Restent fermées, chacune pour sa raison : `leitner.cards.write` et `leitner.taxonomy.write` (le
