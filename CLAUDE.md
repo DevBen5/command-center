@@ -641,6 +641,20 @@ produirait des codes refusés **sans lever d'erreur**.
   cessé d'être vrai. Détaché de `/review-mr` (2026-08-03, coût en tokens) : **à lancer à la
   main**, plus jamais systématiquement à chaque PR. N'existe qu'en version dépôt, pas de
   version globale.
+- **`/triage-youtrack`**, **`/prepare-issue-context`**, **`/create-issue-from-code`**,
+  **`/summarize-sprint`**, **`/link-commit-to-issue`** (2026-08-04) — cinq skills légers autour du
+  MCP YouTrack, pensés pour rester **strictement en MCP, jamais en REST direct** : un appel REST
+  exigerait le bearer token accessible à un script, ce qui contredit le point Sécurité sur les
+  tokens (§ Garde-fous) pour un gain mesuré comme marginal (les champs qu'une sélection REST
+  couperait pèsent quelques dizaines de tokens face aux corps de texte, qui doivent de toute façon
+  être lus). `/summarize-sprint` et les volumes de `/triage-youtrack` passent par un sous-agent
+  (`Agent`, `subagent_type: general-purpose`) qui ne renvoie qu'une synthèse — même pattern que
+  `/kb-sync`. Toute écriture (`create_issue`, `update_issue`, `add_issue_comment`) attend une
+  confirmation explicite avant l'appel MCP, jamais d'envoi silencieux.
+- **`/youtrack-stats`** (2026-08-04) — agrège `.claude/youtrack-usage.log` (non versionné), alimenté
+  par les six skills ci-dessus à chaque invocation, et rapporte la réduction de contexte réelle de
+  la délégation à un sous-agent. Le journal est vide tant qu'aucun des six n'a tourné : le format
+  est en place, la mesure ne l'est pas encore.
 
 ⚠️ **Les trois premiers de ces noms existent AUSSI en global**, dans une version qui vise l'autre
 workspace (GitLab, NestJS, `develop`, pnpm, `Refs: #SAAS-XX`). **Le skill du dépôt ne masque pas le
