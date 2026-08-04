@@ -49,11 +49,13 @@ app.exemple.fr  ──CNAME──▶  <ddns>.freeboxos.fr  (DDNS Freebox → IP 
 exposée qui rate l'un des trois n'est pas « presque prête », elle est ouverte ou condamnée à
 perdre son contenu.
 
-1. **Le mot de passe du compte propriétaire est fort et posé sur le NAS.** Le mécanisme est
-   celui de CC-75 : `ADMIN_PASSWORD` dans `.env.production` (12 caractères minimum), puis un
-   `db:seed` unique (§4). La ligne se **retire ensuite** : rien d'autre ne la lit, la garder
-   laisse un secret en clair sur le NAS. Pour une **rotation** ultérieure, préférez
-   `auth:reset-account` (§4 bis) : il ne pose aucun secret dans un fichier.
+1. **Le compte propriétaire se crée depuis l'écran d'installation, jeton en main** (CC-138,
+   §4). Plus d'`ADMIN_PASSWORD`, plus de seed : sur une base vide l'application redirige vers
+   `/installation`, qui exige le **jeton imprimé dans les journaux** du conteneur — c'est lui
+   qui empêche « le premier qui se connecte » d'être un scanner plutôt que vous. Mot de passe
+   fort exigé (12 caractères minimum). L'écran se ferme définitivement dès que le compte
+   existe. Pour une **rotation** ultérieure : `/reglages` (connecté) ou `auth:reset-account`
+   (§4 bis) — aucun secret dans un fichier.
 2. **L'image embarque CC-71 et CC-72** (capacités, refus par défaut, Leitner en lecture seule).
    Sans eux, tout compte authentifié peut tout faire — `POST /revision/ingest` et l'écran de
    configuration LLM compris. Concrètement : l'image se construit depuis un `master` à jour,
@@ -153,15 +155,19 @@ healthcheck interroge `/login`. Les conteneurs restent visibles dans Container M
 (onglet **Conteneur**) pour la surveillance CPU/RAM — seul l'onglet « Projet » est ignoré.
 `restart: unless-stopped` fait revenir la pile après un redémarrage du NAS.
 
-**Créer le compte propriétaire** — une seule fois, `ADMIN_PASSWORD` renseignée dans
-`.env.production` (§1) :
+**Créer le compte propriétaire** — depuis l'écran d'installation (CC-138). Tant que la base
+ne porte aucun compte, l'application redirige vers `/installation` et le conteneur imprime le
+**jeton d'installation** dans ses journaux au démarrage :
 
 ```bash
-sudo docker compose --env-file .env.production -f docker-compose.prod.yml \
-  run --rm app node ace db:seed
+sudo docker compose --env-file .env.production -f docker-compose.prod.yml logs app | grep -i jeton
 ```
 
-Le seeder dit à l'écran ce qu'il a fait. **Retirer ensuite la ligne `ADMIN_PASSWORD`.**
+Ouvrir l'application, recopier le jeton dans le formulaire, saisir nom / email / mot de passe
+(12 caractères minimum) : le compte créé est administrateur, et l'écran se ferme
+définitivement. ⚠️ **Le jeton change à chaque redémarrage du conteneur** — s'il est refusé,
+relire les journaux, pas ses notes. Il n'y a plus de `db:seed` à lancer : la commande existe
+toujours mais ne fait plus rien (aucun seeder enregistré).
 
 ## 4 bis. Le jour où vous ne pouvez plus entrer
 

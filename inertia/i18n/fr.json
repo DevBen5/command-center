@@ -43,6 +43,18 @@
     "submit": "Accéder au tableau de bord",
     "invalid": "Identifiants invalides."
   },
+  "installation": {
+    "eyebrow": "Premier lancement",
+    "title": "Installation",
+    "lead": "Cette base ne porte encore aucun compte. Créez le compte administrateur pour commencer.",
+    "fullName": "Nom complet",
+    "email": "Adresse e-mail",
+    "password": "Mot de passe",
+    "passwordConfirmation": "Confirmation du mot de passe",
+    "token": "Jeton d'installation",
+    "tokenHelp": "Imprimé dans les journaux du serveur au démarrage.",
+    "submit": "Créer le compte administrateur"
+  },
   "twoFactor": {
     "eyebrow": "Vérification",
     "title": "Second facteur",

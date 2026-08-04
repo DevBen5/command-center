@@ -24,6 +24,7 @@ import { middleware } from '#start/kernel'
 import modules from '#config/modules'
 
 const AuthController = () => import('#core/auth/controllers/auth_controller')
+const InstallationController = () => import('#core/auth/controllers/installation_controller')
 const TwoFactorController = () => import('#core/auth/controllers/two_factor_controller')
 const SettingsController = () => import('#core/settings/controllers/settings_controller')
 const InvitationController = () => import('#core/auth/controllers/invitation_controller')
@@ -72,6 +73,26 @@ router
     router.post('/login/2fa', [TwoFactorController, 'store'])
   })
   .use([middleware.guest(), middleware.openRoute()])
+
+/*
+|--------------------------------------------------------------------------
+| Écran d'installation — le premier compte d'une base vide (CC-138)
+|--------------------------------------------------------------------------
+|
+| `openRoute()` parce qu'il s'emprunte avant qu'aucune identité n'existe — il n'y a encore
+| personne à authentifier. Pas de `guest()` : sur une base vide, personne ne peut être
+| connecté, et sur une base pleine le contrôleur redirige avant tout le reste.
+|
+| ⚠️ La vraie garde n'est pas ici : c'est l'état de la base (« users vide »), relu à chaque
+| requête par le contrôleur, plus le jeton imprimé aux journaux. Voir `InstallationService`.
+|
+*/
+router
+  .group(() => {
+    router.get('/installation', [InstallationController, 'show'])
+    router.post('/installation', [InstallationController, 'store'])
+  })
+  .use(middleware.openRoute())
 
 /*
 |--------------------------------------------------------------------------

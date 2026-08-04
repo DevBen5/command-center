@@ -53,28 +53,17 @@ const MODULE_MIGRATION_PATHS: Record<ModuleName, string> = {
 }
 
 /**
- * Les modules qui portent un seeder — services et agents seulement (CC-106 : ni veille ni
- * leitner n'en ont, le contenu est saisi à la main).
- */
-const MODULE_SEEDER_PATHS: Partial<Record<ModuleName, string>> = {
-  services: 'app/modules/services/seeders',
-  agents: 'app/modules/agents/seeders',
-}
-
-/**
  * Les chemins de migrations des modules activés, dans l'ordre canonique de `KNOWN_MODULES`.
  * Pure : `config/database.ts` n'a plus qu'à préfixer `app/core/auth/migrations`.
+ *
+ * ⚠️ **Aucun module ne porte de seeder, et il n'existe plus de `seederPathsFor`** (CC-138).
+ * Les trois derniers (services, agents, auth) écrivaient du contenu de démo ou l'identité du
+ * propriétaire ; le premier compte se crée depuis l'écran d'installation, le rôle « Lecteur »
+ * vit dans une migration. Réintroduire un path ici ferait rougir `db_seeders.spec.ts`.
  */
 export function migrationPathsFor(enabled: ReadonlySet<ModuleName>): string[] {
   return KNOWN_MODULES.filter((module) => enabled.has(module)).map(
     (module) => MODULE_MIGRATION_PATHS[module]
-  )
-}
-
-/** Le pendant pour les seeders — mêmes règles, sous-ensemble des modules qui en ont un. */
-export function seederPathsFor(enabled: ReadonlySet<ModuleName>): string[] {
-  return KNOWN_MODULES.filter((module) => enabled.has(module) && MODULE_SEEDER_PATHS[module]).map(
-    (module) => MODULE_SEEDER_PATHS[module]!
   )
 }
 

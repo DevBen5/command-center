@@ -44,6 +44,10 @@ test.group('Core / stats de navigation', (group) => {
   })
 
   test('ne transporte aucune stat hors authentification', async ({ client, assert }) => {
+    // Un compte existe (sans quoi `/login` redirigerait vers l'installation, CC-138) mais
+    // personne n'est connecté : c'est bien la page de connexion qui est mesurée.
+    await createUserWith([])
+
     const response = await client.get('/login').withInertia()
 
     response.assertStatus(200)

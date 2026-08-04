@@ -171,10 +171,11 @@ test.group('Core / administration des comptes', (group) => {
     assert.lengthOf(await UserInvitation.query().where('user_id', aServi.id), 0)
   })
 
-  test('supprime un compte sans aucune invitation (cas seedé)', async ({ client, assert }) => {
-    // ⚠️ Le compte propriétaire, créé par le seeder depuis ADMIN_PASSWORD sans invitation :
-    // l'ancien critère « jamais servi » le refusait. Désormais supprimable — tant qu'il n'est
-    // ni soi-même ni le dernier administrateur actif. Ici, un non-admin sans invitation.
+  test('supprime un compte sans aucune invitation', async ({ client, assert }) => {
+    // ⚠️ Le compte propriétaire, créé sans invitation (écran d'installation depuis CC-138,
+    // seeder avant lui) : l'ancien critère « jamais servi » le refusait. Désormais supprimable —
+    // tant qu'il n'est ni soi-même ni le dernier administrateur actif. Ici, un non-admin sans
+    // invitation.
     const admin = await createAdmin()
     const seede = await createUserWith(['leitner.view'])
 

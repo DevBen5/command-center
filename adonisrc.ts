@@ -63,6 +63,13 @@ export default defineConfig({
       file: () => import('#providers/app_url_provider'),
       environment: ['web'],
     },
+    // Imprime le jeton d'installation au boot tant que la base ne porte aucun compte
+    // (CC-138). `web` seulement : seul le processus qui sert des requêtes a un écran
+    // d'installation à ouvrir, et les tests fabriquent leur jeton directement.
+    {
+      file: () => import('#providers/installation_provider'),
+      environment: ['web'],
+    },
     // L'ingestion Leitner tourne en tâche de fond dans le processus : un redémarrage
     // laisse des travaux coincés en `running`. Ce provider les balaie au boot.
     // `web` seulement : ni `node ace`, ni les tests, n'ont de tâche de fond à récupérer.

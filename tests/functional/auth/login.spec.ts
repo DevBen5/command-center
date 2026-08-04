@@ -20,6 +20,14 @@ test.group('Auth / connexion', (group) => {
   })
 
   test('affiche la page de connexion aux invités', async ({ client }) => {
+    // ⚠️ Un compte doit exister : sur une base VIDE, `/login` redirige vers l'écran
+    // d'installation (CC-138) — ce cas-là vit dans `installation.spec.ts`.
+    await User.create({
+      fullName: 'Utilisateur Test',
+      email: 'test@example.com',
+      password: 'secret123',
+    })
+
     const response = await client.get('/login')
 
     response.assertStatus(200)

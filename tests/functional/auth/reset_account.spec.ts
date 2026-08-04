@@ -118,9 +118,8 @@ test.group('Auth / reprise en main d’un compte', (group) => {
 
     command.assertSucceeded()
 
-    // ⚠️ On va jusqu'à `verifyCredentials`, comme `user_seeder.spec.ts` : vérifier que la colonne a
-    // changé ne dirait pas si le compte est utilisable par la personne qui vient de taper ce
-    // mot de passe.
+    // ⚠️ On va jusqu'à `verifyCredentials` : vérifier que la colonne a changé ne dirait pas si
+    // le compte est utilisable par la personne qui vient de taper ce mot de passe.
     const connecte = await User.verifyCredentials(user.email, MOT_DE_PASSE_NEUF)
     assert.equal(connecte.id, user.id)
     await assert.rejects(() => User.verifyCredentials(user.email, MOT_DE_PASSE_ORIGINE))
