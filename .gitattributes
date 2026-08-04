@@ -14,6 +14,11 @@
 # checkout, et `bash` prend alors le `\r` final comme un caractère de la commande —
 # le shebang devient introuvable, chaque ligne échoue. Le dépôt courant n'y voit
 # rien tant que le fichier n'a pas été re-checkouté ; c'est le clone suivant qui
-# casse, en silence pour `.claude/hooks/session-title.sh` (un hook qui échoue laisse
-# juste la session sans nom).
+# casse.
+#
+# ⚠️ **Le dépôt n'a plus aucun `.sh` depuis CC-158** — cette ligne est donc purement
+# préventive, et c'est la raison de la garder : elle doit être en place AVANT le
+# premier script, pas après. Le seul qu'elle ait protégé était un hook de nommage de
+# session dont l'échec était silencieux par construction ; le prochain ne le sera
+# peut-être pas, mais il cassera au clone suivant, sur une autre machine.
 *.sh text eol=lf
