@@ -1,5 +1,5 @@
 # =============================================================================
-# CI de garde (CC-149) — rejoue les trois gates du dépôt à chaque PR vers master.
+# CI de garde (CC-149) — rejoue les gates du dépôt à chaque PR vers master.
 #
 # Deux bénéfices, et le second est celui qui compte le plus ici.
 #
@@ -19,6 +19,12 @@
 #        ne dit RIEN du schéma de la base de dev (point 2 des « choses qui cassent
 #        sans lever d'erreur » du CLAUDE.md racine) ;
 #      - l'apparence : une couleur, une icône fausse, un alignement ;
+#      - une classe Tailwind qui ne produit aucun CSS — le build réussit dans les deux
+#        cas, Tailwind émet ce qu'il trouve ; le remède reste de grepper le `.css`
+#        produit, ce que cette étape ne fait pas (CC-155) ;
+#      - une page Inertia mal nommée — le nom est résolu AU RUNTIME contre un
+#        `import.meta.glob` (`inertia/app/app.ts`) ; la chaîne écrite côté serveur,
+#        Vite ne la voit jamais (CC-155) ;
 #      - une phrase fausse dans un message de commit.
 #    Un badge vert de plus est exactement la fausse confiance que le CLAUDE.md racine
 #    passe son temps à démonter. Cette CI se vend pour ce qu'elle fait — pas comme une
@@ -69,7 +75,7 @@ concurrency:
 
 jobs:
   gates:
-    name: typecheck · lint · Japa · Vitest
+    name: typecheck · lint · build · Japa · Vitest
     runs-on: ubuntu-latest
     # ⚠️ `adonisrc.ts` pose `forceExit: false` : un handle resté ouvert fait PENDRE le
     # process au lieu de le terminer. Sans cette borne, le défaut de GitHub est de
@@ -149,6 +155,20 @@ jobs:
       # dette sans rapport avec elle. Le format est un autre ticket.
       - name: lint
         run: npm run lint
+
+      # CC-155 — le seul gate qui compile le front end. `tsconfig.json` exclut
+      # `./inertia/**/*` en entier et `vue-shim.d.ts` type les `.vue` en `any` : le
+      # typecheck ci-dessus ne les voit pas. Douze fichiers de spec Vitest pour
+      # vingt-huit `.vue` : la majorité des composants n'est montée par aucun test.
+      # Sans cette étape, une erreur de syntaxe dans un SFC non testé, un import
+      # cassé sous `inertia/`, une config Vite ou Tailwind invalide passaient tous
+      # les gates au vert — le premier à s'en apercevoir aurait été `docker build`
+      # au déploiement, ou personne.
+      #
+      # ⚠️ Ça reste un cran, pas une couverture : ça ne prouve NI une page Inertia
+      # mal nommée, NI une classe Tailwind morte — voir la liste en tête du fichier.
+      - name: build
+        run: npm run build
 
       # ⚠️ Les deux suites en DEUX étapes, là où `npm test` les enchaîne par `&&`.
       # Sémantique identique — l'échec de la première empêche la seconde et rend le job
