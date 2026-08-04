@@ -128,9 +128,9 @@ jobs:
       DB_PASSWORD: root
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           # Suit l'image de production (`Dockerfile:20` et `:38` — node:22-alpine) : c'est
           # la CI qui suit l'image, jamais l'inverse. `package.json` n'a pas de champ
