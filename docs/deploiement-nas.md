@@ -554,9 +554,149 @@ sudo docker compose --env-file .env.production -f docker-compose.prod.yml up -d
 ```
 
 Compose recrée le conteneur app (l'image a changé), laisse Postgres et `pgdata` en place, et
-les migrations éventuelles se jouent au démarrage. Lancer une sauvegarde manuelle (§7)
-**avant** une mise à jour qui embarque des migrations : c'est le seul retour arrière qui
-existe — il n'y a ni CI, ni rollback outillé.
+les migrations éventuelles se jouent au démarrage.
+
+⚠️ **Cette commande est la fin de la procédure, pas la procédure.** Ce qui la précède —
+sauvegarde, échelon de retour arrière, variables neuves — est en **§9 bis**, et chacun de ces
+trois points a déjà mordu au moins une fois.
+
+## 9 bis. La chaîne complète d'une mise à jour, et comment revenir
+
+Écrit d'après la mise en ligne de la `1.2.0` (2026-08-04), pas d'après ce qu'on imagine qu'elle
+devrait être. Chaque avertissement ci-dessous correspond à quelque chose qui s'est réellement
+produit ou qui a été vérifié à cette occasion.
+
+L'ordre n'est pas décoratif : **la seule étape irréversible est le `docker load`**, et tout ce qui
+la précède existe pour qu'elle le soit sans conséquence.
+
+### 1. Ce qui part avec cette version
+
+Avant de construire, répondre à deux questions sur le dépôt, pas de mémoire :
+
+```bash
+# Des migrations ? La réponse change ce que « revenir en arrière » veut dire.
+git diff --name-only v<installée>..master -- '*/migrations/*'
+
+# Des variables d'environnement neuves ?
+git diff v<installée>..master -- start/env.ts | grep -E '^\+\s+[A-Z_]+:'
+```
+
+⚠️ **C'est « qu'est-ce qui est apparu **depuis la version installée** », jamais « quelles
+variables existent ».** La liste générale est en §2, et elle n'a empêché aucun des deux oublis
+ci-dessous : personne ne relit §2 pour mettre à jour une installation qui tourne.
+
+**Le journal des variables, par palier.** À compléter à chaque mise en ligne :
+
+| Depuis | Variable | Oubliée |
+|---|---|---|
+| `1.2.0` | `APP_URL` | **refus bruyant** — le conteneur ne démarre pas, dix secondes pour le voir |
+| `1.2.0` | `MODULES` | ⚠️ **démarre sans aucun module**, sans un message |
+| `1.2.0` | `APP_COMMIT` | posée par le build, pas par le `.env` — voir l'étape 2 |
+
+⚠️ **`MODULES` est le cas à connaître.** Elle est `optional()` et son absence vaut « noyau seul » —
+défaut retenu par CC-137, juste pour une installation **neuve** : l'oubli va vers le refus. Sur une
+installation **existante**, le même défaut se retourne : la pile redémarre sans Leitner, sans
+veille, sans agents. Routes en 404, barre latérale vide. **Ce n'est pas une perte de données** —
+les migrations non jouées ne suppriment rien, remettre la variable rend tout — mais quelqu'un qui
+découvre l'écran vide sans connaître ce mécanisme conclura que la mise à jour a vidé la base, et
+c'est dans cet état-là qu'on prend les décisions qu'on regrette.
+
+### 2. Construire — la commande se copie en entier
+
+Celle du §3, sans en retirer un morceau. Les deux `--build-arg` ne sont pas décoratifs : les
+oublier **ne fait pas échouer le build**. L'image se construit, se charge, démarre — et `/reglages`
+affiche « Environnement de développement » sur une image de production, phrase que rien dans
+l'application ne contredit. Le seul recours serait `docker inspect`, c'est-à-dire exactement le
+shell que cet écran existe pour ne plus exiger.
+
+Vérifier **avant** d'envoyer quoi que ce soit sur le NAS — c'est ici que l'oubli se voit, pas
+là-bas :
+
+```bash
+docker inspect command-center:prod --format '{{json .Config.Labels}}'
+docker inspect command-center:prod --format '{{.Os}}/{{.Architecture}}'
+```
+
+Attendu : les deux `org.opencontainers.image.{version,revision}` renseignés, et `linux/amd64`.
+
+Nommer l'archive d'après la version (`command-center-<version>.tar`), jamais `prod` : un `.tar`
+nommé `prod` devient ambigu à la seconde archive.
+
+### 3. L'échelon de retour arrière — AVANT le `load`, jamais après
+
+```bash
+# Sur le NAS. <installée> = la version qui tourne en ce moment.
+sudo docker images command-center --format '{{.Tag}}  {{.ID}}'
+sudo docker tag command-center:prod command-center:<installée>
+```
+
+⚠️ **Regarder les ID avant de taguer.** Si un tag `<installée>` existe déjà et pointe **ailleurs**
+que `prod`, cette commande l'écrase — elle détruirait l'échelon qu'elle est censée créer. Deux tags
+qui portent le **même ID** désignent la même image : il n'y a alors rien à faire.
+
+Pourquoi c'est indispensable, dit par Docker lui-même au `load` suivant :
+
+```
+The image command-center:prod already exists, renaming the old one with ID sha256:… to empty string
+```
+
+L'image précédente **perd son nom**. Sans le tag de version, elle est anonyme à cet instant —
+récupérable par son ID quelques jours, puis ramassée par le garbage collector. L'échelon
+n'existerait plus.
+
+### 4. Sauvegarde, puis charger
+
+Lancer la tâche de sauvegarde du §7 depuis le Planificateur, et **vérifier qu'un fichier neuf est
+apparu** — pas seulement que la tâche s'est lancée.
+
+```bash
+ls -lh /volumeX/docker/command-center/command-center-<version>.tar   # la taille attendue, entière
+sudo docker load -i /volumeX/docker/command-center/command-center-<version>.tar
+sudo docker images command-center --format '{{.Tag}}  {{.ID}}'
+```
+
+⚠️ **S'arrêter ici et lire la sortie.** `prod` doit porter un **ID neuf**, et le tag de la version
+précédente **son ID d'origine, inchangé**. S'il a bougé, ne pas redémarrer : l'échelon est perdu et
+il ne reste que la sauvegarde de base.
+
+Puis la commande du §9, et lire les journaux plutôt que les supposer :
+
+```bash
+sudo docker compose --env-file .env.production -f docker-compose.prod.yml ps
+sudo docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail=40 app
+```
+
+Trois choses s'y lisent, dans cet ordre : ce que l'`ENTRYPOINT` a fait des migrations
+(`Already up to date` quand il n'y en a aucune), le démarrage du serveur HTTP, et l'absence
+d'erreur SQL répétée — un provider de module qui tournerait contre une table absente en
+enverrait une **à chaque tick** (CC-137). Attendre que `ps` affiche `(healthy)`, pas
+`health: starting`.
+
+### 5. La preuve, et elle n'est pas dans un terminal
+
+Ouvrir `/reglages` : la version et le commit court doivent être ceux qu'on vient de construire.
+C'est la seule vérification qui prouve que **ce qui tourne** est **ce qu'on croit avoir déployé** —
+et depuis CC-151 elle ne demande plus de shell.
+
+Vérifier aussi la **barre latérale** : Leitner, veille et agents doivent y être. Leur absence est
+le symptôme de `MODULES`, et c'est le seul échec de cette liste que rien n'annonce.
+
+### Revenir en arrière
+
+```bash
+sudo docker tag command-center:<installée> command-center:prod
+sudo docker compose --env-file .env.production -f docker-compose.prod.yml up -d
+```
+
+⚠️ **Revenir à l'image ne fait pas revenir la base.** Ces deux lignes suffisent tant que la mise à
+jour n'embarquait **aucune migration** — c'était le cas de la `1.2.0`, vérifié avant de partir et
+confirmé par `Already up to date` au démarrage. Une migration **additive** (une table en plus,
+`account_reset_events`) passe encore : l'image précédente ignore ce qu'elle ne connaît pas. Une
+migration qui **déplace** des colonnes — CC-119 — rend l'image précédente **incapable de lire sa
+propre base**, et le retour arrière devient une restauration de dump, pas un re-tag.
+
+C'est la seule raison pour laquelle l'étape 1 commence par chercher les migrations : elle ne décide
+pas si on peut mettre à jour, elle décide de ce que « revenir » coûtera.
 
 ## 10. Ce que ce déploiement ne fait pas
 
@@ -565,9 +705,12 @@ existe — il n'y a ni CI, ni rollback outillé.
   un tableau de bord personnel montré à des collègues — **à condition de le savoir**, et de ne
   pas y mettre plus tard quelque chose dont on dépendrait. Seul l'e-mail du cron de sauvegarde
   (§7) est surveillé, et il ne couvre que la sauvegarde.
-- **Pas de mise en production au sens propre** : pas de CI qui construit l'image, pas de
-  déploiement reproductible, pas de retour arrière outillé. Un lot « CI + GHCR » suivra si le
-  besoin apparaît ; le créer d'avance serait deviner.
+- **Pas de mise en production au sens propre** : rien ne construit ni ne publie l'image
+  automatiquement, et le déploiement n'est pas reproductible — il dépend d'un PC et de gestes
+  faits à la main. Une CI **de garde** existe depuis CC-149 (elle rejoue typecheck, lint et les
+  deux suites à chaque PR) mais elle ne construit aucune image : c'est le point 5 de CC-142.
+  Le retour arrière, lui, existe désormais — **écrit, pas outillé** : c'est la chaîne de tags du
+  §9 bis, et elle demande de s'en souvenir au bon moment.
 - **Le module Services est hors service** (pas de socket Docker — l'écran l'annonce et ses
   actions sont neutralisées, CC-116) et **Agents** reste réservé à l'admin : leur usage réel
   se fait sur le poste de dev.
