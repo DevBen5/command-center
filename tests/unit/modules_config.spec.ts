@@ -1,11 +1,6 @@
 import { test } from '@japa/runner'
 import env from '#start/env'
-import enabledModules, {
-  KNOWN_MODULES,
-  parseModules,
-  migrationPathsFor,
-  seederPathsFor,
-} from '#config/modules'
+import enabledModules, { KNOWN_MODULES, parseModules, migrationPathsFor } from '#config/modules'
 import VeilleProvider from '#providers/veille_provider'
 import LeitnerProvider from '#providers/leitner_provider'
 
@@ -64,15 +59,6 @@ test.group('Core / modules activables (CC-137)', () => {
       'app/modules/veille/migrations',
       'app/modules/leitner/migrations',
     ])
-  })
-
-  test('seederPathsFor : seuls services et agents portent un seeder (CC-106)', ({ assert }) => {
-    assert.deepEqual(seederPathsFor(new Set(KNOWN_MODULES)), [
-      'app/modules/services/seeders',
-      'app/modules/agents/seeders',
-    ])
-    // Veille et Leitner n'ont aucun seeder : les activer seuls ne doit rien ajouter.
-    assert.deepEqual(seederPathsFor(new Set(['veille', 'leitner'])), [])
   })
 
   test('la valeur brute lue par env.get correspond à ce que le singleton expose', ({ assert }) => {

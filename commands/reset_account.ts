@@ -167,7 +167,7 @@ export default class ResetAccount extends BaseCommand {
    * prouverait rien du chemin réel. Une seule règle, un seul endroit, le même dans les deux mondes.
    *
    * ⚠️ La valeur ne sort jamais d'ici autrement que par la valeur de retour : aucun message ne la
-   * cite, pas même sa longueur — le seeder prend déjà ce soin (`user_seeder.ts:44`).
+   * cite, pas même sa longueur — le même soin que l'écran d'installation avec son jeton (CC-138).
    */
   async #saisirMotDePasse(): Promise<string | null> {
     const motDePasse = await this.prompt.secure('Nouveau mot de passe')

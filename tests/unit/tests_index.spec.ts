@@ -67,7 +67,6 @@ const SPECS_TRANSVERSES = [
   'tests/unit/modules_config.spec.ts', // MODULES, config/modules.ts (CC-137)
   'tests/unit/tests_index.spec.ts', // ce fichier
   'tests/unit/totp.spec.ts', // le second facteur du noyau (CC-114)
-  'tests/unit/user_seeder.spec.ts', // le premier compte (CC-75)
   'tests/functional/modules/pages.spec.ts', // toutes les pages de tous les modules
 ]
 

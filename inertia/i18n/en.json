@@ -43,6 +43,18 @@
     "submit": "Access the dashboard",
     "invalid": "Invalid credentials."
   },
+  "installation": {
+    "eyebrow": "First run",
+    "title": "Installation",
+    "lead": "This database has no account yet. Create the administrator account to get started.",
+    "fullName": "Full name",
+    "email": "Email address",
+    "password": "Password",
+    "passwordConfirmation": "Password confirmation",
+    "token": "Installation token",
+    "tokenHelp": "Printed in the server logs at startup.",
+    "submit": "Create the administrator account"
+  },
   "twoFactor": {
     "eyebrow": "Verification",
     "title": "Second factor",

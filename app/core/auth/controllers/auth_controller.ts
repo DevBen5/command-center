@@ -5,12 +5,25 @@ import User from '#core/auth/models/user'
 import { loginValidator } from '#core/auth/validators/auth'
 import { landingUrlFor } from '#core/shared/navigation/landing'
 import loginThrottle from '#core/auth/services/login_throttle_service'
+import installationService from '#core/auth/services/installation_service'
 import { LOGIN_STAMP_KEY } from '#core/auth/services/session_lifetime'
 import { PENDING_2FA_KEY, pendingChallengeFor } from '#core/auth/services/two_factor_challenge'
 
 export default class AuthController {
-  async show({ inertia }: HttpContext) {
-    return inertia.render('core/auth/login')
+  async show({ inertia, response, session }: HttpContext) {
+    // Base vide → l'écran d'installation (CC-138). C'est ce qui fait qu'une installation
+    // neuve « redirige vers l'installation » : toute visite non authentifiée aboutit ici,
+    // et ici seulement — pas de boucle possible, `/installation` renvoie vers `/login`
+    // exactement dans le cas inverse (un compte existe).
+    if (await installationService.isOpen()) {
+      return response.redirect('/installation')
+    }
+
+    return inertia.render('core/auth/login', {
+      // Le mot de l'écran d'installation (« compte créé, connectez-vous ») — le seul flash
+      // que cette page affiche. `config/inertia.ts` ne partage que `errorsBag`, d'où la prop.
+      notice: session.flashMessages.get('notice') ?? null,
+    })
   }
 
   async store({ request, auth, response, session, i18n }: HttpContext) {

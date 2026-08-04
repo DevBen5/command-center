@@ -4,6 +4,10 @@ import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
 
+// Le mot laissé par l'écran d'installation (« compte créé, connectez-vous ») — déjà traduit
+// côté serveur, la page ne fait que l'afficher.
+defineProps<{ notice?: string | null }>()
+
 const form = useForm({
   email: '',
   password: '',
@@ -35,6 +39,8 @@ function submit(): void {
       <div class="text-[11px] tracking-[.18em] text-aqua uppercase">{{ t('login.eyebrow') }}</div>
       <h2 class="mt-2 mb-1 text-[30px] font-bold text-accent">{{ t('login.title') }}</h2>
       <p class="mb-7 text-[13px] text-txt-2">{{ t('login.lead') }}</p>
+
+      <p v-if="notice" class="mb-[18px] text-[13px] text-ok">{{ notice }}</p>
 
       <div class="mb-[18px]">
         <label class="mb-[7px] block text-[12px] text-txt-2">{{ t('login.email') }}</label>
