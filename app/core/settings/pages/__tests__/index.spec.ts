@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
+import { reactive } from 'vue'
 // ⚠️ L'attribut `with { type: 'json' }` n'est pas décoratif : ce spec vit sous `app/**`, donc
 // dans le graphe de `tsc` (`tsconfig.json` n'exclut qu'`inertia/**`), et `module: NodeNext`
 // refuse un import JSON sans lui — `npm run build` échoue, pas Vitest. Les specs voisins de
@@ -33,6 +34,11 @@ vi.mock('@inertiajs/vue3', () => ({
   router: { post: vi.fn(), reload: vi.fn() },
   usePage: () => ({ props: { locale: 'fr', supportedLocales: ['fr', 'en'] } }),
   Head: { template: '<div><slot /></div>' },
+  // ⚠️ Un objet réactif minimal, pas le vrai `useForm` : suffisant pour que `v-model` et
+  // `form.errors`/`form.processing` fonctionnent dans le template, sans dépendre d'une visite
+  // Inertia réelle que jsdom ne fait de toute façon pas.
+  useForm: (fields: Record<string, unknown>) =>
+    reactive({ ...fields, errors: {}, processing: false, post: vi.fn(), reset: vi.fn() }),
 }))
 
 vi.mock('~/layouts/AppLayout.vue', () => ({
@@ -159,6 +165,19 @@ describe('Core / écran de réglages', () => {
 
     expect(wrapper.text()).toContain('1.2.0')
     expect(wrapper.text()).toContain(settingsFr.about.dev)
+    wrapper.unmount()
+  })
+
+  /*
+  | CC-147 : changer son mot de passe ne ferme aucune session déjà ouverte ailleurs (le store
+  | est `cookie`, il n'existe aucune liste côté serveur). Sans cet avertissement, l'écran
+  | fabrique une fausse sécurité — c'est la seule chose qui l'en empêche, et il doit survivre
+  | à tout remaniement de cette page.
+  */
+  test('avertit que le changement ne ferme aucune session déjà ouverte ailleurs', () => {
+    const wrapper = monter({ enabled: false })
+
+    expect(wrapper.text()).toContain(settingsFr.security.password.sessionsWarning)
     wrapper.unmount()
   })
 })

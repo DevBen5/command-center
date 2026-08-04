@@ -26,7 +26,16 @@
     "codesDone": "I have saved my codes",
     "copy": "Copy",
     "copied": "Copied",
-    "failed": "The operation failed. Try again."
+    "failed": "The operation failed. Try again.",
+    "password": {
+      "title": "Password",
+      "lead": "Change the password used to sign in to this account.",
+      "current": "Current password",
+      "new": "New password",
+      "confirm": "Confirm new password",
+      "submit": "Change password",
+      "sessionsWarning": "This change does not close any session already open elsewhere: they remain valid for up to 7 days. If you think an unwanted device is signed in to this account, this action alone does not remove it."
+    }
   },
   "language": {
     "title": "Language",

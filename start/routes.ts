@@ -122,11 +122,13 @@ router
 | connecté.
 |
 | Les actions sont préfixées `2fa/` — comme `/admin/users/:id/2fa/reset` — pour qu'un réglage
-| d'une autre nature n'ait pas à s'inventer une place au milieu de celles-ci.
+| d'une autre nature n'ait pas à s'inventer une place au milieu de celles-ci. Le changement de
+| mot de passe (CC-147) est cette autre nature : sa propre action, hors du préfixe `2fa/`.
 */
 router
   .group(() => {
     router.get('/', [SettingsController, 'show'])
+    router.post('/mot-de-passe', [SettingsController, 'changePassword'])
     router.post('/2fa/enrolement', [SettingsController, 'enroll'])
     router.post('/2fa/confirmation', [SettingsController, 'confirm'])
     router.post('/2fa/codes', [SettingsController, 'regenerateCodes'])

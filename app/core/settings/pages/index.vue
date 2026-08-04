@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Head, router, usePage } from '@inertiajs/vue3'
+import { Head, router, useForm, usePage } from '@inertiajs/vue3'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '~/layouts/AppLayout.vue'
 
@@ -99,6 +99,26 @@ async function regenerate(): Promise<void> {
 function disable(): void {
   if (!confirm(t('settings.security.disableConfirm'))) return
   router.post('/reglages/2fa/desactivation', {}, { preserveScroll: true })
+}
+
+/**
+ * Le changement de mot de passe (CC-147).
+ *
+ * ⚠️ Les erreurs (mot de passe actuel incorrect, trop de tentatives, nouveau mot de passe trop
+ * court) arrivent par `form.errors` — le serveur les flashe sous `errorsBag`, comme le fait déjà
+ * le formulaire de connexion. Rien de spécifique à écrire ici pour les afficher.
+ */
+const passwordForm = useForm({
+  currentPassword: '',
+  password: '',
+  password_confirmation: '',
+})
+
+function changePassword(): void {
+  passwordForm.post('/reglages/mot-de-passe', {
+    preserveScroll: true,
+    onSuccess: () => passwordForm.reset(),
+  })
 }
 
 /**
@@ -304,6 +324,74 @@ function switchLocale(next: string): void {
           </button>
         </div>
       </template>
+    </section>
+
+    <section class="flex flex-col gap-3 rounded-xl border border-line-2 bg-panel p-4">
+      <div>
+        <h3 class="text-[13px] font-semibold tracking-tight">
+          {{ t('settings.security.password.title') }}
+        </h3>
+        <p class="mt-1 text-[12.5px] text-txt-3">{{ t('settings.security.password.lead') }}</p>
+      </div>
+
+      <form class="flex flex-col gap-3" @submit.prevent="changePassword">
+        <div>
+          <label class="mb-1 block text-[12px] text-txt-2">
+            {{ t('settings.security.password.current') }}
+          </label>
+          <input
+            v-model="passwordForm.currentPassword"
+            type="password"
+            autocomplete="current-password"
+            class="w-full rounded-lg border border-line-2 bg-panel-2 px-3 py-2 text-[13px] text-txt outline-none focus:border-accent"
+            :class="passwordForm.errors.currentPassword ? 'border-bad' : ''"
+          />
+          <p v-if="passwordForm.errors.currentPassword" class="mt-1 text-[12.5px] text-bad">
+            {{ passwordForm.errors.currentPassword }}
+          </p>
+        </div>
+
+        <div>
+          <label class="mb-1 block text-[12px] text-txt-2">
+            {{ t('settings.security.password.new') }}
+          </label>
+          <input
+            v-model="passwordForm.password"
+            type="password"
+            autocomplete="new-password"
+            class="w-full rounded-lg border border-line-2 bg-panel-2 px-3 py-2 text-[13px] text-txt outline-none focus:border-accent"
+            :class="passwordForm.errors.password ? 'border-bad' : ''"
+          />
+          <p v-if="passwordForm.errors.password" class="mt-1 text-[12.5px] text-bad">
+            {{ passwordForm.errors.password }}
+          </p>
+        </div>
+
+        <div>
+          <label class="mb-1 block text-[12px] text-txt-2">
+            {{ t('settings.security.password.confirm') }}
+          </label>
+          <input
+            v-model="passwordForm.password_confirmation"
+            type="password"
+            autocomplete="new-password"
+            class="w-full rounded-lg border border-line-2 bg-panel-2 px-3 py-2 text-[13px] text-txt outline-none focus:border-accent"
+          />
+        </div>
+
+        <!-- ⚠️ Permanent, pas conditionné à un succès : sans lui, changer son mot de passe
+             fabrique une fausse sécurité — le store de session est `cookie`, aucune session
+             ouverte ailleurs n'est fermée par ce geste (CC-147). -->
+        <p class="text-[12px] text-warn">{{ t('settings.security.password.sessionsWarning') }}</p>
+
+        <button
+          type="submit"
+          :disabled="passwordForm.processing"
+          class="w-fit rounded-lg bg-accent px-3 py-2 text-[12.5px] font-medium text-white transition hover:opacity-90 disabled:opacity-60"
+        >
+          {{ t('settings.security.password.submit') }}
+        </button>
+      </form>
     </section>
 
     <section class="flex flex-col gap-3 rounded-xl border border-line-2 bg-panel p-4">

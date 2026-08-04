@@ -1,9 +1,13 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import { renderSVG } from 'uqr'
+import { errors as authErrors } from '@adonisjs/auth'
 import ForbiddenException from '#core/shared/exceptions/forbidden_exception'
+import User from '#core/auth/models/user'
 import twoFactor from '#core/auth/services/two_factor_service'
 import { adminTotpRequired } from '#core/auth/services/two_factor_policy'
+import reauthThrottle from '#core/auth/services/reauth_throttle_service'
 import { totpConfirmationValidator } from '#core/auth/validators/two_factor'
+import { changePasswordValidator } from '#core/auth/validators/auth'
 import appVersion from '#config/app_version'
 
 /**
@@ -121,6 +125,49 @@ export default class SettingsController {
     }
 
     await twoFactor.disable(user)
+
+    return response.redirect('/reglages')
+  }
+
+  /**
+   * Change le mot de passe de son propre compte (CC-147).
+   *
+   * ⚠️ **Le mot de passe actuel est un oracle, throttlé comme `POST /login`** (CC-78) : le
+   * blocage se vérifie AVANT `User.verifyCredentials`, pour ne pas payer un scrypt sur un
+   * client déjà bloqué. `ReauthThrottleService` ne fait que compter — la vérification
+   * réutilise exactement le chemin de `AuthController.store`.
+   *
+   * ⚠️ **Ne ferme aucune session ouverte ailleurs** — le store est `cookie`, aucune liste
+   * côté serveur. C'est pour ça que l'écran porte un avertissement permanent à côté de ce
+   * formulaire ; ce n'est pas réparé ici (option (a) du ticket, (b) serait un lot à part).
+   */
+  async changePassword({ auth, request, response, session, i18n }: HttpContext) {
+    const user = auth.user!
+    const { currentPassword, password } = await request.validateUsing(changePasswordValidator)
+
+    const retryInSeconds = await reauthThrottle.secondsBeforeRetry(user.id)
+    if (retryInSeconds > 0) {
+      session.flash('errorsBag', {
+        currentPassword: i18n.t('auth.reauthTooManyAttempts', {
+          minutes: Math.max(1, Math.ceil(retryInSeconds / 60)),
+        }),
+      })
+      return response.redirect().back()
+    }
+
+    try {
+      await User.verifyCredentials(user.email, currentPassword)
+    } catch (error) {
+      if (!(error instanceof authErrors.E_INVALID_CREDENTIALS)) throw error
+
+      await reauthThrottle.recordFailure(user.id)
+      session.flash('errorsBag', { currentPassword: i18n.t('auth.currentPasswordInvalid') })
+      return response.redirect().back()
+    }
+
+    await reauthThrottle.clearFor(user.id)
+    user.password = password
+    await user.save()
 
     return response.redirect('/reglages')
   }

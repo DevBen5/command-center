@@ -1,5 +1,6 @@
 import vine from '@vinejs/vine'
 import registry from '#core/auth/capabilities/registry'
+import { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH } from '#core/auth/constants/password_rules'
 
 /**
  * ⚠️ Une capacité qui n'existe dans aucun module est **refusée à la saisie**.
@@ -67,6 +68,10 @@ export const roleValidator = vine.compile(
 
 export const acceptInvitationValidator = vine.compile(
   vine.object({
-    password: vine.string().minLength(12).maxLength(180).confirmed(),
+    password: vine
+      .string()
+      .minLength(MIN_PASSWORD_LENGTH)
+      .maxLength(MAX_PASSWORD_LENGTH)
+      .confirmed(),
   })
 )

@@ -4,14 +4,7 @@ import logger from '@adonisjs/core/services/logger'
 import User from '#core/auth/models/user'
 import AccountResetEvent from '#core/auth/models/account_reset_event'
 import twoFactor from '#core/auth/services/two_factor_service'
-
-/**
- * Les mêmes bornes que `acceptInvitationValidator` (`validators/admin.ts`), et il faut que ça le
- * reste : une porte de service qui poserait un mot de passe que le formulaire aurait refusé
- * rendrait la règle vraie à l'écran et fausse en base. Même raison que le seeder (CC-75).
- */
-const MIN_PASSWORD_LENGTH = 12
-const MAX_PASSWORD_LENGTH = 180
+import { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH } from '#core/auth/constants/password_rules'
 
 /**
  * La porte de service : reposer un mot de passe et désarmer le second facteur d'un compte,
