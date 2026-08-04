@@ -9,7 +9,10 @@
 # sources, ni les devDependencies, ni le moindre secret (voir .dockerignore).
 #
 # Construire pour le NAS (DS918+, Celeron J3455 = amd64) :
-#   docker build --platform linux/amd64 -t command-center:prod .
+#   docker build --platform linux/amd64 \
+#     --build-arg APP_VERSION=$(node -p "require('./package.json').version") \
+#     --build-arg APP_COMMIT=$(git rev-parse --short HEAD) \
+#     -t command-center:prod .
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -37,6 +40,22 @@ RUN node ace build
 # -----------------------------------------------------------------------------
 FROM node:22-alpine AS production
 WORKDIR /app
+
+# Métadonnées de l'image (CC-130 point 2, CC-151) — deux ARG, deux sources distinctes.
+# APP_VERSION est lu par la commande de build depuis package.json : le LABEL reflète alors
+# exactement ce que l'image DEVRAIT porter. APP_COMMIT vient de git, sur la machine qui
+# construit — le `.git` du dépôt n'entre jamais dans le contexte de build (.dockerignore).
+# Seul APP_COMMIT est promu en variable d'environnement : c'est la seule des deux valeurs que
+# l'application relit elle-même (`/reglages`). La version qu'affiche cet écran vient
+# directement de package.json une fois copié dans l'image plus bas, PAS de cet ARG — elle
+# reste donc correcte même si l'opérateur se trompe en construisant.
+ARG APP_VERSION
+ARG APP_COMMIT
+
+LABEL org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${APP_COMMIT}"
+
+ENV APP_COMMIT=${APP_COMMIT}
 
 # Valeurs par défaut de production. Toutes surchargeables par le `env_file` du
 # compose ; APP_KEY et les identifiants DB, eux, DOIVENT venir de l'environnement

@@ -4,9 +4,11 @@ import ForbiddenException from '#core/shared/exceptions/forbidden_exception'
 import twoFactor from '#core/auth/services/two_factor_service'
 import { adminTotpRequired } from '#core/auth/services/two_factor_policy'
 import { totpConfirmationValidator } from '#core/auth/validators/two_factor'
+import appVersion from '#config/app_version'
 
 /**
- * L'écran « Réglages » d'un compte, pour lui-même — aujourd'hui la sécurité et la langue.
+ * L'écran « Réglages » d'un compte, pour lui-même — la sécurité, la langue, et la version qui
+ * tourne (CC-151, lisible par tout compte connecté, pas seulement le sien).
  *
  * ⚠️ **Ce domaine `core/settings` existe pour que l'entrée de barre latérale ne mente pas.**
  * CC-81 avait retiré « Réglages » parce qu'elle pointait vers `/`, donc vers un refus pour un
@@ -46,6 +48,12 @@ export default class SettingsController {
       remainingCodes: user.hasTotp ? await twoFactor.remainingRecoveryCodes(user) : 0,
       // Pour dire *pourquoi* on est là quand la règle a forcé le passage.
       required: adminTotpRequired() && user.isAdmin,
+      // « Quelle version tourne ? » (CC-151) — à tout compte connecté, décision tranchée par
+      // le ticket : le dépôt est public, cacher le numéro ne retirerait rien à un attaquant
+      // déjà authentifié. `null` explicite, jamais `undefined` : ce dernier disparaîtrait de la
+      // sérialisation JSON et laisserait la page deviner plutôt que recevoir une valeur.
+      version: appVersion.version,
+      commit: appVersion.commit ?? null,
     })
   }
 

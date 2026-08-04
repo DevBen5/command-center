@@ -13,6 +13,10 @@ interface Props {
   remainingCodes: number
   /** La règle `ADMIN_2FA_REQUIRED` s'applique à ce compte. */
   required: boolean
+  /** Version de `package.json` — peut être en retard sur le code réellement construit (CC-130). */
+  version: string
+  /** Commit court injecté à la construction de l'image ; `null` en développement (CC-151). */
+  commit: string | null
 }
 
 const props = defineProps<Props>()
@@ -319,6 +323,14 @@ function switchLocale(next: string): void {
           {{ lng }}
         </button>
       </div>
+    </section>
+
+    <!-- « Quelle version tourne ? » (CC-151), sans shell. Sobre à dessein : ce n'est pas un
+         réglage à manipuler, juste une réponse à une question de diagnostic. -->
+    <section class="flex flex-col gap-1 border-t border-line-2 pt-4 text-[11.5px] text-txt-3">
+      <p>{{ t('settings.about.version', { version: props.version }) }}</p>
+      <p v-if="props.commit">{{ t('settings.about.commit', { commit: props.commit }) }}</p>
+      <p v-else>{{ t('settings.about.dev') }}</p>
     </section>
   </div>
 </template>

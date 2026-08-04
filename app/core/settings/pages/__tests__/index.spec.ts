@@ -50,6 +50,8 @@ function monter(props: {
   enrollment?: typeof ENROLLMENT | null
   remainingCodes?: number
   required?: boolean
+  version?: string
+  commit?: string | null
 }) {
   return mount(Settings, {
     props: {
@@ -57,6 +59,8 @@ function monter(props: {
       enrollment: props.enrollment ?? null,
       remainingCodes: props.remainingCodes ?? 0,
       required: props.required ?? false,
+      version: props.version ?? '1.1.0',
+      commit: props.commit ?? null,
     },
     global: {
       plugins: [
@@ -132,5 +136,29 @@ describe('Core / écran de réglages', () => {
     const pourvu = monter({ enabled: true, remainingCodes: 3 })
     expect(pourvu.text()).not.toContain(settingsFr.security.noCodesLeft)
     pourvu.unmount()
+  })
+
+  /*
+  | « Quelle version tourne ? » (CC-151). Le cas qui compte est le repli développement : aucun
+  | build Docker ne pose `APP_COMMIT`, donc le contrôleur envoie `commit: null` — jamais une
+  | chaîne vide ni `undefined` affiché tel quel. Les deux branches sont vérifiées, dans les deux
+  | sens, pour la même raison que le bouton de désactivation ci-dessus : monter un seul cas ne
+  | prouverait rien si le `v-if`/`v-else` disparaissait.
+  */
+  test('affiche le commit construit quand il existe', () => {
+    const wrapper = monter({ enabled: false, version: '1.2.0', commit: '17c9cc4' })
+
+    expect(wrapper.text()).toContain('1.2.0')
+    expect(wrapper.text()).toContain('17c9cc4')
+    expect(wrapper.text()).not.toContain(settingsFr.about.dev)
+    wrapper.unmount()
+  })
+
+  test('sans commit (développement), le repli explicite s’affiche — jamais une valeur vide', () => {
+    const wrapper = monter({ enabled: false, version: '1.2.0', commit: null })
+
+    expect(wrapper.text()).toContain('1.2.0')
+    expect(wrapper.text()).toContain(settingsFr.about.dev)
+    wrapper.unmount()
   })
 })
