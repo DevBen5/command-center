@@ -26,7 +26,16 @@
     "codesDone": "J'ai noté mes codes",
     "copy": "Copier",
     "copied": "Copié",
-    "failed": "L'opération a échoué. Réessayez."
+    "failed": "L'opération a échoué. Réessayez.",
+    "password": {
+      "title": "Mot de passe",
+      "lead": "Changez le mot de passe de connexion à ce compte.",
+      "current": "Mot de passe actuel",
+      "new": "Nouveau mot de passe",
+      "confirm": "Confirmez le nouveau mot de passe",
+      "submit": "Changer le mot de passe",
+      "sessionsWarning": "Ce changement ne ferme aucune session déjà ouverte ailleurs : elles restent valables jusqu'à 7 jours. Si vous pensez qu'un appareil non désiré est connecté à ce compte, ce geste seul ne l'en écarte pas."
+    }
   },
   "language": {
     "title": "Langue",
