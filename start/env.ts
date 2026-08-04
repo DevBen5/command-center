@@ -54,6 +54,20 @@ export default await Env.create(new URL('../', import.meta.url), {
 
   /*
   |----------------------------------------------------------
+  | Commit court injecté à la construction de l'image (CC-151)
+  |----------------------------------------------------------
+  |
+  | ⚠️ N'existe que sur une image construite avec `--build-arg APP_COMMIT=...` (Dockerfile,
+  | étage `production`) — le `.git` du dépôt n'entre jamais dans le contexte de build
+  | (`.dockerignore`). Absente en développement (pas de build Docker) et sur une image
+  | construite sans l'ARG : `/reglages` l'affiche alors comme telle (repli explicite en i18n),
+  | jamais comme une chaîne vide. Optionnelle pour ne RIEN casser de `npm run dev`, `npm test`,
+  | ni la CI — aucun d'eux ne construit d'image.
+  */
+  APP_COMMIT: Env.schema.string.optional(),
+
+  /*
+  |----------------------------------------------------------
   | Modules activés sur cette installation (CC-137)
   |----------------------------------------------------------
   |

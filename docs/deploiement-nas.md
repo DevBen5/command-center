@@ -107,9 +107,18 @@ L'image se construit sur le PC et voyage en fichier :
 
 ```bash
 # Sur le PC, dépôt à jour sur master :
-docker build --platform linux/amd64 -t command-center:prod .
+docker build --platform linux/amd64 \
+  --build-arg APP_VERSION=$(node -p "require('./package.json').version") \
+  --build-arg APP_COMMIT=$(git rev-parse --short HEAD) \
+  -t command-center:prod .
 docker save command-center:prod -o command-center-prod.tar
 ```
+
+⚠️ **Les deux `--build-arg` ne sont pas optionnels** (CC-151) : ils alimentent le `LABEL`
+OCI que lit `docker inspect` (CC-130 point 2) et, pour le commit, l'écran `/reglages` de
+l'application elle-même. Les oublier ne fait pas échouer le build — l'image se construit
+normalement, mais `/reglages` affiche alors le repli « développement » sur une image de
+production, sans qu'aucune erreur ne le signale.
 
 Copier le `.tar` sur le NAS (File Station, ou `scp` vers `/volumeX/docker/command-center/`),
 puis en SSH :

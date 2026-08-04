@@ -31,5 +31,10 @@
   "language": {
     "title": "Langue",
     "lead": "La langue de l'interface, retenue pour ce compte."
+  },
+  "about": {
+    "version": "Version {version}",
+    "commit": "Build {commit}",
+    "dev": "Environnement de développement — aucune image construite"
   }
 }

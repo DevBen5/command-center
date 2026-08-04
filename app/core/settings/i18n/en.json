@@ -31,5 +31,10 @@
   "language": {
     "title": "Language",
     "lead": "The interface language, remembered for this account."
+  },
+  "about": {
+    "version": "Version {version}",
+    "commit": "Build {commit}",
+    "dev": "Development environment — no image was built"
   }
 }
