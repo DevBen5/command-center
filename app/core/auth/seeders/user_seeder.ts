@@ -4,16 +4,10 @@ import env from '#start/env'
 import User from '#core/auth/models/user'
 import Role from '#core/auth/models/role'
 import RoleCapability from '#core/auth/models/role_capability'
+import { MIN_PASSWORD_LENGTH } from '#core/auth/constants/password_rules'
 
 /** Le compte du propriétaire — le seul que ce seeder peut créer. */
 const OWNER_EMAIL = 'admin@bstenger.fr'
-
-/**
- * Aligné sur `acceptInvitationValidator` (`validators/admin.ts`), et il faut que ça le reste :
- * sans cette garde, une variable d'environnement poserait un mot de passe que le formulaire
- * de l'application aurait refusé. La règle serait vraie à l'écran et fausse en base.
- */
-const MIN_PASSWORD_LENGTH = 12
 
 export default class extends BaseSeeder {
   async run() {
