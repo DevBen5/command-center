@@ -59,6 +59,22 @@ ticket parlait de « synchroniser command/déclencheur », les deux vivent au m�
 La validation (`config/agents.ts`, `parseAgentsDeclarations`) exige `name`/`framework` non vides,
 des noms uniques dans le fichier, et `config` objet si présent — rien de plus.
 
+### ⚠️ Ce fichier a masqué la route `/agents`, et c'est réparé ailleurs (CC-170)
+
+Poser `agents.json` **à la racine du dépôt** l'a mis là où le serveur de dev Vite résout les
+modules. Vite traite un chemin sans extension comme une requête JS et le résout avec sa liste
+d'extensions, `.json` comprise : `GET /agents` renvoyait donc le contenu du fichier — 200
+`text/javascript` — servi par un middleware **serveur**, donc **avant le routeur** et sans
+authentification. Constaté au `curl` anonyme sur `npm run dev` : `config.command` en clair,
+l'écran `/agents` inatteignable, et deux specs rouges (`capabilities_access`, `pages`) que la CI
+ne voyait pas — le fichier étant ignoré par git, le runner ne l'a jamais eu.
+
+Le correctif ne touche **ni le nom, ni l'emplacement, ni `AGENTS_CONFIG_PATH`** : c'est la pile
+serveur qui a été corrigée, une fois, pour toute la classe de bug —
+`app/core/shared/middleware/vite_dev_server_middleware.ts`, tenu par
+`tests/functional/core/vite_route_shadowing.spec.ts`. Déplacer le fichier n'aurait fermé que
+cette instance-là : un `services.json` à la racine rejouerait le même masquage à l'identique.
+
 ### La synchronisation au boot — déclarative, pas un delta
 
 `AgentsProvider` (`environment: ['web']`, comme `LeitnerProvider`/`VeilleProvider`) lit le fichier

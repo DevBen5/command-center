@@ -608,6 +608,16 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
   répond que le bouton soit affiché ou non, et un `curl` muni d'un cookie de session valide n'a que
   faire du rendu Vue. Le middleware de capacité ferme ; le masquage dans l'UI évite seulement de
   proposer une action qui échouerait. **Les deux, jamais l'un sans l'autre.**
+- **En dev et en test, une route déclarée passe AVANT le serveur d'assets** (CC-170). La pile de
+  `start/kernel.ts` n'appelle plus `@adonisjs/vite/vite_middleware` directement mais
+  `#core/shared/middleware/vite_dev_server_middleware`, qui lui délègue tout **sauf** ce que
+  `router.match` reconnaît. Sans ce garde, le middleware vendeur — qui est un middleware
+  **serveur**, donc antérieur au routeur — laissait le serveur de dev Vite résoudre le chemin
+  contre la racine du projet : `agents.json` (CC-141, ignoré par git) répondait à `GET /agents`
+  en 200 `text/javascript`, **sans authentification**, `config.command` en clair. Rien ne le
+  signalait — un 200 reste un 200 — et la CI restait verte, n'ayant pas le fichier. Ne « reviens
+  pas au scaffold » sur cette ligne ; `tests/functional/core/vite_route_shadowing.spec.ts`
+  fabrique lui-même le fichier masquant, il rougirait donc partout, y compris en CI.
 - **`whereRaw` toujours paramétré** (bindings `?`), jamais concaténé.
 - Toute entrée utilisateur passe par un validateur VineJS. CSRF actif (Shield) : les POST de test
   exigent `.withCsrfToken()`.
