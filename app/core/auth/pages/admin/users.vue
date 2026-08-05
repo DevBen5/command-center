@@ -59,6 +59,12 @@ function create(): void {
         >
           Rôles
         </Link>
+        <Link
+          href="/admin/sauvegarde"
+          class="rounded-lg border border-line-2 px-3 py-2 text-[12.5px] text-txt-2 transition hover:border-accent hover:text-txt"
+        >
+          Sauvegarde
+        </Link>
         <button
           type="button"
           class="flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-medium text-white transition hover:opacity-90"

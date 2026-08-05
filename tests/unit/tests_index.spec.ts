@@ -59,6 +59,7 @@ const DOSSIERS_PARTAGES = ['tests/unit', 'tests/functional/modules']
 const SPECS_TRANSVERSES = [
   'tests/unit/app_url.spec.ts', // dérivation du secure des cookies depuis APP_URL (CC-136)
   'tests/unit/app_version.spec.ts', // la version et le commit affichés aux réglages (CC-151)
+  'tests/unit/backup_service.spec.ts', // orchestration de la sauvegarde (CC-140), core/backup
   'tests/unit/capability_service.spec.ts', // le noyau des capacités
   'tests/unit/db_dumps.spec.ts', // la logique de sauvegarde de `scripts/lib/`
   'tests/unit/db_seeders.spec.ts', // la liste des seeders déclarés

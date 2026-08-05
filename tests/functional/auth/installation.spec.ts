@@ -2,12 +2,16 @@ import { test } from '@japa/runner'
 import limiter from '@adonisjs/limiter/services/main'
 import User from '#core/auth/models/user'
 import installationToken from '#core/auth/services/installation_token_service'
+import BackupSettings from '#core/backup/models/backup_settings'
 
 const VALID_FORM = {
   fullName: 'Propriétaire Test',
   email: 'proprietaire@example.com',
   password: 'motdepasse-long-1',
   password_confirmation: 'motdepasse-long-1',
+  // Sauvegarde (CC-140) : toujours envoyés par la page réelle, pré-remplis depuis les props.
+  backupKeep: 10,
+  backupDailyEnabled: true,
 }
 
 /**
@@ -98,6 +102,11 @@ test.group('Auth / écran d’installation', (group) => {
     const owner = await User.findByOrFail('email', VALID_FORM.email)
     assert.isTrue(owner.isAdmin)
     assert.isTrue(owner.isActive)
+
+    // Les réglages de sauvegarde saisis à l'écran (CC-140) sont bien persistés.
+    const backupSettings = await BackupSettings.findOrFail(1)
+    assert.equal(backupSettings.keep, VALID_FORM.backupKeep)
+    assert.equal(backupSettings.dailyEnabled, VALID_FORM.backupDailyEnabled)
 
     // Le compte se connecte par la porte normale…
     const login = await client

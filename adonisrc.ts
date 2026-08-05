@@ -85,6 +85,13 @@ export default defineConfig({
       file: () => import('#providers/veille_provider'),
       environment: ['web'],
     },
+    // La sauvegarde automatique quotidienne (CC-140) tourne elle aussi en tâche de fond dans
+    // le processus. `web` seulement : une boucle réelle en test irait tenter d'écrire dans
+    // `/data/backups`, absent du poste de dev et des runners CI.
+    {
+      file: () => import('#providers/backup_provider'),
+      environment: ['web'],
+    },
   ],
 
   /*
@@ -151,6 +158,14 @@ export default defineConfig({
     },
     {
       pattern: 'resources/lang/**/*.{json,yaml,yml}',
+      reloadServer: false,
+    },
+    // Le seul morceau de `scripts/` qui doit exister dans l'image : la vérification de dump
+    // (CC-140), consommée par `commands/db_backup.ts` et `commands/db_restore.ts`. Le reste de
+    // `scripts/` (les .js du poste de dev, qui pilotent `docker compose exec`) n'a aucune
+    // raison d'être dans l'image — il ne peut de toute façon rien y piloter.
+    {
+      pattern: 'scripts/lib/dumps.{js,d.ts}',
       reloadServer: false,
     },
   ],

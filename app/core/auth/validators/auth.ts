@@ -51,5 +51,10 @@ export const installationValidator = vine.compile(
       .maxLength(MAX_PASSWORD_LENGTH)
       .confirmed(),
     token: vine.string().trim().minLength(1),
+    // Sauvegarde (CC-140) : les deux seuls réglages qui n'engagent aucune infrastructure — le
+    // dossier et le miroir sont des chemins fixes du conteneur, jamais saisis (voir
+    // `BackupSettings`). Même bornes que `backupSettingsValidator`.
+    backupKeep: vine.number().min(0).max(1000),
+    backupDailyEnabled: vine.boolean(),
   })
 )

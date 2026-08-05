@@ -1,19 +1,21 @@
-/*
-| Types de `dumps.js`, pour `tsc` uniquement.
-|
-| `tsconfig.json` n'active pas `allowJs` (il hérite de `@adonisjs/tsconfig`), donc un
-| spec `.ts` qui importe ce module lèverait TS2307 : « Cannot find module ». Même motif
-| que `vue-shim.d.ts`, et même contrepartie — ces signatures sont écrites à la main, rien
-| ne vérifie qu'elles suivent le `.js`.
-|
-| Le module reste en `.js` parce que `npm run db:backup` l'exécute par `node`, sans
-| transpilation.
-*/
+/**
+ * Déclarations de types pour `dumps.js`, écrites à la main.
+ *
+ * ⚠️ Ce module reste volontairement en JavaScript, inchangé (voir son en-tête) : les 19 tests
+ * de `tests/unit/db_dumps.spec.ts` le couvrent déjà, et une réécriture n'a rien à y gagner.
+ * Ce fichier existe pour que `commands/db_backup.ts` et `commands/db_restore.ts` — sous
+ * `tsc --strict`, sans `allowJs` — puissent l'importer sans en faire une copie.
+ */
 
-export declare const MOTIF_DUMP: RegExp
-export declare const GARDER_PAR_DEFAUT: number
+export const MOTIF_DUMP: RegExp
+export const GARDER_PAR_DEFAUT: number
 
-export declare function verifierDump(chemin: string): { ok: boolean; raison?: string }
-export declare function listerDumps(dossier: string): string[]
-export declare function lireGarder(valeur: string | undefined): number
-export declare function dumpsAPurger(noms: string[], garder: number): string[]
+export interface ResultatVerification {
+  ok: boolean
+  raison?: string
+}
+
+export function verifierDump(chemin: string): ResultatVerification
+export function listerDumps(dossier: string): string[]
+export function lireGarder(valeur: string | undefined): number
+export function dumpsAPurger(noms: string[], garder: number): string[]

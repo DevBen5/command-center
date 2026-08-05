@@ -66,6 +66,19 @@ ENV NODE_ENV=production \
     LOG_LEVEL=info \
     SESSION_DRIVER=cookie
 
+# `pg_dump`/`psql` pour `node ace db:backup`/`db:restore` (CC-140) : la sauvegarde tourne DANS ce
+# conteneur, en connexion TCP directe vers Postgres — pas de démon Docker à sa disposition (voir
+# docker-compose.prod.yml). Quelques Mo sur Alpine.
+#
+# ⚠️ **`postgresql-client` nu installe la dernière version packagée par Alpine (18 au moment
+# d'écrire ceci), pas celle du serveur (`postgres:16-alpine`).** Constaté en vérification réelle
+# (CC-140) : un dump produit par `pg_dump` 18 embarque `SET transaction_timeout = ...`, un réglage
+# serveur qui n'existe qu'à partir de PG 17 — `psql` 16 le refuse à la restauration
+# (`unrecognized configuration parameter`), la base à moitié restaurée. `postgresql16-client` fixe
+# la version du CLIENT sur celle du serveur, explicitement, plutôt que de suivre le défaut Alpine
+# au gré des mises à jour de l'image.
+RUN apk add --no-cache postgresql16-client
+
 # Le résultat du build, puis SEULEMENT les dépendances de production (le build a
 # recopié package.json + package-lock.json à la racine de build/).
 COPY --from=build /app/build ./

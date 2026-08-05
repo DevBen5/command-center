@@ -53,6 +53,13 @@
     "passwordConfirmation": "Confirmation du mot de passe",
     "token": "Jeton d'installation",
     "tokenHelp": "Imprimé dans les journaux du serveur au démarrage.",
+    "backupHeading": "Sauvegarde",
+    "backupKeep": "Nombre de sauvegardes locales conservées",
+    "backupDaily": "Sauvegarde automatique quotidienne",
+    "backupDirectoryReady": "Dossier de sauvegarde monté",
+    "backupDirectoryMissing": "Dossier de sauvegarde introuvable — voir BACKUP_DIR_PATH",
+    "backupMirrorReady": "Miroir hors-disque monté",
+    "backupMirrorMissing": "Aucun miroir hors-disque configuré",
     "submit": "Créer le compte administrateur"
   },
   "twoFactor": {

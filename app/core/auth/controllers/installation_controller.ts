@@ -4,6 +4,8 @@ import { installationValidator } from '#core/auth/validators/auth'
 import installationService from '#core/auth/services/installation_service'
 import installationToken from '#core/auth/services/installation_token_service'
 import installationThrottle from '#core/auth/services/installation_throttle_service'
+import backupSettings from '#core/backup/services/backup_settings_service'
+import backupService from '#core/backup/services/backup_service'
 
 /**
  * L'écran d'installation (CC-138) : crée le premier compte — administrateur — d'une base
@@ -24,7 +26,17 @@ export default class InstallationController {
       return response.redirect('/login')
     }
 
-    return inertia.render('core/auth/installation')
+    // Statut des deux chemins fixes (CC-140), affiché — jamais saisi. Un formulaire acceptant
+    // un chemin arbitraire réintroduirait le risque qu'il ne corresponde à aucun volume monté.
+    const status = backupService.status()
+    const settings = await backupSettings.current()
+
+    return inertia.render('core/auth/installation', {
+      backupDirectoryReady: status.directoryReady,
+      backupMirrorConfigured: status.mirrorConfigured,
+      backupKeep: settings.keep,
+      backupDailyEnabled: settings.dailyEnabled,
+    })
   }
 
   async store({ request, response, session, i18n }: HttpContext) {
@@ -44,7 +56,8 @@ export default class InstallationController {
       return response.redirect().back()
     }
 
-    const { fullName, email, password, token } = await request.validateUsing(installationValidator)
+    const { fullName, email, password, token, backupKeep, backupDailyEnabled } =
+      await request.validateUsing(installationValidator)
 
     // Comparaison à temps constant — et seul un échec de JETON compte dans le throttle :
     // une erreur de validation au-dessus n'est pas une attaque.
@@ -64,6 +77,11 @@ export default class InstallationController {
 
     // Le journal dit le fait, jamais le mot de passe — le pendant du jeton imprimé au boot.
     logger.info(`Écran d'installation : compte administrateur « ${owner.email} » créé.`)
+
+    // Hors de la transaction du compte (CC-140) : pas de risque de course sur une ligne
+    // singleton dont ce POST est, par construction, le seul écrivain possible tant que la
+    // base est vide — la garde qui protège le compte n'a pas d'équivalent à protéger ici.
+    await backupSettings.update({ keep: backupKeep, dailyEnabled: backupDailyEnabled })
 
     // Pas de connexion automatique : le compte se prouve en se connectant — et le chemin
     // nominal reste unique, throttle et (futur) second facteur compris.
