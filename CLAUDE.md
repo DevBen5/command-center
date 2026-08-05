@@ -72,6 +72,17 @@ raison unique : elle est testable (`tests/unit/db_dumps.spec.ts`), les scripts n
 d'un conteneur Postgres qui tourne. C'est le seul endroit du dépôt où une erreur de logique se paie
 en contenu perdu.
 
+**Ces trois protections décrivent le poste de dev.** Depuis CC-140, `node ace db:backup` /
+`db:restore` portent la même logique (`scripts/lib/dumps.js`, inchangé) pour toute installation
+conteneurisée — `docker compose exec app node ace db:backup`, sans dépôt cloné, `pg_dump` en TCP
+direct (`postgresql-client` dans l'image) plutôt que via `docker compose exec`. Les chemins y sont
+**fixes** dans le conteneur (`/data/backups`, `/data/backup-mirror`) et montés une fois par le
+compose (`BACKUP_DIR_PATH`/`BACKUP_MIRROR_DIR_PATH`, modèle `PGDATA_PATH`) — jamais saisis dans un
+formulaire, pour la même raison que `BACKUP_MIRROR_DIR` doit exister sans jamais être créé. Une
+sauvegarde quotidienne automatique (`providers/backup_provider.ts`, `environment: ['web']`
+seulement) est activable par installation, réglable depuis `/admin/sauvegarde` avec la rétention.
+Restaurer reste une commande, jamais une route — même doctrine que `auth:reset-account`.
+
 Les scripts (`scripts/db-*.js`) appellent `docker compose exec` via `spawn` **avec un tableau
 d'arguments**, jamais une chaîne interpolée dans un shell.
 

@@ -4,14 +4,27 @@ import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
 
+const props = defineProps<{
+  backupDirectoryReady: boolean
+  backupMirrorConfigured: boolean
+  backupKeep: number
+  backupDailyEnabled: boolean
+}>()
+
 // ⚠️ Le jeton se SAISIT (recopié depuis les journaux du serveur) — il n'arrive jamais en
 // prop et ne s'affiche nulle part : la page ne le connaît pas, c'est le point (CC-138).
+//
+// ⚠️ Le dossier de sauvegarde et le miroir NE SE SAISISSENT PAS (CC-140) : ce sont des
+// chemins fixes du conteneur, montés une fois par le compose — leur statut s'affiche,
+// jamais un champ texte qui accepterait un chemin sans rapport avec aucun volume monté.
 const form = useForm({
   fullName: '',
   email: '',
   password: '',
   password_confirmation: '',
   token: '',
+  backupKeep: props.backupKeep,
+  backupDailyEnabled: props.backupDailyEnabled,
 })
 
 function submit(): void {
@@ -112,6 +125,38 @@ function submit(): void {
         <p v-if="form.errors.token" class="mt-1.5 text-[12.5px] text-bad">
           {{ form.errors.token }}
         </p>
+      </div>
+
+      <div class="mb-[18px] border-t border-line-2 pt-[18px]">
+        <div class="mb-2.5 text-[11px] tracking-[.18em] text-aqua uppercase">
+          {{ t('installation.backupHeading') }}
+        </div>
+
+        <p class="mb-2 text-[12px] text-txt-3">
+          {{ props.backupDirectoryReady ? '✓' : '✗' }}
+          {{ props.backupDirectoryReady ? t('installation.backupDirectoryReady') : t('installation.backupDirectoryMissing') }}
+        </p>
+        <p class="mb-3.5 text-[12px] text-txt-3">
+          {{ props.backupMirrorConfigured ? '✓' : '·' }}
+          {{ props.backupMirrorConfigured ? t('installation.backupMirrorReady') : t('installation.backupMirrorMissing') }}
+        </p>
+
+        <label class="mb-[7px] block text-[12px] text-txt-2">
+          {{ t('installation.backupKeep') }}
+        </label>
+        <input
+          v-model.number="form.backupKeep"
+          type="number"
+          min="0"
+          max="1000"
+          class="mb-3.5 w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[14px] text-txt outline-none focus:border-aqua"
+          :class="form.errors.backupKeep ? 'border-bad' : ''"
+        />
+
+        <label class="flex items-center gap-2 text-[12.5px] text-txt-2">
+          <input v-model="form.backupDailyEnabled" type="checkbox" class="accent-accent" />
+          {{ t('installation.backupDaily') }}
+        </label>
       </div>
 
       <button

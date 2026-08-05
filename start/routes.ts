@@ -30,6 +30,7 @@ const SettingsController = () => import('#core/settings/controllers/settings_con
 const InvitationController = () => import('#core/auth/controllers/invitation_controller')
 const AdminUsersController = () => import('#core/auth/controllers/admin_users_controller')
 const AdminRolesController = () => import('#core/auth/controllers/admin_roles_controller')
+const BackupAdminController = () => import('#core/backup/controllers/backup_admin_controller')
 const LocaleController = () => import('#core/i18n/controllers/locale_controller')
 const NoAccessController = () => import('#core/shared/controllers/no_access_controller')
 const HomeController = () => import('#core/dashboard/controllers/home_controller')
@@ -201,6 +202,13 @@ router
         router.post('/roles', [AdminRolesController, 'store'])
         router.put('/roles/:id', [AdminRolesController, 'update'])
         router.delete('/roles/:id', [AdminRolesController, 'destroy'])
+
+        // Sauvegarde (CC-140) : déclenche, liste, règle rétention + automatique. Jamais de
+        // restauration ici — `node ace db:restore` reste une commande, comme
+        // `auth:reset-account` : un geste destructif n'est pas un bouton d'écran.
+        router.get('/sauvegarde', [BackupAdminController, 'index'])
+        router.post('/sauvegarde', [BackupAdminController, 'store'])
+        router.put('/sauvegarde', [BackupAdminController, 'update'])
       })
       .prefix('/admin')
       .use(middleware.admin())

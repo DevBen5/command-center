@@ -25,7 +25,13 @@ const dbConfig = defineConfig({
       // absent de la liste n'a donc aucune migration jouée : pas de table, pas de données.
       migrations: {
         naturalSort: true,
-        paths: ['app/core/auth/migrations', ...migrationPathsFor(enabledModules)],
+        // `backup` est un domaine core (CC-140), toujours actif comme `auth` — pas un module
+        // détachable de `MODULES`, donc pas filtré par `migrationPathsFor`.
+        paths: [
+          'app/core/auth/migrations',
+          'app/core/backup/migrations',
+          ...migrationPathsFor(enabledModules),
+        ],
       },
       // ⚠️ AUCUN seeder, et la liste vide est une décision, pas un reste (CC-138). Tout ce
       // qui est déclaré ici tournerait à CHAQUE `node ace db:seed` (la leçon de CC-106 : le

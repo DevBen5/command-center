@@ -53,6 +53,13 @@
     "passwordConfirmation": "Password confirmation",
     "token": "Installation token",
     "tokenHelp": "Printed in the server logs at startup.",
+    "backupHeading": "Backup",
+    "backupKeep": "Number of local backups to keep",
+    "backupDaily": "Automatic daily backup",
+    "backupDirectoryReady": "Backup directory mounted",
+    "backupDirectoryMissing": "Backup directory not found — see BACKUP_DIR_PATH",
+    "backupMirrorReady": "Off-disk mirror mounted",
+    "backupMirrorMissing": "No off-disk mirror configured",
     "submit": "Create the administrator account"
   },
   "twoFactor": {

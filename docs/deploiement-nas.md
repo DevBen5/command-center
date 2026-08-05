@@ -368,6 +368,16 @@ DSM renouvelle **automatiquement**, environ 30 jours avant l'expiration, par le 
 rétention en dernier — vit dans un script du Planificateur de tâches, qui parle directement au
 conteneur (`container_name: command-center-postgres`, fixé dans le compose pour ça).
 
+⚠️ **Depuis CC-140, il existe une alternative *dans l'application* — elle ne remplace pas ce
+cron, elle le complète.** `node ace db:backup` tourne à l'intérieur du conteneur applicatif
+(`docker compose exec app node ace db:backup`), sans script séparé à maintenir sur le NAS, avec
+une sauvegarde automatique quotidienne intégrée (réglable depuis `/admin/sauvegarde`) et sans
+dépendre du Planificateur de tâches DSM. Deux chemins vers le même filet ne se nuisent pas — le
+cron ci-dessous reste valide et **déjà prouvé** ; garder les deux actifs, ou n'en garder qu'un,
+est un choix d'exploitation, pas une obligation technique. Voir `BACKUP_DIR_PATH` /
+`BACKUP_MIRROR_DIR_PATH` dans `.env.production.example` pour monter les volumes que la commande
+in-app utilise.
+
 **Créer la tâche** : Panneau de configuration → Planificateur de tâches → Créer → Tâche
 planifiée → Script défini par l'utilisateur. Utilisateur **root**, quotidien (ex. 03h30) :
 

@@ -42,6 +42,20 @@ services:
     # bind, voir .env.production.example).
     ports:
       - '127.0.0.1:8080:8080'
+    # Chemins FIXES dans le conteneur pour `node ace db:backup`/`db:restore` (CC-140), sur le
+    # modèle exact de PGDATA_PATH ci-dessous : le CONTENEUR ne connaît que `/data/backups` et
+    # `/data/backup-mirror`, jamais un chemin saisi ailleurs — seul le côté HÔTE du montage se
+    # règle, une fois, ici.
+    #
+    # ⚠️ Le miroir n'a PAS de valeur par défaut, volontairement : un `${VAR:-...}` avec repli
+    # ferait monter — et donc CRÉER côté hôte — un dossier réel dès que la variable est absente,
+    # exactement la fausse sécurité que « le dossier doit exister, jamais le créer » interdit
+    # ailleurs. Décommenter la ligne ET renseigner `BACKUP_MIRROR_DIR_PATH` pour activer le
+    # miroir ; la laisser commentée = pas de miroir, détecté par l'absence du dossier dans le
+    # conteneur (jamais créée en silence par ce compose).
+    volumes:
+      - '${BACKUP_DIR_PATH:-./backups}:/data/backups'
+      # - '${BACKUP_MIRROR_DIR_PATH}:/data/backup-mirror'
     depends_on:
       postgres:
         condition: service_healthy
