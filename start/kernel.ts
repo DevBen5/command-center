@@ -26,7 +26,11 @@ server.use([
   () => import('#core/shared/middleware/container_bindings_middleware'),
   () => import('@adonisjs/static/static_middleware'),
   () => import('@adonisjs/cors/cors_middleware'),
-  () => import('@adonisjs/vite/vite_middleware'),
+  // ⚠️ **Le nôtre, pas `@adonisjs/vite/vite_middleware`** (CC-170) : le middleware vendeur
+  // répond avant le routeur, et le serveur de dev Vite résout les chemins contre la racine du
+  // projet — un `agents.json` y masquait `GET /agents` en 200 `text/javascript`, sans
+  // authentification. Celui-ci lui délègue tout, sauf ce qui est une route déclarée.
+  () => import('#core/shared/middleware/vite_dev_server_middleware'),
   () => import('@adonisjs/inertia/inertia_middleware'),
 ])
 
