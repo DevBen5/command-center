@@ -105,6 +105,22 @@ remplir chaque variable en suivant ses commentaires. Points qui changent sur le 
 
 ## 3. Transférer l'image — il n'y a pas de registry
 
+> ⚠️ **2026-08-05 (CC-142) — le titre de cette section a cessé d'être vrai, et il est laissé tel
+> quel plutôt que récrit en silence.** Il y a désormais un registry : une image multi-arch
+> (`linux/amd64` + `linux/arm64`) est publiée sur `ghcr.io/devben5/command-center` par
+> `.github/workflows/release.yml` à chaque tag `vX.Y.Z`.
+>
+> La procédure ci-dessous — construire sur le PC, `docker save`, `docker load` — **marche toujours
+> telle quelle** et reste celle de ce NAS aujourd'hui : rien n'a été retiré. Ce qui a changé, c'est
+> qu'elle n'est plus le seul chemin ni le plus court. Faire passer ce NAS du `.tar` au `docker pull`
+> est **CC-150**, pas ce ticket : celui-ci produit une image, il ne la déploie pas.
+>
+> Deux détails si vous reprenez la procédure aujourd'hui : `--platform linux/amd64` a disparu du
+> compose (il rendait le fichier inutilisable sur un hôte ARM) et n'est plus nécessaire dans le
+> `docker build` ci-dessous non plus, le démon construisant pour son architecture ; et une
+> installation **neuve**, elle, n'a rien à voir avec cette section — elle part de
+> `docker-compose.install.yml` et du README.
+
 L'image se construit sur le PC et voyage en fichier :
 
 ```bash
@@ -584,6 +600,15 @@ produit ou qui a été vérifié à cette occasion.
 
 L'ordre n'est pas décoratif : **la seule étape irréversible est le `docker load`**, et tout ce qui
 la précède existe pour qu'elle le soit sans conséquence.
+
+> ⚠️ **2026-08-05 (CC-142) — cette chaîne décrit le transport par `.tar`, et elle reste exacte.**
+> Depuis ce jour, une image est publiée sur `ghcr.io/devben5/command-center` à chaque tag : un
+> `docker pull` remplacerait alors les étapes 2 et 4 (construire, transférer, charger), **mais pas
+> les étapes 1 et 3** — savoir ce qui part avec la version, et poser l'échelon de retour arrière
+> avant de toucher à ce qui tourne. Ce sont précisément celles que « il suffit de tirer la nouvelle
+> image » fait sauter sans le dire. Réécrire cette section pour le registry est **CC-150** ; elle
+> n'est pas amendée à l'aveugle ici, parce que la version registry n'a jamais été exercée sur ce NAS
+> et qu'une procédure non exercée écrite comme acquise est exactement ce que ce document refuse.
 
 ### 1. Ce qui part avec cette version
 
