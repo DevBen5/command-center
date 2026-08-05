@@ -67,19 +67,42 @@ des noms uniques dans le fichier, et `config` objet si présent — rien de plus
 - un agent déclaré et absent de la base → **créé** (`status: idle`, `logs: []`) ;
 - un agent déclaré et déjà présent (apparié par `name`) → `framework`/`config` **mis à jour**,
   **`status`/`logs` préservés** — le fichier pilote la configuration, jamais l'état d'exécution ;
-- ⚠️ **un agent en base dont le nom n'est plus dans le fichier → SUPPRIMÉ, logs compris.** Le
-  fichier décrit l'ensemble voulu des agents, pas une liste d'ajouts : retirer une entrée du
-  fichier est un geste définitif, pas une mise en pause. C'est le prix de la simplicité — pas de
-  colonne « déclaré/orphelin » à tenir en plus du schéma existant.
+- ⚠️ **un agent en base dont le nom n'est plus dans un fichier PRÉSENT → SUPPRIMÉ, logs compris.**
+  Le fichier décrit l'ensemble voulu des agents, pas une liste d'ajouts : retirer une entrée d'un
+  fichier qui existe est un geste définitif, pas une mise en pause. C'est le prix de la
+  simplicité — pas de colonne « déclaré/orphelin » à tenir en plus du schéma existant. ⚠️ Un
+  fichier **absent** est une tout autre situation et ne supprime rien : voir plus bas.
 
-⚠️ **Trois issues au boot, jamais deux.** Fichier absent → module vide, **pas une erreur** (c'est
-l'état d'une installation qui n'a encore rien monté). Fichier illisible ou malformé (JSON
-invalide, `name` manquant, doublon…) → `logger.error` **bruyant**, synchronisation **abandonnée**,
-la base garde son état précédent. Ces deux issues ne se confondent jamais : un fichier malformé
-ne doit jamais dégénérer en « zéro agent » silencieux, ce qui laisserait croire à une installation
-neuve plutôt qu'à une faute de frappe à corriger. `syncAgentsFromDeclarations` tourne sous
-`db.transaction()` : un échec en cours de synchronisation ne laisse jamais un état à moitié
-appliqué, le prochain redémarrage rejoue tout.
+⚠️ **Trois issues au boot, jamais deux.** Fichier illisible ou malformé (JSON invalide, `name`
+manquant, doublon…) → `logger.error` **bruyant**, synchronisation **abandonnée**, la base garde
+son état précédent : un fichier malformé ne doit jamais dégénérer en « zéro agent » silencieux,
+ce qui laisserait croire à une installation neuve plutôt qu'à une faute de frappe à corriger.
+Fichier absent → voir juste en dessous. Fichier valide → synchronisation complète.
+`syncAgentsFromDeclarations` tourne sous `db.transaction()` : un échec en cours de
+synchronisation ne laisse jamais un état à moitié appliqué, le prochain redémarrage rejoue tout.
+
+### ⚠️ Un fichier ABSENT ne supprime rien — et ce n'est pas la même chose qu'un fichier vide
+
+`{"agents": []}` et « pas de fichier » produisent la **même liste vide** sans vouloir dire la même
+chose. Le premier est un geste explicite : quelqu'un a écrit un fichier pour dire « zéro agent »,
+la suppression est ce qu'il demande. Le second est, en production, le cas **par défaut** — la
+ligne de volume de `docker-compose.prod.yml` est commentée, et `AGENTS_CONFIG_PATH` pointe alors
+un chemin qui n'existe pas dans le conteneur. `syncAgentsFromFile` les sépare donc
+(`loadAgentsFile` rend `present: false` sur `ENOENT`) :
+
+- fichier absent, **base vide** → synchro silencieuse vers zéro : l'installation neuve du ticket,
+  il n'y a rien à préserver et rien à signaler ;
+- fichier absent, **base qui porte déjà des agents** → `logger.warn`, synchronisation
+  **abandonnée**, aucune suppression.
+
+Traiter l'absence comme « supprime tout » ferait d'un volume non monté — l'erreur d'opérateur la
+plus banale — la plus destructive : au premier redémarrage après une mise à jour, les agents
+disparaîtraient avec leurs logs, sans erreur, sur un simple `deleted: N` en journal. C'est la
+doctrine déjà écrite dans le `CLAUDE.md` racine pour exactement ce dilemme — `BACKUP_MIRROR_DIR`
+doit exister et n'est **jamais** créé, et la purge de `db:backup` vient en dernier pour qu'un NAS
+débranché ne fasse disparaître aucun dump. **Un support non monté ne détruit pas.**
+
+Pour vider délibérément : écrire `{"agents": []}` dans le fichier, pas le retirer.
 
 ⚠️ **Piège Docker à connaître avant de monter le fichier en conteneur** : un bind-mount dont la
 source est absente sur l'hôte fait créer par Docker un **dossier vide** à cet emplacement, jamais

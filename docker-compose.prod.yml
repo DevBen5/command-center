@@ -58,7 +58,9 @@ services:
       # - '${BACKUP_MIRROR_DIR_PATH}:/data/backup-mirror'
       #
       # Déclaration des agents (CC-141) — lue au démarrage, jamais par une route. Absente :
-      # module Agents vide, pas une erreur.
+      # module Agents vide sur une base neuve, pas une erreur ; sur une base qui porte déjà des
+      # agents, avertissement au démarrage et AUCUNE suppression (un volume non monté ne détruit
+      # rien — même doctrine que BACKUP_MIRROR_DIR).
       #
       # ⚠️ SANS valeur par défaut inline, volontairement : un bind-mount Docker sur un fichier
       # source ABSENT crée un DOSSIER vide à cet emplacement au lieu de ne rien monter — l'app
