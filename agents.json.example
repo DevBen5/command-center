@@ -1,0 +1,12 @@
+{
+  "agents": [
+    {
+      "name": "Veille quotidienne",
+      "framework": "Hermes",
+      "config": {
+        "command": "echo Agent lance",
+        "trigger": "cron: 0 7 * * *"
+      }
+    }
+  ]
+}

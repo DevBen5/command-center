@@ -77,6 +77,12 @@ export default defineConfig({
       file: () => import('#providers/leitner_provider'),
       environment: ['web'],
     },
+    // Synchronise les agents depuis leur fichier de déclaration au démarrage (CC-141).
+    // `web` seulement : ni `node ace`, ni les tests n'ont de fichier à synchroniser.
+    {
+      file: () => import('#providers/agents_provider'),
+      environment: ['web'],
+    },
     // La collecte des flux de veille tourne elle aussi en tâche de fond dans le processus.
     // Ce provider démarre la boucle au boot et l'arrête à l'extinction. `web` seulement :
     // en test, la collecte est appelée directement avec un faux fetcher — une boucle de fond

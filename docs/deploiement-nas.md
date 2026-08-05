@@ -735,3 +735,63 @@ pas si on peut mettre à jour, elle décide de ce que « revenir » coûtera.
 - **Les sessions expirent 7 jours après la connexion**, quelle que soit l'activité, et les
   liens d'invitation valent **48 h** : inviter un collègue, c'est aussi lui dire d'accepter
   vite.
+
+## 11. Étendre au-delà du défaut — déclarer des agents, activer le module Services
+
+Les deux ci-dessous restent **désactivés par défaut** sur ce déploiement (`MODULES=agents,veille,leitner`
+ne cite pas `services` en §2, et le fichier d'agents n'est monté par aucune ligne active du
+compose). Cette section documente comment les activer, et pour Services, **ce que ça coûte** —
+en toutes lettres, pas dans un commentaire de compose que personne ne lit.
+
+### 11.1 Déclarer des agents (CC-141)
+
+Depuis CC-138, plus aucun seeder n'existe : sur une base neuve, le module Agents n'a **aucun**
+moyen de créer un agent sans passer par `psql`. CC-141 remplace ça par un fichier JSON, lu au
+démarrage du conteneur — jamais par une route, jamais modifiable depuis l'écran.
+
+1. Créer le fichier sur le NAS, à partir du modèle du dépôt :
+   ```bash
+   cp agents.json.example /volumeX/docker/command-center/agents.json
+   ```
+   Éditer `command` pour chaque agent — c'est une commande shell exécutée **telle quelle**
+   (`AgentRunnerService`, voir `app/modules/agents/CLAUDE.md`) : quiconque peut écrire ce fichier
+   a déjà accès à la machine, donc au pouvoir que la commande confère.
+2. Renseigner `AGENTS_CONFIG_PATH_HOST=/volumeX/docker/command-center/agents.json` dans
+   `.env.production`.
+3. Décommenter la ligne de volume correspondante dans `docker-compose.prod.yml` (celle qui monte
+   `${AGENTS_CONFIG_PATH_HOST}` sur `/data/agents.json`). ⚠️ **Dans cet ordre** : décommenter la
+   ligne avant que le fichier hôte existe fait monter un DOSSIER vide à la place (comportement
+   Docker sur un bind-mount dont la source est absente) — l'application lirait alors un dossier
+   là où elle attend un fichier, ce qui compte comme un fichier **malformé** (synchronisation
+   abandonnée, log d'erreur), pas comme une absence.
+4. Relancer la pile (§9). Les journaux annoncent la synchronisation :
+   ```bash
+   sudo docker compose --env-file .env.production -f docker-compose.prod.yml logs app | grep -i agents
+   ```
+   `created`/`updated`/`deleted` y apparaissent ; `deleted` compte les agents retirés du fichier
+   depuis le dernier démarrage — **la synchronisation est déclarative** : un agent qui n'est plus
+   dans le fichier est supprimé de la base, logs compris. Retirer un agent du fichier est donc un
+   geste définitif, pas une mise en pause.
+
+### 11.2 Activer le module Services — le socket Docker, et ce qu'il donne
+
+Monter `/var/run/docker.sock` dans le conteneur applicatif revient à donner **un accès root à
+cette machine** au processus qui sert aussi les requêtes HTTP de l'application — le même
+conteneur qui exécute déjà `agent.config.command` telle quelle pour le module Agents. Les deux
+pouvoirs s'additionnent : quiconque compromettrait l'un obtiendrait l'autre gratuitement.
+
+C'est cette accumulation, précisément, que la décision CC-73 a refusée pour le NAS du
+propriétaire — le module Services y reste hors service en permanence (§10). Rien n'empêche
+techniquement un autre déploiement de l'activer :
+
+1. Ajouter `services` à `MODULES` dans `.env.production`.
+2. Décommenter la ligne `/var/run/docker.sock:/var/run/docker.sock` dans
+   `docker-compose.prod.yml`.
+3. Poser `DOCKER_AVAILABLE=true` dans `.env.production` (sans elle, le module reste « hors
+   service » même socket monté — §10, `config/docker.ts`).
+4. Relancer la pile (§9).
+
+⚠️ **Ce document ne couvre pas les permissions Unix du socket** (utilisateur/groupe du process
+dans le conteneur face au propriétaire de `/var/run/docker.sock` sur l'hôte) — spécifique à
+chaque NAS, à régler au cas par cas si `docker ps` échoue depuis l'écran `/services` une fois
+monté.
