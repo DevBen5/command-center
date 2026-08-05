@@ -58,10 +58,17 @@ services:
     # publishes on 0.0.0.0 and the application is reachable over plain HTTP from
     # your whole LAN — passwords and session cookies in the clear.
     #
-    # Serving it over HTTP on purpose (a home LAN, a laptop)? Set
-    # APP_URL=http://<host>:8080 — the session cookie's `secure` flag derives from
-    # that URL, and a `secure` cookie is never sent over plain HTTP, which makes
-    # the login page reload with no error at all.
+    # Serving it over HTTP on purpose (a home LAN, a laptop)? TWO changes, and
+    # missing either one is silent:
+    #   1. APP_URL=http://<host>:8080 — the session cookie's `secure` flag derives
+    #      from that URL, and a `secure` cookie is never sent over plain HTTP,
+    #      which makes the login page reload with no error at all;
+    #   2. this line, to '8080:8080' — APP_URL does not move the published port.
+    #      Leave it as it is and another machine gets a connection timeout, with
+    #      nothing anywhere to explain it.
+    # ⚠️ Doing (2) is the trade described above: passwords and session cookies in
+    # the clear, to everyone on the network. Only (1) is needed behind a reverse
+    # proxy, which is why this line ships bound to 127.0.0.1.
     ports:
       - '127.0.0.1:8080:8080'
 

@@ -91,6 +91,14 @@ session cookie is marked `secure`; a browser then refuses to send that cookie ov
 the login page **reloads with no error message at all**. If you serve over HTTP on a LAN, say so:
 `APP_URL=http://192.168.1.50:8080`.
 
+⚠️ **Reaching it from another machine takes a second change, in the compose file.** The port is
+published on `127.0.0.1:8080` — this machine only. Setting `APP_URL` to a LAN address does not move
+it, so the browser on your laptop gets a connection timeout with nothing to read anywhere. To
+actually serve the LAN, edit the `ports:` line to `'8080:8080'` — and know what you are trading:
+Docker then publishes on `0.0.0.0`, and **passwords and session cookies travel your network in the
+clear**, to everyone on it. A reverse proxy terminating TLS in front of `127.0.0.1:8080` is the
+option that does not make that trade.
+
 The full annotated list of variables is [`.env.production.example`](.env.production.example) (in
 French, one comment per line, including every optional integration).
 
