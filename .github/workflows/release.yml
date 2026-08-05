@@ -194,13 +194,26 @@ jobs:
       # `--load` sur deux plateformes). Un échec ici laisse donc une image cassée
       # publiée — réparable seulement par un nouveau tag. En échange, ce qui est
       # testé est l'artefact RÉEL, celui que les gens tireront, pas un intermédiaire.
+      #
+      # ⚠️⚠️ `--entrypoint node` N'EST PAS UN RACCOURCI, et l'oublier a fait échouer
+      # le premier passage réel de ce workflow (tag v2.0.0). Passer une commande à
+      # `docker run` ne remplace que le **CMD** : l'ENTRYPOINT de l'image tourne
+      # d'abord, et c'est `node ace migration:run --force && exec "$@"` (voir le
+      # Dockerfile). Il n'y a aucun PostgreSQL dans ce job, la migration échoue, le
+      # `&&` court-circuite, et l'étape meurt AVANT d'avoir lancé le `node -e`.
+      #
+      # Le symptôme est trompeur au point de faire soupçonner l'image : le journal
+      # ne montre qu'un `exit code 1` sans message, parce que `vu="$(…)"` capture la
+      # sortie standard — l'échec des migrations part dedans au lieu de s'afficher.
+      # C'est le même piège que `docker run` vs `docker exec` sur un conteneur en
+      # place, consigné au déploiement de la 1.2.0.
       - name: smoke des deux architectures
         run: |
           set -euo pipefail
           for arch in amd64 arm64; do
-            vu="$(docker run --rm --platform "linux/$arch" \
+            vu="$(docker run --rm --platform "linux/$arch" --entrypoint node \
               "${IMAGE}:${{ needs.guard.outputs.version }}" \
-              node -e 'process.stdout.write(process.arch)')"
+              -e 'process.stdout.write(process.arch)')"
             if [ "$vu" != "$arch" ]; then
               echo "::error::La couche linux/$arch rend process.arch=$vu. Le manifeste ne porte pas ce qu'il annonce."
               exit 1
