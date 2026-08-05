@@ -207,15 +207,28 @@ jobs:
       # sortie standard — l'échec des migrations part dedans au lieu de s'afficher.
       # C'est le même piège que `docker run` vs `docker exec` sur un conteneur en
       # place, consigné au déploiement de la 1.2.0.
+      #
+      # ⚠️ Docker et Node ne nomment PAS les architectures pareil : `linux/amd64`
+      # côté manifeste se dit `x64` dans `process.arch`. Comparer les deux
+      # directement ne peut pas passer — il faudrait que la couche mente pour que
+      # le test soit vert. Sur arm64 les deux noms coïncident, ce qui suffit à ce
+      # que la faute ne saute pas aux yeux à la relecture. La table ci-dessous est
+      # la traduction, et c'est elle qu'il faut étendre en ajoutant une plateforme.
       - name: smoke des deux architectures
         run: |
           set -euo pipefail
           for arch in amd64 arm64; do
+            case "$arch" in
+              amd64) attendu=x64 ;;
+              arm64) attendu=arm64 ;;
+              *) echo "::error::Architecture $arch sans traduction vers process.arch."; exit 1 ;;
+            esac
+
             vu="$(docker run --rm --platform "linux/$arch" --entrypoint node \
               "${IMAGE}:${{ needs.guard.outputs.version }}" \
               -e 'process.stdout.write(process.arch)')"
-            if [ "$vu" != "$arch" ]; then
-              echo "::error::La couche linux/$arch rend process.arch=$vu. Le manifeste ne porte pas ce qu'il annonce."
+            if [ "$vu" != "$attendu" ]; then
+              echo "::error::La couche linux/$arch rend process.arch=$vu, attendu $attendu. Le manifeste ne porte pas ce qu'il annonce."
               exit 1
             fi
             echo "linux/$arch : Node démarre, process.arch=$vu."
