@@ -736,6 +736,53 @@ mentionner ou à assigner. Une PR n'est assignée à personne ; c'est **le propr
 (`gh pr merge --merge`, jamais `--squash`, branche conservée), et toi jamais sans **go explicite**
 (cf. skill `/git-commit`).
 
+### Les gestes qui appartiennent au propriétaire — et comment les lui livrer
+
+Certaines actions ne peuvent pas être prises depuis une conversation : soit parce qu'elles sont
+irréversibles et lui reviennent (merger, publier, fermer un ticket), soit parce qu'aucun outil de
+ce poste ne les atteint (un clic dans une interface web, un écran à regarder). **Elles ne se
+contournent pas.** Ce qui suit est la façon de les lui livrer, et c'est aussi contraignant que le
+reste de ce fichier.
+
+⚠️ **Une intention n'est pas une consigne.** Écrire « il reste le clic de visibilité GHCR » ou
+« il faudrait un passage navigateur » transfère au propriétaire le travail de retrouver la
+procédure — alors qu'on vient de la lire dans le dépôt. Un geste attendu de lui se livre en
+**procédure exécutable, dans le même message**, avec trois choses :
+
+1. **Où** — l'URL complète et le chemin exact dans l'interface (« tout en bas → Danger Zone →
+   Change package visibility → Public »), jamais le seul nom de la fonctionnalité ;
+2. **La preuve** — la commande qui établit que c'est fait, **et ce qui la rend probante**. Exemple
+   réel : `docker logout ghcr.io` **avant** le `docker pull`, sans quoi on teste son propre accès
+   et pas celui d'un inconnu (c'est le faux-positif que l'étape 0 de CC-143 existe pour fermer) ;
+3. **Ce qu'on attend en retour** — la sortie à coller, ou « fait » quand rien n'est vérifiable de
+   ce côté (une rotation de mot de passe, par exemple : la vérifier coûterait plus cher que la
+   refaire, et c'est précisément l'arbitrage retenu).
+
+S'il manque une information pour écrire la procédure, **poser la question et continuer le reste du
+travail** — ne pas s'arrêter, ne pas la remettre à un message suivant.
+
+**Les gestes récurrents, et ce que la question doit dire :**
+
+| Geste | Ce qu'on attend | Ce que la question doit annoncer |
+|---|---|---|
+| **Merge** | Un « oui » explicite, jamais déduit d'un accord antérieur | La commande exacte (`gh pr merge --merge`) et ce qui suit |
+| **Tag / publication** | Un « oui » **séparé** de celui du merge | Ce que le tag déclenche, et ce qui restera à faire après |
+| **Passage en `Done`** | Un « oui », posé **après** le merge | Que l'état sera relu après l'update (`updatedFields` ne prouve rien) |
+| **Un clic hors de portée** | La sortie de la commande de preuve, ou « fait » | La procédure complète, points 1 à 3 ci-dessus |
+| **Un passage navigateur** | La liste des écrans **et** de ce qu'il faut y voir | Voir plus bas : ce poste n'a aucun outil de pilotage |
+
+⚠️ **L'attente d'un run long ne demande AUCUN geste de lui.** Si le propriétaire doit demander
+« alors, c'est vert ? », c'est la méthode de notification qui a échoué, pas son rôle. Utiliser une
+commande de fond qui **se termine** quand la condition est vraie (boucle `until` sur `gh run view`
+/ `gh pr checks`) plutôt qu'un observateur qui scrute en continu — mesuré sur ce poste au
+2026-08-05 : la seconde forme n'a jamais notifié, la première l'a fait à chaque fois.
+
+⚠️ **Aucun outil de pilotage de navigateur n'existe sur ce poste** (ni Playwright, ni chromium-cli,
+ni Chrome/Edge en PATH). Tout ce qui se vérifie à l'écran — apparence, CSP, lecture d'un QR par un
+téléphone, un bouton réellement cliqué — est **son** geste, et ne s'écrit jamais comme fait. Voir
+la note sur `npm run build` plus haut : c'est la même frontière, entre ce qu'un exécuteur prouve
+et ce que seul un œil constate.
+
 ### Le suivi et la doc durable
 
 Le backlog **et** la base de connaissance vivent dans le projet **CC** de `devben5.youtrack.cloud` —
