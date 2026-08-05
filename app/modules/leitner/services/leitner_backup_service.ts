@@ -8,6 +8,7 @@ import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 import { DEFAULT_BOX } from '#modules/leitner/services/leitner_progress'
 import type { Grade, Verdict } from '#modules/leitner/services/leitner_service'
+import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
 
 /**
  * Version du format d'échange. Un fichier qui déclare une autre version est
@@ -31,17 +32,24 @@ import type { Grade, Verdict } from '#modules/leitner/services/leitner_service'
  * fichier v1 relu par un build d'avant CC-119 ne serait pas *faux*, mais un fichier v2
  * importé sur une installation multi-comptes attribuerait à une personne un historique
  * qui n'est pas le sien, sans que rien ne le dise.
+ *
+ * ⚠️ **Et c'est arrivé une deuxième fois en CC-139, d'où le `3`** : le fichier ne rend
+ * plus « tout le contenu communal », mais **le visible par celui qui exporte** — sa
+ * propre carte privée, plus tout ce qui est marqué partagé. Un fichier v3 relu par un
+ * build d'avant CC-139 ne serait pas faux (le nouveau champ `shared` est ignoré), mais un
+ * fichier v1/v2 importé après CC-139 attribuerait un sens à une absence de champ qu'il
+ * faut trancher explicitement — voir `shared` sur `BackupCard`.
  */
-export const BACKUP_VERSION = 2
+export const BACKUP_VERSION = 3
 
 /**
- * Les versions qu'un import accepte, et la seule raison de la liste : **refuser v1
- * rendrait illisibles toutes les sauvegardes déjà faites**. Un fichier v1 se relit sans
- * ambiguïté — sa progression et son historique étaient ceux de l'unique utilisateur du
- * moment, ils deviennent ceux de celui qui importe. C'est exactement ce que fait le
- * backfill de la migration, appliqué à un fichier.
+ * Les versions qu'un import accepte, et la seule raison de la liste : **refuser v1/v2
+ * rendrait illisibles toutes les sauvegardes déjà faites**. Un fichier v1/v2 se relit
+ * sans ambiguïté — son contenu était visible de tous au moment de l'export (avant
+ * CC-139), il le reste après import (`shared: true`, voir `resolveShared`). C'est
+ * exactement le choix que fait le backfill de la migration sur le contenu déjà en base.
  */
-export const READABLE_BACKUP_VERSIONS = [1, 2]
+export const READABLE_BACKUP_VERSIONS = [1, 2, 3]
 
 /**
  * Une révision : sa note, son horodatage, et **la trace de ce qui l'a précédée**.
@@ -68,6 +76,11 @@ export interface BackupReview {
  * sauvegarde **personnelle du contenu communal** : la taxonomie et les cartes valent
  * pour tout le monde, la progression pour une seule personne. Exporter à deux produit
  * deux fichiers au même contenu et aux progressions différentes.
+ *
+ * ⚠️ **Depuis CC-139, « le contenu » n'est plus « tout le communal » mais « le visible
+ * par l'exportateur »** — sa carte privée, plus tout ce qui est marqué partagé. `shared`
+ * porte ce que dit `isShared` en base ; son absence à l'import (fichier v1/v2, ou v3
+ * écrit à la main) se résout par `resolveShared`.
  */
 export interface BackupCard {
   front: string
@@ -81,6 +94,7 @@ export interface BackupCard {
   createdAt: string
   updatedAt: string
   reviews: BackupReview[]
+  shared: boolean
 }
 
 export interface BackupCategory {
@@ -109,6 +123,7 @@ export interface BackupCardInput {
   nextReview?: string
   createdAt?: string
   updatedAt?: string
+  shared?: boolean
   reviews?: {
     grade: Grade
     reviewedAt: string
@@ -171,6 +186,26 @@ function omitNull<T extends object>(fields: T): { [K in keyof T]?: Exclude<T[K],
 }
 
 /**
+ * Ce que `isShared` doit valoir à l'import, quand le fichier ne le dit pas explicitement.
+ *
+ * ⚠️ **Deux règles, pas une, et elles divergent volontairement** (CC-139) :
+ * - un fichier **v1/v2** (ou dont le contenu date d'avant CC-139) décrivait un monde où
+ *   tout le contenu était visible de tous — le réimporter en `false` ferait disparaître
+ *   ce contenu de la vue de tout le monde sauf l'importateur, la même régression que le
+ *   backfill de la migration existe pour éviter. Il redevient donc partagé.
+ * - un fichier **v3 écrit à la main** sans `shared` obéit au défaut du contenu neuf :
+ *   privé. Même doctrine que `box`/`nextReview` absents = une carte neuve.
+ */
+export function resolveShared(
+  fileVersion: number | undefined,
+  cardShared: boolean | undefined
+): boolean {
+  const effectiveVersion = fileVersion ?? BACKUP_VERSION
+  if (effectiveVersion < 3) return true
+  return cardShared ?? false
+}
+
+/**
  * Export / import du contenu du module, en JSON.
  *
  * Le fichier est **autoportant** : la taxonomie y est désignée par son nom, jamais
@@ -187,26 +222,38 @@ function omitNull<T extends object>(fields: T): { [K in keyof T]?: Exclude<T[K],
  */
 export default class LeitnerBackupService {
   /**
-   * Instantané : taxonomie, cartes, et **la progression de `userId`** (boîte, échéance,
-   * historique). Les cartes qu'il n'a jamais notées sortent avec les défauts d'une carte
-   * neuve — boîte 1, due aujourd'hui — qui est exactement ce que l'absence de ligne veut
-   * dire, et ce qu'un import relira.
+   * Instantané : taxonomie **visible**, cartes **visibles**, et **la progression de
+   * `userId`** (boîte, échéance, historique). Les cartes qu'il n'a jamais notées sortent
+   * avec les défauts d'une carte neuve — boîte 1, due aujourd'hui — qui est exactement ce
+   * que l'absence de ligne veut dire, et ce qu'un import relira.
+   *
+   * ⚠️ **Le filtre de visibilité n'est pas cosmétique, c'est une correction de
+   * confidentialité (CC-139).** Sans lui, exporter son propre historique embarquerait
+   * dans le fichier de l'exportateur le contenu privé de tous les autres comptes — la
+   * fuite la plus large que ce lot corrige.
    */
-  async export(userId: number): Promise<Backup> {
-    const categories = await LeitnerCategory.query()
-      .preload('themes', (themes) => themes.orderBy('name'))
+  async export(userId: number, isAdmin: boolean = false): Promise<Backup> {
+    const categoriesQuery = LeitnerCategory.query()
+      .preload('themes', (themes) => {
+        applyVisibility(themes, 'leitner_themes', userId, isAdmin)
+        themes.orderBy('name')
+      })
       .orderBy('name')
+    applyVisibility(categoriesQuery, 'leitner_categories', userId, isAdmin)
+    const categories = await categoriesQuery
 
     // ⚠️ Un `preload` filtré, pas la jointure de `leitner_progress.ts` : ici on veut la
     // **ligne** (boîte *et* échéance, typées par Lucid), pas un prédicat de file. Le
     // `hasMany` ne peut rendre qu'une ligne, la contrainte d'unicité s'en charge.
-    const cards = await LeitnerCard.query()
+    const cardsQuery = LeitnerCard.query()
       .preload('theme', (theme) => theme.preload('category'))
       .preload('reviews', (reviews) =>
         reviews.where('user_id', userId).orderBy('reviewed_at', 'asc').orderBy('id', 'asc')
       )
       .preload('progress', (progress) => progress.where('user_id', userId))
       .orderBy('id', 'asc')
+    applyVisibility(cardsQuery, 'leitner_cards', userId, isAdmin)
+    const cards = await cardsQuery
 
     return {
       version: BACKUP_VERSION,
@@ -227,6 +274,7 @@ export default class LeitnerBackupService {
         nextReview: (card.progress[0]?.nextReview ?? DateTime.now()).toISODate()!,
         createdAt: card.createdAt.toISO()!,
         updatedAt: card.updatedAt.toISO()!,
+        shared: card.isShared,
         reviews: card.reviews.map((review) => ({
           grade: review.grade,
           reviewedAt: review.reviewedAt.toISO()!,
@@ -263,18 +311,30 @@ export default class LeitnerBackupService {
    * violation d'unicité de la taxonomie (`leitner_categories.name`, et
    * (catégorie, nom) sur `leitner_themes`).
    *
+   * ⚠️ **Propriétaire et partage, depuis CC-139** : les cartes créées appartiennent à
+   * `userId` — importer le fichier d'un collègue ajoute donc ses cartes **et se les
+   * attribue**, avec pour visibilité `resolveShared(backup.version, card.shared)`. Un
+   * fichier v1/v2 redevient partagé (c'était sa portée d'origine, avant que « partagé »
+   * n'existe) ; un fichier v3 suit son champ `shared`, `false` s'il est absent (le défaut
+   * du contenu neuf). La taxonomie créée au passage suit la même règle, faute d'un champ
+   * dédié par catégorie/thème dans le fichier.
+   *
    * ⚠️ **Progression et historique atterrissent sur `userId`, jamais ailleurs**
-   * (CC-119) : le contenu est communal, ce qui l'accompagne ne l'est pas. Importer le
-   * fichier d'un collègue ajoute donc ses cartes **et s'attribue sa progression** — c'est
-   * le comportement voulu (le fichier est une sauvegarde personnelle), mais ce n'est
-   * évidemment pas un moyen de « rendre ses cartes » à quelqu'un.
+   * (CC-119) : la propriété du contenu ne change rien à ça. Importer le fichier d'un
+   * collègue ajoute donc ses cartes et s'attribue sa progression — c'est le comportement
+   * voulu (le fichier est une sauvegarde personnelle), mais ce n'est évidemment pas un
+   * moyen de « rendre ses cartes » à quelqu'un.
    *
    * ⚠️ **Une carte ignorée ne reçoit AUCUNE progression** — même raison que ses
    * révisions : la ligne est écrite après le `continue` de déduplication. Une carte déjà
    * en base garde donc la progression de l'importateur, jamais celle du fichier. C'est ce
    * qui empêche un ré-import d'écraser un planning en cours.
    */
-  async import(userId: number, backup: BackupInput): Promise<ImportReport> {
+  async import(
+    userId: number,
+    backup: BackupInput,
+    isAdmin: boolean = false
+  ): Promise<ImportReport> {
     const report: ImportReport = {
       cardsCreated: 0,
       cardsSkipped: 0,
@@ -283,8 +343,12 @@ export default class LeitnerBackupService {
       reviewsCreated: 0,
     }
 
+    // Une seule fois : la taxonomie créée en chemin suit la même règle que les cartes,
+    // faute d'un champ `shared` par catégorie/thème dans le fichier.
+    const defaultShared = resolveShared(backup.version, undefined)
+
     return db.transaction(async (trx) => {
-      const taxonomy = await this.loadTaxonomy(trx, report)
+      const taxonomy = await this.loadTaxonomy(trx, report, userId, isAdmin, defaultShared)
 
       // La taxonomie déclarée en tête de fichier est créée même si aucune carte ne
       // l'utilise : une catégorie vide est un classement légitime, pas un résidu.
@@ -295,7 +359,10 @@ export default class LeitnerBackupService {
         }
       }
 
-      // Ce qui est déjà là ne sera pas ré-ajouté.
+      // Ce qui est déjà là ne sera pas ré-ajouté. ⚠️ Global, pas filtré par visibilité :
+      // l'identité d'une carte (recto, thème) reste celle du catalogue tout entier — un
+      // import qui retomberait sur le recto d'une carte privée d'un autre compte n'y
+      // touche pas et n'en gagne pas l'accès, il obtient simplement zéro carte créée.
       const seen = new Set<string>()
       for (const card of await LeitnerCard.query({ client: trx })) {
         seen.add(cardKey(card.front, card.leitnerThemeId))
@@ -319,6 +386,8 @@ export default class LeitnerBackupService {
             front: card.front,
             back: card.back,
             leitnerThemeId: themeId,
+            ownerId: userId,
+            isShared: resolveShared(backup.version, card.shared),
             // Lucid ne pose `created_at` / `updated_at` que s'ils sont absents : les
             // horodatages du fichier sont donc conservés tels quels. ⚠️ Depuis CC-119 ils
             // ne portent plus l'ordre de la file — c'est l'`updated_at` de la progression
@@ -378,16 +447,32 @@ export default class LeitnerBackupService {
   }
 
   /**
-   * Taxonomie déjà en base, indexée par nom, avec de quoi la compléter à la volée.
-   * Une catégorie « DevOps » existante est **réutilisée**, jamais dupliquée : c'est
-   * ce qu'imposent les contraintes d'unicité, et ce qui rend le fichier autoportant
-   * sans le moindre id.
+   * Taxonomie **visible de `userId`**, indexée par nom, avec de quoi la compléter à la
+   * volée. Une catégorie « DevOps » déjà visible (à moi, ou partagée) est **réutilisée**,
+   * jamais dupliquée.
+   *
+   * ⚠️ **La réutilisation ne porte que sur le visible** (CC-139), même doctrine que
+   * `LeitnerCatalogService.ensureTheme` : une catégorie/thème « DevOps » privé chez un
+   * autre compte n'est jamais réutilisé — l'import en crée un second, privé, appartenant
+   * à `userId`. C'est aussi ce qui rend `unique(owner_id, name)` cohérent avec ce
+   * chargement : sans ce filtre, deux propriétaires distincts homonymes se
+   * marcheraient dessus dans la `Map` indexée par nom seul.
    */
-  private async loadTaxonomy(trx: TransactionClientContract, report: ImportReport) {
+  private async loadTaxonomy(
+    trx: TransactionClientContract,
+    report: ImportReport,
+    userId: number,
+    isAdmin: boolean,
+    isShared: boolean
+  ) {
     const categories = new Map<string, LeitnerCategory>()
     const themes = new Map<string, LeitnerTheme>()
 
-    const existing = await LeitnerCategory.query({ client: trx }).preload('themes')
+    const existingQuery = LeitnerCategory.query({ client: trx }).preload('themes', (t) =>
+      applyVisibility(t, 'leitner_themes', userId, isAdmin)
+    )
+    applyVisibility(existingQuery, 'leitner_categories', userId, isAdmin)
+    const existing = await existingQuery
     for (const category of existing) {
       categories.set(category.name, category)
       for (const theme of category.themes) {
@@ -399,7 +484,10 @@ export default class LeitnerBackupService {
       const found = categories.get(name)
       if (found) return found
 
-      const created = await LeitnerCategory.create({ name }, { client: trx })
+      const created = await LeitnerCategory.create(
+        { name, ownerId: userId, isShared },
+        { client: trx }
+      )
       categories.set(name, created)
       report.categoriesCreated++
       return created
@@ -412,7 +500,7 @@ export default class LeitnerBackupService {
 
       const category = await ensureCategory(categoryName)
       const created = await LeitnerTheme.create(
-        { leitnerCategoryId: category.id, name: themeName },
+        { leitnerCategoryId: category.id, name: themeName, ownerId: userId, isShared },
         { client: trx }
       )
       themes.set(key, created)

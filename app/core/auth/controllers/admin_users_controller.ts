@@ -7,6 +7,8 @@ import registry from '#core/auth/capabilities/registry'
 import capabilityService from '#core/auth/services/capability_service'
 import invitationService from '#core/auth/services/invitation_service'
 import twoFactor from '#core/auth/services/two_factor_service'
+import modules from '#config/modules'
+import { ownedSharedContentTable } from '#modules/leitner/services/leitner_account_deletion_guard'
 import {
   createUserValidator,
   updateUserValidator,
@@ -163,17 +165,31 @@ export default class AdminUsersController {
   }
 
   /**
-   * Supprime un compte — dès lors qu'il n'a **aucune dépendance bloquante** (CC-80).
+   * Supprime un compte — dès lors qu'il n'a **aucune dépendance bloquante** (CC-80, revu
+   * par CC-139).
    *
    * CC-71 tranchait « désactiver, jamais supprimer » par anticipation de données rattachées.
-   * Vérification faite (CC-80), aucune table de **contenu** ne porte de `user_id` : les seules
-   * références à `users.id` — `user_capabilities`, `user_invitations` — sont en
-   * `ON DELETE CASCADE` et n'existent que pour ce compte. Supprimer un compte, même utilisé,
-   * n'emporte donc que ses propres données personnelles ; rien de partagé.
+   * Vérification faite (CC-80), les seules références directes à `users.id` hors contenu —
+   * `user_capabilities`, `user_invitations` — sont en `ON DELETE CASCADE` et n'existent que
+   * pour ce compte.
    *
-   * La sûreté vient du **schéma**, pas d'un contrôle (CC-77) : sous ce modèle un compte est
-   * toujours supprimable sans risque. Ne subsistent que deux verrous, tous deux « sans
-   * retour » — ce qu'ils ferment ne se rouvre qu'en SQL :
+   * ⚠️ **Ce n'est plus vrai du contenu Leitner depuis CC-139**, et c'est le changement le
+   * plus significatif du lot : `leitner_cards`, `leitner_categories`, `leitner_themes` et
+   * `leitner_ingestions` portent désormais un `owner_id`. La sûreté ne vient donc plus du
+   * **schéma seul** (CC-77) mais d'une combinaison : la FK est en `ON DELETE SET NULL` — le
+   * contenu **survit toujours**, jamais de CASCADE dessus — et ce contrôleur refuse la
+   * suppression tant que le compte possède encore du contenu **partagé** (`is_shared =
+   * true`). Le contenu **privé** restant, lui, ne bloque jamais : il devient orphelin
+   * (`owner_id = null`), visible du seul administrateur — voir le `CLAUDE.md` du module
+   * Leitner pour le détail complet de l'arbitrage.
+   *
+   * ⚠️ **Aucune impasse** : le propriétaire (ou un admin, qui peut éditer tout contenu)
+   * peut décocher « Partagé » sur ses cartes/catégories/thèmes/ingestions avant de
+   * supprimer le compte — voir `ownedSharedContentTable`. Aucune fonctionnalité de
+   * transfert de propriété n'est nécessaire.
+   *
+   * Restent, comme avant, deux verrous « sans retour » — ce qu'ils ferment ne se rouvre
+   * qu'en SQL :
    *
    * - **le dernier administrateur actif** ne se supprime pas — sinon plus personne n'atteint
    *   l'administration. On le vérifie **avant** « pas soi-même » : c'est l'invariant le plus
@@ -197,6 +213,21 @@ export default class AdminUsersController {
 
     if (user.id === auth.user!.id) {
       return response.badRequest({ error: 'On ne peut pas supprimer son propre compte.' })
+    }
+
+    // ⚠️ `modules.has(...)`, pas `isModuleEnabled` importé séparément — même patron que
+    // `HomeController`/`NavStatsService` (CLAUDE.md racine, point 7) : un module éteint
+    // n'a pas sa migration jouée, la requête planterait sur une table absente.
+    if (modules.has('leitner')) {
+      const blockingTable = await ownedSharedContentTable(user.id)
+      if (blockingTable) {
+        return response.badRequest({
+          error:
+            `Ce compte possède encore du contenu Leitner partagé (${blockingTable}). ` +
+            `Décochez « Partagé » sur ce contenu — le propriétaire ou un administrateur ` +
+            `peut le faire depuis /revision/settings — avant de supprimer le compte.`,
+        })
+      }
     }
 
     await user.delete()

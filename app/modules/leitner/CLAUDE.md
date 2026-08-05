@@ -5,22 +5,75 @@ ingest, ingest_show, llm}` · tables `leitner_cards`, `leitner_card_progress`, `
 `leitner_categories`, `leitner_themes`, `leitner_settings`, `leitner_ingestions`,
 `leitner_draft_cards`.
 
-## ⭐ Le contenu ne connaît aucun utilisateur (CC-119)
+## ⭐ Le contenu a un propriétaire, privé par défaut (CC-139)
 
-C'est **la** ligne de partage du module, et elle dicte le schéma. À tenir sur chaque table ajoutée :
+C'est **la** ligne de partage du module, et elle dicte le schéma. ⚠️ **Elle renverse ce qu'écrivait
+CC-119** ici même (« le contenu ne connaît aucun utilisateur ») — pas un ajout à côté d'une phrase
+qui resterait vraie, un remplacement. Le coût de l'ancien modèle s'est vu le 2026-08-03 : une
+invitée a ajouté ses propres paquets, et ils sont apparus dans la file de tout le monde. Correct sur
+une installation à un seul foyer, faux dès que deux personnes ne révisent pas la même chose.
 
-| | Porte un `user_id` ? | À la suppression du compte |
+À tenir sur chaque table ajoutée :
+
+| | `owner_id` + `is_shared` ? | À la suppression du compte |
 | --- | --- | --- |
-| **Contenu communal** — cartes, catégories, thèmes, ingestions, brouillons | **Non** | **Rien.** Il survit intact |
-| **Données personnelles** — `leitner_card_progress` (boîte, échéance), `leitner_reviews` (réponses écrites, verdicts, `thinking_ms`) | **Oui** | **`ON DELETE CASCADE`** |
+| **Contenu** — cartes, catégories, thèmes, ingestions | **Oui** | Survit toujours (`SET NULL`) ; **bloque la suppression si `is_shared = true`** |
+| **Brouillons d'ingestion** (`leitner_draft_cards`) | **Non — dérivé de l'ingestion parente** | Cascade avec son ingestion |
+| **Données personnelles** — `leitner_card_progress` (boîte, échéance), `leitner_reviews` (réponses écrites, verdicts, `thinking_ms`) | `user_id`, pas `owner_id`/`is_shared` | **`ON DELETE CASCADE`**, inchangé depuis CC-119 |
 
-**Conséquence recherchée : supprimer un utilisateur est une opération sûre** — non pas parce qu'on
-a vérifié ses dépendances, mais parce que **rien de partagé ne le référence par construction**.
-C'est ce qui a débloqué CC-80.
+**Le modèle : je vois mes cartes, plus celles que quelqu'un a explicitement marquées comme
+partagées.** Rien ne fuite par défaut ; la révision à plusieurs (CC-77, CC-121) reste possible —
+elle devient un **geste** (cocher « Partagé ») au lieu d'un état de fait. La règle de visibilité,
+en lecture, est **la même partout** et vit en un seul endroit : `services/leitner_visibility.ts`,
+`applyVisibility(query, table, userId, isAdmin)` — `owner_id = userId OU is_shared = true OU
+(admin ET owner_id IS NULL)`. Le dernier cas est **étroit et volontaire** : un admin ne voit
+toujours pas la progression des autres (CC-119 tient sur ce point), le repli ne s'ouvre que sur
+l'**orphelin** — du contenu que plus personne d'autre ne peut jamais voir. Toute lecture du module
+doit appeler `applyVisibility` ; c'est en pratique l'essentiel des requêtes du module.
 
-⚠️ **Jamais de `CASCADE` sur du contenu.** Si on veut tracer un auteur un jour (`created_by`), c'est
-`ON DELETE SET NULL` : le contenu survit, l'attribution disparaît. Un `CASCADE` ferait s'évaporer
-des cartes en supprimant un compte.
+⚠️ **`leitner_draft_cards` ne porte PAS `owner_id`/`is_shared`, délibérément.** Un brouillon
+appartient toujours à exactement une ingestion (`leitner_ingestion_id` non nullable) : sa
+visibilité se dérive par jointure sur elle plutôt que de dupliquer la propriété — même doctrine
+que `applyScope`/`joinProgress` : une seule copie de la vérité. Filtrer la LISTE des ingestions
+(et vérifier que celle qu'on ouvre par id est visible) suffit à protéger ses brouillons.
+
+### La suppression d'un compte n'est plus sûre par le seul schéma — CASCADE, SET NULL et le refus, combinés
+
+⚠️ **Jamais de `CASCADE` sur du contenu** — cette phrase reste vraie mot pour mot depuis CC-119,
+mais le mécanisme qui la tient a changé. Un `CASCADE` ferait s'évaporer un paquet **partagé** en
+supprimant le compte qui l'a créé — exactement l'inverse du but de ce lot (rendre le partage
+durable, pas fragile). La solution retenue combine trois pièces, aucune seule ne suffit :
+
+1. **FK `owner_id → users.id` en `ON DELETE SET NULL`** sur les quatre tables — le contenu
+   **survit toujours**, jamais détruit par une suppression de compte.
+2. **Garde applicative dans `AdminUsersController#destroy`** (hors du module,
+   `app/core/auth/controllers/admin_users_controller.ts`) : refuse la suppression si le compte
+   possède encore du contenu `is_shared = true`, via `ownedSharedContentTable` (ce fichier,
+   `services/leitner_account_deletion_guard.ts`). Le contenu **privé** ne bloque jamais.
+3. **Aucune impasse** : le propriétaire (ou un admin, qui peut éditer n'importe quel contenu —
+   voir plus bas) peut décocher « Partagé » avant de supprimer le compte. Pas de fonctionnalité
+   de transfert de propriété nécessaire pour que ce garde reste résoluble.
+
+Le contenu privé qui survit à la suppression de son propriétaire devient **orphelin**
+(`owner_id = null`, `is_shared` inchangé), et retombe dans le seul cas où `applyVisibility`
+ouvre un accès à un admin : c'est le ménage qu'un administrateur peut faire, personne d'autre.
+
+⚠️ **`app/core/auth/controllers/admin_users_controller.ts` est donc un fichier hors module qui
+dépend de celui-ci** — même patron déjà en place pour `HomeController` et `NavStatsService` (voir
+plus bas et le `CLAUDE.md` racine, point 7) : `modules.has('leitner')` avant toute requête, pour
+qu'un module désactivé ne fasse pas échouer une suppression de compte sur une table absente.
+
+### L'écriture reste un geste de propriétaire, `is_shared` n'ouvre que la lecture
+
+⚠️ **`is_shared` ne donne jamais le droit d'éditer ou de supprimer.** Seul le propriétaire (ou un
+admin) peut modifier une carte/catégorie/thème/ingestion, qu'elle soit partagée ou non — sinon
+« partagé » deviendrait tacitement « éditable par quiconque a `cards.write` », et la propriété
+perdrait tout son sens dès qu'un tiers pourrait réécrire le contenu de quelqu'un d'autre. Le garde
+vit dans `services/leitner_visibility.ts`, `assertOwnedOrAdmin(row, userId, isAdmin)` — il **lève**
+(`ForbiddenException`), il ne retourne jamais un booléen que l'appelant pourrait oublier de tester.
+`assertVisibleOrAdmin` est son pendant en lecture, pour les chemins qui relisent une ligne par id
+(`review()`, `judge()`) plutôt que par une requête déjà filtrée — `applyVisibility` ne protège que
+les requêtes qui l'appellent, pas un `findOrFail(params.id)`.
 
 ⚠️ **`leitner_settings` reste un réglage d'INSTALLATION, et c'est une décision, pas un reste.** Les
 intervalles décrivent la **méthode** de répétition espacée, pas la personne qui la suit : une seule
@@ -30,14 +83,27 @@ fermées à l'invité le sont parce qu'elles touchent au contenu, au réseau ou 
 
 ⚠️ **L'absence de ligne de progression EST une valeur** — « boîte 1, due aujourd'hui » — et rien
 n'est jamais semé, ni à la création d'un compte, ni à celle d'une carte. C'est ce qui donne sa file
-à un nouveau venu et fait entrer une carte créée ce matin dans celle de tout le monde. Semer
-obligerait à un re-semis à chaque compte **et** à chaque carte, et une carte créée entre les deux
-resterait invisible sans erreur. Toute lecture passe donc par une **jointure externe** avec un
-`coalesce` — `services/leitner_progress.ts`, l'unique copie, dont les quatre pièges sont commentés
-sur place.
+à un nouveau venu et fait entrer une carte créée ce matin dans celle de tout le monde **qui peut la
+voir** (CC-139 restreint le « tout le monde », il ne touche pas à ce principe). Semer obligerait à
+un re-semis à chaque compte **et** à chaque carte, et une carte créée entre les deux resterait
+invisible sans erreur. Toute lecture passe donc par une **jointure externe** avec un `coalesce` —
+`services/leitner_progress.ts`, l'unique copie, dont les quatre pièges sont commentés sur place.
+Elle reste **distincte** de `applyVisibility` : l'une dit « la carte existe-t-elle pour cette
+personne ? », l'autre « cette personne peut-elle voir cette carte ? » — les deux se composent, l'une
+n'implique pas l'autre.
 
-⚠️ **Le fichier d'export est PERSONNEL depuis la v2** : contenu communal, progression et historique
-de celui qui exporte. Voir la section « Sauvegarde » plus bas.
+⚠️ **`leitner_categories.name` n'est plus unique globalement, mais `unique(owner_id, name)`.**
+Deux comptes peuvent chacun avoir une catégorie privée « DevOps » sans se marcher dessus — une
+contrainte globale aurait cassé la fonctionnalité dès le premier cas réel à deux comptes actifs.
+`ensureTheme`/`ensureCategory` (catalogue **et** import) ne réutilisent qu'une catégorie/thème
+**visible** de l'appelant ; un homonyme privé chez un autre compte n'est jamais réutilisé, il en
+naît un second, privé, appartenant à l'appelant — sans quoi du contenu neuf s'attacherait en
+silence à une taxonomie que son créateur ne peut même pas parcourir lui-même.
+
+⚠️ **Le fichier d'export est PERSONNEL depuis la v2 (CC-119), et FILTRÉ depuis la v3 (CC-139)** :
+il ne rend plus tout le contenu, mais **le visible par l'exportateur** — sa carte privée, plus tout
+ce qui est marqué partagé — avec la progression et l'historique de celui qui exporte. Voir la
+section « Sauvegarde » plus bas.
 
 ### Ce que le rôle invité peut faire depuis CC-121, et ce qu'il ne peut toujours pas
 
@@ -55,8 +121,9 @@ d'administration, pas un déploiement — et il ne faut pas « simplifier » en 
 migration : une migration future qui re-poserait la capacité re-accorderait un droit retiré
 depuis l'écran, sans erreur ni log. Même famille que CC-106.
 
-Restent fermées, chacune pour sa raison : `leitner.cards.write` et `leitner.taxonomy.write` (le
-contenu communal), `leitner.ingest` (elle écrit **et** fait sortir des requêtes), `leitner.llm` (la
+Restent fermées, chacune pour sa raison : `leitner.cards.write` et `leitner.taxonomy.write` (la
+saisie de contenu — le sien ou du partagé, voir CC-139 plus haut), `leitner.ingest` (elle écrit
+**et** fait sortir des requêtes), `leitner.llm` (la
 surface la plus proche d'une SSRF du dépôt), `leitner.settings` (le réglage d'installation ci-dessus)
 et `leitner.backup`.
 
@@ -69,8 +136,10 @@ ferme vraiment tient en deux points, et le premier est décisif :
 - **l'import crée des cartes et de la taxonomie** — l'accorder contournerait `leitner.cards.write`
   **et** `leitner.taxonomy.write` d'un seul geste. Une capacité qui en ouvre deux autres par la bande
   ne s'ouvre pas par commodité ;
-- l'export emporte tout le **contenu communal** en un fichier : voir les cartes n'est pas repartir
-  avec la base — c'est ce qui le sépare de `leitner.view`.
+- l'export emporte en un fichier portable tout ce que l'exportateur peut voir — depuis CC-139 ce
+  n'est plus « plus que `leitner.view` » (le fichier est filtré par visibilité, exactement comme
+  l'écran), mais **un fichier téléchargeable** reste un geste différent de la consultation à
+  l'écran : voir les cartes n'est pas repartir avec une copie autonome.
 
 Cinq écrans, une barre d'onglets : **Révision** (`/revision`) · **Cartes** (`/revision/settings`) ·
 **Stats** (`/revision/stats`) · **Ingestion** (`/revision/ingest`) · **Configuration**
@@ -100,6 +169,11 @@ services/leitner_scope.ts                   `CardScope` + `applyScope` — l'UNI
                                             sous-requête catégorie → thèmes
 services/leitner_progress.ts                la PROGRESSION par personne — l'UNIQUE copie de la
                                             jointure externe, du `coalesce` et de l'ORDRE de file
+services/leitner_visibility.ts              la VISIBILITÉ par propriétaire (CC-139) — l'UNIQUE
+                                            copie d'`applyVisibility` + le garde d'écriture
+                                            `assertOwnedOrAdmin`/lecture `assertVisibleOrAdmin`
+services/leitner_account_deletion_guard.ts  ce que `AdminUsersController#destroy` (HORS module)
+                                            vérifie avant de supprimer un compte
 services/leitner_sessions.ts                l'INFÉRENCE de session — CODE PUR, sans base ni horloge
 services/leitner_habits.ts                  séries, heatmap, régularité, rythme — CODE PUR, le jour
                                             courant est un PARAMÈTRE
@@ -132,6 +206,8 @@ shared/settings_page.ts                     PUR · scrollTopKeepingAnchor — le
                                             défilement après un import (CC-67)
 migrations/                                 cards PUIS reviews PUIS categories/themes PUIS settings
                                             PUIS ingestions PUIS draft_cards PUIS card_progress
+                                            PUIS owner_id/is_shared (CC-139, categories → themes →
+                                            cards → ingestions ; PAS draft_cards)
                                             (FK : l'ordre du nom de fichier compte)
 ```
 
@@ -144,14 +220,17 @@ Le filet n'est donc pas un seeder mais **l'export JSON** — les cartes n'existe
 autre copie. `./pgdata` survit à un `docker compose down -v` (voir le `CLAUDE.md` racine), pas à une
 corruption ni à un changement de machine.
 
-⚠️ **Onze fichiers hors du module** : `start/routes.ts` · `start/env.ts` et `.env.example` (les
+⚠️ **Douze fichiers hors du module** : `start/routes.ts` · `start/env.ts` et `.env.example` (les
 variables LLM) · `config/llm.ts` · `config/env_isolation.ts` (voir ci-dessous) ·
 `providers/leitner_provider.ts` (le **balayage au démarrage** des
 ingestions interrompues, déclaré dans `adonisrc.ts` sous `environment: ['web']`) ·
 `start/capabilities.ts` (la ligne qui enregistre `capabilities.ts` au registre) ·
 `start/navigation.ts` (celle qui enregistre `destinations.ts`) · et depuis CC-119
 `app/core/shared/services/nav_stats_service.ts` (le compteur « dû » de la barre latérale) et
-`app/core/dashboard/controllers/home_controller.ts` (la carte d'accueil). Depuis CC-137,
+`app/core/dashboard/controllers/home_controller.ts` (la carte d'accueil) — les deux filtrent
+désormais par visibilité (`applyVisibility`) depuis CC-139, pas seulement par personne. Depuis
+CC-139, `app/core/auth/controllers/admin_users_controller.ts` s'y ajoute : le garde de
+suppression de compte qui refuse d'emporter du contenu partagé (voir plus haut). Depuis CC-137,
 `config/modules.ts` s'y ajoute : c'est lui qui décide si `leitner` existe du tout sur
 l'installation — les quatre fichiers ci-dessus (routes, capabilities, navigation, migrations
 de `config/database.ts`) le consultent avant d'enregistrer quoi que ce soit pour ce module.
@@ -844,18 +923,23 @@ en thèmes sous une catégorie `Import` — une catégorie `Import` vide qui tra
 
 ## Sauvegarde : l'export JSON
 
-`GET /revision/export` rend un instantané : taxonomie, cartes et **historique des révisions**.
-Sans l'historique, une restauration remettrait la série à zéro, viderait la rétention 30 j — et
-surtout **réarmerait la règle du « 2ᵉ `hard` d'affilée »**, qui lit la dernière révision enregistrée.
+`GET /revision/export` rend un instantané : taxonomie **visible**, cartes **visibles** et
+**historique des révisions**. Sans l'historique, une restauration remettrait la série à zéro,
+viderait la rétention 30 j — et surtout **réarmerait la règle du « 2ᵉ `hard` d'affilée »**, qui lit
+la dernière révision enregistrée.
 
-⚠️ **Le fichier est PERSONNEL depuis la v2 (CC-119)** : la taxonomie et les cartes valent pour tout
-le monde, `box`/`nextReview`/`reviews` sont ceux de **celui qui exporte**. Exporter à deux produit
-deux fichiers au même contenu et aux progressions différentes ; importer celui d'un collègue ajoute
-ses cartes **et s'attribue sa progression** — ce n'est pas un moyen de « rendre ses cartes ».
+⚠️ **Le fichier est PERSONNEL depuis la v2 (CC-119), et FILTRÉ depuis la v3 (CC-139)** : il ne rend
+plus « toutes les cartes », mais **celles que l'exportateur peut voir** — les siennes, plus tout ce
+qui est marqué partagé — avec `box`/`nextReview`/`reviews` qui restent ceux de **celui qui
+exporte**. Avant ce filtre, exporter son propre historique embarquait dans le fichier le contenu
+privé de tous les autres comptes — la fuite la plus large que CC-139 corrige. Exporter à deux
+produit deux fichiers dont le contenu **peut différer** (chacun sa part privée) en plus des
+progressions différentes ; importer celui d'un collègue ajoute ses cartes **et s'attribue sa
+progression** — ce n'est pas un moyen de « rendre ses cartes ».
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "exportedAt": "2026-07-13T14:12:03.000Z",
   "categories": [{ "name": "DevOps", "themes": ["Docker", "Kubernetes"] }],
   "cards": [{
@@ -863,6 +947,7 @@ ses cartes **et s'attribue sa progression** — ce n'est pas un moyen de « rend
     "category": "DevOps", "theme": "Docker",
     "box": 3, "nextReview": "2026-07-20",
     "createdAt": "2026-07-01T08:00:00.000Z", "updatedAt": "2026-07-13T09:02:00.000Z",
+    "shared": true,
     "reviews": [
       { "grade": "good", "reviewedAt": "2026-07-13T09:02:00.000Z",
         "answer": "Négocier les clés de session.", "verdict": "partiel",
@@ -929,16 +1014,23 @@ route de ce module ne détruit du contenu en masse. Restaurer, c'est importer da
 - **`version` inconnue → refus** avec un message : un import « au mieux » sur un format qu'on ne
   comprend pas écrit des données fausses en silence. Un fichier **sans** `version` est un fichier
   écrit à la main, lu comme la version courante.
-- ⚠️ **`BACKUP_VERSION` vaut `2` depuis CC-119, et le bump n'est pas décoratif.** L'ajout des cinq
+- ⚠️ **`BACKUP_VERSION` a bumpé deux fois, et aucune des deux n'est décorative.** L'ajout des cinq
   colonnes de trace (CC-51) ne l'avait **pas** bumpée, à raison : l'ajout était strictement additif.
-  Ici les clés n'ont pas bougé, leur **sens** si — `box`, `nextReview` et `reviews` décrivent la
-  progression d'une personne, plus celle du paquet. C'est exactement le critère posé alors : « le
+  Elle est passée à `2` en CC-119 (`box`/`nextReview`/`reviews` décrivent la progression d'une
+  personne, plus celle du paquet) puis à `3` en CC-139 (le fichier décrit le **visible**, plus tout
+  le contenu — et porte un nouveau champ `shared` par carte). Même critère les deux fois : « le
   jour où un champ change de sens ou devient obligatoire ».
-- ⚠️ **L'import accepte 1 ET 2** (`READABLE_BACKUP_VERSIONS`), et c'est une liste, jamais une
-  égalité. Refuser la v1 rendrait illisibles d'un coup **toutes** les sauvegardes faites avant ce
-  lot — au moment précis où on en aurait le plus besoin. Une v1 se relit sans ambiguïté : sa
-  progression était celle de l'unique compte du moment, elle devient celle de l'importateur, ce que
-  le backfill de la migration fait pour la base.
+- ⚠️ **L'import accepte 1, 2 ET 3** (`READABLE_BACKUP_VERSIONS`), et c'est une liste, jamais une
+  égalité. Refuser une version antérieure rendrait illisibles d'un coup **toutes** les sauvegardes
+  faites avant ce lot — au moment précis où on en aurait le plus besoin. Une v1/v2 se relit sans
+  ambiguïté : son contenu était visible de tous au moment de l'export, il **redevient partagé** à
+  l'import (`resolveShared`, `services/leitner_backup_service.ts`) — exactement ce que le backfill
+  de la migration fait pour la base. Un fichier v3 **écrit à la main** sans `shared` obéit au défaut
+  du contenu neuf : privé.
+- ⚠️ **Les cartes (et la taxonomie créée en chemin) appartiennent à l'importateur** (CC-139), jamais
+  à qui que ce soit d'autre — même règle que `progression et historique` ci-dessous. `resolveShared`
+  décide de `isShared` ; `ensureCategory`/`ensureTheme` ne réutilisent qu'une catégorie/thème
+  **visible** de l'importateur, jamais un homonyme privé chez un autre compte.
 - ⚠️ **Une carte que l'exportateur n'a jamais notée sort avec `box: 1` et l'échéance du jour** — pas
   d'omission : c'est ce que l'absence de ligne veut dire, et l'import écrit symétriquement une ligne
   **seulement** si le fichier dit autre chose que le défaut. Un fichier de saisie en masse ne

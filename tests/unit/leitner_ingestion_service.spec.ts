@@ -17,6 +17,7 @@ import LeitnerIngestionService, {
 } from '#modules/leitner/services/leitner_ingestion_service'
 import { LlmUnavailableError, type LlmMessage } from '#modules/leitner/services/llm_client'
 import FakeLlmClient from '#tests/fakes/fake_llm_client'
+import { createAdmin } from '#tests/helpers/users'
 
 /** Le contrat avec le LLM est **exactement** le format d'import JSON du module. */
 const ONE_CARD = JSON.stringify({
@@ -43,8 +44,13 @@ function service(
  * tâche de fond. Un test qui n'attendrait pas ce travail (`ingestionJobs()`) courrait
  * contre lui — et contre le rollback de sa propre transaction.
  */
-async function ingest(ingestionService: LeitnerIngestionService, text: string) {
-  const ingestion = await ingestionService.start({ text, source: 'paste' })
+async function ingest(ingestionService: LeitnerIngestionService, text: string, userId?: number) {
+  let owner = userId
+  if (owner === undefined) {
+    const created = await createAdmin()
+    owner = created.id
+  }
+  const ingestion = await ingestionService.start({ text, source: 'paste' }, owner)
   await ingestionJobs()
   await ingestion.refresh()
   return ingestion
@@ -239,7 +245,8 @@ test.group('LeitnerIngestionService / ingestion', (group) => {
       return ONE_CARD
     })
 
-    const ingestion = await ingestionService.start({ text: COURSE, source: 'paste' })
+    const owner = await createAdmin()
+    const ingestion = await ingestionService.start({ text: COURSE, source: 'paste' }, owner.id)
 
     assert.include(['pending', 'running'], ingestion.status)
     assert.equal(ingestion.cardsProposed, 0)
@@ -350,18 +357,19 @@ test.group('LeitnerIngestionService / promotion des brouillons', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   async function ingestOne() {
+    const owner = await createAdmin()
     const { service: ingestionService } = service([ONE_CARD])
-    const ingestion = await ingest(ingestionService, COURSE)
+    const ingestion = await ingest(ingestionService, COURSE, owner.id)
     const drafts = await LeitnerDraftCard.query().where('leitner_ingestion_id', ingestion.id)
-    return { ingestionService, drafts }
+    return { ingestionService, drafts, owner }
   }
 
   test('valider un brouillon crée une carte en boîte 1, classée par son nom', async ({
     assert,
   }) => {
-    const { ingestionService, drafts } = await ingestOne()
+    const { ingestionService, drafts, owner } = await ingestOne()
 
-    const report = await ingestionService.accept([drafts[0].id])
+    const report = await ingestionService.accept([drafts[0].id], owner.id)
 
     assert.equal(report.cardsCreated, 1)
 
@@ -372,6 +380,8 @@ test.group('LeitnerIngestionService / promotion des brouillons', (group) => {
     // La taxonomie est créée à la volée, à partir des noms — jamais d'un id.
     assert.equal(cards[0].theme.name, 'TLS')
     assert.equal(cards[0].theme.category.name, 'Réseau')
+    // La carte promue appartient à qui l'a validée (CC-139).
+    assert.equal(cards[0].ownerId, owner.id)
 
     await drafts[0].refresh()
     assert.equal(drafts[0].status, 'accepted')
@@ -379,16 +389,20 @@ test.group('LeitnerIngestionService / promotion des brouillons', (group) => {
   })
 
   test('respecte la déduplication (recto, thème) du catalogue', async ({ assert }) => {
+    const someoneElse = await createAdmin()
     const category = await LeitnerCategory.create({ name: 'Réseau' })
     const theme = await LeitnerTheme.create({ leitnerCategoryId: category.id, name: 'TLS' })
-    const existing = await new LeitnerCatalogService().createCard({
-      front: 'Rôle du handshake TLS ?',
-      back: 'Un verso saisi à la main, qui ne doit pas être écrasé.',
-      leitnerThemeId: theme.id,
-    })
+    const existing = await new LeitnerCatalogService().createCard(
+      {
+        front: 'Rôle du handshake TLS ?',
+        back: 'Un verso saisi à la main, qui ne doit pas être écrasé.',
+        leitnerThemeId: theme.id,
+      },
+      someoneElse.id
+    )
 
-    const { ingestionService, drafts } = await ingestOne()
-    const report = await ingestionService.accept([drafts[0].id])
+    const { ingestionService, drafts, owner } = await ingestOne()
+    const report = await ingestionService.accept([drafts[0].id], owner.id)
 
     assert.equal(report.cardsCreated, 0)
     assert.equal(report.cardsSkipped, 1)
@@ -402,12 +416,12 @@ test.group('LeitnerIngestionService / promotion des brouillons', (group) => {
   test('refuse un classement à moitié rempli, et laisse le brouillon corrigeable', async ({
     assert,
   }) => {
-    const { ingestionService, drafts } = await ingestOne()
+    const { ingestionService, drafts, owner } = await ingestOne()
 
     drafts[0].category = null
     await drafts[0].save()
 
-    const report = await ingestionService.accept([drafts[0].id])
+    const report = await ingestionService.accept([drafts[0].id], owner.id)
 
     assert.lengthOf(report.errors, 1)
     assert.equal(report.cardsCreated, 0)
@@ -418,16 +432,16 @@ test.group('LeitnerIngestionService / promotion des brouillons', (group) => {
   })
 
   test('un brouillon rejeté ne crée rien mais reste en trace', async ({ assert }) => {
-    const { ingestionService, drafts } = await ingestOne()
+    const { ingestionService, drafts, owner } = await ingestOne()
 
-    await ingestionService.reject([drafts[0].id])
+    await ingestionService.reject([drafts[0].id], owner.id)
 
     await drafts[0].refresh()
     assert.equal(drafts[0].status, 'rejected')
     assert.lengthOf(await LeitnerCard.all(), 0)
 
     // Un brouillon relu ne redevient jamais « en attente » : le valider ensuite ne fait rien.
-    const report = await ingestionService.accept([drafts[0].id])
+    const report = await ingestionService.accept([drafts[0].id], owner.id)
     assert.equal(report.cardsCreated, 0)
   })
 })

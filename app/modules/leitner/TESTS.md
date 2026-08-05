@@ -36,6 +36,24 @@ et `TaxonomyCombobox` sont couverts. Câbler celui-ci est possible et souhaitabl
 interaction (focus/blur, chevron, ↑↓ Entrée Échap, le clic qui ouvre la session) se vérifie au
 navigateur.
 
+## Le cloisonnement par propriétaire (CC-139)
+
+- `tests/functional/modules/leitner_ownership.spec.ts` — distinct du cloisonnement par
+  **personne** ci-dessous : ici, qui peut **voir** du contenu et qui peut l'**écrire**,
+  selon `owner_id`/`is_shared`. Trois groupes. **Lecture** : une carte privée d'un autre
+  compte est invisible du catalogue, de la file de révision et de l'arbre de choix — y
+  compris son thème/catégorie, même à 0 carte due ; une carte partagée reste visible ; le
+  compte « dû » d'un thème partagé n'additionne jamais les cartes privées d'un autre
+  compte (le test qui compte du groupe — c'est le mode d'échec le plus plausible : un
+  chiffre qui gonfle sans jamais lever). **Écriture** : éditer/supprimer le contenu d'un
+  autre compte est refusé — `is_shared` compris, il n'ouvre que la lecture jamais
+  l'écriture — et l'assertion porte sur l'état en base, pas seulement le 403 (même
+  doctrine que `leitner_readonly.spec.ts`) ; un reclassement en lot s'arrête net (tout ou
+  rien) si une seule carte du lot n'est pas possédée ; un admin, lui, passe. **Suppression
+  de compte** : refusée tant qu'il possède du contenu `is_shared = true`, réussie sinon —
+  le contenu privé restant devient orphelin (`owner_id = null`), visible du seul admin ;
+  décocher « Partagé » débloque la suppression, prouvant qu'il n'y a pas d'impasse.
+
 ## Le cloisonnement par personne (CC-119)
 
 - `tests/functional/modules/leitner_multi_user.spec.ts` — le principe directeur de CC-77, éprouvé
@@ -77,7 +95,10 @@ navigateur.
   existe pour éviter. Depuis CC-119 il tient aussi la jointure de progression : une carte **jamais
   notée est due** (sans aucune ligne), les comptes de l'écran de choix suivent la personne, et
   **la carte porte SON id, jamais celui de la ligne de progression** — le pire piège du lot, où un
-  `select *` fait afficher des cartes plausibles dont noter l'une écrit sur une autre.
+  `select *` fait afficher des cartes plausibles dont noter l'une écrit sur une autre. Depuis
+  CC-139, `resolveScope` porte aussi qu'**un thème privé chez un autre compte est refusé comme
+  inexistant** — jamais un troisième cas qui distinguerait « existe mais caché », la même doctrine
+  que le refus d'un id inexistant.
 - `tests/functional/modules/leitner_scope.spec.ts` — l'écran de choix et ses **comptes dus**, la fin
   d'un paquet (distincte d'un paquet vide dès le départ), et surtout que **noter une carte conserve
   le paquet** : le piège n° 1, celui du `withQs()`. Il **assert l'en-tête `location` brut** —
@@ -166,7 +187,10 @@ navigateur.
   reclassement et les cascades de la taxonomie. Plus, depuis CC-119 : une carte créée **ne sème
   aucune progression**, le catalogue montre la boîte de celui qui regarde, et le filtre « boîte 1 »
   trouve bien les cartes **sans** ligne — sinon il ne remonterait jamais une carte neuve, le cas le
-  plus fréquent de l'écran.
+  plus fréquent de l'écran. ⚠️ **Toutes les cartes y sont créées `isShared: true`** (le fichier ne
+  teste pas le cloisonnement par propriétaire, c'est `leitner_ownership.spec.ts` qui le fait) ; un
+  test dédié, **« deux comptes peuvent chacun avoir une catégorie du même nom »**, prouve depuis
+  CC-139 que `unique(owner_id, name)` a bien remplacé `unique(name)`.
 - `tests/functional/modules/leitner_cards.spec.ts` — le cycle de vie d'une carte **par les routes
   HTTP** : ce qui atterrit en base est bien ce qui a été saisi. Le module n'ayant aucun seeder,
   c'est le seul endroit qui prouve les défauts d'une carte créée depuis l'écran (boîte 1, due le
@@ -190,11 +214,16 @@ navigateur.
   L'aller-retour porte une révision **jugée** et une **jamais jugée** (`null` doit se relire `null`,
   jamais `0` ni `''`), plus une troisième aux valeurs falsy (`answer: ''`, `thinkingMs: 0`) qui sont
   des mesures et non des absences. Depuis CC-119 le `snapshot()` lit la progression **de
-  l'exportateur** (jointe par `preload` filtré), le format est en **v2**, et un test dédié couvre
-  le point qui protège les sauvegardes existantes : **un fichier v1 reste importable**, sa
-  progression et son historique devenant ceux de celui qui importe. ⚠️ Le cas « version inconnue »
-  de la liste des fichiers invalides est passé de `2` à `99` — laissé à 2, il aurait viré au vert
-  en n'éprouvant plus rien.
+  l'exportateur** (jointe par `preload` filtré) ; depuis CC-139 il porte aussi `shared`. Le format
+  est en **v3**, et deux tests dédiés couvrent ce qui protège les sauvegardes existantes dans les
+  deux sens : **un fichier v1 reste importable** et son contenu **redevient partagé**
+  (`resolveShared`) — sa progression et son historique devenant ceux de celui qui importe ; **un
+  fichier v3 écrit à la main, sans `shared`, importe une carte privée** — le défaut du contenu
+  neuf, pas celui des vieux fichiers. ⚠️ Le cas « version inconnue » de la liste des fichiers
+  invalides est passé de `2` à `99` puis à nouveau `99` après le bump CC-139 — laissé à une valeur
+  devenue valide, il aurait viré au vert en n'éprouvant plus rien. Un test dédié, **« exclut le
+  contenu privé des autres comptes »**, couvre le correctif de confidentialité de CC-139 :
+  `export()` chargeait auparavant tout `leitner_cards` sans filtre.
 
 ## Le rôle invité : ce qu'il révise (CC-121), ce qui lui reste fermé (CC-72)
 

@@ -15,12 +15,23 @@ import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
 
 export async function makeCard(
   front: string,
-  options: { back?: string; themeId?: number | null } = {}
+  options: {
+    back?: string
+    themeId?: number | null
+    ownerId?: number | null
+    isShared?: boolean
+  } = {}
 ): Promise<LeitnerCard> {
   return LeitnerCard.create({
     front,
     back: options.back ?? 'Verso',
     leitnerThemeId: options.themeId ?? null,
+    ownerId: options.ownerId ?? null,
+    // ⚠️ Défaut différent de celui de l'application, volontairement — voir la note plus
+    // haut : `ownerId` omis (l'immense majorité des tests, écrits avant CC-139) → carte
+    // partagée, visible de tout compte qui la note ensuite. `ownerId` fourni sans
+    // `isShared` explicite → privée, comme le défaut réel de l'application.
+    isShared: options.isShared ?? options.ownerId === undefined,
   })
 }
 

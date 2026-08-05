@@ -85,10 +85,12 @@ test.group('Leitner / export JSON', (group) => {
     const response = await client.get('/revision/export').loginAs(user)
     const backup = JSON.parse(response.text())
 
-    // ⚠️ **v2 depuis CC-119** : les clés n'ont pas bougé, leur sens si — `box`,
-    // `nextReview` et `reviews` décrivent la progression de **celui qui exporte**, plus
-    // celle du paquet. C'est le critère de bump posé par le `CLAUDE.md` du module.
-    assert.equal(backup.version, 2)
+    // ⚠️ **v2 depuis CC-119, v3 depuis CC-139** : les clés n'ont pas bougé, leur sens
+    // si — `box`, `nextReview` et `reviews` décrivent la progression de **celui qui
+    // exporte** (v2) ; le fichier ne rend plus que le **visible** par l'exportateur,
+    // et chaque carte porte désormais `shared` (v3). C'est le critère de bump posé par
+    // le `CLAUDE.md` du module, les deux fois.
+    assert.equal(backup.version, 3)
     assert.deepEqual(backup.categories, [{ name: 'DevOps', themes: ['Docker', 'Kubernetes'] }])
 
     assert.lengthOf(backup.cards, 1)
@@ -100,6 +102,9 @@ test.group('Leitner / export JSON', (group) => {
     assert.equal(card.nextReview, '2026-07-20')
     assert.equal(card.category, 'DevOps')
     assert.equal(card.theme, 'Docker')
+    // `makeCard` sans `ownerId` explicite crée une carte partagée (voir sa doc) : le
+    // fichier doit le dire.
+    assert.isTrue(card.shared)
     assert.deepEqual(
       card.reviews.map((review: { grade: string }) => review.grade),
       ['good', 'hard']
@@ -168,6 +173,37 @@ test.group('Leitner / export JSON', (group) => {
     assert.notInclude(response.text(), 'leitnerThemeId')
     assert.notInclude(response.text(), 'leitner_theme_id')
   })
+
+  /**
+   * ⚠️ **Le correctif de confidentialité de CC-139.** Avant lui, `export()` chargeait
+   * tout `leitner_cards` sans filtre : exporter son propre historique embarquait dans
+   * le fichier de l'exportateur le contenu privé de tous les autres comptes. C'est la
+   * fuite la plus large que ce lot corrige — elle n'a pas de pendant côté écran, donc
+   * pas d'autre test qui la couvre.
+   */
+  test('exclut le contenu privé des autres comptes', async ({ client, assert }) => {
+    const me = await login()
+    const someoneElse = await createUserWith(['leitner.cards.write'])
+
+    const mine = await makeCard('Ma carte', { back: '…', ownerId: me.id, isShared: false })
+    const theirsPrivate = await makeCard('Leur carte privée', {
+      back: '…',
+      ownerId: someoneElse.id,
+      isShared: false,
+    })
+    const theirsShared = await makeCard('Leur carte partagée', {
+      back: '…',
+      ownerId: someoneElse.id,
+      isShared: true,
+    })
+
+    const response = await client.get('/revision/export').loginAs(me)
+    const fronts = JSON.parse(response.text()).cards.map((card: { front: string }) => card.front)
+
+    assert.include(fronts, mine.front)
+    assert.include(fronts, theirsShared.front)
+    assert.notInclude(fronts, theirsPrivate.front)
+  })
 })
 
 test.group('Leitner / import JSON', (group) => {
@@ -231,6 +267,7 @@ test.group('Leitner / import JSON', (group) => {
         updatedAt: card.updatedAt.toISO(),
         category: card.theme?.category.name ?? null,
         theme: card.theme?.name ?? null,
+        shared: card.isShared,
         reviews: card.reviews.map((review) => ({
           grade: review.grade,
           reviewedAt: review.reviewedAt.toISO(),
@@ -381,8 +418,9 @@ test.group('Leitner / import JSON', (group) => {
       cards: [{ front: 'Nouvelle carte', back: 'Ajoutée.', category: 'DevOps', theme: 'Docker' }],
     })
 
-    // Une seule catégorie « DevOps » : elle est réutilisée, jamais dupliquée
-    // (leitner_categories.name est unique).
+    // Une seule catégorie « DevOps » : elle est réutilisée, jamais dupliquée — visible
+    // de l'importateur (créée sans propriétaire par ce test, donc partagée par défaut,
+    // voir `makeCard`), `ensureCategory` la retrouve au lieu d'en créer une seconde.
     assert.lengthOf(await LeitnerCategory.all(), 1)
     assert.lengthOf(await LeitnerTheme.all(), 2)
 
@@ -542,12 +580,14 @@ test.group('Leitner / import JSON', (group) => {
   })
 
   /**
-   * ⚠️ **Le test qui protège les sauvegardes déjà faites** (CC-119). L'export est passé
-   * en v2 parce que `box`, `nextReview` et `reviews` ont changé de sens — ils décrivent
-   * désormais la progression d'une personne. Refuser v1 pour autant rendrait illisibles,
-   * d'un coup, tous les fichiers écrits avant ce lot : exactement au moment où on en
-   * aurait le plus besoin. Un v1 se relit sans ambiguïté — sa progression était celle de
-   * l'unique compte du moment, elle devient celle de l'importateur.
+   * ⚠️ **Le test qui protège les sauvegardes déjà faites** (CC-119, prolongé par
+   * CC-139). L'export est passé en v2 parce que `box`, `nextReview` et `reviews` ont
+   * changé de sens — ils décrivent désormais la progression d'une personne. Refuser v1
+   * pour autant rendrait illisibles, d'un coup, tous les fichiers écrits avant ce lot :
+   * exactement au moment où on en aurait le plus besoin. Un v1 se relit sans
+   * ambiguïté — sa progression était celle de l'unique compte du moment, elle devient
+   * celle de l'importateur ; et son contenu, visible de tous avant que « partagé »
+   * n'existe, **redevient partagé** à l'import (`resolveShared`).
    */
   test('un fichier v1 reste importable, et sa progression devient celle qui importe', async ({
     client,
@@ -574,9 +614,33 @@ test.group('Leitner / import JSON', (group) => {
     const card = await LeitnerCard.findByOrFail('front', 'Écrite avant CC-119')
     assert.equal(await boxOf(user.id, card.id), 4)
     assert.equal((await nextReviewOf(user.id, card.id))!.toISODate(), '2026-08-01')
+    assert.equal(card.ownerId, user.id)
+    assert.isTrue(card.isShared)
 
     const review = await LeitnerReview.query().where('leitner_card_id', card.id).firstOrFail()
     assert.equal(review.userId, user.id)
+  })
+
+  test('un fichier v3 écrit à la main, sans `shared`, importe une carte privée', async ({
+    client,
+    assert,
+  }) => {
+    // Le pendant exact du test v1 ci-dessus, dans l'autre sens : un fichier v3 sans le
+    // champ `shared` obéit au défaut du contenu neuf (privé), pas à celui des vieux
+    // fichiers (partagé) — `resolveShared` ne confond pas les deux cas.
+    const user = await login()
+
+    const response = await upload(client, user, {
+      version: 3,
+      cards: [{ front: 'Carte v3 sans shared', back: 'Verso.' }],
+    })
+
+    response.assertStatus(302)
+    assert.isUndefined(response.flashMessages().importErrors)
+
+    const card = await LeitnerCard.findByOrFail('front', 'Carte v3 sans shared')
+    assert.equal(card.ownerId, user.id)
+    assert.isFalse(card.isShared)
   })
 
   test('une boîte hors de 1..5 est refusée : sans ce garde-fou, la carte serait éternellement due', async ({
@@ -644,9 +708,9 @@ test.group('Leitner / import JSON', (group) => {
         },
       ],
       ['thème sans catégorie', { cards: [{ front: 'A', back: 'B', theme: 'Docker' }] }],
-      // ⚠️ 99, et surtout plus 2 : depuis CC-119 la version courante EST 2, et 1 reste
-      // lisible. Une valeur encore acceptée ici aurait fait passer ce cas au vert en
-      // n'éprouvant plus rien.
+      // ⚠️ 99, et surtout plus 3 : depuis CC-139 la version courante EST 3, et 1 et 2
+      // restent lisibles. Une valeur encore acceptée ici aurait fait passer ce cas au
+      // vert en n'éprouvant plus rien.
       ['version inconnue', { version: 99, cards: [{ front: 'A', back: 'B' }] }],
     ]
 

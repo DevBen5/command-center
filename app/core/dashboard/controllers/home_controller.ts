@@ -5,6 +5,7 @@ import Agent from '#modules/agents/models/agent'
 import VeilleItem from '#modules/veille/models/veille_item'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import { joinProgress, whereDue } from '#modules/leitner/services/leitner_progress'
+import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
 import { capabilitiesFor } from '#core/auth/services/capability_service'
 import modules from '#config/modules'
 
@@ -46,7 +47,9 @@ export default class HomeController {
       modules.has('services') && user.isAdmin ? this.#services() : null,
       modules.has('agents') && user.isAdmin ? this.#agents() : null,
       modules.has('veille') && can('veille.view') ? this.#veille() : null,
-      modules.has('leitner') && can('leitner.view') ? this.#leitner(user.id, today) : null,
+      modules.has('leitner') && can('leitner.view')
+        ? this.#leitner(user.id, user.isAdmin, today)
+        : null,
     ])
 
     return inertia.render('core/dashboard/home', {
@@ -93,23 +96,25 @@ export default class HomeController {
   }
 
   /**
-   * ⚠️ **`due` est personnel, `total` ne l'est pas** (CC-119) : le premier est la file de
-   * ce lecteur — cartes jamais notées comprises —, le second un inventaire du contenu,
-   * qui n'appartient à personne. La définition de « dû » passe par les helpers de
-   * `leitner_progress.ts` plutôt que par un `where` recopié : deux formulations
-   * finiraient par diverger, et la carte d'accueil annoncerait un chiffre que `/revision`
-   * ne montre pas.
+   * ⚠️ **`due` est personnel, `total` ne l'est plus non plus depuis CC-139** : les deux
+   * sont désormais filtrés par visibilité (`owner_id`/`is_shared`), sinon `total`
+   * annoncerait un inventaire qui inclut du contenu que ce lecteur ne peut même pas
+   * ouvrir. La définition de « dû » passe par les helpers de `leitner_progress.ts`
+   * plutôt que par un `where` recopié : deux formulations finiraient par diverger, et la
+   * carte d'accueil annoncerait un chiffre que `/revision` ne montre pas.
    */
-  async #leitner(userId: number, today: DateTime) {
+  async #leitner(userId: number, isAdmin: boolean, today: DateTime) {
     const dueQuery = LeitnerCard.query().count('* as total')
     joinProgress(dueQuery, userId)
     whereDue(dueQuery, today)
+    applyVisibility(dueQuery, 'leitner_cards', userId, isAdmin)
+
+    const totalQuery = LeitnerCard.query().count('* as total')
+    applyVisibility(totalQuery, 'leitner_cards', userId, isAdmin)
 
     const [due, total] = await Promise.all([
       dueQuery.then((r) => Number(r[0].$extras.total)),
-      LeitnerCard.query()
-        .count('* as total')
-        .then((r) => Number(r[0].$extras.total)),
+      totalQuery.then((r) => Number(r[0].$extras.total)),
     ])
 
     return { due, total }

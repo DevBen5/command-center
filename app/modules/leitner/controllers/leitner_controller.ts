@@ -11,6 +11,7 @@ import LeitnerService, {
   type ScopeInput,
   type ScopeRefusal,
 } from '#modules/leitner/services/leitner_service'
+import { applyVisibility, assertVisibleOrAdmin } from '#modules/leitner/services/leitner_visibility'
 import {
   judgeValidator,
   reviewScopeValidator,
@@ -58,6 +59,7 @@ export default class LeitnerController {
   async index({ auth, inertia, request, response, session }: HttpContext) {
     const service = new LeitnerService()
     const userId = auth.user!.id
+    const isAdmin = auth.user!.isAdmin
 
     let input: ScopeInput
     try {
@@ -69,29 +71,29 @@ export default class LeitnerController {
     }
 
     const boxIntervals = await service.boxIntervals()
-    const stats = await this.globalStats(service, userId)
+    const stats = await this.globalStats(service, userId, isAdmin)
 
     const asked =
       input.scope !== undefined || input.category !== undefined || input.theme !== undefined
 
     if (!asked) {
-      const choices = await service.dueScopeChoices(userId)
+      const choices = await service.dueScopeChoices(userId, isAdmin)
 
       return inertia.render('modules/leitner/index', {
         view: 'choice',
         scope: null,
         choices,
         scopeError: session.flashMessages.get('scopeError') ?? null,
-        boxCounts: await service.boxCounts(userId),
+        boxCounts: await service.boxCounts(userId, undefined, isAdmin),
         boxIntervals,
         stats: { ...stats, dueCount: choices.totalDueCount },
       })
     }
 
-    const resolved = await service.resolveScope(input)
+    const resolved = await service.resolveScope(input, userId, isAdmin)
     if (!resolved.ok) return this.rejectScope(session, response, SCOPE_ERRORS[resolved.reason])
 
-    const dueCards = await service.dueCards(userId, resolved.scope)
+    const dueCards = await service.dueCards(userId, resolved.scope, isAdmin)
 
     // La note précédente conditionne l'effet de `hard` (deux d'affilée = boîte 1) :
     // la page en a besoin pour annoncer honnêtement ce que fait le bouton.
@@ -105,7 +107,9 @@ export default class LeitnerController {
     // pose donc qu'une fois la file épuisée — et la réponse est un booléen, pas un
     // compteur : un chiffre faux serait pire que pas de chiffre.
     const finished =
-      dueCards.length === 0 ? await service.hasReviewedTodayInScope(userId, resolved.scope) : false
+      dueCards.length === 0
+        ? await service.hasReviewedTodayInScope(userId, resolved.scope, isAdmin)
+        : false
 
     return inertia.render('modules/leitner/index', {
       view: 'session',
@@ -118,7 +122,7 @@ export default class LeitnerController {
         lastGrade: lastGrades.get(card.id) ?? null,
       })),
       // La grille des 5 boîtes suit le paquet : elle décrit ce qu'on révise.
-      boxCounts: await service.boxCounts(userId, resolved.scope),
+      boxCounts: await service.boxCounts(userId, resolved.scope, isAdmin),
       boxIntervals,
       stats: { ...stats, dueCount: dueCards.length },
     })
@@ -131,14 +135,19 @@ export default class LeitnerController {
    * serait absurde. Seuls `dueCount` et la grille des boîtes suivent le paquet.
    *
    * ⚠️ **« Global » veut dire « tous paquets confondus », pas « tous comptes
-   * confondus »** (CC-119) : série, journée et rétention sont celles de `userId`. Seul
-   * `totalCards` reste vraiment commun — c'est un inventaire du contenu, et le contenu
-   * n'appartient à personne.
+   * confondus »** (CC-119) : série, journée et rétention sont celles de `userId`.
+   *
+   * ⚠️ **`totalCards` a cessé d'être un inventaire commun avec CC-139** : le contenu
+   * porte désormais un propriétaire, donc ce chiffre est filtré comme le reste — sinon
+   * il annoncerait un total qui ne correspond à aucune liste que l'utilisateur peut
+   * réellement parcourir.
    */
-  private async globalStats(service: LeitnerService, userId: number) {
+  private async globalStats(service: LeitnerService, userId: number, isAdmin: boolean = false) {
     const today = DateTime.now().startOf('day')
 
-    const totalCards = await LeitnerCard.query().count('* as total')
+    const totalCardsQuery = LeitnerCard.query().count('* as total')
+    applyVisibility(totalCardsQuery, 'leitner_cards', userId, isAdmin)
+    const totalCards = await totalCardsQuery
     const recentReviews = await LeitnerReview.query()
       .where('user_id', userId)
       .where('reviewed_at', '>=', today.minus({ days: 30 }).toSQL()!)
@@ -186,6 +195,10 @@ export default class LeitnerController {
   async review({ auth, params, request, response }: HttpContext) {
     const { grade, ...judgment } = await request.validateUsing(reviewValidator)
     const card = await LeitnerCard.findOrFail(params.id)
+    // ⚠️ La carte se relit par id : sans ce contrôle, quelqu'un pourrait noter une carte
+    // qu'il ne peut même pas voir depuis sa propre file (CC-139) — `applyVisibility` ne
+    // protège que les requêtes filtrées, pas un `findOrFail` par id.
+    assertVisibleOrAdmin(card, auth.user!.id, auth.user!.isAdmin)
     // La note vient de l'utilisateur, le reste est de la trace. `grade` est passé tel
     // quel : ce n'est pas parce qu'un verdict ou un chrono l'accompagne qu'il le corrige.
     //
@@ -224,6 +237,9 @@ export default class LeitnerController {
     // une carte qui n'existe pas, et feraient de cette route un proxy vers le LLM local.
     const card = await LeitnerCard.findOrFail(params.id)
     const userId = auth.user!.id
+    // Même garde que `review()` : juger une carte qu'on ne peut pas voir consommerait le
+    // LLM local pour du contenu privé d'un autre compte (CC-139).
+    assertVisibleOrAdmin(card, userId, auth.user!.isAdmin)
 
     const judgment = await this.judgeService.judge(card, answer)
 

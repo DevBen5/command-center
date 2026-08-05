@@ -75,6 +75,14 @@ export default class LeitnerIngestion extends BaseModel {
   @column()
   declare error: string | null
 
+  /** `null` = orpheline (propriétaire supprimé). Voir CC-139. */
+  @column()
+  declare ownerId: number | null
+
+  /** Visible de tout le monde si `true` ; sinon seulement de `ownerId`. Privé par défaut. */
+  @column()
+  declare isShared: boolean
+
   @hasMany(() => LeitnerDraftCard)
   declare drafts: HasMany<typeof LeitnerDraftCard>
 

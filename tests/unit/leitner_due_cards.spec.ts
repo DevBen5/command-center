@@ -190,16 +190,18 @@ test.group('Leitner / resolveScope', (group) => {
   const service = new LeitnerService()
 
   test('sans paramètre : toutes les cartes', async ({ assert }) => {
-    const resolved = await service.resolveScope({})
+    const user = await createAdmin()
+    const resolved = await service.resolveScope({}, user.id)
     assert.isTrue(resolved.ok)
     assert.deepEqual(resolved, { ok: true, scope: { kind: 'all' }, label: 'Toutes les cartes' })
   })
 
   test('un thème rend son paquet et son libellé complet', async ({ assert }) => {
+    const user = await createAdmin()
     const category = await LeitnerCategory.create({ name: 'DevOps' })
     const theme = await LeitnerTheme.create({ leitnerCategoryId: category.id, name: 'Docker' })
 
-    assert.deepEqual(await service.resolveScope({ theme: theme.id }), {
+    assert.deepEqual(await service.resolveScope({ theme: theme.id }, user.id), {
       ok: true,
       scope: { kind: 'theme', id: theme.id },
       label: 'DevOps · Docker',
@@ -210,28 +212,59 @@ test.group('Leitner / resolveScope', (group) => {
     // Le repli muet est le mode d'échec que ce ticket existe pour éviter : un thème
     // supprimé depuis un autre onglet, et on réviserait toute sa base en croyant
     // travailler Docker.
-    assert.deepEqual(await service.resolveScope({ theme: 999_999 }), {
+    const user = await createAdmin()
+    assert.deepEqual(await service.resolveScope({ theme: 999_999 }, user.id), {
       ok: false,
       reason: 'unknown-theme',
     })
   })
 
   test('une catégorie inexistante est refusée', async ({ assert }) => {
-    assert.deepEqual(await service.resolveScope({ category: 999_999 }), {
+    const user = await createAdmin()
+    assert.deepEqual(await service.resolveScope({ category: 999_999 }, user.id), {
       ok: false,
       reason: 'unknown-category',
     })
   })
 
   test('`category` et `theme` ensemble : refus, pas de devinette', async ({ assert }) => {
+    const user = await createAdmin()
     const category = await LeitnerCategory.create({ name: 'DevOps' })
     const theme = await LeitnerTheme.create({ leitnerCategoryId: category.id, name: 'Docker' })
 
     // Ni « le dernier gagne », ni « le plus précis gagne » : une combinaison qu'on n'a
     // pas voulue est une erreur.
-    assert.deepEqual(await service.resolveScope({ category: category.id, theme: theme.id }), {
+    assert.deepEqual(
+      await service.resolveScope({ category: category.id, theme: theme.id }, user.id),
+      { ok: false, reason: 'combined' }
+    )
+  })
+
+  test('un thème privé chez un autre compte est refusé comme inexistant', async ({ assert }) => {
+    // CC-139 : un id qui existe mais n'est pas visible se comporte exactement comme un
+    // id inexistant — jamais un troisième cas qui distinguerait « existe mais caché ».
+    const owner = await createAdmin()
+    const stranger = await createAdmin()
+    const category = await LeitnerCategory.create({
+      name: 'Perso',
+      ownerId: owner.id,
+      isShared: false,
+    })
+    const theme = await LeitnerTheme.create({
+      leitnerCategoryId: category.id,
+      name: 'Secret',
+      ownerId: owner.id,
+      isShared: false,
+    })
+
+    assert.deepEqual(await service.resolveScope({ theme: theme.id }, stranger.id), {
       ok: false,
-      reason: 'combined',
+      reason: 'unknown-theme',
+    })
+    assert.deepEqual(await service.resolveScope({ theme: theme.id }, owner.id), {
+      ok: true,
+      scope: { kind: 'theme', id: theme.id },
+      label: 'Perso · Secret',
     })
   })
 })

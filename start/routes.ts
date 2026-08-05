@@ -187,10 +187,10 @@ router
         router.put('/users/:id/capabilities', [AdminUsersController, 'updateCapabilities'])
         // Désactivation : le retrait **réversible**, qui garde le compte et son historique.
         router.post('/users/:id/activation', [AdminUsersController, 'toggleActivation'])
-        // Suppression : possible dès qu'il n'y a **aucune dépendance bloquante** (CC-80).
-        // Aucune table de contenu ne porte de `user_id` ; les seules références partent en
-        // `ON DELETE CASCADE`. Deux verrous seulement : pas le dernier admin actif, pas soi-
-        // même. Voir `AdminUsersController.destroy`.
+        // Suppression : possible dès qu'il n'y a **aucune dépendance bloquante** (CC-80,
+        // revu par CC-139 pour le contenu Leitner — owner_id + is_shared, SET NULL + garde
+        // applicative). Deux verrous en plus : pas le dernier admin actif, pas soi-même.
+        // Voir `AdminUsersController.destroy`.
         router.delete('/users/:id', [AdminUsersController, 'destroy'])
         // Rend le lien d'invitation **une fois**, en JSON, et révoque le précédent.
         router.post('/users/:id/invitation', [AdminUsersController, 'issueInvitation'])

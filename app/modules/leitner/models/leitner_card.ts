@@ -6,9 +6,10 @@ import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 
 /**
- * Une carte est du **contenu communal** : elle ne porte aucun `user_id`, et supprimer un
- * compte ne la touche pas (CC-77). Sa boîte et son échéance ne sont donc plus des
- * colonnes d'ici — elles vivent dans `LeitnerCardProgress`, une par personne.
+ * Une carte porte un propriétaire depuis CC-139 (`ownerId` + `isShared`, privé par
+ * défaut) : voir `app/modules/leitner/CLAUDE.md`. Sa boîte et son échéance restent hors
+ * d'ici — elles vivent dans `LeitnerCardProgress`, une par personne, inchangé depuis
+ * CC-77/CC-119.
  *
  * ⚠️ **`updatedAt` ne dit plus « dernière révision », il dit « dernière modification du
  * contenu »** : éditer un recto le bouge, noter la carte non. L'ordre de la file lit
@@ -28,6 +29,14 @@ export default class LeitnerCard extends BaseModel {
   // `null` = carte non classée.
   @column()
   declare leitnerThemeId: number | null
+
+  /** `null` = orpheline (propriétaire supprimé). Voir CC-139. */
+  @column()
+  declare ownerId: number | null
+
+  /** Visible de tout le monde si `true` ; sinon seulement de `ownerId`. Privé par défaut. */
+  @column()
+  declare isShared: boolean
 
   @belongsTo(() => LeitnerTheme)
   declare theme: BelongsTo<typeof LeitnerTheme>

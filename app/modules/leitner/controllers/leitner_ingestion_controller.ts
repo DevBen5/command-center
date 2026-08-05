@@ -10,6 +10,11 @@ import LeitnerPdfService, {
   PdfExtractionError,
 } from '#modules/leitner/services/leitner_pdf_service'
 import {
+  applyVisibility,
+  assertVisibleOrAdmin,
+  assertOwnedOrAdmin,
+} from '#modules/leitner/services/leitner_visibility'
+import {
   courseIngestionValidator,
   documentExtractValidator,
   draftCardValidator,
@@ -52,8 +57,10 @@ export default class LeitnerIngestionController {
    * combien sont devenus des cartes, combien ont été écartés. Un travail « terminé »
    * dont tout a été rejeté et un travail dont tout attend encore ne se ressemblent pas.
    */
-  async index({ inertia, session }: HttpContext) {
-    const ingestions = await LeitnerIngestion.query().orderBy('id', 'desc').limit(RECENT_INGESTIONS)
+  async index({ auth, inertia, session }: HttpContext) {
+    const ingestionsQuery = LeitnerIngestion.query().orderBy('id', 'desc').limit(RECENT_INGESTIONS)
+    applyVisibility(ingestionsQuery, 'leitner_ingestions', auth.user!.id, auth.user!.isAdmin)
+    const ingestions = await ingestionsQuery
 
     // Volumétrie personnelle : on charge et on compte en JS, comme le reste du module.
     const drafts = ingestions.length
@@ -129,7 +136,7 @@ export default class LeitnerIngestionController {
    * extrait et déjà relu (voir `extract()`). `source` et `sourceName` sont donc
    * **déclaratifs** — bornés par le validateur, stockés, affichés, jamais interprétés.
    */
-  async store({ request, response, session }: HttpContext) {
+  async store({ auth, request, response, session }: HttpContext) {
     const payload = await request.validateUsing(courseIngestionValidator)
 
     const fail = (message: string) => {
@@ -155,12 +162,10 @@ export default class LeitnerIngestionController {
       )
     }
 
-    const ingestion = await this.ingestion.start({
-      text,
-      source,
-      sourceName,
-      title: payload.title ?? null,
-    })
+    const ingestion = await this.ingestion.start(
+      { text, source, sourceName, title: payload.title ?? null },
+      auth.user!.id
+    )
 
     return response.redirect().toPath(`/revision/ingest/${ingestion.id}`)
   }
@@ -173,14 +178,15 @@ export default class LeitnerIngestionController {
    * d'Inertia (`router.reload({ only: [...] })`), donc cette méthode et rien d'autre :
    * pas de route JSON nue, pas de CSRF ni de sérialisation à gérer à la main.
    */
-  async show({ params, inertia, session }: HttpContext) {
+  async show({ auth, params, inertia, session }: HttpContext) {
     const ingestion = await LeitnerIngestion.findOrFail(params.id)
+    assertVisibleOrAdmin(ingestion, auth.user!.id, auth.user!.isAdmin)
 
     const drafts = await LeitnerDraftCard.query()
       .where('leitner_ingestion_id', ingestion.id)
       .orderBy('id', 'asc')
 
-    const { categories } = await this.catalog.categoryTree()
+    const { categories } = await this.catalog.categoryTree(auth.user!.id, auth.user!.isAdmin)
 
     return inertia.render('modules/leitner/ingest_show', {
       ingestion,
@@ -193,9 +199,10 @@ export default class LeitnerIngestionController {
   }
 
   /** Renommer un travail — depuis l'historique comme depuis sa page de suivi. */
-  async rename({ params, request, response }: HttpContext) {
+  async rename({ auth, params, request, response }: HttpContext) {
     const { title } = await request.validateUsing(ingestionTitleValidator)
     const ingestion = await LeitnerIngestion.findOrFail(params.id)
+    assertOwnedOrAdmin(ingestion, auth.user!.id, auth.user!.isAdmin)
 
     ingestion.title = title
     await ingestion.save()
@@ -207,9 +214,13 @@ export default class LeitnerIngestionController {
    * Relecture : le brouillon corrigé remplace ce que le modèle avait proposé — sans le
    * promouvoir. C'est « Enregistrer les modifications » : on met de côté, on y reviendra.
    */
-  async updateDraft({ params, request, response }: HttpContext) {
+  async updateDraft({ auth, params, request, response }: HttpContext) {
     const payload = await request.validateUsing(draftCardValidator)
-    await this.ingestion.saveDrafts([{ id: Number(params.id), ...payload }])
+    await this.ingestion.saveDrafts(
+      [{ id: Number(params.id), ...payload }],
+      auth.user!.id,
+      auth.user!.isAdmin
+    )
 
     return response.redirect().back()
   }
@@ -222,11 +233,15 @@ export default class LeitnerIngestionController {
    * carte avec le texte du modèle et jetterait la correction en cours — sans rien dire,
    * et sans plus rien à rattraper (le brouillon serait `accepted`).
    */
-  async accept({ request, response, session }: HttpContext) {
+  async accept({ auth, request, response, session }: HttpContext) {
     const { drafts } = await request.validateUsing(draftPromotionValidator)
 
-    await this.ingestion.saveDrafts(drafts)
-    const report = await this.ingestion.accept(drafts.map((draft) => draft.id))
+    await this.ingestion.saveDrafts(drafts, auth.user!.id, auth.user!.isAdmin)
+    const report = await this.ingestion.accept(
+      drafts.map((draft) => draft.id),
+      auth.user!.id,
+      auth.user!.isAdmin
+    )
 
     if (report.errors.length > 0) session.flash('ingestErrors', report.errors)
     session.flash('promotionReport', {
@@ -237,15 +252,16 @@ export default class LeitnerIngestionController {
     return response.redirect().back()
   }
 
-  async reject({ request, response }: HttpContext) {
+  async reject({ auth, request, response }: HttpContext) {
     const { ids } = await request.validateUsing(draftIdsValidator)
-    await this.ingestion.reject(ids)
+    await this.ingestion.reject(ids, auth.user!.id, auth.user!.isAdmin)
     return response.redirect().back()
   }
 
   /** Supprime l'ingestion et ses brouillons (cascade). Les cartes déjà validées restent. */
-  async destroy({ params, response }: HttpContext) {
+  async destroy({ auth, params, response }: HttpContext) {
     const ingestion = await LeitnerIngestion.findOrFail(params.id)
+    assertOwnedOrAdmin(ingestion, auth.user!.id, auth.user!.isAdmin)
     await ingestion.delete()
     return response.redirect().toPath('/revision/ingest')
   }

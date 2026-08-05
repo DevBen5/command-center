@@ -18,6 +18,7 @@ import {
   whereDue,
 } from '#modules/leitner/services/leitner_progress'
 import { ALL_CARDS, applyScope, type CardScope } from '#modules/leitner/services/leitner_scope'
+import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
 
 // Intervalle (en jours) avant la prochaine révision, selon la boîte **atteinte**
 // (donc après mouvement). Ce ne sont que les valeurs de départ : les intervalles
@@ -144,7 +145,11 @@ export default class LeitnerService {
    * neuf. Toute la mécanique — jointure externe, `coalesce`, ordre — vit dans
    * `leitner_progress.ts` : va y lire les trois pièges avant de toucher à cette requête.
    */
-  async dueCards(userId: number, scope: CardScope = ALL_CARDS): Promise<LeitnerCard[]> {
+  async dueCards(
+    userId: number,
+    scope: CardScope = ALL_CARDS,
+    isAdmin: boolean = false
+  ): Promise<LeitnerCard[]> {
     const today = DateTime.now().startOf('day')
 
     const query = LeitnerCard.query().preload('theme', (theme) => theme.preload('category'))
@@ -154,6 +159,7 @@ export default class LeitnerService {
     whereDue(query, today)
     orderByQueue(query, today)
     applyScope(query, scope)
+    applyVisibility(query, 'leitner_cards', userId, isAdmin)
 
     return query
   }
@@ -166,12 +172,21 @@ export default class LeitnerService {
    * croyant travailler Docker. `category` et `theme` ensemble sont un refus, pas une
    * devinette : ni « le dernier gagne », ni « le plus précis gagne ».
    */
-  async resolveScope(input: ScopeInput): Promise<ScopeResolution> {
+  async resolveScope(
+    input: ScopeInput,
+    userId: number,
+    isAdmin: boolean = false
+  ): Promise<ScopeResolution> {
     const asked = [input.scope, input.category, input.theme].filter((value) => value !== undefined)
     if (asked.length > 1) return { ok: false, reason: 'combined' }
 
     if (input.theme !== undefined) {
-      const theme = await LeitnerTheme.query().where('id', input.theme).preload('category').first()
+      const themeQuery = LeitnerTheme.query().where('id', input.theme).preload('category')
+      applyVisibility(themeQuery, 'leitner_themes', userId, isAdmin)
+      const theme = await themeQuery.first()
+      // ⚠️ Un thème invisible (privé chez quelqu'un d'autre) est traité comme inexistant,
+      // pas comme un refus distinct : le distinguer laisserait deviner qu'un id « existe »
+      // sans y avoir accès — la même fuite que résoudrait un 404 plutôt qu'un 403 ailleurs.
       if (!theme) return { ok: false, reason: 'unknown-theme' }
       return {
         ok: true,
@@ -181,7 +196,9 @@ export default class LeitnerService {
     }
 
     if (input.category !== undefined) {
-      const category = await LeitnerCategory.find(input.category)
+      const categoryQuery = LeitnerCategory.query().where('id', input.category)
+      applyVisibility(categoryQuery, 'leitner_categories', userId, isAdmin)
+      const category = await categoryQuery.first()
       if (!category) return { ok: false, reason: 'unknown-category' }
       return { ok: true, scope: { kind: 'category', id: category.id }, label: category.name }
     }
@@ -202,7 +219,7 @@ export default class LeitnerService {
    * **Une requête pour les comptes**, agrégée en JS : une requête par thème serait un
    * N+1 gratuit.
    */
-  async dueScopeChoices(userId: number): Promise<ScopeChoices> {
+  async dueScopeChoices(userId: number, isAdmin: boolean = false): Promise<ScopeChoices> {
     const today = DateTime.now().startOf('day')
 
     const dueByThemeQuery = LeitnerCard.query()
@@ -212,6 +229,10 @@ export default class LeitnerService {
 
     joinProgress(dueByThemeQuery, userId)
     whereDue(dueByThemeQuery, today)
+    // ⚠️ Sans ce filtre, le compte « dû » d'un thème partagé additionnerait les cartes
+    // privées d'un autre compte : un invité lirait « 12 dues » alors que 8 lui sont
+    // invisibles — un chiffre plausible et faux, le pire mode d'échec de cet écran.
+    applyVisibility(dueByThemeQuery, 'leitner_cards', userId, isAdmin)
 
     const rows = await dueByThemeQuery
 
@@ -228,9 +249,17 @@ export default class LeitnerService {
       else dueByTheme.set(row.leitnerThemeId, total)
     }
 
-    const categories = await LeitnerCategory.query()
-      .preload('themes', (themes) => themes.orderBy('name'))
+    // ⚠️ La taxonomie elle-même est filtrée, pas seulement les comptes qu'elle porte :
+    // sinon le nom d'une catégorie ou d'un thème privé d'un autre compte fuiterait dans
+    // l'arbre de choix, même à 0 carte due.
+    const categoriesQuery = LeitnerCategory.query()
+      .preload('themes', (themes) => {
+        applyVisibility(themes, 'leitner_themes', userId, isAdmin)
+        themes.orderBy('name')
+      })
       .orderBy('name')
+    applyVisibility(categoriesQuery, 'leitner_categories', userId, isAdmin)
+    const categories = await categoriesQuery
 
     return {
       categories: categories.map((category) => {
@@ -268,7 +297,11 @@ export default class LeitnerService {
    * « terminé, bravo » à quelqu'un qui n'a rien révisé, parce qu'un collègue est passé
    * sur le même thème dans la journée.
    */
-  async hasReviewedTodayInScope(userId: number, scope: CardScope): Promise<boolean> {
+  async hasReviewedTodayInScope(
+    userId: number,
+    scope: CardScope,
+    isAdmin: boolean = false
+  ): Promise<boolean> {
     const startOfDay = DateTime.now().startOf('day')
 
     const query = LeitnerCard.query()
@@ -278,6 +311,7 @@ export default class LeitnerService {
       )
 
     applyScope(query, scope)
+    applyVisibility(query, 'leitner_cards', userId, isAdmin)
     return (await query.first()) !== null
   }
 
@@ -473,11 +507,16 @@ export default class LeitnerService {
    * de 40 jours qui retomberait à zéro parce qu'on a ouvert un autre thème serait
    * absurde.
    */
-  async boxCounts(userId: number, scope: CardScope = ALL_CARDS): Promise<Record<number, number>> {
+  async boxCounts(
+    userId: number,
+    scope: CardScope = ALL_CARDS,
+    isAdmin: boolean = false
+  ): Promise<Record<number, number>> {
     const query = LeitnerCard.query()
     joinProgress(query, userId)
     selectWithBox(query)
     applyScope(query, scope)
+    applyVisibility(query, 'leitner_cards', userId, isAdmin)
 
     const cards = await query
     const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }

@@ -226,11 +226,14 @@ test.group('Leitner / ingestion d’un cours par un LLM local', (group) => {
     const user = await login()
     const category = await LeitnerCategory.create({ name: 'Réseau' })
     const theme = await LeitnerTheme.create({ leitnerCategoryId: category.id, name: 'TLS' })
-    await new LeitnerCatalogService().createCard({
-      front: 'Rôle du handshake TLS ?',
-      back: 'Verso saisi à la main.',
-      leitnerThemeId: theme.id,
-    })
+    await new LeitnerCatalogService().createCard(
+      {
+        front: 'Rôle du handshake TLS ?',
+        back: 'Verso saisi à la main.',
+        leitnerThemeId: theme.id,
+      },
+      user.id
+    )
 
     fakeLlm([TWO_CARDS])
     await submit(client, user)
@@ -635,7 +638,7 @@ test.group('Leitner / la page de suivi d’un travail', (group) => {
 
   test('renommer un travail', async ({ client, assert }) => {
     const user = await login()
-    const work = await ingestion()
+    const work = await ingestion({ ownerId: user.id })
 
     const response = await client
       .put(`/revision/ingest/${work.id}/title`)

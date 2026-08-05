@@ -5,6 +5,7 @@ import { DateTime } from 'luxon'
 import LeitnerDraftCard from '#modules/leitner/models/leitner_draft_card'
 import LeitnerIngestion, { type IngestionSource } from '#modules/leitner/models/leitner_ingestion'
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
+import { assertOwnedOrAdmin } from '#modules/leitner/services/leitner_visibility'
 import LlmClient, { type LlmMessage } from '#modules/leitner/services/llm_client'
 import { backupValidator, TITLE_MAX_CHARS } from '#modules/leitner/validators/leitner'
 
@@ -519,12 +520,15 @@ export default class LeitnerIngestionService {
    * le LLM aurait refait du synchrone, avec des étapes en plus. Ses erreurs ne se
    * perdent pas pour autant — elles finissent dans `error`, statut `failed`.
    */
-  async start(input: {
-    text: string
-    source: IngestionSource
-    sourceName?: string | null
-    title?: string | null
-  }): Promise<LeitnerIngestion> {
+  async start(
+    input: {
+      text: string
+      source: IngestionSource
+      sourceName?: string | null
+      title?: string | null
+    },
+    userId: number
+  ): Promise<LeitnerIngestion> {
     const chunks = chunkCourse(input.text)
 
     const ingestion = await LeitnerIngestion.create({
@@ -542,6 +546,10 @@ export default class LeitnerIngestionService {
       chunkCount: chunks.length,
       chunksDone: 0,
       cardsProposed: 0,
+      // Privé par défaut (CC-139) : aucune UI ne permet aujourd'hui de partager une
+      // ingestion, seulement les cartes qui en naissent. Voir le CLAUDE.md du module.
+      ownerId: userId,
+      isShared: false,
     })
 
     track(this.run(ingestion, chunks))
@@ -651,7 +659,17 @@ export default class LeitnerIngestionService {
    * valider, c'est valider ce qu'on a sous les yeux. Un brouillon déjà relu n'est plus
    * touché — il n'est plus corrigeable, la carte est faite.
    */
-  async saveDrafts(corrections: DraftCorrection[]): Promise<void> {
+  async saveDrafts(
+    corrections: DraftCorrection[],
+    userId: number,
+    isAdmin: boolean = false
+  ): Promise<void> {
+    await this.assertOwnsDraftIngestions(
+      corrections.map((correction) => correction.id),
+      userId,
+      isAdmin
+    )
+
     for (const correction of corrections) {
       const draft = await LeitnerDraftCard.query()
         .where('id', correction.id)
@@ -679,10 +697,20 @@ export default class LeitnerIngestionService {
    * ⚠️ Elle lit les brouillons **en base**. C'est pourquoi le contrôleur enregistre
    * d'abord les corrections en cours (`saveDrafts`) : sans ça, la carte naîtrait avec
    * le texte du modèle, et la relecture serait perdue en silence.
+   *
+   * ⚠️ **La carte promue appartient à qui valide, pas à qui a soumis l'ingestion**
+   * (CC-139) — c'est un geste de création à part entière, au même titre que
+   * `createCard` ; l'ingestion n'est qu'un brouillon, jamais un contenu en soi.
    */
-  async accept(draftIds: number[]): Promise<PromotionReport> {
+  async accept(
+    draftIds: number[],
+    userId: number,
+    isAdmin: boolean = false
+  ): Promise<PromotionReport> {
     const report: PromotionReport = { cardsCreated: 0, cardsSkipped: 0, errors: [] }
     if (draftIds.length === 0) return report
+
+    await this.assertOwnsDraftIngestions(draftIds, userId, isAdmin)
 
     const drafts = await LeitnerDraftCard.query()
       .whereIn('id', draftIds)
@@ -703,14 +731,14 @@ export default class LeitnerIngestionService {
       // Catégorie et thème sont désignés par leur **nom** : le catalogue les crée à la
       // volée si besoin. Aucun id ne vient jamais du modèle.
       const theme = draft.category
-        ? await this.catalog.ensureTheme(draft.category, draft.theme!)
+        ? await this.catalog.ensureTheme(draft.category, draft.theme!, userId, isAdmin)
         : null
 
-      const { card, created } = await this.catalog.createCardUnlessDuplicate({
-        front: draft.front,
-        back: draft.back,
-        leitnerThemeId: theme?.id ?? null,
-      })
+      const { card, created } = await this.catalog.createCardUnlessDuplicate(
+        { front: draft.front, back: draft.back, leitnerThemeId: theme?.id ?? null },
+        userId,
+        isAdmin
+      )
 
       draft.status = 'accepted'
       draft.leitnerCardId = card.id
@@ -724,8 +752,10 @@ export default class LeitnerIngestionService {
   }
 
   /** Un brouillon écarté reste en base : la trace de ce que le modèle a proposé. */
-  async reject(draftIds: number[]): Promise<number> {
+  async reject(draftIds: number[], userId: number, isAdmin: boolean = false): Promise<number> {
     if (draftIds.length === 0) return 0
+
+    await this.assertOwnsDraftIngestions(draftIds, userId, isAdmin)
 
     await LeitnerDraftCard.query()
       .whereIn('id', draftIds)
@@ -733,5 +763,28 @@ export default class LeitnerIngestionService {
       .update({ status: 'rejected', updated_at: DateTime.now().toSQL() })
 
     return draftIds.length
+  }
+
+  /**
+   * Un brouillon n'a pas de propriétaire à lui — il se dérive de son ingestion (CC-139,
+   * voir le CLAUDE.md du module). Cette vérification est ce qui empêche quiconque
+   * possède `leitner.ingest` de relire/corriger/promouvoir/rejeter les brouillons d'une
+   * ingestion privée d'un autre compte en devinant des ids de brouillons.
+   */
+  private async assertOwnsDraftIngestions(
+    draftIds: number[],
+    userId: number,
+    isAdmin: boolean
+  ): Promise<void> {
+    if (isAdmin || draftIds.length === 0) return
+
+    const drafts = await LeitnerDraftCard.query()
+      .whereIn('id', draftIds)
+      .select('leitner_ingestion_id')
+    const ingestionIds = [...new Set(drafts.map((draft) => draft.leitnerIngestionId))]
+    if (ingestionIds.length === 0) return
+
+    const ingestions = await LeitnerIngestion.query().whereIn('id', ingestionIds)
+    for (const ingestion of ingestions) assertOwnedOrAdmin(ingestion, userId, isAdmin)
   }
 }

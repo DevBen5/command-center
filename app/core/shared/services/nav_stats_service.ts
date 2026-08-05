@@ -5,6 +5,7 @@ import Agent from '#modules/agents/models/agent'
 import VeilleItem from '#modules/veille/models/veille_item'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import { joinProgress, whereDue } from '#modules/leitner/services/leitner_progress'
+import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
 import modules from '#config/modules'
 
 /**
@@ -81,7 +82,9 @@ export default class NavStatsService {
       // ⚠️ Le compteur suit exactement la file de `/revision` — donc la progression de
       // ce lecteur, et les cartes qu'il n'a jamais notées (CC-119). Un compte neuf voit
       // ici le paquet entier, ce qui est bien ce que l'écran lui montrera.
-      modules.has('leitner') && can('leitner.view') ? this.dueForViewer(viewer.id, today) : null,
+      modules.has('leitner') && can('leitner.view')
+        ? this.dueForViewer(viewer.id, viewer.isAdmin, today)
+        : null,
     ])
 
     return { services, agents, veille, leitner, host: os.hostname() }
@@ -92,10 +95,15 @@ export default class NavStatsService {
    * les mêmes helpers** — pas par un `where` recopié. Une seconde formulation finirait
    * par diverger : la pastille annoncerait un nombre que l'écran ne montre pas.
    */
-  private async dueForViewer(userId: number, today: DateTime): Promise<{ due: number }> {
+  private async dueForViewer(
+    userId: number,
+    isAdmin: boolean,
+    today: DateTime
+  ): Promise<{ due: number }> {
     const query = LeitnerCard.query().count('* as total')
     joinProgress(query, userId)
     whereDue(query, today)
+    applyVisibility(query, 'leitner_cards', userId, isAdmin)
 
     const rows = await query
     return { due: Number(rows[0].$extras.total) }
