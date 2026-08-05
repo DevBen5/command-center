@@ -87,7 +87,7 @@ test.group('Leitner / cartes saisies par l’utilisateur', (group) => {
     const user = await login()
     const category = await LeitnerCategory.create({ name: 'Base de données' })
     const theme = await LeitnerTheme.create({ leitnerCategoryId: category.id, name: 'PostgreSQL' })
-    const card = await makeCard('Avant', { back: 'Avant' })
+    const card = await makeCard('Avant', { back: 'Avant', ownerId: user.id })
     await setProgress(user.id, card.id, { box: 3 })
 
     await client
@@ -134,7 +134,7 @@ test.group('Leitner / cartes saisies par l’utilisateur', (group) => {
 
   test('supprime une carte de la base', async ({ client, assert }) => {
     const user = await login()
-    const card = await makeCard('À supprimer')
+    const card = await makeCard('À supprimer', { ownerId: user.id })
     await setProgress(user.id, card.id, { box: 4 })
 
     await client.delete(`/revision/cards/${card.id}`).loginAs(user).withCsrfToken().redirects(0)

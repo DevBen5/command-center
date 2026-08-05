@@ -14,6 +14,9 @@ export const cardValidator = vine.compile(
     front: vine.string().trim().minLength(1),
     back: vine.string().trim().minLength(1),
     leitnerThemeId: vine.number().positive().nullable().optional(),
+    // Absent = pas de changement à l'édition (le contrôleur ne l'applique que si
+    // `!== undefined`) ; à la création, `?? false` dans le service : privé par défaut.
+    isShared: vine.boolean().optional(),
   })
 )
 
@@ -157,6 +160,7 @@ export const boxIntervalsValidator = vine.compile(
 export const categoryValidator = vine.compile(
   vine.object({
     name: vine.string().trim().minLength(1).maxLength(60),
+    isShared: vine.boolean().optional(),
   })
 )
 
@@ -164,6 +168,7 @@ export const themeValidator = vine.compile(
   vine.object({
     name: vine.string().trim().minLength(1).maxLength(60),
     leitnerCategoryId: vine.number().positive(),
+    isShared: vine.boolean().optional(),
   })
 )
 
@@ -270,6 +275,8 @@ export const backupValidator = vine.compile(
         nextReview: vine.string().use(calendarDate()).optional(),
         createdAt: vine.string().use(timestamp()).optional(),
         updatedAt: vine.string().use(timestamp()).optional(),
+        // Absent (fichier v1/v2, ou v3 écrit à la main) : résolu par `resolveShared`.
+        shared: vine.boolean().optional(),
         reviews: vine
           .array(
             vine.object({

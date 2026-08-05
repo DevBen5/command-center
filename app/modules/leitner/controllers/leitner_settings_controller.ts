@@ -13,6 +13,7 @@ import LeitnerBackupService, {
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
 import { progressBox } from '#modules/leitner/services/leitner_progress'
 import LeitnerService from '#modules/leitner/services/leitner_service'
+import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
 import {
   backupImportValidator,
   backupValidator,
@@ -40,6 +41,7 @@ export default class LeitnerSettingsController {
 
   async index({ auth, inertia, request, session }: HttpContext) {
     const userId = auth.user!.id
+    const isAdmin = auth.user!.isAdmin
     const filters = {
       search: (request.input('search') as string | undefined)?.trim() || undefined,
       categoryId: toId(request.input('categoryId')),
@@ -48,15 +50,23 @@ export default class LeitnerSettingsController {
       unclassified: request.input('unclassified') === '1',
     }
 
-    const cards = await this.service.cards(userId, filters)
-    const { categories, unclassifiedCount } = await this.service.categoryTree()
-    const total = await LeitnerCard.query().count('* as total')
+    const cards = await this.service.cards(userId, filters, isAdmin)
+    const { categories, unclassifiedCount } = await this.service.categoryTree(userId, isAdmin)
+    const totalQuery = LeitnerCard.query().count('* as total')
+    applyVisibility(totalQuery, 'leitner_cards', userId, isAdmin)
+    const total = await totalQuery
     const boxIntervals = await this.leitner.boxIntervals()
 
     return inertia.render('modules/leitner/settings', {
       // ⚠️ `serialize()` ne rend pas les `$extras` : la boîte, qui vient de la jointure
       // de progression et non d'une colonne de la carte, doit être recopiée à la main.
-      cards: cards.map((card) => ({ ...card.serialize(), box: progressBox(card) })),
+      cards: cards.map((card) => ({
+        ...card.serialize(),
+        box: progressBox(card),
+        // `owner_id`/`is_shared` sont déjà dans `serialize()` (colonnes du modèle) sous
+        // `ownerId`/`isShared` — `mine` évite à la page de comparer un id à la main.
+        mine: card.ownerId === userId,
+      })),
       categories,
       unclassifiedCount,
       totalCards: Number(total[0].$extras.total),
@@ -86,9 +96,10 @@ export default class LeitnerSettingsController {
    * `router.get()` attendrait une réponse Inertia et casserait sur ce JSON.
    */
   async exportBackup({ auth, response }: HttpContext) {
-    // Le fichier porte la progression de **celui qui le demande** (v2, CC-119) : le
-    // contenu est communal, ce qui l'accompagne ne l'est pas.
-    const backup = await this.backup.export(auth.user!.id)
+    // Le fichier porte la progression de **celui qui le demande** (v2, CC-119) et ne
+    // contient plus que le contenu qui lui est **visible** (v3, CC-139) : sa carte
+    // privée, plus tout ce qui est marqué partagé.
+    const backup = await this.backup.export(auth.user!.id, auth.user!.isAdmin)
 
     response.header('content-type', 'application/json; charset=utf-8')
     response.header(
@@ -173,7 +184,10 @@ export default class LeitnerSettingsController {
     }
 
     try {
-      session.flash('importReport', await this.backup.import(auth.user!.id, backup))
+      session.flash(
+        'importReport',
+        await this.backup.import(auth.user!.id, backup, auth.user!.isAdmin)
+      )
     } catch (error) {
       // Rien n'a été écrit : l'import vit dans une transaction.
       if (error instanceof BackupImportError) return fail([error.message])
@@ -211,34 +225,34 @@ export default class LeitnerSettingsController {
   |----------------------------------------------------------------------------
   */
 
-  async store({ request, response }: HttpContext) {
+  async store({ auth, request, response }: HttpContext) {
     const payload = await request.validateUsing(cardValidator)
-    await this.service.createCard(payload)
+    await this.service.createCard(payload, auth.user!.id, auth.user!.isAdmin)
     return response.redirect().back()
   }
 
-  async update({ params, request, response }: HttpContext) {
+  async update({ auth, params, request, response }: HttpContext) {
     const payload = await request.validateUsing(cardValidator)
     const card = await LeitnerCard.findOrFail(params.id)
-    await this.service.updateCard(card, payload)
+    await this.service.updateCard(card, payload, auth.user!.id, auth.user!.isAdmin)
     return response.redirect().back()
   }
 
-  async destroy({ params, response }: HttpContext) {
+  async destroy({ auth, params, response }: HttpContext) {
     const card = await LeitnerCard.findOrFail(params.id)
-    await this.service.deleteCards([card.id])
+    await this.service.deleteCards([card.id], auth.user!.id, auth.user!.isAdmin)
     return response.redirect().back()
   }
 
-  async destroyMany({ request, response }: HttpContext) {
+  async destroyMany({ auth, request, response }: HttpContext) {
     const { ids } = await request.validateUsing(cardIdsValidator)
-    await this.service.deleteCards(ids)
+    await this.service.deleteCards(ids, auth.user!.id, auth.user!.isAdmin)
     return response.redirect().back()
   }
 
-  async assignTheme({ request, response }: HttpContext) {
+  async assignTheme({ auth, request, response }: HttpContext) {
     const { ids, leitnerThemeId } = await request.validateUsing(cardsThemeValidator)
-    await this.service.assignTheme(ids, leitnerThemeId)
+    await this.service.assignTheme(ids, leitnerThemeId, auth.user!.id, auth.user!.isAdmin)
     return response.redirect().back()
   }
 
@@ -248,24 +262,29 @@ export default class LeitnerSettingsController {
   |----------------------------------------------------------------------------
   */
 
-  async storeCategory({ request, response, session }: HttpContext) {
-    const { name } = await request.validateUsing(categoryValidator)
-    const created = await this.service.createCategory(name)
+  async storeCategory({ auth, request, response, session }: HttpContext) {
+    const { name, isShared } = await request.validateUsing(categoryValidator)
+    const created = await this.service.createCategory(name, auth.user!.id, isShared ?? false)
     if (!created) session.flash('errors', { name: 'Cette catégorie existe déjà.' })
     return response.redirect().back()
   }
 
-  async updateCategory({ params, request, response, session }: HttpContext) {
+  async updateCategory({ auth, params, request, response, session }: HttpContext) {
     const { name } = await request.validateUsing(categoryValidator)
     const category = await LeitnerCategory.findOrFail(params.id)
-    const updated = await this.service.renameCategory(category, name)
+    const updated = await this.service.renameCategory(
+      category,
+      name,
+      auth.user!.id,
+      auth.user!.isAdmin
+    )
     if (!updated) session.flash('errors', { name: 'Cette catégorie existe déjà.' })
     return response.redirect().back()
   }
 
-  async destroyCategory({ params, response }: HttpContext) {
+  async destroyCategory({ auth, params, response }: HttpContext) {
     const category = await LeitnerCategory.findOrFail(params.id)
-    await this.service.deleteCategory(category)
+    await this.service.deleteCategory(category, auth.user!.id, auth.user!.isAdmin)
     return response.redirect().back()
   }
 
@@ -275,24 +294,35 @@ export default class LeitnerSettingsController {
   |----------------------------------------------------------------------------
   */
 
-  async storeTheme({ request, response, session }: HttpContext) {
-    const { name, leitnerCategoryId } = await request.validateUsing(themeValidator)
-    const created = await this.service.createTheme(leitnerCategoryId, name)
+  async storeTheme({ auth, request, response, session }: HttpContext) {
+    const { name, leitnerCategoryId, isShared } = await request.validateUsing(themeValidator)
+    const created = await this.service.createTheme(
+      leitnerCategoryId,
+      name,
+      auth.user!.id,
+      auth.user!.isAdmin,
+      isShared ?? false
+    )
     if (!created) session.flash('errors', { name: 'Ce thème existe déjà dans cette catégorie.' })
     return response.redirect().back()
   }
 
-  async updateTheme({ params, request, response, session }: HttpContext) {
+  async updateTheme({ auth, params, request, response, session }: HttpContext) {
     const payload = await request.validateUsing(themeValidator)
     const theme = await LeitnerTheme.findOrFail(params.id)
-    const updated = await this.service.updateTheme(theme, payload)
+    const updated = await this.service.updateTheme(
+      theme,
+      payload,
+      auth.user!.id,
+      auth.user!.isAdmin
+    )
     if (!updated) session.flash('errors', { name: 'Ce thème existe déjà dans cette catégorie.' })
     return response.redirect().back()
   }
 
-  async destroyTheme({ params, response }: HttpContext) {
+  async destroyTheme({ auth, params, response }: HttpContext) {
     const theme = await LeitnerTheme.findOrFail(params.id)
-    await this.service.deleteTheme(theme)
+    await this.service.deleteTheme(theme, auth.user!.id, auth.user!.isAdmin)
     return response.redirect().back()
   }
 }

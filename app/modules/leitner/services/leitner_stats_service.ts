@@ -23,6 +23,7 @@ import {
   selectWithBox,
   whereBoxAtMost,
 } from '#modules/leitner/services/leitner_progress'
+import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
 import {
   SESSION_GAP_MINUTES,
   groupIntoSessions,
@@ -296,10 +297,10 @@ export default class LeitnerStatsService {
    * l'historique. La page renvoie chacune vers `/revision/settings` — le seul point de
    * saisie ; `/revision` ne fait que réviser.
    */
-  async problemCards(userId: number): Promise<ProblemCards> {
+  async problemCards(userId: number, isAdmin: boolean = false): Promise<ProblemCards> {
     return {
-      mostAgain: await this.mostAgainCards(userId),
-      stuck: await this.stuckCards(userId),
+      mostAgain: await this.mostAgainCards(userId, isAdmin),
+      stuck: await this.stuckCards(userId, isAdmin),
     }
   }
 
@@ -342,7 +343,7 @@ export default class LeitnerStatsService {
    * carte), mais `whereIn` **perd cet ordre** au chargement des cartes : on le rétablit en
    * JS sur le compte d'`again`. `count(*)` bigint → `Number()`.
    */
-  private async mostAgainCards(userId: number): Promise<ProblemCard[]> {
+  private async mostAgainCards(userId: number, isAdmin: boolean = false): Promise<ProblemCard[]> {
     const result = await db.rawQuery(
       `SELECT leitner_card_id AS card_id, count(*) AS again
        FROM leitner_reviews
@@ -365,6 +366,7 @@ export default class LeitnerStatsService {
 
     joinProgress(query, userId)
     selectWithBox(query)
+    applyVisibility(query, 'leitner_cards', userId, isAdmin)
 
     const cards = await query
     return cards
@@ -383,7 +385,7 @@ export default class LeitnerStatsService {
    * bien la mienne qui compte. Le plancher perdrait tout son sens s'il additionnait les
    * tentatives de plusieurs comptes — il désignerait des cartes que je n'ai jamais vues.
    */
-  private async stuckCards(userId: number): Promise<ProblemCard[]> {
+  private async stuckCards(userId: number, isAdmin: boolean = false): Promise<ProblemCard[]> {
     const query = LeitnerCard.query()
       .withCount('reviews', (reviews) => reviews.where('user_id', userId))
       .preload('theme', (theme) => theme.preload('category'))
@@ -391,6 +393,7 @@ export default class LeitnerStatsService {
     joinProgress(query, userId)
     selectWithBox(query)
     whereBoxAtMost(query, STUCK_MAX_BOX)
+    applyVisibility(query, 'leitner_cards', userId, isAdmin)
 
     const cards = await query
     return cards

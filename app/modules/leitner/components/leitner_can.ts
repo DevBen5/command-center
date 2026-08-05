@@ -31,5 +31,7 @@ export function useCan() {
     return current.isAdmin || current.capabilities.includes(capability)
   }
 
-  return { can }
+  const isAdmin = computed(() => user.value?.isAdmin ?? false)
+
+  return { can, isAdmin }
 }

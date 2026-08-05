@@ -20,11 +20,20 @@ const { t } = useI18n()
  * chaque route ; le masquage évite seulement de proposer une action qui échouerait. Chaque
  * bloc suit exactement la capacité de sa route (voir `start/routes.ts`).
  */
-const { can } = useCan()
+const { can, isAdmin } = useCan()
 const canWriteCards = computed(() => can('leitner.cards.write'))
 const canWriteTaxonomy = computed(() => can('leitner.taxonomy.write'))
 const canSettings = computed(() => can('leitner.settings'))
 const canBackup = computed(() => can('leitner.backup'))
+
+/**
+ * `mine` OU admin (CC-139) : le serveur autorise déjà l'admin à éditer n'importe quel
+ * contenu (`assertOwnedOrAdmin`) — masquer les boutons pour lui mentirait sur ce que la
+ * route accepte. `mine` seul suffit pour tout le monde d'autre.
+ */
+function canEditCard(card: Card): boolean {
+  return card.mine || isAdmin.value
+}
 
 interface ThemeNode {
   id: number
@@ -48,6 +57,11 @@ interface Card {
   // et le filtre « boîte N » suit la même règle.
   box: number
   theme: { id: number; name: string; category: { id: number; name: string } } | null
+  // Privé par défaut (CC-139) : `mine` évite de comparer `ownerId` à l'id du compte connecté
+  // à chaque endroit du template.
+  ownerId: number | null
+  isShared: boolean
+  mine: boolean
 }
 
 interface Filters {
@@ -230,7 +244,12 @@ function deleteCard(card: Card): void {
 */
 const modalOpen = ref(false)
 const editing = ref<Card | null>(null)
-const cardForm = reactive({ front: '', back: '', leitnerThemeId: null as number | null })
+const cardForm = reactive({
+  front: '',
+  back: '',
+  leitnerThemeId: null as number | null,
+  isShared: false,
+})
 const saving = ref(false)
 const frontInput = ref<HTMLTextAreaElement | null>(null)
 
@@ -243,6 +262,8 @@ function openCreate(): void {
   // Le thème filtré pré-remplit la carte : on saisit en général plusieurs
   // cartes de suite sur le même sujet.
   cardForm.leitnerThemeId = filters.themeId
+  // Privée par défaut (CC-139) : jamais pré-cochée.
+  cardForm.isShared = false
   modalOpen.value = true
 }
 
@@ -251,6 +272,7 @@ function openEdit(card: Card): void {
   cardForm.front = card.front
   cardForm.back = card.back
   cardForm.leitnerThemeId = card.theme?.id ?? null
+  cardForm.isShared = card.isShared
   modalOpen.value = true
 }
 
@@ -397,7 +419,9 @@ function submitImport(): void {
 | Taxonomie — catégories et thèmes
 */
 const newCategory = ref('')
+const newCategoryShared = ref(false)
 const newTheme = reactive({ name: '', leitnerCategoryId: null as number | null })
+const newThemeShared = ref(false)
 const renamingCategory = ref<number | null>(null)
 const renamingTheme = ref<number | null>(null)
 const draftName = ref('')
@@ -406,8 +430,14 @@ function addCategory(): void {
   if (!newCategory.value.trim()) return
   router.post(
     '/revision/categories',
-    { name: newCategory.value.trim() },
-    { preserveScroll: true, onSuccess: () => (newCategory.value = '') }
+    { name: newCategory.value.trim(), isShared: newCategoryShared.value },
+    {
+      preserveScroll: true,
+      onSuccess: () => {
+        newCategory.value = ''
+        newCategoryShared.value = false
+      },
+    }
   )
 }
 
@@ -415,8 +445,18 @@ function addTheme(): void {
   if (!newTheme.name.trim() || !newTheme.leitnerCategoryId) return
   router.post(
     '/revision/themes',
-    { name: newTheme.name.trim(), leitnerCategoryId: newTheme.leitnerCategoryId },
-    { preserveScroll: true, onSuccess: () => (newTheme.name = '') }
+    {
+      name: newTheme.name.trim(),
+      leitnerCategoryId: newTheme.leitnerCategoryId,
+      isShared: newThemeShared.value,
+    },
+    {
+      preserveScroll: true,
+      onSuccess: () => {
+        newTheme.name = ''
+        newThemeShared.value = false
+      },
+    }
   )
 }
 
@@ -628,11 +668,27 @@ function deleteTheme(theme: ThemeNode): void {
                   type="checkbox"
                   class="mt-1 accent-accent"
                   :value="card.id"
+                  :disabled="!canEditCard(card)"
+                  :title="!canEditCard(card) ? t('leitner.settings.notMineHint') : undefined"
                 />
               </td>
               <td class="py-2.5 pr-3" :class="canWriteCards ? '' : 'pl-3'">
-                <div class="text-[13px] font-medium">{{ card.front }}</div>
-                <div class="mt-0.5 line-clamp-2 text-[12px] text-txt-3">{{ card.back }}</div>
+                <div class="flex items-start gap-1.5">
+                  <div class="min-w-0">
+                    <div class="text-[13px] font-medium">{{ card.front }}</div>
+                    <div class="mt-0.5 line-clamp-2 text-[12px] text-txt-3">{{ card.back }}</div>
+                  </div>
+                  <span
+                    class="mt-0.5 inline-block shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] whitespace-nowrap"
+                    :class="
+                      card.isShared
+                        ? 'border-ok/40 text-ok'
+                        : 'border-line-2 text-txt-3'
+                    "
+                  >
+                    {{ card.isShared ? t('leitner.settings.visibilityShared') : t('leitner.settings.visibilityPrivate') }}
+                  </span>
+                </div>
               </td>
               <td class="py-2.5 pr-3 align-top">
                 <span
@@ -647,20 +703,23 @@ function deleteTheme(theme: ThemeNode): void {
                 <span class="font-mono text-[12.5px]">{{ card.box }}</span>
               </td>
               <td v-if="canWriteCards" class="py-2.5 pr-3 text-right align-top whitespace-nowrap">
-                <button
-                  type="button"
-                  class="rounded-md border border-line-2 bg-panel-2 px-2 py-1 text-[11.5px] text-txt-2 transition hover:border-accent hover:text-txt"
-                  @click="openEdit(card)"
-                >
-                  {{ t('leitner.settings.edit') }}
-                </button>
-                <button
-                  type="button"
-                  class="ml-1 rounded-md border border-line-2 bg-panel-2 px-2 py-1 text-[11.5px] text-txt-2 transition hover:border-bad hover:text-bad"
-                  @click="deleteCard(card)"
-                >
-                  {{ t('leitner.settings.deleteShort') }}
-                </button>
+                <template v-if="canEditCard(card)">
+                  <button
+                    type="button"
+                    class="rounded-md border border-line-2 bg-panel-2 px-2 py-1 text-[11.5px] text-txt-2 transition hover:border-accent hover:text-txt"
+                    @click="openEdit(card)"
+                  >
+                    {{ t('leitner.settings.edit') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="ml-1 rounded-md border border-line-2 bg-panel-2 px-2 py-1 text-[11.5px] text-txt-2 transition hover:border-bad hover:text-bad"
+                    @click="deleteCard(card)"
+                  >
+                    {{ t('leitner.settings.deleteShort') }}
+                  </button>
+                </template>
+                <span v-else class="text-[11px] text-txt-3 italic">{{ t('leitner.settings.notMineHint') }}</span>
               </td>
             </tr>
             <tr v-if="!cards.length">
@@ -790,21 +849,27 @@ function deleteTheme(theme: ThemeNode): void {
 
         <form
           v-if="canWriteTaxonomy"
-          class="mt-4 flex gap-1.5 border-t border-line pt-4"
+          class="mt-4 flex flex-col gap-1.5 border-t border-line pt-4"
           @submit.prevent="addCategory"
         >
-          <input
-            v-model="newCategory"
-            :placeholder="t('leitner.settings.newCategoryPlaceholder')"
-            class="min-w-0 flex-1 rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] placeholder:text-txt-3"
-          />
-          <button
-            type="submit"
-            class="rounded-md border border-accent bg-accent px-2.5 py-2 text-[12.5px] text-white disabled:opacity-50"
-            :disabled="!newCategory.trim()"
-          >
-            +
-          </button>
+          <div class="flex gap-1.5">
+            <input
+              v-model="newCategory"
+              :placeholder="t('leitner.settings.newCategoryPlaceholder')"
+              class="min-w-0 flex-1 rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] placeholder:text-txt-3"
+            />
+            <button
+              type="submit"
+              class="rounded-md border border-accent bg-accent px-2.5 py-2 text-[12.5px] text-white disabled:opacity-50"
+              :disabled="!newCategory.trim()"
+            >
+              +
+            </button>
+          </div>
+          <label class="flex items-center gap-1.5 text-[11.5px] text-txt-3">
+            <input v-model="newCategoryShared" type="checkbox" class="accent-accent" />
+            {{ t('leitner.settings.sharedField') }}
+          </label>
         </form>
 
         <form v-if="canWriteTaxonomy" class="mt-2 flex flex-col gap-1.5" @submit.prevent="addTheme">
@@ -831,6 +896,10 @@ function deleteTheme(theme: ThemeNode): void {
               +
             </button>
           </div>
+          <label class="flex items-center gap-1.5 text-[11.5px] text-txt-3">
+            <input v-model="newThemeShared" type="checkbox" class="accent-accent" />
+            {{ t('leitner.settings.sharedField') }}
+          </label>
         </form>
       </div>
 
@@ -1018,6 +1087,14 @@ function deleteTheme(theme: ThemeNode): void {
         <p v-if="!hasThemes" class="text-[11.5px] text-txt-3 italic">
           {{ t('leitner.settings.noThemesHint') }}
         </p>
+
+        <label class="mt-2 flex items-start gap-2 text-[12.5px]">
+          <input v-model="cardForm.isShared" type="checkbox" class="mt-0.5 accent-accent" />
+          <span>
+            <span class="font-medium">{{ t('leitner.settings.sharedField') }}</span>
+            <span class="block text-[11.5px] text-txt-3">{{ t('leitner.settings.sharedHint') }}</span>
+          </span>
+        </label>
       </div>
       <div class="flex shrink-0 justify-end gap-2 border-t border-line px-5 py-4">
         <button

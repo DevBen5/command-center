@@ -313,6 +313,11 @@
     "confirmDeleteCategory": "Supprimer « {name} » et ses {themes} thème(s) ? Ses {cards} carte(s) ne seront pas supprimées, elles deviendront « non classées ».",
     "confirmDeleteCategoryEmpty": "Supprimer la catégorie « {name} » ?",
     "confirmDeleteTheme": "Supprimer le thème « {name} » ? Ses {cards} carte(s) deviendront « non classées ».",
-    "confirmDeleteThemeEmpty": "Supprimer le thème « {name} » ?"
+    "confirmDeleteThemeEmpty": "Supprimer le thème « {name} » ?",
+    "visibilityPrivate": "Privé",
+    "visibilityShared": "Partagé",
+    "sharedField": "Partagé — visible de tout le monde",
+    "sharedHint": "Décochée, seul vous la voyez. Cochée, elle apparaît aussi dans la révision et le catalogue de tout le monde.",
+    "notMineHint": "Appartient à quelqu'un d'autre — non modifiable."
   }
 }
