@@ -9,6 +9,50 @@ export interface AgentsSyncResult {
 }
 
 /**
+ * Ce que le boot a réellement fait — `applied: false` signalant la seule issue où l'on renonce
+ * volontairement à synchroniser une lecture pourtant réussie. Voir `syncAgentsFromFile`.
+ */
+export type AgentsSyncOutcome =
+  { applied: true; result: AgentsSyncResult } | { applied: false; existing: number }
+
+/**
+ * Applique la politique du démarrage à une lecture réussie du fichier (CC-141).
+ *
+ * ⚠️ **Un fichier ABSENT ne supprime jamais rien.** C'est la seule différence avec
+ * `syncAgentsFromDeclarations`, et elle existe parce qu'« absent » et « `{"agents": []}` »
+ * produisent la même liste vide sans vouloir dire la même chose :
+ *
+ * - le second est un **geste explicite** — quelqu'un a écrit un fichier pour dire « zéro agent »,
+ *   la suppression est ce qu'il demande ;
+ * - le premier est, en production, le cas **par défaut** : la ligne de volume de
+ *   `docker-compose.prod.yml` est commentée, et `AGENTS_CONFIG_PATH` pointe un chemin qui
+ *   n'existe alors pas dans le conteneur. Traiter cette absence comme « supprime tout » ferait
+ *   d'un volume non monté — l'erreur d'opérateur la plus banale — la plus destructive.
+ *
+ * C'est la doctrine déjà écrite ailleurs dans ce dépôt pour exactement ce dilemme :
+ * `BACKUP_MIRROR_DIR` doit exister et n'est **jamais** créé, et la purge de `db:backup` vient en
+ * dernier pour qu'un NAS débranché ne fasse disparaître aucun dump. Un support non monté ne
+ * détruit pas.
+ *
+ * Sur une base **vide**, l'absence reste parfaitement silencieuse : c'est l'installation neuve
+ * que le ticket décrivait, il n'y a rien à préserver et rien à signaler.
+ */
+export async function syncAgentsFromFile(fichier: {
+  present: boolean
+  declarations: AgentDeclaration[]
+}): Promise<AgentsSyncOutcome> {
+  if (!fichier.present) {
+    const existants = await Agent.query().select('id')
+
+    if (existants.length > 0) {
+      return { applied: false, existing: existants.length }
+    }
+  }
+
+  return { applied: true, result: await syncAgentsFromDeclarations(fichier.declarations) }
+}
+
+/**
  * Synchronise la table `agents` sur l'ensemble déclaré par le fichier (CC-141).
  *
  * ⚠️ **Synchronisation DÉCLARATIVE complète, pas un delta.** Un agent dont le nom n'est plus

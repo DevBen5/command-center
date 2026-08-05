@@ -9,6 +9,12 @@ import { createAdmin } from '#tests/helpers/users'
  * `app/modules/agents/CLAUDE.md`, « Frontière de confiance »). Les trois routes existantes
  * (`index`, `run`, `stop`) ne lisent aucun champ `config` du corps de requête ; ce test le prouve
  * plutôt que de le supposer, y compris face à une tentative explicite de l'écraser.
+ *
+ * ⚠️ **Le statut de la réponse est asserté, et ce n'est pas décoratif.** Sans lui, une route
+ * renommée, retirée ou fermée par un middleware ferait passer ces tests **exactement de la même
+ * façon** : la base est évidemment inchangée quand la requête n'atteint jamais le contrôleur. On
+ * prouverait « rien ne s'est écrit » sans avoir prouvé « la route a tourné », ce qui est le
+ * faux-négatif silencieux décrit dans le `CLAUDE.md` racine — un test au vert qui n'a rien comparé.
  */
 test.group('Agents / config — frontière de confiance', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
@@ -24,11 +30,14 @@ test.group('Agents / config — frontière de confiance', (group) => {
       config: { command: 'echo legitime' },
     })
 
-    await client
+    const response = await client
       .post(`/agents/${agent.id}/run`)
       .loginAs(admin)
       .withCsrfToken()
+      .redirects(0)
       .json({ config: { command: 'echo pirate' } })
+
+    response.assertStatus(302)
 
     await agent.refresh()
     assert.deepEqual(agent.config, { command: 'echo legitime' })
@@ -46,11 +55,14 @@ test.group('Agents / config — frontière de confiance', (group) => {
       status: 'running',
     })
 
-    await client
+    const response = await client
       .post(`/agents/${agent.id}/stop`)
       .loginAs(admin)
       .withCsrfToken()
+      .redirects(0)
       .json({ config: { command: 'echo pirate' } })
+
+    response.assertStatus(302)
 
     await agent.refresh()
     assert.deepEqual(agent.config, { command: 'echo legitime' })
@@ -67,10 +79,12 @@ test.group('Agents / config — frontière de confiance', (group) => {
       config: { command: 'echo legitime' },
     })
 
-    await client
+    const response = await client
       .get('/agents')
       .loginAs(admin)
       .qs({ id: agent.id, config: { command: 'pirate' } })
+
+    response.assertStatus(200)
 
     await agent.refresh()
     assert.deepEqual(agent.config, { command: 'echo legitime' })

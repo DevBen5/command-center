@@ -17,10 +17,23 @@ test.group('Agents / fichier de déclaration', (group) => {
     return () => rm(dossier, { recursive: true, force: true })
   })
 
-  test('fichier absent → module vide, pas une erreur', async ({ assert }) => {
+  test('fichier absent → module vide, pas une erreur, et signalé absent', async ({ assert }) => {
     const resultat = await loadAgentsFile(join(dossier, 'inexistant.json'))
 
-    assert.deepEqual(resultat, { ok: true, declarations: [] })
+    assert.deepEqual(
+      resultat,
+      { ok: true, present: false, declarations: [] },
+      'present:false est ce qui distingue « pas de fichier » de « fichier qui déclare zéro agent »'
+    )
+  })
+
+  test('fichier vide déclaré → présent, zéro déclaration', async ({ assert }) => {
+    const chemin = join(dossier, 'agents.json')
+    await writeFile(chemin, JSON.stringify({ agents: [] }))
+
+    const resultat = await loadAgentsFile(chemin)
+
+    assert.deepEqual(resultat, { ok: true, present: true, declarations: [] })
   })
 
   test('fichier valide → déclarations analysées', async ({ assert }) => {
@@ -34,6 +47,7 @@ test.group('Agents / fichier de déclaration', (group) => {
 
     assert.isTrue(resultat.ok)
     if (resultat.ok) {
+      assert.isTrue(resultat.present)
       assert.deepEqual(resultat.declarations, [{ name: 'Veille', framework: 'Hermes', config: {} }])
     }
   })
