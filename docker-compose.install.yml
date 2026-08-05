@@ -1,0 +1,171 @@
+# =============================================================================
+# Command Center — INSTALL compose. Download this file, write a .env next to it,
+# run it. Nothing else is needed: no clone, no build, no Node.js on the host.
+#
+# Comments in this file are in English on purpose: it is the one file a stranger
+# downloads and edits WITHOUT ever cloning the repository. Everything else in the
+# repo — including docker-compose.prod.yml, its sibling — is in French.
+#
+#   curl -fLO https://raw.githubusercontent.com/DevBen5/command-center/master/docker-compose.install.yml
+#   # write .env (see README.md, "Install"), then:
+#   docker compose -f docker-compose.install.yml up -d
+#
+# ⚠️ **The file MUST be named `.env` and sit next to this one.** Compose loads a file
+# by that exact name, from the project directory, to resolve the ${...} interpolation
+# below (the postgres credentials) — which is a different mechanism from `env_file:`,
+# whose job is to inject variables INTO the app container. Name it anything else
+# (`.env.production`, `env`, a path elsewhere) and you must pass `--env-file <path>`
+# on EVERY compose command, not just `up`. Forget one and the ${DB_*:?} guards below
+# abort by naming the variable they could not resolve — loudly, before anything
+# starts, which is the whole point of writing them that way.
+#
+# Verified 2026-08-05 both ways: named `.env`, no flag needed; renamed, the guard
+# fires. Not assumed from the docs.
+#
+# ⚠️ NO `build:` block anywhere in this file, deliberately. docker-compose.prod.yml
+# has one for the dev box, and `docker compose up` only skips it while the image
+# tag already exists locally (docs/deploiement-nas.md §3). On a stranger's machine
+# it never does — so a `build:` here would silently BUILD the application instead
+# of pulling it, on their hardware, without a word.
+#
+# Differences from docker-compose.yml (development), and why:
+#   - no Adminer: full read AND WRITE access to the database that holds the only
+#     copy of your content. Absent, not merely behind a profile.
+#   - postgres publishes NO port: only the compose network reaches it. Publishing
+#     5432 would offer a database login form to your whole LAN.
+#   - ONE application container, never replicas: the Leitner background loops and
+#     the orphan-ingestion sweep at boot run INSIDE the process. Two replicas
+#     would steal each other's work and mark it failed.
+# =============================================================================
+
+services:
+  app:
+    # Multi-arch manifest: linux/amd64 + linux/arm64. Docker picks the right one.
+    #
+    # `latest` follows the newest release. Pin a version (e.g. :2.0.0) if you would
+    # rather decide when to move — migrations run at container start, so an update
+    # is a schema change on YOUR database. Back it up first (see README.md).
+    image: ghcr.io/devben5/command-center:latest
+
+    # Injects APP_KEY, DB_*, MODULES, and every optional integration INTO the
+    # container. NODE_ENV, PORT, HOST, LOG_LEVEL and SESSION_DRIVER already have
+    # production defaults baked into the image — you do not need to set them.
+    env_file:
+      - .env
+
+    # The only published surface. 127.0.0.1 means "this machine only": put a
+    # reverse proxy in front of it for anything else. Without that prefix Docker
+    # publishes on 0.0.0.0 and the application is reachable over plain HTTP from
+    # your whole LAN — passwords and session cookies in the clear.
+    #
+    # Serving it over HTTP on purpose (a home LAN, a laptop)? Set
+    # APP_URL=http://<host>:8080 — the session cookie's `secure` flag derives from
+    # that URL, and a `secure` cookie is never sent over plain HTTP, which makes
+    # the login page reload with no error at all.
+    ports:
+      - '127.0.0.1:8080:8080'
+
+    volumes:
+      # Where `node ace db:backup` writes its dumps. The path INSIDE the container
+      # is fixed; only the host side is yours to choose.
+      - '${BACKUP_DIR_PATH:-./backups}:/data/backups'
+
+      # An off-disk copy of every verified dump (a NAS, a second drive). Backups
+      # and the live database sit on the same volume by default: one disk failure,
+      # theft, or ransomware takes both.
+      #
+      # ⚠️ No default value on purpose. A ${VAR:-...} fallback would MOUNT — and so
+      # CREATE — a real directory on the local disk the moment the variable is
+      # missing: you would believe you had an off-disk copy while having none,
+      # which is worse than having no copy at all. Set BACKUP_MIRROR_DIR_PATH and
+      # uncomment. Left commented = no mirror.
+      # - '${BACKUP_MIRROR_DIR_PATH}:/data/backup-mirror'
+
+      # Agent declarations, read at startup and never through a route — that is
+      # what keeps `command` (a shell command executed as-is) out of reach of any
+      # HTTP request. Absent: the Agents module is simply empty.
+      #
+      # ⚠️ No default value on purpose either, for a different reason: a Docker
+      # bind mount whose SOURCE FILE does not exist creates an empty DIRECTORY
+      # there instead of mounting nothing. The app would then read a directory
+      # where it expects a file, and "empty module" would quietly become a format
+      # error. Create the host file first (agents.json.example in the repo), then
+      # uncomment.
+      # - '${AGENTS_CONFIG_PATH_HOST}:/data/agents.json'
+
+      # Docker socket — required by the Services module, and ⚠️ EQUIVALENT TO ROOT
+      # ON THIS MACHINE, compounded by the fact that agents execute shell commands
+      # in this same container. Read docs/deploiement-nas.md §11 in full before
+      # uncommenting this line; the tradeoff is not "Services stops working", it
+      # is "a container breakout owns the host".
+      # - '/var/run/docker.sock:/var/run/docker.sock'
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    # PID 1 reaper (harvests zombies); the server still receives SIGTERM and shuts
+    # its background loops down cleanly.
+    init: true
+    restart: unless-stopped
+
+    healthcheck:
+      # /login answers 200 to an unauthenticated client. `node -e` + fetch: no curl
+      # or wget in the image.
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:8080/login').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # Leaves room for the migrations, then the first boot.
+      start_period: 40s
+
+    networks:
+      - command-center-network
+
+  postgres:
+    # Major version 16 is not incidental: PGDATA below is a binary directory tied
+    # to it. Do not bump this line without dumping and restoring.
+    image: postgres:16-alpine
+
+    # ⚠️ No `container_name:` here, unlike docker-compose.prod.yml. That file pins one because a
+    # backup cron on the host runs `docker exec command-center-postgres pg_dump`. Nothing here
+    # does: `node ace db:backup` runs INSIDE the app container and reaches Postgres over TCP.
+    # A fixed name would only buy you a collision the day you run a second stack on this machine.
+
+    # ⚠️ Resolved by interpolation from --env-file, NOT from env_file above. The
+    # `:?` form aborts `docker compose up` and names the missing variable instead
+    # of starting a database with empty credentials.
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:?set DB_DATABASE in .env (e.g. app)}
+      POSTGRES_USER: ${DB_USER:?set DB_USER in .env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+
+    # ⚠️ No `ports:` — see the header.
+    volumes:
+      # A bind mount, not a named volume, for one reason: `docker compose down -v`
+      # does NOT touch it (-v only removes Docker-managed volumes), and this
+      # directory holds the only copy of your content.
+      #
+      # ⚠️ It is not a backup. It is Postgres's live, binary, version-bound data
+      # directory: corruption or an `rm -rf` takes it. Use `db:backup` (README.md).
+      - '${PGDATA_PATH:-./pgdata}:/var/lib/postgresql/data'
+
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER} -d ${DB_DATABASE}']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+    restart: unless-stopped
+    networks:
+      - command-center-network
+
+networks:
+  command-center-network:
+    driver: bridge
