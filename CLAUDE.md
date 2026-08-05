@@ -4,6 +4,59 @@ Tableau de bord auto-hébergé. AdonisJS 6 (ESM, TS strict) + Inertia 2 + Vue 3 
 
 Commandes : `npm run dev` · `npm test` · `npm run typecheck` · `npm run lint`
 
+## Distribution — dépôt public, licence MIT, image publiée (CC-142)
+
+Le dépôt est **public** et sous **MIT** (`LICENSE`, `Copyright (c) 2026 DevBen5`). Un tiers installe
+depuis `README.md` + `docker-compose.install.yml`, sans cloner : le compose **tire**
+`ghcr.io/devben5/command-center`, publié en `linux/amd64` **et** `linux/arm64` par
+`.github/workflows/release.yml` à chaque tag `vX.Y.Z`.
+
+⚠️ **`"private": true` reste dans `package.json`, et ce n'est pas une contradiction avec MIT.** Ce
+champ ne parle que du registre **npm** : il dit « ce paquet ne se publie pas », ce qui est vrai — une
+application, pas une bibliothèque, et aucun champ `files`. Le droit d'usage est porté par `LICENSE`
+et par `"license": "MIT"`, et c'est `LICENSE` que GitHub lit, jamais `package.json`. Le retirer
+n'ajouterait aucun droit et ouvrirait un `npm publish` accidentel qui pousserait tout le dépôt.
+
+⚠️ **Le piège de la publication, et aucun fichier du dépôt ne peut le fermer : un paquet poussé sur
+GHCR par Actions est PRIVÉ par défaut, même depuis un dépôt public.** Le workflow est vert, l'image
+est là, `docker manifest inspect` répond depuis une machine authentifiée — et le `docker pull` d'un
+inconnu répond `unauthorized`. Le README promet alors des commandes qui échouent, sans que rien ne le
+signale. C'est un **geste manuel, une fois** (réglages du paquet → visibilité → Public), à refaire si
+le paquet est supprimé puis republié. `packages: write` sait pousser, pas rendre public.
+
+⚠️ **Un tag ne se pose que sur la pointe de `master`, et `release.yml` le vérifie.** Sur un vieux
+commit, `latest` **reculerait** : les installations qui le suivent recevraient une application plus
+vieille que leur schéma, dont les migrations sont déjà jouées — symptôme diffus, cause introuvable.
+Le même job refuse aussi un tag dont la version contredit `package.json`, faute de quoi l'image
+porterait un nom que son propre `/reglages` démentirait (la version y vient de `package.json`,
+CC-151, pas du nom du tag).
+
+Les gates vivent dans `.github/workflows/gates.yml` (`on: workflow_call`) et sont appelées par
+**deux** workflows : `ci.yml` (push master + PR) et `release.yml` (avant de publier). Une recopie
+aurait divergé en silence ; ne remets pas les étapes dans un appelant.
+
+⚠️ **Le secret publié, acté mort (2026-08-05).** Le commit `4bc2efc` (CC-75) retire du seeder un mot
+de passe de développement écrit en clair — et le **message** du commit le nomme aussi. Il est
+atteignable depuis `origin/master`, donc lisible publiquement. **Décision : acté mort, rotationné,
+historique NON réécrit.** Le remède d'un secret publié est la rotation, jamais la réécriture — qui ne
+rappelle ni les clones, ni les forks, ni les caches, ni les archives GitHub, pour un coût mesuré ici
+à **~74 branches distantes à force-pusher, 3 tags à refaire**, et tous les SHA cités dans `docs/`,
+dans ce fichier et dans les tickets rendus faux. Le compte de production porte un secret distinct et
+un second facteur (CC-114) ; le seeder qui posait cette valeur n'existe plus (CC-138).
+
+- ⚠️ **Ne rouvre pas ce dossier « par prudence ».** La question a été tranchée avec ses coûts sous
+  les yeux ; la reposer sans fait neuf est du sur-process, et un force-push de 74 branches est
+  précisément le genre d'action irréversible qu'on ne prend pas deux fois pour la même raison.
+- Le reste de l'historique **a été balayé** le 2026-08-05 (pickaxe sur `APP_KEY=`, `AIza`, `ghp_`,
+  `github_pat_`, `perm:`, `BEGIN RSA`, `BEGIN OPENSSH`, `IMMICH_API_KEY=`, `YOUTUBE_API_KEY=`) :
+  **aucun autre secret réel**, uniquement des placeholders vides et des fixtures de test. C'est ce
+  balayage-là, et pas la phrase de CC-142 qu'il a fallu corriger, qui fonde « publier ne fuite rien
+  d'autre ».
+- ⚠️ **Le corollaire vaut pour la suite : ce dépôt est public, donc tout ce qui y entre l'est.** Le
+  domaine réel de l'installation en ligne, un chemin de volume du NAS, une valeur de `.env` — rien
+  de tout ça ne s'écrit ici. L'arborescence actuelle est propre (tout est en `exemple.fr`) et c'est
+  un état à tenir, pas un acquis.
+
 ## Les données : où elles vivent, comment on les sauve
 
 Le contenu réel est saisi à la main, sans seeder : **la base est la seule copie**. D'où trois

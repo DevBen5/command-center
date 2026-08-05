@@ -17,8 +17,15 @@
 # ${...} du bloc postgres ci-dessous ; sans lui, postgres refuse de démarrer) :
 #   docker compose --env-file .env.production -f docker-compose.prod.yml up -d
 #
-# Construire l'image pour le NAS (amd64) au préalable :
-#   docker build --platform linux/amd64 -t command-center:prod .
+# Construire l'image au préalable — voir l'en-tête du Dockerfile :
+#   docker build -t command-center:prod .
+#
+# ⚠️ **2026-08-05 (CC-142) — ce compose n'est plus le seul chemin, et plus le plus
+# simple.** Une image multi-arch est désormais publiée sur GHCR : une installation
+# neuve part de `docker-compose.install.yml`, qui la TIRE au lieu de la construire.
+# Ce fichier-ci reste celui du NAS du propriétaire, dont la procédure (build sur le
+# PC, `docker save`, `docker load`) est décrite dans docs/deploiement-nas.md — elle
+# marche telle quelle, elle n'est simplement plus la seule.
 # =============================================================================
 
 services:
@@ -27,7 +34,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    platform: linux/amd64
+    # ⚠️ AUCUN `platform:` depuis CC-142, et son retrait n'est pas cosmétique. Épinglé
+    # à `linux/amd64`, il rendait ce compose inutilisable sur un hôte ARM (Raspberry
+    # Pi, Mac Apple Silicon, NAS ARM) : Docker aurait cherché une image amd64 et
+    # l'aurait fait tourner sous émulation, ou pas du tout. Sans la ligne, le démon
+    # choisit l'architecture de la machine dans le manifeste multi-arch. Sur le NAS
+    # (Celeron J3455 = amd64) le résultat est identique — c'est justement pourquoi
+    # l'épinglage pouvait rester si longtemps sans que rien ne le signale.
     # Injecte APP_KEY, DB_*, LLM_*, IMMICH_*, etc. DANS le conteneur.
     # (Distinct de --env-file, qui n'alimente que l'interpolation ${...} du compose.)
     env_file:

@@ -8,11 +8,43 @@
 # `build/` et les dépendances de production. L'image finale ne contient ni les
 # sources, ni les devDependencies, ni le moindre secret (voir .dockerignore).
 #
-# Construire pour le NAS (DS918+, Celeron J3455 = amd64) :
-#   docker build --platform linux/amd64 \
+# Construire pour la machine courante (poste de dev, NAS DS918+ = amd64) :
+#   docker build \
 #     --build-arg APP_VERSION=$(node -p "require('./package.json').version") \
 #     --build-arg APP_COMMIT=$(git rev-parse --short HEAD) \
 #     -t command-center:prod .
+#
+# Construire les DEUX architectures publiées (CC-142) — c'est ce que fait
+# .github/workflows/release.yml sur un tag, et la seule façon de le reproduire à la
+# main. `buildx` refuse `--load` sur plusieurs plateformes à la fois : soit on pousse
+# (`--push`), soit on ne construit qu'une plateforme.
+#   docker buildx build --platform linux/amd64,linux/arm64 \
+#     --build-arg APP_VERSION=$(node -p "require('./package.json').version") \
+#     --build-arg APP_COMMIT=$(git rev-parse --short HEAD) \
+#     -t ghcr.io/devben5/command-center:X.Y.Z --push .
+#
+# ⚠️ Rien dans ce fichier n'est spécifique à une architecture : `node:22-alpine` est
+# un manifeste multi-arch, et `apk add postgresql16-client` résout par architecture.
+# C'est ce qui rend le multi-arch possible sans variante de Dockerfile — mais la
+# construction arm64 sur une machine amd64 passe par QEMU, donc `npm ci` et
+# `node ace build` y sont NETTEMENT plus lents (émulation, pas compilation croisée).
+#
+# ⚠️ **Construire arm64 EN LOCAL exige que QEMU soit enregistré dans le noyau**, ce que
+# la CI fait à chaque job (`docker/setup-qemu-action`) et qu'un poste ne fait pas :
+#   docker run --privileged --rm tonistiigi/binfmt --install arm64
+# Sans ça, le build échoue sur `exec /bin/sh: exec format error` au premier binaire
+# arm64 — message qui n'accuse ni ce fichier ni le dépôt.
+#
+# ⚠️ Et sur Docker Desktop, **cet enregistrement ne tient pas** : constaté deux fois le
+# 2026-08-05 (CC-142), il a disparu EN COURS de build — une fois en produisant un
+# `npm error code ENOEXEC / spawn` dans l'étage `production`, c'est-à-dire un message qui
+# ressemble à une incompatibilité arm64 alors que ce n'en est pas une, et une fois en
+# `exec format error` après 100 s de `node ace build` arm64 réussies. **Le build arm64
+# complet passe (EXIT=0)** en réinstallant le binfmt juste avant, cache chaud, donc
+# fenêtre d'émulation courte. Si un build multi-arch local échoue bizarrement à
+# mi-parcours : réinstaller et relancer AVANT de chercher la cause dans ce fichier ou
+# dans une dépendance. La CI n'a pas ce problème — chaque job repart d'une VM neuve où
+# `setup-qemu-action` enregistre l'émulation au début.
 # =============================================================================
 
 # -----------------------------------------------------------------------------

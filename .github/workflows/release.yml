@@ -1,0 +1,220 @@
+# =============================================================================
+# Publication de l'image (CC-142) — sur tag `vX.Y.Z`, construit `linux/amd64` +
+# `linux/arm64` et pousse sur GHCR. C'est la moitié « publication » que le
+# commentaire du 2026-08-03 avait séparée de la moitié « garde » (CC-149, `ci.yml`).
+#
+# Ce workflow ne se déclenche PAS sur un push de branche : publier est un geste
+# explicite, et le geste est le tag. Le tag lui-même reste celui du propriétaire —
+# comme le merge, il ne se prend pas tout seul.
+#
+#   git tag v2.0.0 && git push origin v2.0.0
+#
+# -----------------------------------------------------------------------------
+# ⚠️⚠️ LE PIÈGE QUI ANNULE TOUT LE RESTE, ET AUCUN FICHIER NE PEUT LE FERMER
+# -----------------------------------------------------------------------------
+# **Un paquet poussé sur GHCR par Actions est PRIVÉ par défaut, même depuis un dépôt
+# public.** Ce workflow sera vert, l'image sera bien là, `docker manifest inspect`
+# répondra depuis cette machine — et le `docker pull` d'un inconnu répondra
+# `unauthorized`. Le README promettrait alors des commandes qui échouent, et rien,
+# nulle part, ne le dirait.
+#
+# C'est un **geste manuel, une seule fois**, après la première publication réussie :
+#   github.com/users/DevBen5/packages/container/command-center/settings
+#   → Danger Zone → Change visibility → Public
+# À refaire si le paquet est supprimé puis republié. Pas de contournement par
+# l'API : `packages: write` sait pousser, pas rendre public.
+# -----------------------------------------------------------------------------
+#
+# Ce que ce workflow NE prouve pas, et il ne faut pas le lire comme tel :
+#   - que l'application TOURNE sur du vrai matériel arm64. Le smoke ci-dessous
+#     s'exécute sous QEMU sur un runner amd64 : il prouve que la couche arm64 est
+#     une image valide dont le Node démarre, rien de plus ;
+#   - qu'un inconnu peut tirer l'image — le job est authentifié, voir le piège
+#     ci-dessus ;
+#   - que l'image se déploie. La mise à jour d'une installation qui tourne est
+#     CC-150, et elle commence par une sauvegarde.
+# =============================================================================
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+# Deux tags poussés coup sur coup ne doivent pas se marcher dessus sur `latest` :
+# le groupe est global au workflow, et rien n'est annulé — un run de publication
+# à moitié fait est bien pire qu'un run qui attend son tour.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Le portail. Trois secondes, et il ferme deux modes d'échec silencieux que
+  #    rien d'autre n'attrape. Il passe AVANT les gates : inutile de brûler vingt
+  #    minutes de tests pour un tag mal posé.
+  # ---------------------------------------------------------------------------
+  guard:
+    name: garde du tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      commit: ${{ steps.check.outputs.commit }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: check
+        name: le tag est-il publiable
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+
+          # ⚠️ Mode d'échec n° 1 — `latest` qui RECULE. Un tag posé sur un vieux
+          # commit republierait `latest` sur une version antérieure : les
+          # installations qui tirent `latest` recevraient une application PLUS
+          # VIEILLE que leur schéma, dont les migrations sont déjà jouées. Le
+          # symptôme est diffus, la cause introuvable. Le tag doit donc être la
+          # pointe de master — ce qui est déjà la pratique réelle du dépôt, et
+          # ce qui rend cette garde gratuite tant qu'on ne s'en écarte pas.
+          git fetch --no-tags --depth=1 origin master
+          tip="$(git rev-parse FETCH_HEAD)"
+          if [ "$tip" != "$GITHUB_SHA" ]; then
+            echo "::error::Le tag $GITHUB_REF_NAME pointe sur $GITHUB_SHA, or la pointe de master est $tip. Publier depuis autre chose que la pointe de master ferait reculer :latest — voir l'en-tête de ce fichier."
+            exit 1
+          fi
+
+          # ⚠️ Mode d'échec n° 2 — une image MAL ÉTIQUETÉE. La version affichée par
+          # /reglages et le LABEL OCI viennent de `package.json` (CC-151), pas du
+          # nom du tag. Un tag v2.0.0 sur un commit resté en 1.9.0 publierait donc
+          # une image dont le nom et le contenu se contredisent, sans erreur.
+          declared="$(jq -r .version package.json)"
+          if [ "$declared" != "$version" ]; then
+            echo "::error::Le tag dit $version, package.json dit $declared. L'image serait publiée sous un nom que son propre écran /reglages contredirait."
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Tag $GITHUB_REF_NAME publiable : version $version, commit $(git rev-parse --short HEAD)."
+
+  # ---------------------------------------------------------------------------
+  # 2. Les gates, sur le commit taggé exactement. Même définition que la CI de
+  #    garde — un seul fichier, deux appelants (voir gates.yml).
+  # ---------------------------------------------------------------------------
+  gates:
+    needs: guard
+    uses: ./.github/workflows/gates.yml
+    permissions:
+      contents: read
+
+  # ---------------------------------------------------------------------------
+  # 3. La publication. `needs: gates` est ce qui garantit qu'aucune image ne part
+  #    sans que les cinq gates aient tourné sur ce commit-là.
+  # ---------------------------------------------------------------------------
+  publish:
+    name: build amd64 + arm64 → GHCR
+    needs: [guard, gates]
+    runs-on: ubuntu-latest
+    # ⚠️ La construction arm64 passe par QEMU sur un runner amd64 : `npm ci` et
+    # `node ace build` y sont nettement plus lents qu'en natif (émulation, pas
+    # compilation croisée). Large, mais borné — le défaut de GitHub est de 360 min.
+    timeout-minutes: 90
+
+    permissions:
+      contents: read
+      # Le seul droit d'écriture de tout le dépôt en CI, et il ne va que vers GHCR.
+      packages: write
+
+    # ⚠️ **Le propriétaire est écrit EN MINUSCULES, en dur, et ce n'est pas une négligence.**
+    # `${{ github.repository_owner }}` rend `DevBen5` — avec ses majuscules — et Docker refuse
+    # la référence : « repository name (DevBen5/command-center) must be lowercase ». Vérifié le
+    # 2026-08-05 (CC-142) contre le démon, pas déduit de la documentation. Le job aurait donc
+    # échoué au `push`, au premier tag, après avoir construit les deux architectures.
+    # C'est aussi la forme que le README, `docker-compose.install.yml` et le `CLAUDE.md` écrivent
+    # déjà : une expression qui rend une autre casse qu'eux serait la vraie incohérence.
+    env:
+      IMAGE: ghcr.io/devben5/command-center
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Nécessaire pour construire arm64 ici : le runner est amd64, et sans
+      # l'émulation le stage arm64 échouerait au premier binaire exécuté.
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      # ⚠️ GITHUB_TOKEN suffit — aucun secret à créer, aucun PAT à faire tourner.
+      # C'est `permissions: packages: write` ci-dessus qui lui en donne le droit.
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: build et push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          # Deux tags, et seulement deux. Pas de `X.Y` : il inviterait à épingler un
+          # mineur, qui bougerait ensuite en silence à chaque correctif. On épingle
+          # une version exacte, ou on suit `latest` — les deux se comprennent.
+          tags: |
+            ${{ env.IMAGE }}:${{ needs.guard.outputs.version }}
+            ${{ env.IMAGE }}:latest
+          # ⚠️ Les deux ARG ne sont pas optionnels (CC-151) : ils alimentent le LABEL
+          # OCI que lit `docker inspect` et, pour le commit, l'écran /reglages de
+          # l'application. Les oublier ne fait PAS échouer le build — /reglages
+          # affiche alors le repli « développement » sur une image de production,
+          # sans qu'aucune erreur ne le signale.
+          build-args: |
+            APP_VERSION=${{ needs.guard.outputs.version }}
+            APP_COMMIT=${{ needs.guard.outputs.commit }}
+          # Le cache du build vit dans le cache Actions : le second tag de la journée
+          # ne recompile pas ce qui n'a pas bougé. `mode=max` garde aussi les couches
+          # de l'étage `build`, qui est justement le coûteux.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Le manifeste ne porte alors QUE les deux plateformes annoncées. Avec
+          # l'attestation par défaut, GHCR affiche en plus des entrées
+          # `unknown/unknown` que des outils anciens lisent comme une plateforme
+          # réelle — et la promesse du README (« deux architectures ») cesse d'être
+          # littéralement vérifiable par `docker manifest inspect`.
+          provenance: false
+
+      # ⚠️ Le smoke tourne APRÈS le push, et c'est un compromis assumé : construire
+      # puis charger localement est impossible en multi-plateforme (`buildx` refuse
+      # `--load` sur deux plateformes). Un échec ici laisse donc une image cassée
+      # publiée — réparable seulement par un nouveau tag. En échange, ce qui est
+      # testé est l'artefact RÉEL, celui que les gens tireront, pas un intermédiaire.
+      - name: smoke des deux architectures
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            vu="$(docker run --rm --platform "linux/$arch" \
+              "${IMAGE}:${{ needs.guard.outputs.version }}" \
+              node -e 'process.stdout.write(process.arch)')"
+            if [ "$vu" != "$arch" ]; then
+              echo "::error::La couche linux/$arch rend process.arch=$vu. Le manifeste ne porte pas ce qu'il annonce."
+              exit 1
+            fi
+            echo "linux/$arch : Node démarre, process.arch=$vu."
+          done
+          echo
+          echo "⚠️ Ce smoke ne prouve NI l'exécution sur du vrai matériel arm64 (QEMU),"
+          echo "   NI qu'un inconnu peut tirer l'image (ce job est authentifié — voir"
+          echo "   le piège de visibilité en tête de ce fichier)."
+
+      # `buildx imatools` plutôt que `docker manifest inspect` : la seconde a longtemps vécu
+      # derrière le drapeau expérimental du CLI, et un job qui rougirait là-dessus le ferait
+      # APRÈS la publication, pour une commande purement informative. buildx est déjà installé
+      # deux étapes plus haut.
+      - name: le manifeste, tel qu'il est publié
+        run: docker buildx imagetools inspect "${IMAGE}:${{ needs.guard.outputs.version }}"
