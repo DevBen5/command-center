@@ -80,6 +80,18 @@ export default await Env.create(new URL('../', import.meta.url), {
 
   /*
   |----------------------------------------------------------
+  | Fichier de déclaration des agents (CC-141)
+  |----------------------------------------------------------
+  |
+  | ⚠️ Optionnelle, défaut `agents.json` (racine du dépôt, `config/agents.ts`). Lu au démarrage,
+  | jamais par une route : c'est ce qui garantit que `config.command` (une commande shell
+  | exécutée telle quelle, voir `app/modules/agents/CLAUDE.md`) reste hors d'atteinte de toute
+  | requête HTTP. Absent : module vide, pas une erreur.
+  */
+  AGENTS_CONFIG_PATH: Env.schema.string.optional(),
+
+  /*
+  |----------------------------------------------------------
   | Fuseau des collectes de veille à heure fixe
   |----------------------------------------------------------
   |

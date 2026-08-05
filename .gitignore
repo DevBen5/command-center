@@ -7,6 +7,10 @@ tmp
 pgdata
 backups
 
+# Déclaration des agents (CC-141) — propre à chaque installation, peut porter des commandes
+# locales. Seul agents.json.example (sans valeur réelle) est versionné.
+agents.json
+
 # Secrets
 .env
 .env.local

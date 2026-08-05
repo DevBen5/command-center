@@ -56,6 +56,23 @@ services:
     volumes:
       - '${BACKUP_DIR_PATH:-./backups}:/data/backups'
       # - '${BACKUP_MIRROR_DIR_PATH}:/data/backup-mirror'
+      #
+      # Déclaration des agents (CC-141) — lue au démarrage, jamais par une route. Absente :
+      # module Agents vide, pas une erreur.
+      #
+      # ⚠️ SANS valeur par défaut inline, volontairement : un bind-mount Docker sur un fichier
+      # source ABSENT crée un DOSSIER vide à cet emplacement au lieu de ne rien monter — l'app
+      # lirait alors un dossier là où elle attend un fichier, et « module vide » deviendrait
+      # silencieusement une erreur de format. Créer le fichier hôte (voir agents.json.example)
+      # ET décommenter la ligne ; laissée commentée = pas d'agents, comme sans montage.
+      # - '${AGENTS_CONFIG_PATH_HOST}:/data/agents.json'
+      #
+      # Socket Docker (module Services, CC-116/CC-141) — ⚠️ ÉQUIVALENT À ROOT SUR CETTE MACHINE,
+      # cumulé à l'exec() shell d'AgentRunnerService ci-dessus (les deux tournent dans le même
+      # conteneur). La décision CC-73 a refusé ce montage pour le NAS du propriétaire ; il reste
+      # possible pour qui l'assume — lire la contrepartie EN TOUTES LETTRES dans
+      # docs/deploiement-nas.md §11 avant de décommenter, pas seulement cette ligne.
+      # - '/var/run/docker.sock:/var/run/docker.sock'
     depends_on:
       postgres:
         condition: service_healthy
