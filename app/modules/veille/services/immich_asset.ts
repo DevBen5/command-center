@@ -1,4 +1,7 @@
 import { DateTime } from 'luxon'
+import { isImmichAssetId } from '#core/shared/services/immich_client'
+
+export { isImmichAssetId } from '#core/shared/services/immich_client'
 
 /**
  * La lecture d'un asset Immich — **du code pur**, sans réseau ni base.
@@ -93,21 +96,6 @@ export function parseDurationSeconds(raw: unknown): number | null {
   const total = hours * 3600 + minutes * 60 + seconds
 
   return total > 0 ? total : null
-}
-
-/**
- * L'UUID d'Immich, vérifié pour sa **forme**.
- *
- * ⚠️ Ce contrôle est une défense en profondeur, pas la garantie principale : l'identifiant finit
- * dans un chemin d'URL (`/api/assets/<id>/thumbnail`), et un identifiant fantaisiste y ferait de
- * la traversée de chemin. La garantie réelle est ailleurs — le proxy de vignette relit l'UUID
- * **depuis notre base**, jamais depuis la requête. Celui-ci garantit qu'un identifiant malformé
- * n'entre pas en base au départ, et donc que les deux bouts tiennent.
- */
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-export function isImmichAssetId(value: unknown): value is string {
-  return typeof value === 'string' && UUID.test(value)
 }
 
 /** Le préfixe de la clé de dédup, comme `url:` / `guid:` / `title:` côté flux. */
