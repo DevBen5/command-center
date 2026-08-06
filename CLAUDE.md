@@ -621,6 +621,21 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
    `IMMICH_BASE_URL`, documenté en détail dans `.env.test`. `tests/unit/modules_config.spec.ts`
    rougit si `MODULES` cesse d'activer tous les modules connus en environnement de test.
 
+   ⚠️ **Un module qui a besoin d'un service logé chez un voisin détachable ne l'importe PAS**
+   (CC-180). Le coffre avait besoin du client Immich, qui vivait dans
+   `app/modules/veille/services/` : l'importer tel quel aurait fait qu'éteindre `veille` dans
+   `MODULES` **casse le coffre** — sur un module que le dépôt garde justement hors de `MODULES`
+   par défaut, donc dont l'installation n'a aucune raison d'avoir la veille. Le patron retenu est
+   **le transport commun dans `app/core/shared/services/`, et une sous-classe dans le module
+   d'origine** pour ce qui a une opinion sur son domaine (`albumAssets`, `trashDays`,
+   `trashAssets` côté veille) ; le consommateur neuf injecte la classe du core, et **aucun chemin
+   d'import n'a bougé** chez l'ancien propriétaire.
+
+   Les deux réflexes que ce patron remplace échouent tous les deux **en silence** : l'import
+   direct ne rougit nulle part tant que les deux modules sont allumés — et `.env.test` les active
+   **tous**, donc aucune suite ne le verra jamais —, la duplication diverge sans que rien ne
+   compare les deux copies.
+
 ## Sécurité — ne pas régresser
 
 - **`agent.config.command` est une commande shell exécutée telle quelle** (`AgentRunnerService`).
