@@ -16,6 +16,8 @@ Le lot porte quatre affirmations, et elles ne se vérifient pas au même endroit
 | le module **n'apparaît nulle part** dans l'interface | `tests/functional/modules/coffre_curtain.spec.ts` |
 | un mot de passe **ne descend pas dans la liste** | `tests/functional/modules/coffre_credentials.spec.ts`, sur la prop Inertia **et** sur le SQL |
 | éditer **remplace** en base, un mot de passe vide ne l'efface pas (CC-186) | `coffre_storage.spec.ts` (remplacement, cloisonnement) et `coffre_credentials.spec.ts` (rotation, préservation, type non postable) |
+| une référence de média n'est pas lisible en clair en base, s'ajoute/se retire sans oracle d'existence (CC-180) | `coffre_storage.spec.ts` (colonne brute, dédup, cloisonnement) |
+| le proxy de vignette refuse sans élévation, sert la bonne image sans cache, absorbe une panne Immich en 404 (CC-180) | `coffre_media.spec.ts`, plus `coffre_wall.spec.ts` pour le mur |
 
 ⚠️ **Le troisième est celui qu'un test rend faussement vert.** Relire ce qu'on vient d'écrire
 réussirait à l'identique sans le moindre chiffrement ; seul un `select` qui court-circuite le modèle
@@ -50,15 +52,16 @@ sinon l'ordre d'exécution déciderait du résultat.
 
 ### `tests/functional/modules/coffre_wall.spec.ts`
 
-Le mur. Trois routes murées en 403 **avec un compte réellement capable et une session réellement
+Le mur. Quatre routes murées en 403 **avec un compte réellement capable et une session réellement
 valide**, le pendant qui passe une fois l'élévation posée (sans lui, un mur qui refuserait tout
 passerait au vert), l'expiration, le marqueur d'un autre compte, le cloisonnement de `coffre.write`,
 et la session révoquée qui est expulsée **en amont** (302 vers `/login`, pas 403).
 
 ⚠️ Le premier test **lit le routeur** pour asserter que `coffreOuvert` est branché. Il a été ajouté
 après mesure : sans lui, retirer le middleware de `start/routes.ts` laissait les dix autres verts,
-le `#key()` du contrôleur rendant le même 403. La route d'édition (CC-186) y entre pour la même
-raison, mesurée à l'identique : la retirer du mur ne fait rougir QUE cette assertion-là.
+le `#key()` du contrôleur rendant le même 403. La route d'édition (CC-186) et le proxy de vignette
+(CC-180) y entrent pour la même raison, mesurée à l'identique : la retirer du mur ne fait rougir
+QUE cette assertion-là.
 
 ### `tests/functional/modules/coffre_unlock.spec.ts`
 
@@ -78,6 +81,13 @@ code de réponse, la suppression ne devant pas être un oracle d'existence.
 Depuis CC-186 : l'édition **remplace** la colonne en base (même ligne, chiffré différent — la
 mutation l'a confirmé) plutôt que d'en ajouter une, et le cloisonnement par compte vaut aussi pour
 elle, vérifié en base comme pour la suppression.
+
+Depuis CC-180, un groupe séparé (« Coffre / les médias ») couvre les références Immich :
+`asset_id_cipher` illisible en clair et en base64 sur `coffre_entry_media` ; coller deux fois le
+même UUID à la création ne pose qu'une ligne (dédup) ; `media.add`/`media.remove` sur l'édition
+ajoutent/retirent réellement, vérifié en base (compte de lignes, id de la ligne restante) ; et
+retirer l'id de média d'un autre compte ne supprime rien — même doctrine que la suppression
+d'entrée, vérifiée en base et pas sur le code HTTP (toujours 302).
 
 ### `tests/functional/modules/coffre_credentials.spec.ts`
 
@@ -106,6 +116,19 @@ change, l'ancien secret n'est plus rendu, le nouveau l'est), sa **préservation*
 laissé vide (mutation vérifiée : sans le garde, le test rougit et lui seul), et l'absence d'effet
 d'un mot de passe posté en éditant une note — la validation ne portant pas de champ `type`, il n'y a
 rien à contourner côté client.
+
+### `tests/functional/modules/coffre_media.spec.ts`
+
+Le proxy de vignette (CC-180), avec `FakeImmichClient` — **le même que la veille**, `ImmichClient`
+vivant désormais dans `#core/shared/services/immich_client`. Un média connu rend l'image avec le
+bon `content-type`, `cache-control: no-store` et `pragma: no-cache` ; un id de média inconnu, le
+média d'un autre compte, et une panne du client Immich (asset non scripté) rendent tous 404.
+
+⚠️ **Le repli HTML d'Immich (`content-type: text/html`) n'est PAS re-testé ici.** C'est
+`ImmichClient.thumbnail()` — partagé, prouvé par `tests/unit/veille_immich_client.spec.ts` — qui
+l'assure ; `FakeImmichClient` remplace la couche API tout entière, comme pour la veille. Ce qui se
+prouve ici, c'est ce que le contrôleur du coffre fait d'un succès et d'un échec de cette couche,
+jamais le transport lui-même.
 
 ### `tests/functional/modules/coffre_curtain.spec.ts`
 
@@ -141,3 +164,6 @@ coffre ouvert, et le rappel que les **capacités**, elles, sont bien au registre
 `unlockedSession` et `lockedSession`. ⚠️ `unlockedSession` forge **aussi** le tampon de connexion :
 sans lui, `AuthMiddleware` en poserait un à *maintenant* et le marqueur serait rejeté par la
 condition 3 — le test rougirait en accusant le mur alors que c'est le décor qui ment.
+
+`createMedia` (CC-180) — attache une référence de média à une entrée sans passer par la route, même
+doctrine que `createVault` : écrit `asset_id_cipher` directement avec la clé fournie.

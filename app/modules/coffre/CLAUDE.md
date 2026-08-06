@@ -1,10 +1,13 @@
-# Module Coffre — notes, URLs et identifiants chiffrés, invisibles, derrière deux portes
+# Module Coffre — notes, URLs, identifiants et médias Immich chiffrés, invisibles, derrière deux portes
 
-Routes `/coffre/ouvrir` · `/coffre` · `/coffre/:id/secret` · pages Inertia
-`modules/coffre/{ouvrir, index}` · tables `coffre_vaults`, `coffre_entries`. Lot 1 de l'épique
-CC-177 (CC-178) : le **socle**, dont tous les lots suivants héritent — aucun ne redéfinit sa propre
-porte. Lot 2 (CC-179) : les **identifiants**, qui ajoutent une nature d'entrée et une route, et rien
-d'autre.
+Routes `/coffre/ouvrir` · `/coffre` · `/coffre/:id/secret` · `/coffre/media/:id/thumbnail` · pages
+Inertia `modules/coffre/{ouvrir, index}` · tables `coffre_vaults`, `coffre_entries`,
+`coffre_entry_media`. Lot 1 de l'épique CC-177 (CC-178) : le **socle**, dont tous les lots suivants
+héritent — aucun ne redéfinit sa propre porte. Lot 2 (CC-179) : les **identifiants**, qui ajoutent
+une nature d'entrée et une route. ⚠️ **CC-186 (l'édition) et CC-180 (les médias, ici) portent tous
+deux le numéro « lot 3 » dans leur ticket** — CC-180 a été planifié avant CC-186 dans l'épique,
+mais CC-186 a été livré en premier. Ce fichier ne tranche pas laquelle des deux est *la* troisième :
+il cite chaque décision par son numéro de ticket, pas par un rang.
 
 ⚠️ **Le module est HORS de `MODULES` par défaut.** Il figure dans `KNOWN_MODULES`
 (`config/modules.ts`) — sans quoi `parseModules` ferait échouer le démarrage de qui l'active — mais
@@ -17,13 +20,16 @@ destinations.ts                          N'EXISTE PAS, et c'est le rideau (voir 
 services/vault_crypto.ts                 PUR · scrypt + AES-256-GCM · node:crypto SEUL
 services/vault_session.ts                PUR · le marqueur d'élévation, ses TROIS conditions
 services/vault_keyring.ts                la clé en MÉMOIRE du process, TTL, purge paresseuse
-services/vault_service.ts                la partie base + session : créer, ouvrir, lire, écrire
+services/vault_service.ts                la partie base + session : créer, ouvrir, lire, écrire,
+                                         médias
 middleware/vault_unlocked_middleware.ts  le second étage du mur
 controllers/coffre_door_controller.ts    la porte : créer, ouvrir, verrouiller — SANS élévation
 controllers/coffre_controller.ts         le contenu : lister, ajouter, supprimer, RÉVÉLER — AVEC
                                          élévation
+controllers/coffre_media_controller.ts   le proxy de vignette Immich (CC-180) — AVEC élévation
 models/coffre_vault.ts                   un coffre PAR COMPTE : sel + témoin
 models/coffre_entry.ts                   note | url | credential · titre, contenu ET secret chiffrés
+models/coffre_entry_media.ts             une référence d'asset Immich, chiffrée (CC-180)
 validators/coffre.ts                     ⚠️ des FABRIQUES, jamais des nœuds VineJS partagés
 ```
 
@@ -31,6 +37,12 @@ validators/coffre.ts                     ⚠️ des FABRIQUES, jamais des nœuds
 (le middleware nommé `coffreOuvert`) · `config/modules.ts` · `resources/lang/{fr,en}/coffre.json`
 (les messages **serveur** — `app.languageFilesPath()` ne connaît qu'un dossier, même contrainte
 structurelle que `commands/`) · et **`start/navigation.ts`, où l'absence est délibérée**.
+
+⚠️ **Un septième depuis CC-180, et il n'est PAS propre au coffre** : `ImmichClient` vit dans
+`app/core/shared/services/immich_client.ts`, partagé avec la veille. Le coffre n'importe QUE cette
+classe (via `thumbnail()`) — jamais rien sous `app/modules/veille/`, ce qui aurait recréé
+exactement le couplage que ce lot existe pour éviter (désactiver `veille` casserait alors le
+coffre). Voir « Les médias Immich » plus bas et `app/modules/veille/CLAUDE.md`.
 
 ⚠️ **Deux dépendances de plus depuis CC-179, et aucune n'est propre au coffre** : la page importe
 `inertia/utils/clipboard.ts` (partagé avec `/reglages` et l'écran LLM de Leitner), et la promesse
@@ -318,6 +330,77 @@ client — le contrôleur ne fait ici que rediriger.
 `owner_id` dans la clause de lecture, no-op si la ligne n'appartient pas à l'appelant, 302 dans
 tous les cas. Une édition ne doit pas plus être un oracle d'existence qu'une suppression.
 
+## Les médias Immich : référencer, jamais copier (CC-180)
+
+**Immich possède les fichiers, le coffre possède le sens** — même partage des rôles qu'en veille
+(`app/modules/veille/CLAUDE.md`, « Immich — les vidéos du téléphone »). Une entrée peut référencer
+**plusieurs** assets Immich (table `coffre_entry_media`, `entry_id` + `owner_id` FK CASCADE) : une
+entrée n'est pas elle-même « de type média », n'importe quelle nature (note, lien, identifiant)
+peut porter des pièces jointes.
+
+⚠️ **Table dédiée, jamais un préfixe de plus sur `dedup_key`.** `app/modules/veille/CLAUDE.md`
+l'annonçait déjà : « un second module référençant les mêmes médias demanderait une colonne dédiée,
+pas un troisième préfixe ». `dedup_key` reste un mécanisme interne à la veille — l'index
+d'autorisation de SON proxy — et n'a jamais été réutilisé ici.
+
+### Le client Immich est partagé, pas dupliqué
+
+`ImmichClient` — transport bas niveau, `thumbnail()`, `serverVersion()` — vit dans
+`app/core/shared/services/immich_client.ts` depuis ce lot. La veille en hérite (sous-classe
+`app/modules/veille/services/immich_client.ts`, qui ajoute `albumAssets`/`trashDays`/`trashAssets`,
+propres à son domaine album). Le coffre injecte la classe du core telle quelle : il n'a besoin que
+de `thumbnail()`.
+
+⚠️ **Limite connue, assumée, non corrigée par ce lot** : `ImmichConfig.enabled`
+(`config/immich.ts`, partagé) exige `IMMICH_BASE_URL` **et** `IMMICH_API_KEY` **et**
+`IMMICH_ALBUM_ID`, alors que le proxy de vignette n'utilise jamais l'album. Une installation
+coffre-sans-veille doit donc renseigner un album qu'elle n'utilisera jamais pour que le module
+fonctionne. Le corriger toucherait le déclenchement du collecteur de veille et sa suite de tests —
+disproportionné pour ce ticket. Le message d'erreur reste honnête (il nomme la vraie cause), donc
+ce n'est pas un échec silencieux.
+
+### Le proxy de vignette — reprend la décision de sécurité de la veille, avec un mur en plus
+
+`GET /coffre/media/:id/thumbnail` — **le paramètre est l'`id` de NOTRE ligne
+`coffre_entry_media`, jamais l'UUID Immich**, pour la même raison que côté veille : une route qui
+prendrait l'UUID serait un proxy de lecture ouvert sur toute la bibliothèque personnelle, servi par
+un serveur qui porte la clé d'API.
+
+- ⚠️ **Elle hérite EN PLUS du mur du lot 1** (`coffreOuvert()`) : une vignette servie sans
+  élévation viderait le coffre de son sens, l'image étant le contenu. Elle est donc dans
+  `ROUTES_MUREES` de `coffre_wall.spec.ts` **et** dans l'assertion qui lit le routeur — mesuré :
+  la sortir du groupe muré ne fait rougir QUE cette assertion-là, `#key()` du contrôleur rendant
+  le même 403 par ailleurs.
+- ⚠️ **`cache-control: no-store` + `pragma: no-cache`, PAS `private, max-age=3600` comme la
+  veille.** Divergence assumée : le contenu de veille n'est pas verrouillable, celui du coffre
+  l'est. Une vignette mise en cache resterait lisible sur le disque du navigateur après un
+  verrouillage — la même famille de fuite au repos que CC-179 a fermée sur le flash de validation.
+- **L'UUID est chiffré au repos, comme le titre** — mais contrairement au titre, il ne redescend
+  **jamais** vers le client : `CoffreEntryView.media` ne porte que `{ id }`, l'`id` de la ligne
+  `coffre_entry_media`, jamais l'UUID. Le proxy est le SEUL endroit qui le déchiffre, avec la clé
+  de session élevée, juste avant l'appel à Immich.
+- Un échec (média introuvable, déchiffrement raté, panne Immich, repli HTML) rend uniformément
+  404 côté client, jamais un oracle sur la cause ; `logger.warn` la nomme côté serveur — même
+  doctrine que `VeilleMediaController`.
+- ⚠️ **Le repli HTML d'Immich n'est pas re-testé côté coffre** : `ImmichClient.thumbnail()` —
+  partagé — l'assure déjà, prouvé par `tests/unit/veille_immich_client.spec.ts`.
+
+### L'édition : additive/soustractive, PAS un remplacement intégral
+
+⚠️ **Seul le point du module qui n'applique pas « remplace, ne fusionne pas » (CC-186), et c'est
+délibéré.** `title`/`content` se remplacent intégralement parce que le client les reçoit en clair
+et peut donc réémettre l'état courant. L'UUID d'un média ne redescend **jamais** (voir plus haut) :
+le client ne peut structurellement pas renvoyer un état complet. `entryUpdateValidator` porte donc
+`media: { add?: string[]; remove?: number[] }` — même famille de raison que `password`, qui reste
+vide = « ne change rien ».
+
+- `media.remove` est scopé `entry_id` + `owner_id` : un `id` posté qui n'appartient pas à
+  l'entrée éditée (la sienne ou celle d'un autre compte) ne supprime rien — no-op silencieux,
+  vérifié en base et pas sur le code HTTP, même doctrine que la suppression d'entrée.
+- `media.add` dédupe les UUID répétés dans un même lot avant insertion.
+- `addEntry`/`updateEntry` sont transactionnels (`db.transaction`) : l'entrée et ses médias
+  s'écrivent ensemble.
+
 ## Un coffre par compte
 
 `coffre_vaults.user_id` est **unique**, les entrées portent `owner_id`, rien n'est partagé. Un
@@ -397,6 +480,12 @@ Le détail par fichier est dans [TESTS.md](./TESTS.md) — à lire avant de **mo
   acté en écartant, en connaissance de cause, un gestionnaire dédié.
 - **Rien ne prouve qu'une vraie application d'authentification produise le code attendu** — même
   limite que CC-114, et elle mord davantage ici : sans TOTP, le coffre est inatteignable.
-- **Le lot 2 ne porte ni médias, ni fichiers** : notes, URLs et identifiants seulement. Les lots
-  suivants héritent de ce socle et ne redéfinissent pas leur propre porte.
-- ~~Une entrée ne s'ÉDITE pas~~ — comblé par CC-186 (lot 3), voir « L'édition » plus bas.
+- ~~Le lot 2 ne porte ni médias, ni fichiers~~ — les médias sont comblés par CC-180, voir « Les
+  médias Immich » plus haut. **Les fichiers restent hors périmètre** : aucun lot ne prévoit
+  d'upload, seulement des références vers Immich.
+- ~~Une entrée ne s'ÉDITE pas~~ — comblé par CC-186, voir « L'édition » plus bas.
+- **Aucun navigateur n'a affiché une vraie vignette Immich dans le coffre** (CC-180) : ce poste n'a
+  aucun outil de pilotage de navigateur. Le proxy est prouvé par test (contenu, en-têtes, mur), pas
+  par un œil humain — passage navigateur restant à faire par le propriétaire.
+- **Aucune recherche ni parcours de la bibliothèque Immich** : l'utilisateur colle l'UUID d'un
+  asset copié depuis Immich. Écarté en connaissance de cause, pas par oubli — voir le ticket CC-180.
