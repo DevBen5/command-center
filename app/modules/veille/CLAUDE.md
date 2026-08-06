@@ -11,9 +11,12 @@ controllers/veille_media_controller.ts   le PROXY de vignette — HTTP nu, index
 services/feed_fetcher.ts                 seul point réseau des FLUX : SSRF, timeout, plafond,
                                          etag/304, redirections revalidées
 services/feed_parser.ts                  rss-parser (RSS 2.0 ET Atom) · HTML → texte · clé de dédup
-services/immich_client.ts                seul point qui parle à IMMICH : pagination, refus des 3xx,
-                                         assertion de content-type, plafonds
-services/immich_asset.ts                 PUR · type · durée · tag réseau · clé de dédup
+services/immich_client.ts                pagination de l'album, corbeille (CC-63) — ÉTEND
+                                         `#core/shared/services/immich_client` (CC-180) pour le
+                                         transport, `thumbnail()`, `serverVersion()` : partagé avec
+                                         le coffre, voir plus bas
+services/immich_asset.ts                 PUR · type · durée · tag réseau · clé de dédup ·
+                                         `isImmichAssetId` ré-exportée depuis le core
 services/immich_collector.ts             ensureSource · insert · reconcile
 services/youtube_client.ts               seul point qui parle à YOUTUBE : playlistItems paginé,
                                          videos.list, vignettes, JAMAIS l'URL dans une erreur
@@ -350,6 +353,17 @@ aucun endroit où s'afficher.
   correction de `.env`, sans dire pourquoi.
 - ⚠️ **Changer `IMMICH_ALBUM_ID` marque tous les items de l'ancien album en une passe.** Défendable,
   surprenant : journalisé, et réversible.
+
+### Le transport est partagé avec le coffre depuis CC-180
+
+⚠️ **`ImmichClient` (transport, `thumbnail()`, `serverVersion()`) vit dans
+`app/core/shared/services/immich_client.ts`, pas sous ce module.** Le coffre référence lui aussi
+des assets Immich (CC-180, `app/modules/coffre/CLAUDE.md`, « Les médias Immich ») et injecte cette
+même classe pour sa propre vignette — sans jamais dépendre de `veille`, ce qui aurait recréé le
+couplage que ce lot évite. `app/modules/veille/services/immich_client.ts` **étend** cette classe :
+ce fichier n'ajoute que ce qui a une opinion sur le domaine veille — `albumAssets()` (le type
+`ImmichAsset`, `parseAsset`), `trashDays()`/`trashAssets()` (CC-63). Rien de ce qui suit dans cette
+section (pagination d'album, corbeille) ne concerne le coffre, qui n'a besoin que de `thumbnail()`.
 
 ### Le proxy de vignette — la décision de sécurité du lot
 

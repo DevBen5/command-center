@@ -152,6 +152,12 @@ présentes en permanence sont dans `CLAUDE.md`, section « Tests ».
   cette valeur se prouve —, le 204 sans corps traité comme un succès, `trashDays` où tout ce qui
   n'est pas un nombre vaut `0`, et le refus qui nomme `asset.delete` plutôt que de parler d'une
   instance injoignable.
+
+  ⚠️ **Depuis CC-180, ce fichier instancie la sous-classe de veille, mais une partie de ce qu'il
+  prouve — l'assertion de `content-type`, le refus des 3xx, `thumbnail()` — vit dans
+  `#core/shared/services/immich_client`, hérité sans surcharge.** C'est donc aussi la couverture
+  que le coffre réutilise sans la redupliquer (`app/modules/coffre/TESTS.md`,
+  `coffre_media.spec.ts`) : ce fichier reste la seule preuve du transport, pour les deux modules.
 - `tests/unit/veille_media_item.spec.ts` — **CC-55**, la logique média sortie de `index.vue` : le
   lien construit à l'affichage (jamais stocké), la vignette pointée sur **notre** proxy, et une
   durée qui ne s'affiche pas quand il n'y en a pas. Depuis **CC-88** : le **repli de lien** dans les
