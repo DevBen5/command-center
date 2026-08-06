@@ -47,6 +47,7 @@ services/nas_roots_service.ts            PUR-ish (fs) · résout un chemin contr
                                          realpath (CC-181)
 services/nas_file_format.ts              PUR · allow-lists photo/vidéo, content-type, kind (CC-181)
 services/byte_range.ts                   PUR · parseur de l'en-tête `Range` (CC-181)
+shared/entry_sections.ts                 PUR · le regroupement de l'écran par nature (CC-204)
 validators/coffre.ts                     ⚠️ des FABRIQUES, jamais des nœuds VineJS partagés
 ```
 
@@ -575,6 +576,44 @@ qui n'existe plus.
 redescend jamais vers le client (`CoffreEntryView.nasFiles` ne porte que `{ id, kind }`), qui ne
 peut donc pas réémettre l'état complet pour un remplacement intégral.
 
+## L'écran par nature (CC-204)
+
+La liste n'est plus plate : `pages/index.vue` range les entrées en sections — notes · liens ·
+identifiants · photos — chacune avec son titre et son compte, une section sans entrée n'étant
+jamais rendue. Ce lot **range l'écran tel qu'il existait**, il n'ajoute aucune nature : `type`
+reste `note | url | credential`, inchangé.
+
+⚠️ **« Photos » n'est PAS une nature au sens de `CoffreEntry.type`, et ce n'est pas une
+contradiction avec « une entrée n'est pas elle-même de type média »** (voir plus haut, CC-180).
+C'est une **priorité d'affichage** : une entrée qui porte au moins un média (Immich ou NAS, l'un
+ou l'autre ou les deux) est rangée en Photos **plutôt que** dans la section de son `type` déclaré,
+exclusivement — jamais dans les deux. Le badge de nature affiché par entrée (`natureLabel`)
+continue de dire le vrai `type` ; seul l'endroit où l'entrée est rangée à l'écran change.
+
+- **Le regroupement vit dans `shared/entry_sections.ts`, PUR**, hors du `<script setup>` — même
+  geste que `inertia/layouts/breadcrumb.ts` et `leitner/shared/review_page.ts` : ce qui reste dans
+  un composant est hors de portée de Japa comme de Vitest. `groupEntriesByNature` ne connaît que
+  `type`/`media`/`nasFiles`, jamais `title`/`content` — il n'a pas besoin de savoir si une entrée
+  est illisible pour la ranger.
+- ⚠️ **N'importe jamais par un alias `#modules/*` depuis ce fichier ni depuis `pages/index.vue`
+  pour l'atteindre** — l'alias mappe vers `./app/modules/*.js`, qui n'existe qu'après un build ;
+  Vite ne le résout pas depuis un `.vue`. L'import est **relatif** (`'../shared/entry_sections.js'`).
+- **Aucune requête de plus, aucune colonne de plus.** Le regroupement se fait sur ce que
+  `entriesFor` rend déjà ; il n'a jamais justifié de toucher `VaultService.listQueryFor` ni
+  `COLONNES_DE_LISTE`.
+- ⚠️ **Le tri interne d'une section reste `created_at desc`, et la fonction ne trie JAMAIS
+  elle-même** — elle suppose `entries` déjà ordonné par le serveur et se contente de partitionner
+  en préservant l'ordre d'arrivée. Le titre est chiffré (voir plus haut) : il n'existe et
+  n'existera aucun tri alphabétique, côté serveur comme côté client.
+- **Une entrée illisible reste dans sa section normale**, avec son badge `unreadable` existant,
+  inchangé : `type` n'est jamais chiffré, seuls `title`/`content` peuvent l'être — la décision de
+  section ne dépend donc jamais d'un déchiffrement.
+
+⚠️ **Aucun navigateur n'a affiché l'écran sectionné (CC-204)** — même limite que CC-180/CC-181, ce
+poste n'a aucun outil de pilotage. Le regroupement est prouvé par test
+(`tests/unit/coffre_entry_sections.spec.ts`) sur la fonction pure, jamais sur le rendu — alignement
+visuel, lisibilité des en-têtes, ordre à l'écran restent un passage navigateur pour le propriétaire.
+
 ## Un coffre par compte
 
 `coffre_vaults.user_id` est **unique**, les entrées portent `owner_id`, rien n'est partagé. Un
@@ -680,3 +719,7 @@ Le détail par fichier est dans [TESTS.md](./TESTS.md) — à lire avant de **mo
 - **Aucune vraie vignette pour les médias NAS**, contrairement aux assets Immich (voir « La liste
   n'affiche aucun aperçu à plusieurs médias à la fois » plus haut) : décision assumée pour ce lot,
   pas un oubli. Une génération de vignette côté serveur reste un candidat naturel de suivi.
+- ⚠️ **Aucun navigateur n'a affiché l'écran rangé par nature (CC-204)**, même limite que CC-180 et
+  CC-181. Le regroupement est prouvé par test sur la fonction pure ; l'alignement visuel, la
+  lisibilité des en-têtes de section et leur ordre à l'écran restent un passage navigateur pour le
+  propriétaire.
