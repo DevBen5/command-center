@@ -21,6 +21,7 @@ Le lot porte quatre affirmations, et elles ne se vérifient pas au même endroit
 | une référence de média NAS n'est pas lisible en clair en base, s'ajoute/se retire sans oracle d'existence, `kind` dérivé de l'extension (CC-181) | `coffre_storage.spec.ts` (colonne brute, dédup, cloisonnement) |
 | le résolveur de racines NAS refuse une traversée, un lien symbolique posé DANS une racine et pointant DEHORS, et un chemin absolu — contre un vrai filesystem, photos et vidéos confondues (CC-181) | `coffre_nas_roots.spec.ts` |
 | le proxy de streaming refuse sans élévation, sert le corps entier (photo/vidéo) ou une plage `Range` exacte (vidéo), refuse une plage invalide, absorbe une résolution ratée **et un DOSSIER portant une extension autorisée** en 404 (CC-181) | `coffre_nas.spec.ts`, plus `coffre_wall.spec.ts` pour le mur |
+| l'écran range les entrées en sections par nature, une entrée avec média (Immich ou NAS) primant sur son `type`, exclusivement, une section sans entrée n'apparaît jamais (CC-204) | `coffre_entry_sections.spec.ts` |
 
 ⚠️ **Le troisième est celui qu'un test rend faussement vert.** Relire ce qu'on vient d'écrire
 réussirait à l'identique sans le moindre chiffrement ; seul un `select` qui court-circuite le modèle
@@ -52,6 +53,15 @@ Le trousseau en mémoire : pointeurs distincts à chaque ouverture, expiration �
 le marqueur, cloisonnement par compte, pointeur inconnu (le cas d'un redémarrage), fermeture unitaire
 et en bloc, et l'effacement du tampon de clé. ⚠️ Une instance neuve par test, jamais le singleton —
 sinon l'ordre d'exécution déciderait du résultat.
+
+### `tests/unit/coffre_entry_sections.spec.ts`
+
+Le regroupement de l'écran par nature (CC-204), **pur** — `shared/entry_sections.ts`, hors de portée
+de `pages/index.vue` : partition exclusive des trois types, priorité de « photo » sur `type` dès
+qu'un média Immich ou un fichier NAS est présent (l'un, l'autre, les deux à la fois), une section
+sans entrée absente du résultat plutôt que rendue vide, ordre des sections fixe indépendamment de
+l'ordre d'arrivée des entrées, ordre interne d'une section jamais retrié (suppose `created_at desc`
+déjà appliqué côté serveur), et chaque entrée comptée exactement une fois.
 
 ### `tests/functional/modules/coffre_wall.spec.ts`
 
