@@ -565,6 +565,11 @@ router
             .get('/:id/secret', [CoffreController, 'secret'])
             .where('id', router.matchers.number())
             .use(middleware.can('coffre.view'))
+          // Une édition rechiffre (CC-186) : même capacité et même mur que la création.
+          router
+            .put('/:id', [CoffreController, 'update'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('coffre.write'))
           // `where(number)` : sans lui, « ouvrir » serait un id recevable si un DELETE littéral
           // apparaissait un jour sous ce préfixe.
           router

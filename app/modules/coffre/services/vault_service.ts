@@ -242,6 +242,41 @@ class VaultService {
   }
 
   /**
+   * Modifie une entrée existante : remplace, ne fusionne pas — comme partout ailleurs dans le
+   * dépôt (CC-186). Rien ne rend cette édition « lisible » : elle rechiffre avec la clé de
+   * session élevée, exactement comme une création.
+   *
+   * ⚠️ **`owner_id` est dans la clause de lecture, jamais vérifié après coup** — même doctrine que
+   * `deleteEntry` et `secretFor` : un identifiant deviné ne trouve rien, donc rien à comparer.
+   * L'entrée absente ou d'un autre compte produit un no-op silencieux ; l'appelant redirige dans
+   * tous les cas, pour que l'édition ne soit pas plus un oracle d'existence que la suppression.
+   *
+   * ⚠️ **Le mot de passe n'est réécrit que s'il est fourni ET non vide, et seulement sur un
+   * `credential`.** Un champ vide veut dire « garde l'actuel » : cette méthode ne charge ni ne
+   * déchiffre l'ancien secret pour le décider, elle regarde seulement ce que le formulaire vient
+   * de poster. Un mot de passe posté en éditant une note ou un lien est sans effet — le type de
+   * l'entrée, lu en base, tranche.
+   */
+  async updateEntry(
+    user: User,
+    key: Buffer,
+    id: number,
+    patch: { title: string; content: string; password?: string }
+  ): Promise<void> {
+    const entry = await CoffreEntry.query().where('id', id).where('owner_id', user.id).first()
+    if (entry === null) return
+
+    entry.titleCipher = encrypt(patch.title, key)
+    entry.contentCipher = encrypt(patch.content, key)
+
+    if (entry.type === 'credential' && patch.password) {
+      entry.secretCipher = encrypt(patch.password, key)
+    }
+
+    await entry.save()
+  }
+
+  /**
    * Supprime une entrée de ce compte. `false` si elle n'existe pas — ou n'est pas la sienne.
    *
    * ⚠️ **`owner_id` est dans la clause, jamais vérifié après coup.** C'est ce qui empêche un

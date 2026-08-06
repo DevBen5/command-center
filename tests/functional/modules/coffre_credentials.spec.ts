@@ -171,6 +171,107 @@ test.group('Coffre / les identifiants — ce que la liste ne porte pas', (group)
   })
 })
 
+test.group('Coffre / les identifiants — l’édition (CC-186)', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+
+  test('éditer avec un nouveau mot de passe le fait pivoter', async ({ client, assert }) => {
+    const user = await createUserWith(['coffre.view', 'coffre.write'])
+    const vaultRow = await createVault(user)
+    const session = await unlockedSession(user, vaultRow)
+
+    const id = await poserIdentifiant(client, user, session)
+
+    const avant = await db.rawQuery('select secret_cipher from coffre_entries where id = ?', [id])
+    const NOUVEAU = 'nouveau-mot-de-passe-tourne'
+
+    const edition = await client
+      .put(`/coffre/${id}`)
+      .form({ title: SERVICE, content: IDENTIFIANT, password: NOUVEAU })
+      .loginAs(user)
+      .withSession(session)
+      .withCsrfToken()
+      .redirects(0)
+
+    edition.assertStatus(302)
+
+    const apres = await db.rawQuery('select secret_cipher from coffre_entries where id = ?', [id])
+    assert.notEqual(apres.rows[0].secret_cipher, avant.rows[0].secret_cipher)
+    assert.notInclude(apres.rows[0].secret_cipher, NOUVEAU)
+
+    const reponse = await client
+      .get(`/coffre/${id}/secret`)
+      .loginAs(user)
+      .withSession(session)
+      .accept('json')
+
+    reponse.assertBodyContains({ secret: NOUVEAU })
+  })
+
+  test('éditer sans toucher au mot de passe le laisse INTACT — un champ vide ne l’efface pas', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUserWith(['coffre.view', 'coffre.write'])
+    const vaultRow = await createVault(user)
+    const session = await unlockedSession(user, vaultRow)
+
+    const id = await poserIdentifiant(client, user, session)
+
+    const avant = await db.rawQuery('select secret_cipher from coffre_entries where id = ?', [id])
+
+    await client
+      .put(`/coffre/${id}`)
+      .form({ title: 'Nouveau nom de service', content: IDENTIFIANT })
+      .loginAs(user)
+      .withSession(session)
+      .withCsrfToken()
+      .redirects(0)
+
+    const apres = await db.rawQuery('select secret_cipher from coffre_entries where id = ?', [id])
+    assert.equal(apres.rows[0].secret_cipher, avant.rows[0].secret_cipher)
+
+    const reponse = await client
+      .get(`/coffre/${id}/secret`)
+      .loginAs(user)
+      .withSession(session)
+      .accept('json')
+
+    reponse.assertBodyContains({ secret: MOT_DE_PASSE })
+  })
+
+  test('un mot de passe posté en éditant une NOTE reste sans effet — le type ne se poste pas', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUserWith(['coffre.view', 'coffre.write'])
+    const vaultRow = await createVault(user)
+    const session = await unlockedSession(user, vaultRow)
+
+    const ecriture = await client
+      .post('/coffre')
+      .form({ type: 'note', title: 'Une note', content: 'Du texte' })
+      .loginAs(user)
+      .withSession(session)
+      .withCsrfToken()
+      .redirects(0)
+    ecriture.assertStatus(302)
+
+    const lignes = await db.rawQuery('select id from coffre_entries where owner_id = ?', [user.id])
+    const id = lignes.rows[0].id as number
+
+    await client
+      .put(`/coffre/${id}`)
+      .form({ title: 'Une note', content: 'Du texte modifié', password: MOT_DE_PASSE })
+      .loginAs(user)
+      .withSession(session)
+      .withCsrfToken()
+      .redirects(0)
+
+    const apres = await db.rawQuery('select secret_cipher from coffre_entries where id = ?', [id])
+    assert.isNull(apres.rows[0].secret_cipher)
+  })
+})
+
 test.group('Coffre / les identifiants — la révélation', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 

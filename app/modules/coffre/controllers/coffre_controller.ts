@@ -3,7 +3,7 @@ import type { Session } from '@adonisjs/session'
 import ForbiddenException from '#core/shared/exceptions/forbidden_exception'
 import type User from '#core/auth/models/user'
 import vault from '#modules/coffre/services/vault_service'
-import { entryValidator } from '#modules/coffre/validators/coffre'
+import { entryValidator, entryUpdateValidator } from '#modules/coffre/validators/coffre'
 
 /**
  * Le contenu du coffre (CC-178) — **toutes ces routes sont derrière l'élévation**
@@ -75,6 +75,21 @@ export default class CoffreController {
     const entry = await request.validateUsing(entryValidator)
 
     await vault.addEntry(user, key, entry)
+
+    return response.redirect('/coffre')
+  }
+
+  /**
+   * Remplace le titre, le contenu et — sur un identifiant, si fourni — le mot de passe (CC-186).
+   * Une édition rechiffre : elle est donc derrière le même mur que `store`/`destroy`, pas une
+   * exception.
+   */
+  async update({ auth, params, request, response, session }: HttpContext) {
+    const user = auth.user!
+    const key = this.#key(user, session)
+    const patch = await request.validateUsing(entryUpdateValidator)
+
+    await vault.updateEntry(user, key, Number(params.id), patch)
 
     return response.redirect('/coffre')
   }
