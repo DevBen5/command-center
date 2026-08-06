@@ -4,6 +4,7 @@ description: |
   Agrège le journal d'usage des skills YouTrack (`.claude/youtrack-usage.log`) et rapporte le
   volume traité, la part déléguée à un sous-agent, et la réduction de contexte estimée.
   Trigger : `/youtrack-stats`.
+disable-model-invocation: true
 ---
 
 # /youtrack-stats — Suivi des skills YouTrack

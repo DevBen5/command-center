@@ -4,6 +4,7 @@ description: |
   Rédige un brouillon d'issue CC à partir du code/diff sous les yeux et le fait valider avant
   tout envoi — créer un ticket est une action visible, jamais silencieuse.
   Trigger : `/create-issue-from-code [contexte optionnel]`.
+disable-model-invocation: true
 ---
 
 # /create-issue-from-code — Ticket depuis le code

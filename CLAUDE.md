@@ -830,6 +830,23 @@ produirait des codes refusés **sans lever d'erreur**.
   la délégation à un sous-agent. Le journal est vide tant qu'aucun des cinq n'a tourné : le format
   est en place, la mesure ne l'est pas encore.
 
+⚠️ **Les six skills YouTrack portent `disable-model-invocation: true` depuis le 2026-08-06 — il
+faut donc les TAPER, je ne les proposerai jamais.** Mesuré ce jour-là sur 298 sessions depuis le
+01/07 : `git-commit` 67 invocations, `lead-review` 62, `task-flow` ~74, `review-mr` 18 — et **zéro**
+pour les six. Un skill que je n'invoque pas coûte quand même sa `description` dans le contexte
+système de **chaque** session ; le drapeau la retire de ma liste sans supprimer le skill, qui reste
+atteignable au slash. C'est la voie moyenne entre garder un poids mort et perdre une procédure
+écrite — et pour `/kb-sync` ce n'est même pas un compromis : « à lancer à la main, jamais
+automatiquement » était déjà sa doctrine, le drapeau ne fait que la rendre structurelle.
+
+- ⚠️ **Zéro invocation ne prouve pas l'inutilité, et c'est pour ça qu'on n'a supprimé que
+  `/prepare-issue-context`.** `/kb-sync` est à zéro parce qu'il est **reporté** — la mémoire le dit
+  « passé d'utile à nécessaire » — pas parce qu'il ne sert à rien. Ce qui a condamné `prepare`,
+  c'est la redondance structurelle avec l'étape 1 de `/task-flow`, pas le compteur.
+- ⚠️ **Le corollaire, et c'est le vrai coût du drapeau** : plus rien ne me fera dire « tu devrais
+  lancer `/kb-sync` ». La dette KB ne se rappellera plus toute seule ; elle ne vit que dans la
+  mémoire de reprise et ici.
+
 ⚠️ **Les trois premiers de ces noms existent AUSSI en global**, dans une version qui vise l'autre
 workspace (GitLab, NestJS, `develop`, pnpm, `Refs: #SAAS-XX`). **Le skill du dépôt ne masque pas le
 global** — le harness peut charger l'un ou l'autre, constaté deux fois dans une seule session. Après

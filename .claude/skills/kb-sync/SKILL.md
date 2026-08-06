@@ -7,6 +7,7 @@ description: |
   synthétise, met à jour en place (jamais recréé) et signale ce qui reste sans article.
   Trigger : `/kb-sync` — déclenché **à la main**, jamais automatiquement. Extrait de l'étape 7
   de `/review-mr` (2026-08-03) pour ne plus peser sur chaque PR mergée.
+disable-model-invocation: true
 ---
 
 # /kb-sync — Synchroniser la base de connaissances YouTrack
