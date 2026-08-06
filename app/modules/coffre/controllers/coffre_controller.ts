@@ -25,6 +25,50 @@ export default class CoffreController {
     })
   }
 
+  /**
+   * Le mot de passe d'UN identifiant, à la demande — **du JSON nu, jamais une réponse Inertia**
+   * (CC-179).
+   *
+   * ⚠️ **Inertia est exclu, et ce n'est pas un choix de style.** Le client Inertia range les props
+   * de page dans `history.state` : un secret passé par une prop, fût-elle rechargée partiellement,
+   * serait **écrit sur le disque du navigateur** par l'historique de navigation, et y resterait
+   * après la fermeture du coffre. Un `fetch` n'y touche pas.
+   *
+   * ⚠️ **`no-store`, pas `no-cache`.** `no-cache` autorise le stockage et impose seulement une
+   * revalidation ; c'est bien l'écriture qu'on interdit ici.
+   *
+   * ⚠️ **En GET, donc sans corps — délibérément.** Un POST devrait porter un jeton CSRF, dont
+   * l'unique copie côté client vit dans le module Leitner (un module n'importe pas chez un
+   * voisin), et son corps repartirait dans la session à la moindre erreur de validation. Il n'y a
+   * rien à protéger d'une écriture ici : la route ne modifie rien, et une lecture inter-origine
+   * de sa réponse est impossible faute de CORS.
+   *
+   * ⚠️ **Rien n'est journalisé, et il ne faut rien journaliser** — ni le clair, ni un extrait, ni
+   * une longueur. Un refus ne dit pas non plus *laquelle* des trois causes s'applique côté
+   * `illisible` : c'est déjà un état anormal, l'écran doit le dire à son porteur, pas le détailler
+   * dans une réponse.
+   */
+  async secret({ auth, params, response, session }: HttpContext) {
+    const user = auth.user!
+    const key = this.#key(user, session)
+
+    response.header('cache-control', 'no-store')
+
+    const verdict = await vault.secretFor(user, key, Number(params.id))
+
+    if (verdict.status === 'introuvable') {
+      return response.notFound({ error: 'Entrée introuvable.' })
+    }
+
+    if (verdict.status === 'illisible') {
+      // Le même refus que la liste rend sur une entrée illisible : on signale, on ne fabrique pas
+      // un contenu vide qui se lirait comme « ce compte n'a pas de mot de passe ».
+      return response.unprocessableEntity({ error: 'Cette entrée ne se déchiffre pas.' })
+    }
+
+    return response.ok({ secret: verdict.secret })
+  }
+
   async store({ auth, request, response, session }: HttpContext) {
     const user = auth.user!
     const key = this.#key(user, session)

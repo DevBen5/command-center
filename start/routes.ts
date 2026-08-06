@@ -558,6 +558,13 @@ router
         .group(() => {
           router.get('/', [CoffreController, 'index']).use(middleware.can('coffre.view'))
           router.post('/', [CoffreController, 'store']).use(middleware.can('coffre.write'))
+          // Le mot de passe d'un identifiant, à la demande (CC-179) : du JSON nu, jamais une
+          // prop Inertia — le client range ses props dans `history.state`, donc sur le disque.
+          // `coffre.view` et non `coffre.write` : c'est une lecture, elle ne modifie rien.
+          router
+            .get('/:id/secret', [CoffreController, 'secret'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('coffre.view'))
           // `where(number)` : sans lui, « ouvrir » serait un id recevable si un DELETE littéral
           // apparaissait un jour sous ce préfixe.
           router

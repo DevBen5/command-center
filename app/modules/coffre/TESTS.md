@@ -14,6 +14,7 @@ Le lot porte quatre affirmations, et elles ne se vérifient pas au même endroit
 | l'élévation **expire** | idem, plus `tests/unit/coffre_vault_session.spec.ts` pour la borne |
 | le contenu **n'est pas lisible en base** | `tests/functional/modules/coffre_storage.spec.ts`, sur la **colonne brute** |
 | le module **n'apparaît nulle part** dans l'interface | `tests/functional/modules/coffre_curtain.spec.ts` |
+| un mot de passe **ne descend pas dans la liste** | `tests/functional/modules/coffre_credentials.spec.ts`, sur la prop Inertia **et** sur le SQL |
 
 ⚠️ **Le troisième est celui qu'un test rend faussement vert.** Relire ce qu'on vient d'écrire
 réussirait à l'identique sans le moindre chiffrement ; seul un `select` qui court-circuite le modèle
@@ -72,11 +73,45 @@ la relecture par la page qui rend bien le clair ; le chiffré qui ne descend jam
 et le cloisonnement par compte en lecture **et** à la suppression — vérifié en base, jamais sur le
 code de réponse, la suppression ne devant pas être un oracle d'existence.
 
+### `tests/functional/modules/coffre_credentials.spec.ts`
+
+Les identifiants (CC-179), en trois groupes. **Ce que la base porte** : le mot de passe absent de
+`secret_cipher` en clair comme en base64, service et identifiant toujours chiffrés, et le cas où le
+formulaire poste un mot de passe avec une **note** — le service ne l'écrit pas. **Ce que la liste ne
+porte pas** : la prop Inertia sérialisée, sur une entrée dont on vient de vérifier qu'elle a bien un
+secret ; puis le **SQL** de `listQueryFor`. **La révélation** : `GET /coffre/:id/secret` rend le
+clair avec `cache-control: no-store`, l'entrée d'un autre compte rend 404 sans souffler la valeur,
+une note n'a rien à révéler, et un chiffré altéré **refuse** en 422 au lieu de rendre un secret vide.
+
+⚠️ **Les deux assertions de la liste ne font pas double emploi, et la mutation l'a prouvé.** Deux
+mécanismes indépendants gardent le mot de passe hors de la charge utile : le `select` qui ne charge
+pas la colonne, et la vue construite champ par champ, qui n'a pas de place pour un secret. En
+retirant le `select`, la charge utile **reste propre** et sept des huit tests restent verts. Même
+famille que le premier test de `coffre_wall.spec.ts` : on lit le mécanisme, pas seulement le
+résultat.
+
+⚠️ **Et `notInclude(sql, 'secret_cipher')` ne suffit pas non plus** — mesuré au même moment. Sans le
+`select`, la requête devient `select * …` : elle charge la colonne **sans la nommer**, donc
+l'assertion d'absence passe au vert sur le code qu'elle interdit. C'est `notInclude(sql, 'select *')`
+qui porte la règle réelle — « les colonnes sont énumérées, et celle-là n'y est pas ».
+
 ### `tests/functional/modules/coffre_curtain.spec.ts`
 
 Le rideau : le plancher qui vérifie que le module est bien activé (sinon rien ne prouve rien),
 l'absence de toute destination `/coffre`, la prop partagée `destinations` vue depuis une page du
 coffre ouvert, et le rappel que les **capacités**, elles, sont bien au registre.
+
+## Hors du module, mais amendés par CC-179
+
+- `tests/functional/core/validation_flash.spec.ts` — **une validation ratée ne rejoue pas le corps
+  soumis dans la session**. Il est rangé hors du module parce que le correctif est dans le noyau
+  (`app/core/shared/exceptions/handler.ts`) et vaut pour tous les formulaires ; mais c'est bien la
+  **passphrase du coffre** qu'il prend pour témoin, et pour une raison précise : `password` est
+  exclu d'office par une liste en dur du paquet `@adonisjs/session`, donc un test écrit sur ce
+  nom-là passerait au vert **sans** le correctif.
+- `inertia/utils/__tests__/clipboard.spec.ts` — la copie vers le presse-papiers, partagée avec
+  `/reglages` et l'écran LLM de Leitner. Hors index par construction : `tests_index.spec.ts` ne
+  balaie ni `app/core/**` ni `inertia/**`.
 
 ## Hors du module, mais amendés par ce lot
 

@@ -32,6 +32,9 @@ const ROUTES_MUREES = [
   { methode: 'get' as const, url: '/coffre' },
   { methode: 'post' as const, url: '/coffre' },
   { methode: 'delete' as const, url: '/coffre/1' },
+  // La révélation d'un mot de passe (CC-179) : la route la plus sensible du module, et la seule
+  // dont une réponse porte un secret en clair.
+  { methode: 'get' as const, url: '/coffre/1/secret' },
 ]
 
 test.group('Coffre / le mur', (group) => {
@@ -66,6 +69,10 @@ test.group('Coffre / le mur', (group) => {
     assert.include(nomsSur('/coffre', 'GET'), 'coffreOuvert')
     assert.include(nomsSur('/coffre', 'POST'), 'coffreOuvert')
     assert.include(nomsSur('/coffre/:id', 'DELETE'), 'coffreOuvert')
+    // ⚠️ CC-179 : celle-ci rend un mot de passe en clair. Le 403 du contrôleur la couvrirait de
+    // toute façon — raison de plus pour asserter le middleware ici, où c'est le mécanisme qui se
+    // lit, et pas seulement le refus qui s'observe.
+    assert.include(nomsSur('/coffre/:id/secret', 'GET'), 'coffreOuvert')
 
     // ⚠️ Et la porte ne doit PAS le porter : sinon il faudrait avoir ouvert le coffre pour
     // atteindre l'écran qui l'ouvre. Sans cette moitié, poser le middleware partout passerait
