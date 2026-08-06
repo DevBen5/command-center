@@ -56,6 +56,13 @@
     "mediaAddButton": "Ajouter",
     "mediaInvalid": "Ce n'est pas un UUID Immich valide.",
     "mediaRemove": "Retirer",
-    "mediaPending": "sera ajouté à l'enregistrement"
+    "mediaPending": "sera ajouté à l'enregistrement",
+    "nasFile": "Photos et vidéos du NAS",
+    "nasFileHint": "Chemin relatif à une racine autorisée du serveur (ex. photos/exemple.jpg). Le fichier doit déjà exister — rien n'est téléversé ici.",
+    "nasFilePlaceholder": "chemin/relatif/fichier.jpg",
+    "nasFileAddButton": "Ajouter",
+    "nasFileInvalid": "Ce n'est pas un chemin de média valide (formats acceptés : mp4, webm, mov, mkv, avi, jpg, jpeg, png, webp, gif, heic).",
+    "nasFileRemove": "Retirer",
+    "nasFilePending": "sera ajouté à l'enregistrement"
   }
 }

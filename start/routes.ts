@@ -50,6 +50,7 @@ const LeitnerStatsController = () => import('#modules/leitner/controllers/leitne
 const CoffreDoorController = () => import('#modules/coffre/controllers/coffre_door_controller')
 const CoffreController = () => import('#modules/coffre/controllers/coffre_controller')
 const CoffreMediaController = () => import('#modules/coffre/controllers/coffre_media_controller')
+const CoffreNasController = () => import('#modules/coffre/controllers/coffre_nas_controller')
 
 /*
 |--------------------------------------------------------------------------
@@ -581,6 +582,12 @@ router
           // jamais l'UUID Immich — même décision de sécurité que `/veille/items/:id/thumbnail`.
           router
             .get('/media/:id/thumbnail', [CoffreMediaController, 'thumbnail'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('coffre.view'))
+          // Le proxy de streaming de médias NAS — photos et vidéos (CC-181) : `:id` désigne
+          // notre ligne `coffre_entry_nas_file`, jamais un chemin ni un id venu du client.
+          router
+            .get('/nas/:id/stream', [CoffreNasController, 'stream'])
             .where('id', router.matchers.number())
             .use(middleware.can('coffre.view'))
         })

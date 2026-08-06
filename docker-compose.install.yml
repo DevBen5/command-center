@@ -100,6 +100,17 @@ services:
       # uncomment.
       # - '${AGENTS_CONFIG_PATH_HOST}:/data/agents.json'
 
+      # Media files (photos and videos) the vault's NAS-playback feature (CC-181) is allowed to
+      # read directly from disk. Read-only: the app only ever reads these files, never writes to
+      # them. Only takes effect once COFFRE_NAS_ROOTS=/data/coffre-media is set in .env AND the
+      # coffre module is enabled in MODULES — both are undocumented here on purpose (see
+      # app/modules/coffre/CLAUDE.md).
+      #
+      # ⚠️ No default value on purpose, same reason as the backup mirror above: a bind mount whose
+      # source does not exist would create an empty directory there instead, and the feature would
+      # look configured while serving nothing.
+      # - '${COFFRE_NAS_ROOTS_PATH_HOST}:/data/coffre-media:ro'
+
       # Docker socket — required by the Services module, and ⚠️ EQUIVALENT TO ROOT
       # ON THIS MACHINE, compounded by the fact that agents execute shell commands
       # in this same container. Read docs/deploiement-nas.md §11 in full before

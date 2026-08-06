@@ -28,12 +28,25 @@ interface CoffreEntry {
    * construire `/coffre/media/:id/thumbnail`.
    */
   media: { id: number }[]
+  /**
+   * ⚠️ **Seuls l'`id` et le `kind` de la ligne voyagent jusqu'ici, jamais le chemin sur le
+   * disque** (CC-181) — même doctrine que `media`. `id` sert à construire
+   * `/coffre/nas/:id/stream` ; `kind` (« video » | « photo ») dit à l'écran quel élément rendre
+   * — il ne révèle rien de sensible, seulement la nature du fichier.
+   */
+  nasFiles: { id: number; kind: 'video' | 'photo' }[]
 }
 
 defineProps<{ entries: CoffreEntry[] }>()
 
 /** Un UUID Immich, vérifié côté client — défense en profondeur, la vraie garde est côté serveur. */
 const IMMICH_ASSET_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Un chemin de média NAS (photo ou vidéo), vérifié côté client — même défense en profondeur,
+ * même limite : la vraie garde est `NasRootsService.resolve`, côté serveur, après `realpath`
+ * (CC-181). */
+const NAS_PATH =
+  /^(?!\/)(?![a-zA-Z]:)(?!.*\.\.)(?!.*\\)(?!.*\x00).+\.(mp4|webm|mov|mkv|avi|jpg|jpeg|png|webp|gif|heic)$/i
 
 const { t } = useI18n()
 
@@ -46,17 +59,23 @@ const form = useForm<{
   content: string
   password: string
   media: string[]
+  nasFiles: string[]
 }>({
   type: 'note',
   title: '',
   content: '',
   password: '',
   media: [],
+  nasFiles: [],
 })
 
 /** Le champ de saisie d'un UUID Immich à ajouter — création comme édition. */
 const newMediaInput = ref('')
 const newMediaError = ref(false)
+
+/** Le champ de saisie d'un chemin de média NAS à ajouter — création comme édition. */
+const newNasFileInput = ref('')
+const newNasFileError = ref(false)
 
 /** Quelle entrée est dépliée — le contenu ne s'affiche pas de lui-même. */
 const opened = ref<number | null>(null)
@@ -79,15 +98,22 @@ const editForm = useForm<{
   content: string
   password: string
   media: { add: string[]; remove: number[] }
+  nasFiles: { add: string[]; remove: number[] }
 }>({
   title: '',
   content: '',
   password: '',
   media: { add: [], remove: [] },
+  nasFiles: { add: [], remove: [] },
 })
 
 /** Les médias déjà attachés à l'entrée en cours d'édition, MOINS ceux marqués pour retrait. */
 const editingRemainingMedia = ref<{ id: number }[]>([])
+
+/** Les médias NAS déjà attachés à l'entrée en cours d'édition, MOINS ceux marqués pour retrait.
+ * ⚠️ Le `kind` n'est PAS gardé ici : pendant l'édition, les chips ne rendent ni `<video>` ni
+ * `<img>` (voir plus bas, doctrine anti-bande-passante), donc rien n'a besoin de la nature. */
+const editingRemainingNasFiles = ref<{ id: number }[]>([])
 
 /**
  * Le presse-papiers est-il utilisable ici ?
@@ -150,8 +176,11 @@ function oublier(): void {
   editForm.reset()
   editForm.clearErrors()
   editingRemainingMedia.value = []
+  editingRemainingNasFiles.value = []
   newMediaInput.value = ''
   newMediaError.value = false
+  newNasFileInput.value = ''
+  newNasFileError.value = false
 }
 
 /** Ouvre le formulaire d'édition, préremplit depuis ce que la liste porte déjà — jamais le mot
@@ -166,6 +195,7 @@ function startEdit(entry: CoffreEntry): void {
   editForm.title = entry.title
   editForm.content = entry.content
   editingRemainingMedia.value = [...entry.media]
+  editingRemainingNasFiles.value = entry.nasFiles.map(({ id }) => ({ id }))
 }
 
 function submitEdit(): void {
@@ -202,6 +232,35 @@ function removePendingEditMedia(assetId: string): void {
 function removeExistingMedia(id: number): void {
   editForm.media.remove.push(id)
   editingRemainingMedia.value = editingRemainingMedia.value.filter((media) => media.id !== id)
+}
+
+/** Valide et ajoute un chemin de média NAS au champ courant — même doctrine que `addMedia`
+ * (CC-181), la vraie garde reste `NasRootsService.resolve`, côté serveur. */
+function addNasFile(target: string[]): void {
+  const path = newNasFileInput.value.trim()
+
+  if (!NAS_PATH.test(path)) {
+    newNasFileError.value = true
+    return
+  }
+
+  newNasFileError.value = false
+  if (!target.includes(path)) target.push(path)
+  newNasFileInput.value = ''
+}
+
+function removeNasFileFromCreate(path: string): void {
+  form.nasFiles = form.nasFiles.filter((p) => p !== path)
+}
+
+function removePendingEditNasFile(path: string): void {
+  editForm.nasFiles.add = editForm.nasFiles.add.filter((p) => p !== path)
+}
+
+/** Marque un média NAS déjà attaché pour retrait — même doctrine que `removeExistingMedia`. */
+function removeExistingNasFile(id: number): void {
+  editForm.nasFiles.remove.push(id)
+  editingRemainingNasFiles.value = editingRemainingNasFiles.value.filter((file) => file.id !== id)
 }
 
 function masquerSecret(): void {
@@ -284,9 +343,11 @@ async function afficherSecret(id: number): Promise<void> {
 function submit(): void {
   form.post('/coffre', {
     onSuccess: () => {
-      form.reset('title', 'content', 'password', 'media')
+      form.reset('title', 'content', 'password', 'media', 'nasFiles')
       newMediaInput.value = ''
       newMediaError.value = false
+      newNasFileInput.value = ''
+      newNasFileError.value = false
     },
   })
 }
@@ -451,6 +512,48 @@ function natureLabel(type: CoffreEntryType): string {
                 @click="removeMediaFromCreate(assetId)"
               >
                 {{ t('coffre.index.mediaRemove') }}
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <div>
+          <label class="mb-[7px] block text-[12px] text-txt-2">{{ t('coffre.index.nasFile') }}</label>
+          <p class="mb-2 text-[12px] text-txt-3">{{ t('coffre.index.nasFileHint') }}</p>
+
+          <div class="flex gap-2">
+            <input
+              v-model="newNasFileInput"
+              :placeholder="t('coffre.index.nasFilePlaceholder')"
+              class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[13px] text-txt outline-none focus:border-aqua"
+              :class="newNasFileError ? 'border-bad' : ''"
+              @keydown.enter.prevent="addNasFile(form.nasFiles)"
+            />
+            <button
+              type="button"
+              class="shrink-0 rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt hover:border-aqua"
+              @click="addNasFile(form.nasFiles)"
+            >
+              {{ t('coffre.index.nasFileAddButton') }}
+            </button>
+          </div>
+          <p v-if="newNasFileError" class="mt-1.5 text-[12.5px] text-bad">
+            {{ t('coffre.index.nasFileInvalid') }}
+          </p>
+
+          <ul v-if="form.nasFiles.length > 0" class="mt-2 flex flex-wrap gap-2">
+            <li
+              v-for="path in form.nasFiles"
+              :key="path"
+              class="flex items-center gap-2 rounded-[7px] border border-line-2 px-2.5 py-1.5 text-[11px] text-txt-2"
+            >
+              <span class="font-mono">{{ path }}</span>
+              <button
+                type="button"
+                class="text-txt-3 hover:text-bad"
+                @click="removeNasFileFromCreate(path)"
+              >
+                {{ t('coffre.index.nasFileRemove') }}
               </button>
             </li>
           </ul>
@@ -642,6 +745,72 @@ function natureLabel(type: CoffreEntryType): string {
             </ul>
           </div>
 
+          <div>
+            <label class="mb-[7px] block text-[12px] text-txt-2">{{ t('coffre.index.nasFile') }}</label>
+            <p class="mb-2 text-[12px] text-txt-3">{{ t('coffre.index.nasFileHint') }}</p>
+            <!-- ⚠️ Pas d'aperçu `<video>`/`<img>` ici, contrairement aux vignettes Immich : sans
+                 redimensionnement côté serveur, plusieurs chips chargeraient chacune le fichier
+                 complet — exactement le piège de bande passante que le ticket nomme. L'aperçu
+                 réel n'apparaît qu'à l'affichage de l'entrée ouverte, un média à la fois. -->
+            <ul
+              v-if="editingRemainingNasFiles.length > 0"
+              class="mb-2 flex flex-wrap gap-2"
+            >
+              <li
+                v-for="file in editingRemainingNasFiles"
+                :key="file.id"
+                class="flex items-center gap-2 rounded-[7px] border border-line-2 px-2.5 py-1.5 text-[11px] text-txt-2"
+              >
+                <span class="font-mono">#{{ file.id }}</span>
+                <button
+                  type="button"
+                  class="text-txt-3 hover:text-bad"
+                  @click="removeExistingNasFile(file.id)"
+                >
+                  {{ t('coffre.index.nasFileRemove') }}
+                </button>
+              </li>
+            </ul>
+
+            <div class="flex gap-2">
+              <input
+                v-model="newNasFileInput"
+                :placeholder="t('coffre.index.nasFilePlaceholder')"
+                class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[13px] text-txt outline-none focus:border-aqua"
+                :class="newNasFileError ? 'border-bad' : ''"
+                @keydown.enter.prevent="addNasFile(editForm.nasFiles.add)"
+              />
+              <button
+                type="button"
+                class="shrink-0 rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt hover:border-aqua"
+                @click="addNasFile(editForm.nasFiles.add)"
+              >
+                {{ t('coffre.index.nasFileAddButton') }}
+              </button>
+            </div>
+            <p v-if="newNasFileError" class="mt-1.5 text-[12.5px] text-bad">
+              {{ t('coffre.index.nasFileInvalid') }}
+            </p>
+
+            <ul v-if="editForm.nasFiles.add.length > 0" class="mt-2 flex flex-wrap gap-2">
+              <li
+                v-for="path in editForm.nasFiles.add"
+                :key="path"
+                class="flex items-center gap-2 rounded-[7px] border border-line-2 px-2.5 py-1.5 text-[11px] text-txt-2"
+              >
+                <span class="font-mono">{{ path }}</span>
+                <span class="text-txt-3">({{ t('coffre.index.nasFilePending') }})</span>
+                <button
+                  type="button"
+                  class="text-txt-3 hover:text-bad"
+                  @click="removePendingEditNasFile(path)"
+                >
+                  {{ t('coffre.index.nasFileRemove') }}
+                </button>
+              </li>
+            </ul>
+          </div>
+
           <div class="flex gap-2">
             <button
               type="submit"
@@ -670,6 +839,30 @@ function natureLabel(type: CoffreEntryType): string {
               <img
                 :src="`/coffre/media/${media.id}/thumbnail`"
                 class="block h-20 w-20 object-cover"
+                alt=""
+              />
+            </li>
+          </ul>
+
+          <ul v-if="entry.nasFiles.length > 0" class="mt-3 flex flex-wrap gap-2">
+            <li
+              v-for="file in entry.nasFiles"
+              :key="file.id"
+              class="overflow-hidden rounded-[8px] border border-line-2"
+            >
+              <!-- ⚠️ `kind` choisit l'élément — le serveur ne redescend jamais le chemin, donc
+                   jamais l'extension : sans ce champ, l'écran ne pourrait pas savoir quoi rendre. -->
+              <video
+                v-if="file.kind === 'video'"
+                :src="`/coffre/nas/${file.id}/stream`"
+                class="block max-h-64 max-w-full"
+                controls
+                preload="metadata"
+              />
+              <img
+                v-else
+                :src="`/coffre/nas/${file.id}/stream`"
+                class="block max-h-64 max-w-full object-contain"
                 alt=""
               />
             </li>

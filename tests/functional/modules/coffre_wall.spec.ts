@@ -38,6 +38,8 @@ const ROUTES_MUREES = [
   { methode: 'get' as const, url: '/coffre/1/secret' },
   // Le proxy de vignette Immich (CC-180) : l'image EST le contenu du coffre.
   { methode: 'get' as const, url: '/coffre/media/1/thumbnail' },
+  // Le proxy de streaming de médias NAS (CC-181) : même raison, le média EST le contenu.
+  { methode: 'get' as const, url: '/coffre/nas/1/stream' },
 ]
 
 test.group('Coffre / le mur', (group) => {
@@ -81,6 +83,8 @@ test.group('Coffre / le mur', (group) => {
     // ⚠️ CC-180 : mesuré à l'identique — retirer cette route du mur ne fait rougir QUE cette
     // assertion-là, le contrôleur rendant lui aussi un 403 sans clé de session.
     assert.include(nomsSur('/coffre/media/:id/thumbnail', 'GET'), 'coffreOuvert')
+    // ⚠️ CC-181 : même mesure — le contrôleur lève lui aussi sans clé de session.
+    assert.include(nomsSur('/coffre/nas/:id/stream', 'GET'), 'coffreOuvert')
 
     // ⚠️ Et la porte ne doit PAS le porter : sinon il faudrait avoir ouvert le coffre pour
     // atteindre l'écran qui l'ouvre. Sans cette moitié, poser le middleware partout passerait
