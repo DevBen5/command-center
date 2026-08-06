@@ -67,4 +67,18 @@ export const middleware = router.named({
   can: () => import('#core/auth/middleware/can_middleware'),
   admin: () => import('#core/auth/middleware/admin_middleware'),
   openRoute: () => import('#core/auth/middleware/open_route_middleware'),
+  /**
+   * L'élévation de session du coffre (CC-178).
+   *
+   * ⚠️ **Ce n'est PAS une quatrième forme de déclaration** : `declarationOf` n'en connaît que
+   * trois, et une route du coffre porte donc toujours son `can(…)` en plus. Ce middleware
+   * n'ouvre rien qu'une capacité n'ait déjà ouvert — il ferme un cran de plus.
+   *
+   * ⚠️ **Nommé, jamais global.** Un middleware global de plus ferait rougir
+   * `capabilities_routes.spec.ts`, qui fige leur nombre parce que c'est la seule chose qui
+   * distingue le garde-barrière d'un oubli — et il tournerait sur toutes les routes du dépôt
+   * pour n'en concerner que six. L'import est paresseux : un `MODULES` sans `coffre` ne charge
+   * jamais ce fichier.
+   */
+  coffreOuvert: () => import('#modules/coffre/middleware/vault_unlocked_middleware'),
 })

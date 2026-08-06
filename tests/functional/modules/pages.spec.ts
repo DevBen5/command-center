@@ -33,6 +33,11 @@ const PAGES: Array<{ route: string; component: string; capability: string | 'adm
   // quelqu'un d'autre pour régler son propre compte serait un cercle. Un compte nu doit donc y
   // entrer, et c'est ce que ce test vérifie en lui en donnant un.
   { route: '/reglages', component: 'core/settings/index', capability: 'none' },
+  // ⚠️ **La PORTE du coffre, jamais `/coffre` lui-même** (CC-178) : celui-ci est derrière
+  // l'élévation de session et répondrait 403 à ce compte, qui vient seulement de se connecter.
+  // C'est le sujet de `coffre_wall.spec.ts` ; ici on ne vérifie que ce que ce fichier vérifie —
+  // que la page se rend et que la prop partagée `user` n'est pas écrasée.
+  { route: '/coffre/ouvrir', component: 'modules/coffre/ouvrir', capability: 'coffre.view' },
 ]
 
 test.group('Modules / accès authentifié', (group) => {

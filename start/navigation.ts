@@ -51,3 +51,21 @@ if (modules.has('leitner')) {
   const { LEITNER_DESTINATIONS } = await import('#modules/leitner/destinations')
   registry.register('leitner', LEITNER_DESTINATIONS)
 }
+
+/*
+| ⚠️ **`coffre` est ABSENT de ce fichier, et c'est le rideau — pas un oubli** (CC-178).
+|
+| N'ajoute pas sa ligne « pour réparer » : un module sans destination disparaît mécaniquement de
+| la barre latérale, du fil d'Ariane et de la palette ⌘K, qui dérivent tous les trois de ce
+| registre. C'est tout ce que le rideau demande, et il n'y a aucun code d'invisibilité à écrire.
+| `tests/functional/modules/coffre_curtain.spec.ts` rougit si une destination `/coffre` apparaît,
+| et `navigation_registry.spec.ts` porte l'exception dans son `DESTINATION_PAR_MODULE`.
+|
+| ⚠️ **Le rideau protège d'un regard, jamais d'une recherche.** Le mur — capacité + élévation de
+| session — est ce qui protège réellement ; voir `app/modules/coffre/CLAUDE.md`.
+|
+| ⚠️ **L'avertissement habituel de ce fichier s'applique quand même, il est simplement ASSUMÉ
+| ici** : un compte qui n'aurait de droits que sur le coffre atterrit bien sur « aucun accès »,
+| et devra taper `/coffre/ouvrir`. C'est le prix exact de l'invisibilité, choisi les yeux
+| ouverts — pas le symptôme d'un module oublié.
+*/

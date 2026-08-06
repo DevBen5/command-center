@@ -1,0 +1,37 @@
+{
+  "ouvrir": {
+    "title": "Coffre",
+    "crumb": "Ouvrir",
+    "lockedTitle": "Coffre verrouillé",
+    "lockedLead": "Deux preuves sont demandées : le code de votre application d'authentification, et la passphrase du coffre.",
+    "code": "Code à six chiffres",
+    "codePlaceholder": "123456",
+    "passphrase": "Passphrase du coffre",
+    "unlock": "Ouvrir le coffre",
+    "noTotpTitle": "Second facteur requis",
+    "noTotpLead": "Le coffre ne s'ouvre qu'avec un second facteur. Activez-le depuis vos réglages, puis revenez ici.",
+    "toSettings": "Aller aux réglages",
+    "createTitle": "Poser la passphrase du coffre",
+    "createLead": "Cette passphrase, et elle seule, déchiffre le contenu du coffre. Elle n'est enregistrée nulle part — ni en clair, ni sous forme de hachage.",
+    "createWarning": "Passphrase perdue = contenu perdu. Aucune commande, aucun administrateur et aucune sauvegarde ne peut le rendre : ce serait une porte dérobée sur le coffre. Notez-la ailleurs avant de continuer.",
+    "passphraseConfirm": "Confirmez la passphrase",
+    "create": "Créer le coffre"
+  },
+  "index": {
+    "title": "Coffre",
+    "lead": "Ouvert pour un temps limité. Le contenu est chiffré au repos : ni une sauvegarde, ni un accès direct à la base ne le rendent lisible.",
+    "lock": "Verrouiller",
+    "empty": "Le coffre est vide.",
+    "addTitle": "Ajouter une entrée",
+    "type": "Nature",
+    "typeNote": "Note",
+    "typeUrl": "Lien",
+    "entryTitle": "Titre",
+    "content": "Contenu",
+    "contentUrl": "Adresse",
+    "add": "Enregistrer",
+    "delete": "Supprimer",
+    "deleteConfirm": "Supprimer cette entrée ? Elle n'est récupérable par aucun moyen.",
+    "unreadable": "Entrée illisible — la valeur en base ne se déchiffre pas avec la clé de cette session."
+  }
+}

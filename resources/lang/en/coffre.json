@@ -1,0 +1,5 @@
+{
+  "invalidProof": "Invalid code or passphrase.",
+  "totpRequired": "The vault requires two-factor authentication. Enable it from your settings, then come back.",
+  "alreadyExists": "This vault already exists: open it instead of creating a second one."
+}
