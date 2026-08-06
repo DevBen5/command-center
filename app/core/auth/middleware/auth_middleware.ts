@@ -2,7 +2,11 @@ import type { HttpContext } from '@adonisjs/core/http'
 import type { NextFn } from '@adonisjs/core/types/http'
 import type { Authenticators } from '@adonisjs/auth/types'
 import { DateTime } from 'luxon'
-import { LOGIN_STAMP_KEY, isStampExpired } from '#core/auth/services/session_lifetime'
+import {
+  LOGIN_STAMP_KEY,
+  isSessionRevoked,
+  isStampExpired,
+} from '#core/auth/services/session_lifetime'
 import { adminTotpRequired } from '#core/auth/services/two_factor_policy'
 
 /**
@@ -54,10 +58,33 @@ export default class AuthMiddleware {
       return ctx.response.redirect(this.redirectTo)
     }
 
+    const user = ctx.auth.user!
+
     // Expiration absolue (CC-78) : au-delà de MAX_SESSION_DAYS après la connexion,
     // re-login obligatoire même en pleine activité — l'expiration d'inactivité (2 h)
     // ne borne rien pour un cookie volé rejoué régulièrement.
     const stamp = ctx.session.get(LOGIN_STAMP_KEY)
+
+    /**
+     * Révocation en bloc (CC-176) : le propriétaire a fermé les sessions ouvertes ailleurs.
+     *
+     * ⚠️ **Ce qui rend ce contrôle sûr est qu'il lit `stamp`, la valeur capturée AVANT la
+     * branche ci-dessous — pas `ctx.session.get(…)` à nouveau.** Cette branche *repose* le
+     * tampon à maintenant quand il manque (décision de CC-78) : une relecture après elle
+     * verrait une date postérieure à la borne, et la session survivrait à la révocation. Le
+     * geste paraîtrait fonctionner sans rien fermer — aucune erreur, aucun signe. L'ordre des
+     * deux blocs, lui, n'y change rien : ne le prends pas pour la garde.
+     *
+     * Le tampon s'oublie AVANT la redirection, pour la même raison qu'à l'expiration : le
+     * laisser ferait ré-expulser le compte sitôt reconnecté si la reconnexion ne le reposait
+     * pas — les deux bouts sont tenus (`auth_controller.store`, `two_factor_controller`).
+     */
+    if (isSessionRevoked(stamp, user.sessionsValidFrom)) {
+      ctx.session.forget(LOGIN_STAMP_KEY)
+      await ctx.auth.use('web').logout()
+      return ctx.response.redirect(this.redirectTo)
+    }
+
     if (stamp === undefined) {
       // Session d'avant CC-78, ou posée par `loginAs` dans les tests : le tampon
       // part de maintenant. Traiter « absent » comme expiré déconnecterait tout le
@@ -87,7 +114,6 @@ export default class AuthMiddleware {
      * seule chose qui distingue le garde-barrière d'un oubli. Le faire varier pour un contrôle
      * qui n'a de sens qu'authentifié affaiblirait cette garde-là.
      */
-    const user = ctx.auth.user!
     if (
       adminTotpRequired() &&
       user.isAdmin &&

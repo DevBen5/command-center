@@ -4,6 +4,7 @@ import logger from '@adonisjs/core/services/logger'
 import User from '#core/auth/models/user'
 import AccountResetEvent from '#core/auth/models/account_reset_event'
 import twoFactor from '#core/auth/services/two_factor_service'
+import { revokeSessions } from '#core/auth/services/session_revocation'
 import { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH } from '#core/auth/constants/password_rules'
 
 /**
@@ -108,6 +109,18 @@ export default class ResetAccount extends BaseCommand {
 
     user.password = motDePasse
     await user.save()
+
+    /**
+     * ⚠️ **La révocation vient en dernier, et elle s'ajoute à l'ordre ci-dessus sans le rouvrir**
+     * (CC-176). Livrer un mot de passe neuf en laissant l'intrus dans la place vide la commande
+     * de son sens : c'est le filet du compte perdu, et un cookie volé reste valable jusqu'à la
+     * borne des 7 jours sans ce geste. Interrompue avant cette ligne, la commande laisse un
+     * compte au pire aussi ouvrable qu'avant — l'invariant de CC-129 tient toujours.
+     *
+     * Aucune session à re-tamponner : une commande n'en a pas. Toutes tombent, y compris celle
+     * de l'opérateur s'il en avait une — c'est le comportement voulu.
+     */
+    await revokeSessions(user)
 
     await this.#tracer(user)
     this.#rendreCompte(user, avaitSecondFacteur, enrolementEnCours)
@@ -234,6 +247,11 @@ export default class ResetAccount extends BaseCommand {
 
   #rendreCompte(user: User, avaitSecondFacteur: boolean, enrolementEnCours: boolean) {
     this.logger.success(`Mot de passe reposé sur « ${user.email} ».`)
+
+    this.logger.success(
+      'Sessions ouvertes ailleurs fermées : elles seront refusées à leur requête suivante. ' +
+        'Sans ce geste, un cookie volé restait valable jusqu’à 7 jours après sa connexion.'
+    )
 
     if (avaitSecondFacteur) {
       this.logger.success(

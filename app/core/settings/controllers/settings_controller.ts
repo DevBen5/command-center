@@ -8,6 +8,9 @@ import { adminTotpRequired } from '#core/auth/services/two_factor_policy'
 import reauthThrottle from '#core/auth/services/reauth_throttle_service'
 import { totpConfirmationValidator } from '#core/auth/validators/two_factor'
 import { changePasswordValidator } from '#core/auth/validators/auth'
+// Aliasée : l'action de ce contrôleur porte le même nom, et lire `revokeSessions` à l'intérieur
+// de `revokeSessions` se lirait comme une récursion.
+import { revokeSessions as closeOtherSessions } from '#core/auth/services/session_revocation'
 import appVersion from '#config/app_version'
 
 /**
@@ -137,9 +140,15 @@ export default class SettingsController {
    * client déjà bloqué. `ReauthThrottleService` ne fait que compter — la vérification
    * réutilise exactement le chemin de `AuthController.store`.
    *
-   * ⚠️ **Ne ferme aucune session ouverte ailleurs** — le store est `cookie`, aucune liste
-   * côté serveur. C'est pour ça que l'écran porte un avertissement permanent à côté de ce
-   * formulaire ; ce n'est pas réparé ici (option (a) du ticket, (b) serait un lot à part).
+   * ⚠️ **Il ferme les sessions ouvertes ailleurs, et c'est ce qui permet à l'écran de ne plus
+   * porter d'avertissement** (CC-176). Le motif le plus courant d'un changement de mot de passe
+   * est « je crois que quelqu'un l'a » : le laisser sans effet sur les sessions existantes
+   * fabriquait une fausse sécurité, que CC-147 ne pouvait qu'avouer en toutes lettres.
+   *
+   * ⚠️ **Après l'enregistrement, jamais avant.** Révoquer d'abord fermerait les autres sessions
+   * puis, si `save()` échouait, laisserait le compte sur l'ancien mot de passe — un dérangement
+   * pour rien. Dans cet ordre, une interruption laisse au pire un mot de passe changé sans
+   * révocation : exactement l'état d'avant ce lot, et le bouton ci-dessus le rattrape.
    */
   async changePassword({ auth, request, response, session, i18n }: HttpContext) {
     const user = auth.user!
@@ -168,6 +177,28 @@ export default class SettingsController {
     await reauthThrottle.clearFor(user.id)
     user.password = password
     await user.save()
+
+    await closeOtherSessions(user, session)
+
+    return response.redirect('/reglages')
+  }
+
+  /**
+   * Fermer les sessions ouvertes ailleurs (CC-176) — sans toucher à celle qui le demande.
+   *
+   * ⚠️ **Sans ré-authentification, contrairement au formulaire de mot de passe juste au-dessus.**
+   * Là-bas le mot de passe actuel est exigé parce que le formulaire *défait* la sécurité du
+   * compte : une session volée pourrait verrouiller le propriétaire dehors. Ici l'action est
+   * l'inverse — elle n'ouvre rien, et un attaquant qui la déclencherait se couperait lui-même.
+   * Exiger une preuve fraîche ajouterait un oracle de mot de passe pour protéger un geste qui
+   * n'a rien à voler.
+   *
+   * ⚠️ **`auth.user`, jamais un identifiant venu de la requête** — comme tout le reste de cet
+   * écran. C'est ce qui rend la route sûre sous `openRoute()` : elle n'a aucune surface sur un
+   * autre compte.
+   */
+  async revokeSessions({ auth, response, session }: HttpContext) {
+    await closeOtherSessions(auth.user!, session)
 
     return response.redirect('/reglages')
   }

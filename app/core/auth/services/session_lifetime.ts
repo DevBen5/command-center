@@ -30,3 +30,34 @@ export function isStampExpired(stamp: unknown, now: DateTime = DateTime.now()): 
 
   return now.diff(loginAt, 'days').days > MAX_SESSION_DAYS
 }
+
+/**
+ * Cette session a-t-elle été révoquée en bloc (CC-176) ?
+ *
+ * `validFrom` est `users.sessions_valid_from` : la borne posée par un geste volontaire —
+ * bouton de `/reglages`, changement de mot de passe, `auth:reset-account`. Toute session
+ * connectée **avant** elle est morte.
+ *
+ * ⚠️ **La comparaison est strictement `<`, et ce n'est pas un détail de style.** Le geste
+ * repose le tampon de la session qui le déclenche à la borne exacte : un `<=` la ferait
+ * s'auto-expulser au rechargement suivant — symptôme « le bouton me déconnecte », cause
+ * invisible. C'est le test qui porte le lot, et il rougit si cette ligne bouge.
+ *
+ * ⚠️ **Un tampon absent est révoqué, alors qu'il est toléré par `isStampExpired`.** C'est le
+ * trou par lequel la révocation fuirait : `AuthMiddleware` *repose* le tampon quand il manque
+ * (décision de CC-78, pour ne déconnecter personne au déploiement), donc une session sans
+ * tampon se verrait offrir une date postérieure à la borne et y survivrait — le geste
+ * paraîtrait fonctionner sans rien fermer. Traiter l'absence comme une révocation est sûr
+ * **parce que `validFrom` est renseigné** : toute session ouverte depuis CC-78 porte un
+ * tampon, et la borne ne peut être que postérieure à ce déploiement. Quand `validFrom` est
+ * `null`, on retombe sur la tolérance d'origine, intacte.
+ */
+export function isSessionRevoked(stamp: unknown, validFrom: DateTime | null): boolean {
+  if (validFrom === null) return false
+  if (typeof stamp !== 'string') return true
+
+  const loginAt = DateTime.fromISO(stamp)
+  if (!loginAt.isValid) return true
+
+  return loginAt < validFrom
+}

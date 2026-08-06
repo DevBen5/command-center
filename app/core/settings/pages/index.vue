@@ -122,6 +122,18 @@ function changePassword(): void {
 }
 
 /**
+ * Ferme les sessions ouvertes ailleurs (CC-176) — la sienne survit, le serveur la re-tamponne.
+ *
+ * ⚠️ **La confirmation n'est pas décorative** : le geste est irréversible pour les autres
+ * appareils, qui devront se reconnecter, et rien à l'écran ne dit combien ils sont — il n'existe
+ * aucune liste côté serveur. Un clic accidentel n'a pas de retour en arrière.
+ */
+function revokeSessions(): void {
+  if (!confirm(t('settings.security.sessions.confirm'))) return
+  router.post('/reglages/sessions', {}, { preserveScroll: true })
+}
+
+/**
  * Les codes affichés disparaissent, et la page se recharge : c'est ce rechargement qui met à
  * jour l'état (« actif », le décompte des codes) que la réponse JSON n'a pas traversé.
  */
@@ -379,11 +391,6 @@ function switchLocale(next: string): void {
           />
         </div>
 
-        <!-- ⚠️ Permanent, pas conditionné à un succès : sans lui, changer son mot de passe
-             fabrique une fausse sécurité — le store de session est `cookie`, aucune session
-             ouverte ailleurs n'est fermée par ce geste (CC-147). -->
-        <p class="text-[12px] text-warn">{{ t('settings.security.password.sessionsWarning') }}</p>
-
         <button
           type="submit"
           :disabled="passwordForm.processing"
@@ -392,6 +399,27 @@ function switchLocale(next: string): void {
           {{ t('settings.security.password.submit') }}
         </button>
       </form>
+    </section>
+
+    <!-- La révocation en bloc (CC-176). Elle remplace l'avertissement qui vivait sous le
+         formulaire ci-dessus : celui-ci disait ce que l'application ne savait pas faire, celle-ci
+         le fait. ⚠️ Le titre parle de « sessions », jamais d'« appareils connectés » : le store
+         est `cookie`, le serveur ne sait ni combien il y en a ni depuis où — promettre un
+         inventaire serait promettre un écran qui n'existe pas. -->
+    <section class="flex flex-col gap-3 rounded-xl border border-line-2 bg-panel p-4">
+      <div>
+        <h3 class="text-[13px] font-semibold tracking-tight">
+          {{ t('settings.security.sessions.title') }}
+        </h3>
+        <p class="mt-1 text-[12.5px] text-txt-3">{{ t('settings.security.sessions.lead') }}</p>
+      </div>
+      <button
+        type="button"
+        class="w-fit rounded-lg border border-line-2 px-3 py-2 text-[12.5px] font-medium text-txt transition hover:border-bad hover:text-bad"
+        @click="revokeSessions"
+      >
+        {{ t('settings.security.sessions.submit') }}
+      </button>
     </section>
 
     <section class="flex flex-col gap-3 rounded-xl border border-line-2 bg-panel p-4">

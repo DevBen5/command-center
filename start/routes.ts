@@ -151,6 +151,9 @@ router
   .group(() => {
     router.get('/', [SettingsController, 'show'])
     router.post('/mot-de-passe', [SettingsController, 'changePassword'])
+    // Fermer les sessions ouvertes ailleurs (CC-176). Aucune capacité nouvelle : chacun n'agit
+    // que sur son propre compte, via `auth.user` et jamais un identifiant venu de la requête.
+    router.post('/sessions', [SettingsController, 'revokeSessions'])
     router.post('/2fa/enrolement', [SettingsController, 'enroll'])
     router.post('/2fa/confirmation', [SettingsController, 'confirm'])
     router.post('/2fa/codes', [SettingsController, 'regenerateCodes'])

@@ -125,6 +125,31 @@ test.group('Auth / reprise en main d’un compte', (group) => {
     await assert.rejects(() => User.verifyCredentials(user.email, MOT_DE_PASSE_ORIGINE))
   })
 
+  test('les sessions ouvertes ailleurs sont fermées', async ({ assert }) => {
+    // ⚠️ Sans ce geste, la commande livre un mot de passe neuf en laissant l'intrus dans la
+    // place : un cookie volé reste valable jusqu'à la borne des 7 jours (CC-176). Elle est le
+    // filet du compte perdu — la moitié du filet ne rattrape rien.
+    poserTerminal(true)
+    const user = await createAdmin()
+    // ⚠️ Relu depuis la base, pas lu sur le modèle fraîchement créé : `User.create` ne rapporte
+    // pas les colonnes qu'il n'a pas écrites, et l'attribut vaudrait `undefined` — l'assertion
+    // passerait sans avoir regardé la base.
+    await user.refresh()
+    assert.isNull(user.sessionsValidFrom)
+
+    const command = await commandePour(user.email, {
+      confirme: true,
+      motDePasse: MOT_DE_PASSE_NEUF,
+      confirmation: MOT_DE_PASSE_NEUF,
+    })
+    await command.exec()
+
+    command.assertSucceeded()
+
+    await user.refresh()
+    assert.isNotNull(user.sessionsValidFrom)
+  })
+
   test('le second facteur est désarmé, codes de secours compris', async ({ assert }) => {
     poserTerminal(true)
     const user = await createAdmin()
