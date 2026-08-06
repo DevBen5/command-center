@@ -1,9 +1,13 @@
 import { DateTime } from 'luxon'
 import type { Session } from '@adonisjs/session'
+import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import { isImmichAssetId } from '#core/shared/services/immich_client'
 import User from '#core/auth/models/user'
 import { LOGIN_STAMP_KEY } from '#core/auth/services/session_lifetime'
 import CoffreVault from '#modules/coffre/models/coffre_vault'
 import CoffreEntry, { type CoffreEntryType } from '#modules/coffre/models/coffre_entry'
+import CoffreEntryMedia from '#modules/coffre/models/coffre_entry_media'
 import keyring from '#modules/coffre/services/vault_keyring'
 import {
   decrypt,
@@ -32,6 +36,14 @@ export interface CoffreEntryView {
   title: string
   content: string
   createdAt: string | null
+  /**
+   * ⚠️ **Seul l'`id` de la ligne `coffre_entry_media` voyage jusqu'ici, jamais l'UUID Immich**
+   * (CC-180). La page construit `/coffre/media/:id/thumbnail` avec cet `id` ; le serveur seul
+   * déchiffre l'UUID, et seulement dans ce proxy. C'est ce qui interdit un remplacement intégral
+   * du type `title`/`content` sur l'édition : le client ne peut pas renvoyer ce qu'il n'a jamais
+   * reçu — voir `updateEntry` (`mediaAdd`/`mediaRemove`).
+   */
+  media: { id: number }[]
 }
 
 /**
@@ -181,6 +193,7 @@ class VaultService {
    */
   async entriesFor(user: User, key: Buffer): Promise<CoffreEntryView[]> {
     const entries = await this.listQueryFor(user.id)
+    const mediaByEntry = await this.#mediaIdsByEntry(user.id)
 
     return entries.map((entry) => ({
       id: entry.id,
@@ -188,7 +201,31 @@ class VaultService {
       title: decrypt(entry.titleCipher, key) ?? '',
       content: decrypt(entry.contentCipher, key) ?? '',
       createdAt: entry.createdAt?.toISO() ?? null,
+      media: mediaByEntry.get(entry.id) ?? [],
     }))
+  }
+
+  /**
+   * Les médias de CHAQUE entrée d'un compte, en une seule requête — plutôt qu'une par entrée.
+   *
+   * ⚠️ **`asset_id_cipher` n'est PAS sélectionnée, même doctrine que `COLONNES_DE_LISTE`** : rien
+   * n'a besoin de l'UUID pour construire une liste, donc rien ne le charge. Seul le proxy de
+   * vignette le déchiffre, une ligne à la fois.
+   */
+  async #mediaIdsByEntry(userId: number): Promise<Map<number, { id: number }[]>> {
+    const rows = await CoffreEntryMedia.query()
+      .select(['id', 'entry_id'])
+      .where('owner_id', userId)
+      .orderBy('id', 'asc')
+
+    const byEntry = new Map<number, { id: number }[]>()
+    for (const row of rows) {
+      const list = byEntry.get(row.entryId) ?? []
+      list.push({ id: row.id })
+      byEntry.set(row.entryId, list)
+    }
+
+    return byEntry
   }
 
   /**
@@ -217,6 +254,27 @@ class VaultService {
   }
 
   /**
+   * L'UUID Immich d'UNE référence de média, pour le proxy de vignette — l'unique endroit qui le
+   * déchiffre (CC-180).
+   *
+   * ⚠️ **`owner_id` est dans la clause de lecture**, même doctrine que `secretFor` : un identifiant
+   * deviné ne trouve rien pour un autre compte, donc rien à comparer et rien à oublier de
+   * comparer. `null` couvre indistinctement « ligne introuvable », « déchiffrement raté » et
+   * « forme invalide » — la même distinction que veille fait entre « pas de média » et une panne
+   * Immich se rejoue ensuite côté contrôleur (log détaillé, 404 uniforme au client).
+   */
+  async mediaThumbnailAssetId(user: User, key: Buffer, mediaId: number): Promise<string | null> {
+    const media = await CoffreEntryMedia.query()
+      .where('id', mediaId)
+      .where('owner_id', user.id)
+      .first()
+    if (media === null) return null
+
+    const assetId = decrypt(media.assetIdCipher, key)
+    return assetId !== null && isImmichAssetId(assetId) ? assetId : null
+  }
+
+  /**
    * Ajoute une entrée. Le titre est chiffré comme le contenu — voir la migration.
    *
    * ⚠️ **Le mot de passe n'est écrit que pour un `credential`**, quoi qu'ait envoyé le
@@ -228,16 +286,31 @@ class VaultService {
   async addEntry(
     user: User,
     key: Buffer,
-    entry: { type: CoffreEntryType; title: string; content: string; password?: string }
+    entry: {
+      type: CoffreEntryType
+      title: string
+      content: string
+      password?: string
+      media?: string[]
+    }
   ): Promise<CoffreEntry> {
     const secret = entry.type === 'credential' ? (entry.password ?? null) : null
 
-    return CoffreEntry.create({
-      ownerId: user.id,
-      type: entry.type,
-      titleCipher: encrypt(entry.title, key),
-      contentCipher: encrypt(entry.content, key),
-      secretCipher: secret === null ? null : encrypt(secret, key),
+    return db.transaction(async (trx) => {
+      const created = await CoffreEntry.create(
+        {
+          ownerId: user.id,
+          type: entry.type,
+          titleCipher: encrypt(entry.title, key),
+          contentCipher: encrypt(entry.content, key),
+          secretCipher: secret === null ? null : encrypt(secret, key),
+        },
+        { client: trx }
+      )
+
+      await this.#attachMedia(trx, user.id, created.id, entry.media ?? [], key)
+
+      return created
     })
   }
 
@@ -256,24 +329,86 @@ class VaultService {
    * déchiffre l'ancien secret pour le décider, elle regarde seulement ce que le formulaire vient
    * de poster. Un mot de passe posté en éditant une note ou un lien est sans effet — le type de
    * l'entrée, lu en base, tranche.
+   *
+   * ⚠️ **`media.add`/`media.remove` sont additifs, PAS un remplacement intégral comme
+   * `title`/`content`** (CC-180) — décision délibérée, pas un oubli de la doctrine « remplace, ne
+   * fusionne pas » du reste du module. Elle suppose que le client peut renvoyer l'état courant en
+   * entier, ce qui est vrai pour `title`/`content` (envoyés en clair à la liste) et faux ici :
+   * l'UUID Immich ne redescend JAMAIS vers le client (voir `CoffreEntryView.media`), donc rien ne
+   * permettrait de le lui faire réémettre pour un remplacement complet. Même famille de raison
+   * que `password`, qui reste vide = « ne change rien ».
    */
   async updateEntry(
     user: User,
     key: Buffer,
     id: number,
-    patch: { title: string; content: string; password?: string }
-  ): Promise<void> {
-    const entry = await CoffreEntry.query().where('id', id).where('owner_id', user.id).first()
-    if (entry === null) return
-
-    entry.titleCipher = encrypt(patch.title, key)
-    entry.contentCipher = encrypt(patch.content, key)
-
-    if (entry.type === 'credential' && patch.password) {
-      entry.secretCipher = encrypt(patch.password, key)
+    patch: {
+      title: string
+      content: string
+      password?: string
+      media?: { add?: string[]; remove?: number[] }
     }
+  ): Promise<void> {
+    await db.transaction(async (trx) => {
+      const entry = await CoffreEntry.query({ client: trx })
+        .where('id', id)
+        .where('owner_id', user.id)
+        .first()
+      if (entry === null) return
 
-    await entry.save()
+      entry.titleCipher = encrypt(patch.title, key)
+      entry.contentCipher = encrypt(patch.content, key)
+
+      if (entry.type === 'credential' && patch.password) {
+        entry.secretCipher = encrypt(patch.password, key)
+      }
+
+      await entry.useTransaction(trx).save()
+
+      // ⚠️ Scopé `entry_id` + `owner_id` : un id posté qui n'appartient pas à cette entrée (la
+      // sienne ou celle d'un autre compte) ne supprime rien — no-op silencieux, même doctrine que
+      // la suppression d'entrée.
+      const mediaRemove = patch.media?.remove ?? []
+      if (mediaRemove.length > 0) {
+        await CoffreEntryMedia.query({ client: trx })
+          .where('entry_id', entry.id)
+          .where('owner_id', user.id)
+          .whereIn('id', mediaRemove)
+          .delete()
+      }
+
+      await this.#attachMedia(trx, user.id, entry.id, patch.media?.add ?? [], key)
+    })
+  }
+
+  /**
+   * Insère les nouvelles références de médias d'une entrée. Dédupe les UUID répétés dans un même
+   * lot — coller deux fois le même asset ne doit pas poser deux vignettes identiques.
+   *
+   * ⚠️ **Normalisé en minuscules avant la dédup ET le chiffrement** : `isImmichAssetId` accepte
+   * les deux casses, donc deux UUID identiques à la casse près échapperaient sinon au `Set`.
+   */
+  async #attachMedia(
+    trx: TransactionClientContract,
+    ownerId: number,
+    entryId: number,
+    assetIds: string[],
+    key: Buffer
+  ): Promise<void> {
+    const uniques = [
+      ...new Set(
+        assetIds
+          .filter((assetId) => isImmichAssetId(assetId))
+          .map((assetId) => assetId.toLowerCase())
+      ),
+    ]
+
+    for (const assetId of uniques) {
+      await CoffreEntryMedia.create(
+        { ownerId, entryId, assetIdCipher: encrypt(assetId, key) },
+        { client: trx }
+      )
+    }
   }
 
   /**

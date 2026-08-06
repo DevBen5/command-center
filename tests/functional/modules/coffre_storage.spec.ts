@@ -2,7 +2,9 @@ import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
 import db from '@adonisjs/lucid/services/db'
 import { createUserWith } from '#tests/helpers/users'
-import { createVault, unlockedSession } from '#tests/helpers/coffre'
+import { createVault, createMedia, unlockedSession, PASSPHRASE } from '#tests/helpers/coffre'
+import CoffreEntry from '#modules/coffre/models/coffre_entry'
+import { deriveKey } from '#modules/coffre/services/vault_crypto'
 
 /**
  * Le chiffrement au repos, vu depuis la BASE (CC-178).
@@ -292,5 +294,184 @@ test.group('Coffre / ce que la base porte vraiment', (group) => {
 
     const restantes = await db.rawQuery('select id from coffre_entries where id = ?', [entree.id])
     assert.lengthOf(restantes.rows, 0)
+  })
+})
+
+/**
+ * Les références de médias Immich (CC-180) — mêmes garanties que le reste du module, vérifiées en
+ * base : l'UUID n'est pas lisible en clair, l'ajout/retrait est cloisonné par compte.
+ */
+const ASSET_A = '11111111-2222-4333-8444-555555555555'
+const ASSET_B = '66666666-7777-4888-8999-aaaaaaaaaaaa'
+
+test.group('Coffre / les médias', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+
+  test('un média posté à la création n’est pas lisible en clair dans `asset_id_cipher`', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUserWith(['coffre.view', 'coffre.write'])
+    const vault = await createVault(user)
+
+    const ecriture = await client
+      .post('/coffre')
+      .json({ type: 'note', title: TITRE, content: SECRET, media: [ASSET_A] })
+      .loginAs(user)
+      .withSession(await unlockedSession(user, vault))
+      .withCsrfToken()
+      .redirects(0)
+
+    ecriture.assertStatus(302)
+
+    const lignes = await db.rawQuery(
+      'select entry_id, owner_id, asset_id_cipher from coffre_entry_media where owner_id = ?',
+      [user.id]
+    )
+
+    assert.lengthOf(lignes.rows, 1, 'le média n’a pas été écrit — le reste ne prouve rien')
+    assert.notInclude(lignes.rows[0].asset_id_cipher, ASSET_A)
+    assert.notInclude(lignes.rows[0].asset_id_cipher, Buffer.from(ASSET_A).toString('base64'))
+  })
+
+  test('la charge utile de la page ne porte que l’`id` du média, jamais l’UUID', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUserWith(['coffre.view', 'coffre.write'])
+    const vault = await createVault(user)
+    const session = await unlockedSession(user, vault)
+
+    await client
+      .post('/coffre')
+      .json({ type: 'note', title: TITRE, content: SECRET, media: [ASSET_A] })
+      .loginAs(user)
+      .withSession(session)
+      .withCsrfToken()
+      .redirects(0)
+
+    const lecture = await client.get('/coffre').loginAs(user).withSession(session).withInertia()
+    lecture.assertStatus(200)
+    const props = lecture.inertiaProps as {
+      entries: Array<{ media: Array<Record<string, unknown>> }>
+    }
+
+    assert.lengthOf(props.entries[0].media, 1)
+    // ⚠️ Une seule clé, `id` — jamais `assetId`, ni le chiffré. Un `deepEqual` sur les clés,
+    // pas seulement `notProperty(..., 'assetId')`, qui laisserait passer un nom différent.
+    assert.deepEqual(Object.keys(props.entries[0].media[0]), ['id'])
+
+    // Et une recherche brute dans TOUTE la réponse JSON, au cas où l'UUID fuirait ailleurs
+    // qu'à l'endroit attendu.
+    assert.notInclude(JSON.stringify(props), ASSET_A)
+  })
+
+  test('coller deux fois le même UUID à la création ne pose qu’une ligne', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUserWith(['coffre.view', 'coffre.write'])
+    const vault = await createVault(user)
+
+    await client
+      .post('/coffre')
+      .json({ type: 'note', title: TITRE, content: SECRET, media: [ASSET_A, ASSET_A] })
+      .loginAs(user)
+      .withSession(await unlockedSession(user, vault))
+      .withCsrfToken()
+      .redirects(0)
+
+    const lignes = await db.rawQuery('select id from coffre_entry_media where owner_id = ?', [
+      user.id,
+    ])
+    assert.lengthOf(lignes.rows, 1)
+  })
+
+  test('`media.add` ajoute une référence, `media.remove` en retire une — vérifié en base', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUserWith(['coffre.view', 'coffre.write'])
+    const vault = await createVault(user)
+    const session = await unlockedSession(user, vault)
+
+    await client
+      .post('/coffre')
+      .json({ type: 'note', title: TITRE, content: SECRET, media: [ASSET_A] })
+      .loginAs(user)
+      .withSession(session)
+      .withCsrfToken()
+      .redirects(0)
+
+    const entrees = await db.rawQuery('select id from coffre_entries where owner_id = ?', [user.id])
+    const entryId = entrees.rows[0].id as number
+    const avant = await db.rawQuery('select id from coffre_entry_media where entry_id = ?', [
+      entryId,
+    ])
+    const ancienMediaId = avant.rows[0].id as number
+
+    const edition = await client
+      .put(`/coffre/${entryId}`)
+      .json({
+        title: TITRE,
+        content: SECRET,
+        media: { add: [ASSET_B], remove: [ancienMediaId] },
+      })
+      .loginAs(user)
+      .withSession(session)
+      .withCsrfToken()
+      .redirects(0)
+
+    edition.assertStatus(302)
+
+    const apres = await db.rawQuery(
+      'select id, asset_id_cipher from coffre_entry_media where entry_id = ?',
+      [entryId]
+    )
+
+    assert.lengthOf(apres.rows, 1, 'il doit rester exactement un média après add+remove')
+    assert.notEqual(apres.rows[0].id, ancienMediaId, 'l’ancien média aurait dû être retiré')
+    assert.notInclude(apres.rows[0].asset_id_cipher, ASSET_B)
+  })
+
+  test('retirer un média d’un autre compte ne supprime rien — vérifié en base', async ({
+    client,
+    assert,
+  }) => {
+    const proprietaire = await createUserWith(['coffre.view', 'coffre.write'])
+    const vaultProprietaire = await createVault(proprietaire)
+    const entree = await CoffreEntry.create({
+      ownerId: proprietaire.id,
+      type: 'note',
+      titleCipher: 'x',
+      contentCipher: 'x',
+    })
+    const key = deriveKey(PASSPHRASE, vaultProprietaire.kdfSalt)
+    const media = await createMedia(entree.id, proprietaire.id, key, ASSET_A)
+
+    const intrus = await createUserWith(['coffre.view', 'coffre.write'])
+    const vaultIntrus = await createVault(intrus, 'autre-passphrase-de-test')
+    const entreeIntrus = await CoffreEntry.create({
+      ownerId: intrus.id,
+      type: 'note',
+      titleCipher: 'x',
+      contentCipher: 'x',
+    })
+
+    // ⚠️ L'intrus poste sur SA PROPRE entrée, mais demande le retrait de l'id de média du
+    // propriétaire : c'est le scénario que le scope `entry_id` + `owner_id` doit fermer.
+    const edition = await client
+      .put(`/coffre/${entreeIntrus.id}`)
+      .json({ title: 'x', content: 'x', media: { remove: [media.id] } })
+      .loginAs(intrus)
+      .withSession(await unlockedSession(intrus, vaultIntrus, 'autre-passphrase-de-test'))
+      .withCsrfToken()
+      .redirects(0)
+
+    // ⚠️ 302 dans tous les cas — pas un oracle d'existence. C'est la base qu'on interroge.
+    edition.assertStatus(302)
+
+    const restant = await db.rawQuery('select id from coffre_entry_media where id = ?', [media.id])
+    assert.lengthOf(restant.rows, 1, 'le média du propriétaire a été supprimé par un autre compte')
   })
 })

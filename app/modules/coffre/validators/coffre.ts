@@ -2,6 +2,17 @@ import vine from '@vinejs/vine'
 import { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH } from '#core/auth/constants/password_rules'
 
 /**
+ * Les références de médias Immich (CC-180). Un UUID générique, pas `.uuid()` de VineJS : c'est la
+ * même forme que `isImmichAssetId` du core, et il vaut mieux une seule définition cohérente entre
+ * validation d'entrée et vérification de sortie plutôt que deux notions de « UUID valide ».
+ *
+ * ⚠️ **20 éléments au maximum** — un garde-fou contre un collage accidentel massif, pas une
+ * limite produit : rien dans le module n'a besoin d'un plafond plus bas.
+ */
+const IMMICH_ASSET_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const MEDIA_MAX = 20
+
+/**
  * Les validateurs du coffre (CC-178).
  *
  * ⚠️ **La longueur de la passphrase relit `password_rules.ts`, elle n'en invente pas une seconde.**
@@ -87,6 +98,8 @@ export const entryValidator = vine.compile(
     title: vine.string().trim().minLength(1).maxLength(200),
     content: vine.string().trim().minLength(1).maxLength(20_000),
     password: password().optional().requiredWhen('type', '=', 'credential'),
+    // Les médias à attacher dès la création — voir `VaultService.addEntry` (CC-180).
+    media: vine.array(vine.string().regex(IMMICH_ASSET_ID)).maxLength(MEDIA_MAX).optional(),
   })
 )
 
@@ -102,10 +115,22 @@ export const entryValidator = vine.compile(
  */
 const passwordOuVide = () => vine.string().maxLength(1_000).optional()
 
+/**
+ * ⚠️ **`mediaAdd`/`mediaRemove`, jamais un `media` unique de remplacement** (CC-180) — voir
+ * `VaultService.updateEntry` pour la raison : l'UUID Immich ne redescend jamais vers le client,
+ * qui ne peut donc pas réémettre l'état courant pour un remplacement intégral, contrairement à
+ * `title`/`content`.
+ */
 export const entryUpdateValidator = vine.compile(
   vine.object({
     title: vine.string().trim().minLength(1).maxLength(200),
     content: vine.string().trim().minLength(1).maxLength(20_000),
     password: passwordOuVide(),
+    media: vine
+      .object({
+        add: vine.array(vine.string().regex(IMMICH_ASSET_ID)).maxLength(MEDIA_MAX).optional(),
+        remove: vine.array(vine.number().positive()).maxLength(MEDIA_MAX).optional(),
+      })
+      .optional(),
   })
 )
