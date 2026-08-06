@@ -92,6 +92,135 @@ test.group('Coffre / ce que la base porte vraiment', (group) => {
     assert.notProperty(props.entries[0], 'contentCipher')
   })
 
+  test('éditer une entrée REMPLACE le chiffré en base, l’ancienne valeur n’y reste plus', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUserWith(['coffre.view', 'coffre.write'])
+    const vault = await createVault(user)
+    const session = await unlockedSession(user, vault)
+
+    await client
+      .post('/coffre')
+      .form({ type: 'note', title: TITRE, content: SECRET })
+      .loginAs(user)
+      .withSession(session)
+      .withCsrfToken()
+      .redirects(0)
+
+    const avant = await db.rawQuery(
+      'select id, content_cipher from coffre_entries where owner_id = ?',
+      [user.id]
+    )
+    const [ligneAvant] = avant.rows
+    const nouveauContenu = 'un contenu tout différent'
+
+    const edition = await client
+      .put(`/coffre/${ligneAvant.id}`)
+      .form({ title: TITRE, content: nouveauContenu })
+      .loginAs(user)
+      .withSession(session)
+      .withCsrfToken()
+      .redirects(0)
+
+    edition.assertStatus(302)
+
+    const apres = await db.rawQuery(
+      'select id, content_cipher from coffre_entries where owner_id = ?',
+      [user.id]
+    )
+
+    // ⚠️ Une seule ligne, la MÊME : sinon l'édition aurait créé une entrée au lieu de remplacer
+    // la sienne, et l'ancienne valeur resterait déchiffrable depuis la ligne orpheline.
+    assert.lengthOf(apres.rows, 1, 'l’édition a créé une ligne au lieu de remplacer la sienne')
+    assert.equal(apres.rows[0].id, ligneAvant.id, 'l’édition doit toucher la MÊME ligne')
+    assert.notEqual(
+      apres.rows[0].content_cipher,
+      ligneAvant.content_cipher,
+      'le chiffré n’a pas changé — l’édition n’a rien écrit'
+    )
+    assert.notInclude(apres.rows[0].content_cipher, nouveauContenu)
+
+    const lecture = await client.get('/coffre').loginAs(user).withSession(session).withInertia()
+    const props = lecture.inertiaProps as { entries: Array<Record<string, unknown>> }
+    assert.equal(props.entries[0].content, nouveauContenu)
+  })
+
+  test('poster un `type` en éditant est sans effet — il n’est même pas dans le schéma validé', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUserWith(['coffre.view', 'coffre.write'])
+    const vault = await createVault(user)
+    const session = await unlockedSession(user, vault)
+
+    await client
+      .post('/coffre')
+      .form({ type: 'note', title: TITRE, content: SECRET })
+      .loginAs(user)
+      .withSession(session)
+      .withCsrfToken()
+      .redirects(0)
+
+    const lignes = await db.rawQuery('select id from coffre_entries where owner_id = ?', [user.id])
+    const id = lignes.rows[0].id as number
+
+    // ⚠️ Le `type` n'existe pas dans `entryUpdateValidator` : VineJS le rejette de l'objet validé
+    // sans lever, donc `updateEntry` ne le voit jamais. On le poste quand même, en même temps
+    // qu'un mot de passe, pour vérifier que RIEN de tout ça n'atteint la ligne.
+    await client
+      .put(`/coffre/${id}`)
+      .form({ type: 'credential', title: TITRE, content: 'nouveau contenu', password: 'x' })
+      .loginAs(user)
+      .withSession(session)
+      .withCsrfToken()
+      .redirects(0)
+
+    const apres = await db.rawQuery('select type, secret_cipher from coffre_entries where id = ?', [
+      id,
+    ])
+    assert.equal(apres.rows[0].type, 'note')
+    assert.isNull(apres.rows[0].secret_cipher)
+  })
+
+  test('une entrée n’appartient qu’à son compte, à l’édition aussi', async ({ client, assert }) => {
+    const proprietaire = await createUserWith(['coffre.view', 'coffre.write'])
+    const vaultProprietaire = await createVault(proprietaire)
+    const session = await unlockedSession(proprietaire, vaultProprietaire)
+
+    await client
+      .post('/coffre')
+      .form({ type: 'note', title: TITRE, content: SECRET })
+      .loginAs(proprietaire)
+      .withSession(session)
+      .withCsrfToken()
+      .redirects(0)
+
+    const posees = await db.rawQuery(
+      'select id, content_cipher from coffre_entries where owner_id = ?',
+      [proprietaire.id]
+    )
+    const [entree] = posees.rows
+
+    const autre = await createUserWith(['coffre.view', 'coffre.write'])
+    const vaultAutre = await createVault(autre)
+
+    await client
+      .put(`/coffre/${entree.id}`)
+      .form({ title: 'Détourné', content: 'Détourné aussi' })
+      .loginAs(autre)
+      .withSession(await unlockedSession(autre, vaultAutre))
+      .withCsrfToken()
+      .redirects(0)
+
+    // ⚠️ Comme la suppression : 302 dans les deux cas, jamais un oracle d'existence. On vérifie
+    // donc en BASE que rien n'a bougé sur l'entrée d'un autre compte.
+    const apres = await db.rawQuery('select content_cipher from coffre_entries where id = ?', [
+      entree.id,
+    ])
+    assert.equal(apres.rows[0].content_cipher, entree.content_cipher)
+  })
+
   test('une entrée n’appartient qu’à son compte, en lecture comme à la suppression', async ({
     client,
     assert,

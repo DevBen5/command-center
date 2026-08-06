@@ -42,6 +42,19 @@ const form = useForm<{ type: CoffreEntryType; title: string; content: string; pa
 const opened = ref<number | null>(null)
 
 /**
+ * L'entrée en cours d'édition — `null` sinon. On garde son type à part : il ne fait pas partie
+ * du formulaire (une entrée n'en change jamais, CC-186), mais l'écran en a besoin pour choisir
+ * quels champs afficher, comme pour la création.
+ */
+const editing = ref<{ id: number; type: CoffreEntryType } | null>(null)
+
+const editForm = useForm<{ title: string; content: string; password: string }>({
+  title: '',
+  content: '',
+  password: '',
+})
+
+/**
  * Le presse-papiers est-il utilisable ici ?
  *
  * ⚠️ **Lu au montage, jamais à la volée dans le template** : `navigator` n'existe pas à
@@ -96,6 +109,28 @@ function oublier(): void {
   masquerSecret()
   copie.value = null
   echec.value = null
+  // Un mot de passe frappé mais non soumis dans le formulaire d'édition est aussi sensible que
+  // le secret révélé ci-dessus : il quitte l'écran en même temps que le reste.
+  editing.value = null
+  editForm.reset()
+  editForm.clearErrors()
+}
+
+/** Ouvre le formulaire d'édition, préremplit depuis ce que la liste porte déjà — jamais le mot
+ * de passe, qui n'y est jamais chargé (CC-179). */
+function startEdit(entry: CoffreEntry): void {
+  oublier()
+
+  opened.value = entry.id
+  editing.value = { id: entry.id, type: entry.type }
+  editForm.title = entry.title
+  editForm.content = entry.content
+}
+
+function submitEdit(): void {
+  if (editing.value === null) return
+
+  editForm.put(`/coffre/${editing.value.id}`, { onSuccess: () => oublier() })
 }
 
 function masquerSecret(): void {
@@ -337,6 +372,13 @@ function natureLabel(type: CoffreEntryType): string {
           </button>
           <button
             type="button"
+            class="shrink-0 text-[12.5px] text-txt-3 hover:text-aqua"
+            @click="startEdit(entry)"
+          >
+            {{ t('coffre.index.edit') }}
+          </button>
+          <button
+            type="button"
             class="shrink-0 text-[12.5px] text-txt-3 hover:text-bad"
             @click="remove(entry.id)"
           >
@@ -344,7 +386,95 @@ function natureLabel(type: CoffreEntryType): string {
           </button>
         </div>
 
-        <template v-if="opened === entry.id">
+        <form
+          v-if="editing?.id === entry.id"
+          novalidate
+          class="mt-3 grid gap-[14px]"
+          @submit.prevent="submitEdit"
+        >
+          <div>
+            <label class="mb-[7px] block text-[12px] text-txt-2">
+              {{
+                editing.type === 'credential'
+                  ? t('coffre.index.service')
+                  : t('coffre.index.entryTitle')
+              }}
+            </label>
+            <input
+              v-model="editForm.title"
+              class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[14px] text-txt outline-none focus:border-aqua"
+              :class="editForm.errors.title ? 'border-bad' : ''"
+            />
+            <p v-if="editForm.errors.title" class="mt-1.5 text-[12.5px] text-bad">
+              {{ editForm.errors.title }}
+            </p>
+          </div>
+
+          <div>
+            <label class="mb-[7px] block text-[12px] text-txt-2">
+              {{
+                editing.type === 'credential'
+                  ? t('coffre.index.username')
+                  : editing.type === 'url'
+                    ? t('coffre.index.contentUrl')
+                    : t('coffre.index.content')
+              }}
+            </label>
+            <input
+              v-if="editing.type === 'credential'"
+              v-model="editForm.content"
+              autocomplete="off"
+              class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[14px] text-txt outline-none focus:border-aqua"
+              :class="editForm.errors.content ? 'border-bad' : ''"
+            />
+            <textarea
+              v-else
+              v-model="editForm.content"
+              rows="4"
+              class="w-full resize-y rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[14px] text-txt outline-none focus:border-aqua"
+              :class="editForm.errors.content ? 'border-bad' : ''"
+            ></textarea>
+            <p v-if="editForm.errors.content" class="mt-1.5 text-[12.5px] text-bad">
+              {{ editForm.errors.content }}
+            </p>
+          </div>
+
+          <div v-if="editing.type === 'credential'">
+            <label class="mb-[7px] block text-[12px] text-txt-2">
+              {{ t('coffre.index.password') }}
+            </label>
+            <input
+              v-model="editForm.password"
+              type="password"
+              autocomplete="new-password"
+              class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[14px] text-txt outline-none focus:border-aqua"
+              :class="editForm.errors.password ? 'border-bad' : ''"
+            />
+            <p class="mt-1.5 text-[12px] text-txt-3">{{ t('coffre.index.passwordEditHint') }}</p>
+            <p v-if="editForm.errors.password" class="mt-1.5 text-[12.5px] text-bad">
+              {{ editForm.errors.password }}
+            </p>
+          </div>
+
+          <div class="flex gap-2">
+            <button
+              type="submit"
+              :disabled="editForm.processing"
+              class="justify-self-start rounded-[7px] bg-accent px-5 py-2.5 text-[13px] font-semibold text-bg disabled:opacity-60"
+            >
+              {{ t('coffre.index.editSave') }}
+            </button>
+            <button
+              type="button"
+              class="justify-self-start rounded-[7px] border border-line-2 px-5 py-2.5 text-[13px] text-txt hover:border-aqua"
+              @click="oublier"
+            >
+              {{ t('coffre.index.editCancel') }}
+            </button>
+          </div>
+        </form>
+
+        <template v-else-if="opened === entry.id">
           <div v-if="entry.type === 'credential'" class="mt-3 grid gap-3">
             <div class="rounded-[8px] bg-panel-2 p-4">
               <p class="text-[11px] tracking-[.12em] text-txt-3 uppercase">

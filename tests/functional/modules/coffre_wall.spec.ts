@@ -31,6 +31,7 @@ import { createVault, lockedSession, unlockedSession, PASSPHRASE } from '#tests/
 const ROUTES_MUREES = [
   { methode: 'get' as const, url: '/coffre' },
   { methode: 'post' as const, url: '/coffre' },
+  { methode: 'put' as const, url: '/coffre/1' },
   { methode: 'delete' as const, url: '/coffre/1' },
   // La révélation d'un mot de passe (CC-179) : la route la plus sensible du module, et la seule
   // dont une réponse porte un secret en clair.
@@ -68,6 +69,8 @@ test.group('Coffre / le mur', (group) => {
 
     assert.include(nomsSur('/coffre', 'GET'), 'coffreOuvert')
     assert.include(nomsSur('/coffre', 'POST'), 'coffreOuvert')
+    // ⚠️ CC-186 : une édition rechiffre, elle n'a pas le droit d'être une exception au mur.
+    assert.include(nomsSur('/coffre/:id', 'PUT'), 'coffreOuvert')
     assert.include(nomsSur('/coffre/:id', 'DELETE'), 'coffreOuvert')
     // ⚠️ CC-179 : celle-ci rend un mot de passe en clair. Le 403 du contrôleur la couvrirait de
     // toute façon — raison de plus pour asserter le middleware ici, où c'est le mécanisme qui se

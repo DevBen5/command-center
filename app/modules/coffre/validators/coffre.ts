@@ -89,3 +89,23 @@ export const entryValidator = vine.compile(
     password: password().optional().requiredWhen('type', '=', 'credential'),
   })
 )
+
+/**
+ * Modifier une entrée (CC-186). ⚠️ **Pas de champ `type` dans ce schéma** : une entrée ne change
+ * pas de nature après coup, et VineJS ignore les propriétés non déclarées — le service ne verra
+ * donc jamais de `type` posté, quoi qu'envoie le client.
+ *
+ * ⚠️ **`password` n'a PAS de longueur minimale ici, contrairement à `password()` ci-dessus.** Un
+ * champ vide veut dire « ne pas changer le mot de passe existant », jamais « l'effacer ». C'est
+ * `VaultService.updateEntry` qui tranche ce que « vide » signifie ; ce validateur se contente de
+ * laisser passer la chaîne vide plutôt que de la refuser comme une saisie incomplète.
+ */
+const passwordOuVide = () => vine.string().maxLength(1_000).optional()
+
+export const entryUpdateValidator = vine.compile(
+  vine.object({
+    title: vine.string().trim().minLength(1).maxLength(200),
+    content: vine.string().trim().minLength(1).maxLength(20_000),
+    password: passwordOuVide(),
+  })
+)

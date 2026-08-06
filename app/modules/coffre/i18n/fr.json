@@ -43,6 +43,10 @@
     "secretError": "Le mot de passe n'a pas pu être récupéré.",
     "locked": "Le coffre s'est refermé. Rouvrez-le depuis /coffre/ouvrir.",
     "add": "Enregistrer",
+    "edit": "Modifier",
+    "editSave": "Enregistrer les modifications",
+    "editCancel": "Annuler",
+    "passwordEditHint": "Laissez vide pour conserver le mot de passe actuel.",
     "delete": "Supprimer",
     "deleteConfirm": "Supprimer cette entrée ? Elle n'est récupérable par aucun moyen.",
     "unreadable": "Entrée illisible — la valeur en base ne se déchiffre pas avec la clé de cette session."
