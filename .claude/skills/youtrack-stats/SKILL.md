@@ -10,8 +10,8 @@ description: |
 
 ## Format du journal
 
-Chaque skill YouTrack du dépôt (`kb-sync`, `triage-youtrack`, `prepare-issue-context`,
-`create-issue-from-code`, `summarize-sprint`, `link-commit-to-issue`) ajoute une ligne à
+Chaque skill YouTrack du dépôt (`kb-sync`, `triage-youtrack`, `create-issue-from-code`,
+`summarize-sprint`, `link-commit-to-issue`) ajoute une ligne à
 `.claude/youtrack-usage.log` (JSONL, un objet par ligne, fichier **non versionné** — voir
 `.gitignore`) après chaque invocation :
 
@@ -24,7 +24,7 @@ Chaque skill YouTrack du dépôt (`kb-sync`, `triage-youtrack`, `prepare-issue-c
 - `delegated` : le skill a-t-il tourné dans un sous-agent (`Agent`, `subagent_type:
   general-purpose`) pour cette invocation précise.
 - `items` : nombre d'éléments traités (articles, issues) — `1` pour les skills à item unique
-  (`prepare-issue-context`, `create-issue-from-code`, `link-commit-to-issue`).
+  (`create-issue-from-code`, `link-commit-to-issue`).
 - `summary_chars` : taille en caractères de ce qui est **réellement revenu** dans la conversation
   principale — la synthèse quand `delegated` est `true`, la réponse complète sinon.
 - `source_chars_est` : volume brut lu. Égal à `summary_chars` quand `delegated` est `false` (rien
@@ -38,8 +38,8 @@ Chaque skill YouTrack du dépôt (`kb-sync`, `triage-youtrack`, `prepare-issue-c
 ratio ~4 caractères/token est une approximation grossière — assez pour voir une tendance, pas pour
 un budget précis.
 
-⚠️ **Ce journal ne mesure rien pour les skills sans sous-agent** (`prepare-issue-context`,
-`create-issue-from-code`, `link-commit-to-issue`) au-delà de la fréquence d'usage. Ils logguent
+⚠️ **Ce journal ne mesure rien pour les skills sans sous-agent** (`create-issue-from-code`,
+`link-commit-to-issue`) au-delà de la fréquence d'usage. Ils logguent
 `delegated: false`, `source_chars_est == summary_chars` : aucune réduction à en attendre, ce n'est
 pas leur rôle — ils étaient déjà légers par construction (un seul item, champs minimaux).
 
