@@ -1,13 +1,22 @@
-# Module Coffre — notes, URLs, identifiants et médias Immich chiffrés, invisibles, derrière deux portes
+# Module Coffre — notes, URLs, identifiants, médias Immich et médias NAS chiffrés, invisibles, derrière deux portes
 
-Routes `/coffre/ouvrir` · `/coffre` · `/coffre/:id/secret` · `/coffre/media/:id/thumbnail` · pages
-Inertia `modules/coffre/{ouvrir, index}` · tables `coffre_vaults`, `coffre_entries`,
-`coffre_entry_media`. Lot 1 de l'épique CC-177 (CC-178) : le **socle**, dont tous les lots suivants
-héritent — aucun ne redéfinit sa propre porte. Lot 2 (CC-179) : les **identifiants**, qui ajoutent
-une nature d'entrée et une route. ⚠️ **CC-186 (l'édition) et CC-180 (les médias, ici) portent tous
-deux le numéro « lot 3 » dans leur ticket** — CC-180 a été planifié avant CC-186 dans l'épique,
-mais CC-186 a été livré en premier. Ce fichier ne tranche pas laquelle des deux est *la* troisième :
-il cite chaque décision par son numéro de ticket, pas par un rang.
+Routes `/coffre/ouvrir` · `/coffre` · `/coffre/:id/secret` · `/coffre/media/:id/thumbnail` ·
+`/coffre/nas/:id/stream` · pages Inertia `modules/coffre/{ouvrir, index}` · tables
+`coffre_vaults`, `coffre_entries`, `coffre_entry_media`, `coffre_entry_nas_file`. Lot 1 de l'épique
+CC-177 (CC-178) : le **socle**, dont tous les lots suivants héritent — aucun ne redéfinit sa propre
+porte. Lot 2 (CC-179) : les **identifiants**, qui ajoutent une nature d'entrée et une route.
+⚠️ **CC-186 (l'édition) et CC-180 (les médias Immich) portent tous deux le numéro « lot 3 » dans
+leur ticket** — CC-180 a été planifié avant CC-186 dans l'épique, mais CC-186 a été livré en
+premier. Ce fichier ne tranche pas laquelle des deux est *la* troisième : il cite chaque décision
+par son numéro de ticket, pas par un rang. Lot 4 (CC-181) : la **lecture NAS**, photos ET vidéos —
+voir « Les médias du NAS » plus bas. Lot 5 (CC-182, non livré au moment d'écrire ceci) portera les
+fichiers téléversés — un gisement de données distinct, que CC-181 ne recouvre pas.
+
+⚠️ **CC-181 a été amendé le 2026-08-06, en cours de lot** : le ticket ne portait au départ que les
+vidéos ; le propriétaire a élargi le périmètre aux photos avant la fin de l'implémentation, parce
+qu'il y a sur le NAS des photos autant que des vidéos hors d'Immich, et qu'une seconde garde de
+chemin aurait été la même garde rouverte une seconde fois. Toute la nomenclature du lot (routes,
+table, service) est donc générique — « NAS », pas « vidéo » — dès la première version livrée.
 
 ⚠️ **Le module est HORS de `MODULES` par défaut.** Il figure dans `KNOWN_MODULES`
 (`config/modules.ts`) — sans quoi `parseModules` ferait échouer le démarrage de qui l'active — mais
@@ -27,9 +36,17 @@ controllers/coffre_door_controller.ts    la porte : créer, ouvrir, verrouiller 
 controllers/coffre_controller.ts         le contenu : lister, ajouter, supprimer, RÉVÉLER — AVEC
                                          élévation
 controllers/coffre_media_controller.ts   le proxy de vignette Immich (CC-180) — AVEC élévation
+controllers/coffre_nas_controller.ts     le proxy de streaming NAS, photos ET vidéos (CC-181) —
+                                         AVEC élévation
 models/coffre_vault.ts                   un coffre PAR COMPTE : sel + témoin
 models/coffre_entry.ts                   note | url | credential · titre, contenu ET secret chiffrés
 models/coffre_entry_media.ts             une référence d'asset Immich, chiffrée (CC-180)
+models/coffre_entry_nas_file.ts          une référence de chemin de média NAS, chiffrée, PLUS son
+                                         `kind` en clair (CC-181)
+services/nas_roots_service.ts            PUR-ish (fs) · résout un chemin contre les racines, APRÈS
+                                         realpath (CC-181)
+services/nas_file_format.ts              PUR · allow-lists photo/vidéo, content-type, kind (CC-181)
+services/byte_range.ts                   PUR · parseur de l'en-tête `Range` (CC-181)
 validators/coffre.ts                     ⚠️ des FABRIQUES, jamais des nœuds VineJS partagés
 ```
 
@@ -43,6 +60,11 @@ structurelle que `commands/`) · et **`start/navigation.ts`, où l'absence est d
 classe (via `thumbnail()`) — jamais rien sous `app/modules/veille/`, ce qui aurait recréé
 exactement le couplage que ce lot existe pour éviter (désactiver `veille` casserait alors le
 coffre). Voir « Les médias Immich » plus bas et `app/modules/veille/CLAUDE.md`.
+
+⚠️ **Un huitième depuis CC-181, et il EST propre au coffre cette fois** : `config/coffre_nas.ts`
+vit dans `config/` par convention du dépôt (comme `config/immich.ts`, `config/agents.ts`), pas
+sous `app/modules/coffre/` — c'est le seul endroit qu'AdonisJS balaie au démarrage pour ce genre
+de fichier. Rien d'autre ne le lit.
 
 ⚠️ **Deux dépendances de plus depuis CC-179, et aucune n'est propre au coffre** : la page importe
 `inertia/utils/clipboard.ts` (partagé avec `/reglages` et l'écran LLM de Leitner), et la promesse
@@ -401,6 +423,158 @@ vide = « ne change rien ».
 - `addEntry`/`updateEntry` sont transactionnels (`db.transaction`) : l'entrée et ses médias
   s'écrivent ensemble.
 
+## Les médias du NAS : lire depuis le disque, sans l'ouvrir — photos ET vidéos (CC-181)
+
+**Le lot dangereux de l'épique**, pris seul une fois les autres livrés — voir CC-177. Servir un
+fichier depuis un chemin, c'est ouvrir une lecture arbitraire du disque dès que la garde a un
+trou. Trois règles, aucune optionnelle :
+
+1. **Les racines autorisées se déclarent dans `.env`** (`COFFRE_NAS_ROOTS`), jamais en base,
+   jamais un formulaire — même raison qu'`IMMICH_BASE_URL` : un chemin persisté depuis une requête
+   HTTP serait une lecture arbitraire **permanente**.
+2. **L'appartenance à une racine se vérifie APRÈS `realpath`** — voir
+   `NasRootsService.resolve` (`services/nas_roots_service.ts`). Un lien symbolique posé DANS
+   une racine autorisée et pointant DEHORS sort de la racine sans que le chemin demandé en ait
+   l'air ; comparer les chaînes avant résolution ne le voit pas. `resolve()` ferme les trois
+   chemins hostiles (traversée, lien symbolique, chemin absolu) par un seul mécanisme : le
+   confinement se vérifie sur le `realpath()` du candidat, jamais sur la chaîne brute. Prouvé par
+   `tests/unit/coffre_nas_roots.spec.ts` contre un VRAI filesystem — dont un vrai lien
+   symbolique, pas mocké. **La garde ne connaît pas la nature du fichier** : le même mécanisme sert
+   une photo comme une vidéo.
+3. **Streaming avec `Range`, content-type déterminé PAR NOUS** (`services/nas_file_format.ts`,
+   allow-list vidéo `mp4`/`webm`/`mov`/`mkv`/`avi` et photo `jpg`/`jpeg`/`png`/`webp`/`gif`/`heic`)
+   — jamais déduit de ce que le client annonce. `services/byte_range.ts` parse l'en-tête, une
+   seule plage à la fois (le multi-range est refusé, aucun lecteur vidéo n'en a besoin) ; sans
+   objet pour une photo, mais le même contrôleur sert les deux sans dupliquer la garde de chemin.
+
+⚠️ **Amendement du 2026-08-06, en cours de lot** : le ticket ne portait au départ que les vidéos.
+Le propriétaire a élargi le périmètre aux photos avant la fin de l'implémentation — il y en a sur
+le NAS autant que de vidéos, hors d'Immich, et une seconde garde de chemin aurait rouvert
+exactement la même sécurité une seconde fois. **Conséquence pour qui lit une trace ancienne du
+lot** : tout ce qui portait `video` dans son nom (`VideoRootsService`, `COFFRE_VIDEO_ROOTS`,
+`coffre_entry_video`, `/coffre/video/:id/stream`) a été renommé en générique NAS avant tout commit
+— rien de ces noms n'a jamais existé dans une version livrée.
+
+### Le patron Docker — chemin hôte en variable de compose, chemin conteneur FIXE
+
+Repris tel quel de `BACKUP_MIRROR_DIR`/`AGENTS_CONFIG_PATH` (voir le `CLAUDE.md` racine, « Les
+données »). `COFFRE_NAS_ROOTS` — lue par l'app, dans `config/coffre_nas.ts` — vaut un chemin
+réel du poste en dev (le serveur de dev tourne hors conteneur) et le chemin FIXE
+`/data/coffre-media` en conteneur ; seul le côté HÔTE du montage se règle, dans
+`docker-compose.install.yml`, via `COFFRE_NAS_ROOTS_PATH_HOST` — jamais lue par l'app.
+
+⚠️ **Le montage est en LECTURE SEULE (`:ro`)** — l'app ne fait que lire ces fichiers, jamais y
+écrire. ⚠️ **Sans valeur par défaut**, même raison que `BACKUP_MIRROR_DIR` : un `${VAR:-...}` avec
+repli monterait — donc créerait — un dossier local dès que la variable est absente, la fausse
+sécurité que « le dossier doit exister, jamais le créer » interdit ailleurs.
+
+⚠️ **Isolée en test comme Immich/YouTube/LLM, pour une raison différente.**
+`coffreNasConfigFrom` réutilise `externalServicesIsolated` (`config/env_isolation.ts`) : ce
+n'est pas un appel réseau, mais la fusion par *truthiness* d'`@adonisjs/env` (CC-88) menace
+n'importe quelle variable non vide en `.env.test`, pas seulement celles d'un client externe. Sans
+cette garde, un `.env` de poste de dev qui fixerait `COFFRE_NAS_ROOTS` sur un vrai dossier
+contaminerait les tests en process. Conséquence : **`NasRootsService` par défaut ne résout
+jamais rien en test** — les tests qui doivent prouver le résolveur (ou le proxy) construisent
+leurs propres racines de fixtures et substituent le service via `app.container.swap`, exactement
+comme `FakeImmichClient`.
+
+### Le cache — même tension que la vignette, tranchée dans le même sens
+
+`cache-control: no-store` + `pragma: no-cache`, comme `CoffreMediaController`. ⚠️ **Ce n'est pas
+un oubli d'optimisation** : le contenu du coffre est verrouillable, un média mis en cache par le
+navigateur resterait lisible sur son disque après un verrouillage — le même risque que sur une
+vignette, en plus lourd pour une vidéo. Le coût assumé : chaque segment demandé par le lecteur
+(chaque `seek`) repasse par ce serveur, jamais par un cache local. Cohérence du modèle de sécurité
+du module plutôt que performance — à confirmer au navigateur, ce poste n'ayant aucun outil de
+pilotage.
+
+### La liste n'affiche AUCUN aperçu à plusieurs médias à la fois — décision assumée, pas un oubli
+
+⚠️ **Aucune vignette n'existe pour ces fichiers, contrairement aux assets Immich.** Le proxy Immich
+resize déjà côté Immich ; ici, rien ne redimensionne un fichier NAS avant de le servir. Charger
+`<img>`/`<video>` pour PLUSIEURS pièces jointes à la fois (la liste d'édition, un jour une grille)
+téléchargerait le fichier **complet** de chacune — un piège de bande passante nommé explicitement
+par l'amendement du ticket sur des photos d'appareil moderne (10-20 Mo pièce).
+
+La réponse retenue, **sans nouvelle dépendance** (pas de `sharp` ni d'équivalent — ça toucherait le
+`Dockerfile` et le build multi-arch de CC-142, non vérifiable depuis ce poste sans un vrai run
+GHCR) :
+
+- **La liste d'édition (chips) ne charge RIEN** : chaque pièce jointe déjà attachée s'affiche comme
+  un simple `#<id>`, texte seul, aucune requête réseau.
+- **Seule l'entrée OUVERTE affiche un aperçu réel**, un média à la fois — `<video controls>` ou
+  `<img>` selon `kind`, jamais plusieurs chargements simultanés hors de ce contexte. C'est la même
+  discipline que la vignette Immich (rendue uniquement dans `template v-else-if="opened === …"`),
+  étendue à un cas où, sans elle, le coût serait bien plus élevé.
+- ⚠️ **Limite connue, assumée** : ouvrir une entrée qui porte une photo de 20 Mo la télécharge en
+  entier — il n'y a pas de vraie vignette. Une génération de vignette côté serveur (ex. `sharp`,
+  bornée en taille comme `MAX_THUMBNAIL_BYTES` côté Immich) est un candidat naturel de suivi si la
+  liste devient lente à l'usage, pas fait ici faute de pouvoir vérifier l'impact sur le build
+  multi-arch depuis ce poste.
+
+### Le proxy de streaming — reprend le mur, ajoute `Range`, sert les deux natures
+
+`GET /coffre/nas/:id/stream` — **`:id` désigne notre ligne `coffre_entry_nas_file`, jamais un
+chemin ni un id venu du client**, même décision de sécurité que le proxy de vignette. **Un seul
+contrôleur pour les deux natures** : `Range` est utile à la vidéo, sans objet pour une photo, mais
+dupliquer la route aurait dupliqué la garde de chemin pour un gain nul.
+
+- ⚠️ **Dans `ROUTES_MUREES` de `coffre_wall.spec.ts` ET dans l'assertion qui lit le routeur** —
+  mesuré à l'identique à CC-180 : sortir la route du groupe muré ne fait rougir QUE cette
+  assertion-là, `#key()` (via `vault.keyFor`) rendant le même 403 par ailleurs.
+- Sans en-tête `Range` : 200, corps entier. Avec un `Range` valide : 206,
+  `content-range`/`content-length` du segment exact. `Range` invalide ou hors bornes : 416,
+  `content-range: bytes */<taille>`.
+- Un échec à n'importe quelle étape (référence introuvable, résolution hors racine, extension hors
+  allow-list, fichier disparu) rend uniformément 404 côté client, jamais un oracle sur la cause ;
+  `logger.warn` la nomme côté serveur — même doctrine que le proxy de vignette.
+- ⚠️ **`NasRootsService.resolve` ne lève jamais** : un chemin hostile, une racine non montée ou
+  un fichier disparu sont des cas normaux de ce module, traités tous uniformément côté contrôleur.
+- ⚠️ **`stat` est gardé par `isFile()`, et ce n'est pas de la ceinture-bretelles.** `realpath`
+  réussit sur un **dossier** : un dossier nommé `album.jpg` sous une racine autorisée traverse
+  l'allow-list d'extension sans encombre, et `createReadStream` échouerait alors **après** l'envoi
+  des en-têtes — une 500 au milieu d'un module dont toute la lisibilité tient à ce que ses échecs
+  se ressemblent. Le même `catch` couvre le fichier disparu entre la résolution et la lecture.
+  `coffre_nas.spec.ts` porte le cas du dossier ; la garde a été **mutée** pour vérifier qu'elle
+  rougit, et elle fait tomber ce test-là exactement.
+
+⚠️ **`.heic` est servi correctement et ne s'affichera pourtant PAS**, sauf sur Safari. Chrome,
+Firefox et Edge ne décodent HEIC dans aucun `<img>` — c'est un blocage de licence HEVC, pas un
+retard d'implémentation, et **l'échec est silencieux** : ni erreur, ni repli, une image cassée.
+L'extension reste dans l'allow-list parce que le fichier, lui, est bien servi (un téléchargement
+fonctionne) — mais c'est le format **par défaut des iPhone**, donc le premier qu'on trouve sur un
+NAS familial. ⚠️ **Ne cherche pas le bug dans le proxy** : la conversion (côté NAS, ou un jour
+côté serveur) est la seule réponse, et elle n'est pas dans ce lot.
+
+### Le modèle de données — table dédiée, comme les médias Immich, PLUS un `kind` en clair
+
+`coffre_entry_nas_file` (`entry_id`, `owner_id` dénormalisé, `path_cipher`, `kind`, `created_at`)
+— même schéma que `coffre_entry_media`, avec une colonne de plus. ⚠️ **Une table dédiée, pas un
+discriminant sur `coffre_entry_media`** : les deux sources (Immich, disque local) ont des règles de
+sécurité entièrement différentes (UUID vs. chemin de fichier avec `realpath`) — les mélanger
+brouillerait un mécanisme dont la sûreté tient à être isolé et simple.
+
+⚠️ **`kind` (« video » | « photo ») est en CLAIR, et ce n'est pas une incohérence avec
+`path_cipher`.** Le client a besoin de savoir quel élément rendre (`<video>` ou `<img>`) SANS
+jamais recevoir le chemin réel (qui reste chiffré, jamais redescendu — voir plus bas). `kind` ne
+révèle que la nature du fichier, déjà connue de l'allow-list publique (`nas_file_format.ts`) —
+donc rien à protéger. Il est calculé à l'écriture (`nasFileKindFor`, dérivé de l'extension) et
+sélectionné par la liste (`#nasFileIdsByEntry`) exactement comme `id`, sans jamais toucher
+`path_cipher` — même doctrine que `COLONNES_DE_LISTE` (CC-179) : le chargement du chiffré reste
+réservé au proxy de streaming, une ligne à la fois. `kind` n'est pas un enum natif (pas de
+`useNative: true`), même doctrine que `coffre_entries.type`.
+
+⚠️ **Contrairement à `#attachMedia`, `#attachNasFiles` NE normalise PAS la casse avant de
+dédupliquer.** Un UUID Immich est insensible à la casse par construction ; un chemin de fichier sur
+un NAS (ext4/btrfs) ne l'est pas — le mettre en minuscules changerait un chemin réel en un chemin
+qui n'existe plus.
+
+### L'édition : additive/soustractive, comme les médias — même raison
+
+`nasFiles: { add?: string[]; remove?: number[] }` sur `entryUpdateValidator` : le chemin ne
+redescend jamais vers le client (`CoffreEntryView.nasFiles` ne porte que `{ id, kind }`), qui ne
+peut donc pas réémettre l'état complet pour un remplacement intégral.
+
 ## Un coffre par compte
 
 `coffre_vaults.user_id` est **unique**, les entrées portent `owner_id`, rien n'est partagé. Un
@@ -442,6 +616,12 @@ Les cinq points du `CLAUDE.md` racine s'appliquent tels quels. Deux propres à c
   `passphrase_confirmation` que le formulaire n'envoie pas. Mesuré pendant le lot — et le refus
   était **indiscernable d'une passphrase fausse** : même redirection, même message.
 
+⚠️ **`COFFRE_NAS_ROOTS` n'a PAS sa place dans `.env.test` (CC-181), et c'est la seule exception à
+la règle ci-dessus.** L'isolation de `config/coffre_nas.ts` la vide déjà en environnement
+`test`, quel que soit le `.env` réel du poste — l'y ajouter ne ferait rien, comme pour
+`IMMICH_BASE_URL`. Les tests qui ont besoin de racines réelles construisent leur propre
+`NasRootsService` et le substituent, jamais via l'environnement.
+
 ## Tests
 
 Le détail par fichier est dans [TESTS.md](./TESTS.md) — à lire avant de **modifier un test**.
@@ -480,12 +660,23 @@ Le détail par fichier est dans [TESTS.md](./TESTS.md) — à lire avant de **mo
   acté en écartant, en connaissance de cause, un gestionnaire dédié.
 - **Rien ne prouve qu'une vraie application d'authentification produise le code attendu** — même
   limite que CC-114, et elle mord davantage ici : sans TOTP, le coffre est inatteignable.
-- ~~Le lot 2 ne porte ni médias, ni fichiers~~ — les médias sont comblés par CC-180, voir « Les
-  médias Immich » plus haut. **Les fichiers restent hors périmètre** : aucun lot ne prévoit
-  d'upload, seulement des références vers Immich.
+- ~~Le lot 2 ne porte ni médias, ni fichiers~~ — les médias sont comblés par CC-180, les médias NAS
+  (photos et vidéos) référencés par CC-181, voir les sections respectives plus haut. **Le
+  TÉLÉVERSEMENT reste hors périmètre** : aucun lot livré ne prévoit d'upload, seulement des
+  références vers Immich ou vers un chemin déjà présent sur le NAS — CC-182 (lot 5, non livré) le
+  portera.
 - ~~Une entrée ne s'ÉDITE pas~~ — comblé par CC-186, voir « L'édition » plus bas.
 - **Aucun navigateur n'a affiché une vraie vignette Immich dans le coffre** (CC-180) : ce poste n'a
   aucun outil de pilotage de navigateur. Le proxy est prouvé par test (contenu, en-têtes, mur), pas
   par un œil humain — passage navigateur restant à faire par le propriétaire.
 - **Aucune recherche ni parcours de la bibliothèque Immich** : l'utilisateur colle l'UUID d'un
   asset copié depuis Immich. Écarté en connaissance de cause, pas par oubli — voir le ticket CC-180.
+- ⚠️ **Aucun navigateur n'a lu un vrai média NAS depuis le coffre (CC-181)**, même limite que
+  CC-180 et pour la même raison. Le streaming (contenu, `Range`, en-têtes, mur, résolveur contre un
+  vrai filesystem) est prouvé par test ; ce qu'aucun test ne peut prouver — démarrage de la
+  lecture vidéo, fluidité du `seek` sous `cache-control: no-store`, rendu réel d'une photo,
+  compatibilité de format avec un lecteur/navigateur réel — reste un passage navigateur pour le
+  propriétaire.
+- **Aucune vraie vignette pour les médias NAS**, contrairement aux assets Immich (voir « La liste
+  n'affiche aucun aperçu à plusieurs médias à la fois » plus haut) : décision assumée pour ce lot,
+  pas un oubli. Une génération de vignette côté serveur reste un candidat naturel de suivi.
