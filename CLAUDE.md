@@ -645,6 +645,24 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
 - **`whereRaw` toujours paramétré** (bindings `?`), jamais concaténé.
 - Toute entrée utilisateur passe par un validateur VineJS. CSRF actif (Shield) : les POST de test
   exigent `.withCsrfToken()`.
+- **Une validation ratée ne rejoue PAS le corps soumis** (CC-179,
+  `app/core/shared/exceptions/handler.ts`). ⚠️ Ce n'est pas le comportement du framework, c'est un
+  correctif : `@adonisjs/session` remplace `renderValidationErrorAsHTML` par une macro dont le
+  `flashValidationErrors` appelle `flashExcept(['_csrf', '_method', 'password',
+  'password_confirmation'])` — **tout le reste du corps repart dans la session**, et le store
+  étant `cookie`, il voyage chiffré par `APP_KEY` chez le client. Un code TOTP mal formé sur
+  `POST /coffre/ouvrir` suffisait à y expédier la **passphrase du coffre**, c'est-à-dire la seule
+  chose que ce module existe pour tenir hors d'`APP_KEY`. Le handler laisse `super` écrire le
+  bagage d'erreurs puis écrase l'input par `flashOnly([])`.
+  - ⚠️ **Ne « restaure » pas le rejeu en croyant réparer un formulaire.** Rien ici ne le lit : les
+    vues sont Inertia, `useForm` garde l'état côté client, et les lectures de `flashMessages`
+    portent toutes une clé nommée (`notice`, `errorsBag`, `importReport`…), jamais `input`.
+  - ⚠️ **Le corps rejoué s'étale à la RACINE du bagage**, il n'est pas rangé sous `input` — c'est
+    ce qui fait marcher `old('champ')`. Un test qui lirait `flashMessages().input` obtiendrait
+    `undefined` et passerait au vert sans rien vérifier. `validation_flash.spec.ts` porte le
+    piège, teste sur `passphrase` (un nom **hors** de la liste du vendeur, sinon la garde
+    passerait sans le correctif) et garde un plancher qui exige que les messages d'erreur, eux,
+    soient toujours flashés.
 - **La CSP est active** (`config/shield.ts`, CC-78), et `script-src` est strict. Toute ressource
   externe ajoutée à une page — script, police, image non proxifiée — sera **bloquée en silence** :
   rien au build, rien aux tests (jsdom ne charge rien), seule la console du navigateur le dit.

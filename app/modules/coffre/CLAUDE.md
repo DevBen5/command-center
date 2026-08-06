@@ -1,8 +1,10 @@
-# Module Coffre — notes et URLs chiffrées, invisibles, derrière deux portes
+# Module Coffre — notes, URLs et identifiants chiffrés, invisibles, derrière deux portes
 
-Routes `/coffre/ouvrir` · `/coffre` · pages Inertia `modules/coffre/{ouvrir, index}` · tables
-`coffre_vaults`, `coffre_entries`. Lot 1 de l'épique CC-177 (CC-178) : le **socle**, dont tous les
-lots suivants héritent — aucun ne redéfinit sa propre porte.
+Routes `/coffre/ouvrir` · `/coffre` · `/coffre/:id/secret` · pages Inertia
+`modules/coffre/{ouvrir, index}` · tables `coffre_vaults`, `coffre_entries`. Lot 1 de l'épique
+CC-177 (CC-178) : le **socle**, dont tous les lots suivants héritent — aucun ne redéfinit sa propre
+porte. Lot 2 (CC-179) : les **identifiants**, qui ajoutent une nature d'entrée et une route, et rien
+d'autre.
 
 ⚠️ **Le module est HORS de `MODULES` par défaut.** Il figure dans `KNOWN_MODULES`
 (`config/modules.ts`) — sans quoi `parseModules` ferait échouer le démarrage de qui l'active — mais
@@ -18,9 +20,10 @@ services/vault_keyring.ts                la clé en MÉMOIRE du process, TTL, pu
 services/vault_service.ts                la partie base + session : créer, ouvrir, lire, écrire
 middleware/vault_unlocked_middleware.ts  le second étage du mur
 controllers/coffre_door_controller.ts    la porte : créer, ouvrir, verrouiller — SANS élévation
-controllers/coffre_controller.ts         le contenu : lister, ajouter, supprimer — AVEC élévation
+controllers/coffre_controller.ts         le contenu : lister, ajouter, supprimer, RÉVÉLER — AVEC
+                                         élévation
 models/coffre_vault.ts                   un coffre PAR COMPTE : sel + témoin
-models/coffre_entry.ts                   note | url · titre ET contenu chiffrés
+models/coffre_entry.ts                   note | url | credential · titre, contenu ET secret chiffrés
 validators/coffre.ts                     ⚠️ des FABRIQUES, jamais des nœuds VineJS partagés
 ```
 
@@ -28,6 +31,12 @@ validators/coffre.ts                     ⚠️ des FABRIQUES, jamais des nœuds
 (le middleware nommé `coffreOuvert`) · `config/modules.ts` · `resources/lang/{fr,en}/coffre.json`
 (les messages **serveur** — `app.languageFilesPath()` ne connaît qu'un dossier, même contrainte
 structurelle que `commands/`) · et **`start/navigation.ts`, où l'absence est délibérée**.
+
+⚠️ **Deux dépendances de plus depuis CC-179, et aucune n'est propre au coffre** : la page importe
+`inertia/utils/clipboard.ts` (partagé avec `/reglages` et l'écran LLM de Leitner), et la promesse
+« aucun secret dans une réponse de validation » est tenue par
+`app/core/shared/exceptions/handler.ts`, dans le **noyau**. Ce dernier point est le seul du module
+dont le remède vit ailleurs — parce que le défaut y vivait aussi.
 
 ## Le rideau — ce qu'il achète, et ce qu'il n'achète pas
 
@@ -178,6 +187,105 @@ trou distinct :
 voulue : un marqueur d'élévation ne se pose qu'après une connexion, donc après que `AuthMiddleware`
 a posé le tampon. Un tampon manquant devant un marqueur présent n'est pas un état légitime.
 
+## Les identifiants : montrer sans exposer (CC-179)
+
+Un identifiant est **une entrée de plus**, pas une table de plus. Il réutilise les colonnes du lot 1
+— `title_cipher` porte le **service**, `content_cipher` le **nom d'utilisateur** — et n'ajoute que
+`secret_cipher`, nullable, pour le mot de passe. ⚠️ **Cette correspondance n'est écrite nulle part
+en base** : elle vit dans le modèle, le validateur et l'écran, et c'est pour ça qu'elle est nommée
+ici. Trois colonnes neuves auraient dupliqué un chiffrement déjà en place et donné trois occasions
+d'en oublier une.
+
+⚠️ **La liste ne CHARGE pas la colonne du secret — elle ne la filtre pas après coup.**
+`VaultService.listQueryFor` énumère ses colonnes (`COLONNES_DE_LISTE`) et n'y met pas
+`secret_cipher` : le chiffré n'est donc jamais lu, et le clair n'existe à **aucun instant** en
+mémoire du serveur pendant un rendu de liste. Il n'y a rien à *oublier* de retirer. Charger puis
+filtrer marcherait aujourd'hui et fuirait au premier `...entry` de complaisance.
+
+- ⚠️ **La méthode est publique pour être INSPECTABLE, pas pour être appelée ailleurs.** Deux
+  mécanismes indépendants gardent le mot de passe hors de la charge utile : ce `select`, et la vue
+  d'`entriesFor`, construite champ par champ, qui n'a pas de place pour un secret. **Retirer le
+  `select` laisse la charge utile propre et la suite verte** — mesuré. C'est le même piège que le
+  middleware du mur, et le même remède : `coffre_credentials.spec.ts` lit le **SQL**, comme
+  `coffre_wall.spec.ts` lit le **routeur**.
+- ⚠️ **Et « le SQL ne contient pas `secret_cipher` » ne suffit pas** : sans le `select`, la requête
+  devient `select * …`, qui charge la colonne **sans la nommer**. C'est l'absence de `select *` qui
+  porte la règle — « les colonnes sont énumérées, et celle-là n'y est pas ».
+- ⚠️ **Énumérer plutôt que « tout sauf une »** : une colonne ajoutée demain entre dans un `*`, elle
+  n'entre pas dans une liste. L'oubli va vers l'absence, jamais vers la fuite.
+
+### La révélation : `GET /coffre/:id/secret`, du JSON nu
+
+- ⚠️ **Surtout pas une prop Inertia.** Le client range les props de page dans `history.state` : un
+  secret passé par une prop, fût-elle rechargée partiellement, serait **écrit sur le disque du
+  navigateur** par l'historique et y resterait après la fermeture du coffre. La page fait donc un
+  `fetch`, avec `accept: application/json` — sans cet en-tête, un refus reviendrait en page HTML
+  403 au lieu d'un corps exploitable (voir la négociation de `renderForbidden`).
+- ⚠️ **En GET, donc sans corps — délibérément.** Un POST devrait porter un jeton CSRF, dont
+  l'unique copie côté client vit dans le module Leitner (un module n'importe pas chez un voisin), et
+  son corps repartirait dans la session à la moindre erreur de validation. Il n'y a rien à protéger
+  d'une écriture : la route ne modifie rien, et une lecture inter-origine de sa réponse est
+  impossible faute de CORS. `cache-control: no-store` — **pas `no-cache`**, qui autorise le
+  stockage et n'impose qu'une revalidation.
+- **`coffre.view`, pas `coffre.write`** : c'est une lecture.
+- ⚠️ **Une note rend 404, jamais « secret vide »**, et un chiffré illisible rend **422**. Même
+  doctrine que la liste : un déchiffrement raté est un refus, pas une absence. Un secret vide rendu
+  200 s'afficherait comme un mot de passe blanc et se copierait comme tel.
+- ⚠️ **Rien n'est journalisé** — ni le clair, ni un extrait, ni une longueur.
+
+### L'écran : copier d'abord, afficher en secours
+
+Le geste nominal est **Copier** : le mot de passe ne touche jamais le DOM. **Afficher** existe à
+côté, re-masqué seul au bout de 20 s, et devient le **seul** chemin quand `navigator.clipboard` est
+absent — le bouton Copier est alors désactivé **avec la raison à l'écran**.
+
+⚠️ **`navigator.clipboard` n'existe QUE dans un contexte sécurisé** (HTTPS, ou `localhost` que la
+spécification traite comme tel). Sur une installation jointe en HTTP depuis une autre machine du
+réseau, l'objet est `undefined` et l'appel lève. Avant CC-179, les deux appelants du dépôt
+écrivaient `await navigator.clipboard.writeText(…)` puis `copié = true` **sans garde** : la promesse
+rejetait, la ligne suivante ne s'exécutait pas, et l'écran restait muet. Pour des codes de secours
+c'est fâcheux ; pour un mot de passe, c'est croire l'avoir copié et coller autre chose. Le geste vit
+donc dans `inertia/utils/clipboard.ts` — **l'unique copie**, sous `inertia/` parce que `~/` est le
+seul alias que Vite résout depuis un `.vue` de `core/` comme de `modules/`.
+
+⚠️ **Le presse-papiers s'efface 30 s après une copie, à l'aveugle.** Ne remplacer que si le contenu
+est toujours le nôtre exigerait `clipboard.readText()`, donc une **demande de permission** du
+navigateur au milieu d'une action de coffre, et un refus rendrait l'effacement impossible. Ce qui a
+été copié entre-temps est donc perdu : **l'écran annonce le délai**, ce n'est pas négociable.
+
+⚠️ **L'effacement est une atténuation, pas une garantie.** Sur un onglet qui n'a plus le focus au
+moment dit, `writeText` lève « Document is not focused » et le secret reste dans le presse-papiers ;
+un rechargement complet ou la fermeture de l'onglet tuent le minuteur avant qu'il ne parte. Ne
+l'écris jamais autrement.
+
+⚠️ **Le minuteur d'effacement n'est PAS annulé au démontage**, contrairement à celui du
+re-masquage. L'annuler signifierait qu'il suffit de quitter la page dans les trente secondes pour
+que le mot de passe y reste indéfiniment. Il vit dans le contexte JS de l'application et survit donc
+à une navigation Inertia.
+
+⚠️ **Le secret révélé, lui, part au premier de ces quatre gestes** : re-masquage, repli de la ligne,
+verrouillage du coffre, démontage de la page. Le laisser vivre derrière un panneau replié serait la
+même erreur que de l'avoir mis dans la liste.
+
+### Aucun secret dans une réponse de validation — et le remède est dans le noyau
+
+⚠️ **`@adonisjs/session` rejouait le corps soumis dans la session à chaque validation ratée**, et
+ça touchait ce module de plein fouet. Sa macro sur `renderValidationErrorAsHTML` appelle
+`flashValidationErrors`, lequel fait `flashExcept(['_csrf', '_method', 'password',
+'password_confirmation'])` : tout le reste du corps repart en session, donc — le store étant
+`cookie` — **chiffré par `APP_KEY` chez le client**. Un code TOTP mal formé sur `POST /coffre/ouvrir`
+suffisait à y expédier la **passphrase**, c'est-à-dire la seule chose que tout ce fichier existe pour
+tenir hors d'`APP_KEY`.
+
+`app/core/shared/exceptions/handler.ts` laisse désormais `super` écrire le bagage d'erreurs puis
+écrase l'input par `flashOnly([])`. Deux choses à savoir :
+
+- ⚠️ **Le champ du mot de passe s'appelle `password` en plus de ça, et c'est voulu** : la liste en
+  dur du paquet l'exclut d'office, ce qui fait une seconde barrière indépendante de la nôtre.
+- ⚠️ **`validation_flash.spec.ts` teste sur `passphrase`, pas sur `password`** — sur un nom que la
+  liste du vendeur ne connaît pas. Un test écrit sur `password` passerait au vert sans le
+  correctif, et ne prouverait donc rien.
+
 ## Un coffre par compte
 
 `coffre_vaults.user_id` est **unique**, les entrées portent `owner_id`, rien n'est partagé. Un
@@ -246,7 +354,20 @@ Le détail par fichier est dans [TESTS.md](./TESTS.md) — à lire avant de **mo
   surveille le middleware.
 - **Le rendu des deux `.vue` n'est couvert par rien** : jsdom ne fait aucun layout. Le dépliage
   d'une entrée, le dialogue de suppression, l'avertissement de création se vérifient au navigateur.
+- ⚠️ **Le presse-papiers réel n'est prouvé par rien, et c'est l'essentiel de la valeur du lot 2.**
+  `clipboard.spec.ts` couvre la *logique* (disponibilité, échec rendu, minuteur annulable) contre
+  un faux `navigator` ; jsdom n'a aucun presse-papiers. Qu'un `Ctrl+V` rende bien la valeur, que
+  l'effacement à 30 s la retire vraiment, que le bouton se désactive sur une installation en HTTP
+  — **tout ça se vérifie au navigateur et nulle part ailleurs**.
+- **Rien ne prouve que le secret ne reste pas quelque part côté navigateur** (extension, gestionnaire
+  de mots de passe, capture d'écran, journal de plantage). Le module tient ce qu'il envoie et quand ;
+  ce que la machine du lecteur en fait ensuite lui échappe. C'est aussi ce que le ticket avait déjà
+  acté en écartant, en connaissance de cause, un gestionnaire dédié.
 - **Rien ne prouve qu'une vraie application d'authentification produise le code attendu** — même
   limite que CC-114, et elle mord davantage ici : sans TOTP, le coffre est inatteignable.
-- **Le lot 1 ne porte ni identifiants, ni médias, ni fichiers** : notes et URLs seulement. Les lots
+- **Le lot 2 ne porte ni médias, ni fichiers** : notes, URLs et identifiants seulement. Les lots
   suivants héritent de ce socle et ne redéfinissent pas leur propre porte.
+- ⚠️ **Une entrée ne s'ÉDITE pas** — ni au lot 1, ni au lot 2. Un mot de passe qui change se
+  resaisit, l'ancienne entrée se supprime. Ce n'est pas un oubli, mais ce n'est pas non plus une
+  décision défendue : c'est le comportement du lot 1 qu'on n'a pas élargi, et c'est le premier
+  manque qu'un usage réel fera remonter.
