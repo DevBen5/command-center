@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Head, router, useForm } from '@inertiajs/vue3'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '~/layouts/AppLayout.vue'
 import { CLIPBOARD_CLEAR_MS, clearClipboardIn, clipboardAvailable, copyText } from '~/utils/clipboard'
+import {
+  groupEntriesByNature,
+  type CoffreEntryType,
+  type CoffreSectionKey,
+} from '../shared/entry_sections.js'
 
 defineOptions({ layout: AppLayout })
-
-type CoffreEntryType = 'note' | 'url' | 'credential'
 
 interface CoffreEntry {
   id: number
@@ -37,7 +40,14 @@ interface CoffreEntry {
   nasFiles: { id: number; kind: 'video' | 'photo' }[]
 }
 
-defineProps<{ entries: CoffreEntry[] }>()
+const props = defineProps<{ entries: CoffreEntry[] }>()
+
+/**
+ * L'écran par nature (CC-204) : notes · liens · identifiants · photos, une entrée avec média
+ * (Immich ou NAS) primant sur son `type` — voir `shared/entry_sections.ts`, PUR et testé à part.
+ * Une section sans entrée n'apparaît pas dans le tableau : rien à filtrer ici.
+ */
+const sections = computed(() => groupEntriesByNature(props.entries))
 
 /** Un UUID Immich, vérifié côté client — défense en profondeur, la vraie garde est côté serveur. */
 const IMMICH_ASSET_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -375,6 +385,16 @@ function natureLabel(type: CoffreEntryType): string {
 
   return t('coffre.index.typeNote')
 }
+
+/** Le titre d'une section (CC-204). Clés **littérales**, même doctrine que `natureLabel` — ne
+ * pas calculer `` `coffre.index.section${key}` `` : ça échapperait à `keys.spec.ts`. */
+function sectionLabel(key: CoffreSectionKey): string {
+  if (key === 'url') return t('coffre.index.sectionUrl')
+  if (key === 'credential') return t('coffre.index.sectionCredential')
+  if (key === 'photo') return t('coffre.index.sectionPhoto')
+
+  return t('coffre.index.sectionNote')
+}
 </script>
 
 <template>
@@ -574,11 +594,18 @@ function natureLabel(type: CoffreEntryType): string {
         {{ t('coffre.index.empty') }}
       </p>
 
-      <article
-        v-for="entry in entries"
-        :key="entry.id"
-        class="border-b border-line px-6 py-4 last:border-b-0"
-      >
+      <template v-for="section in sections" :key="section.key">
+        <h3
+          class="border-b border-line bg-panel-2 px-6 py-2.5 text-[11px] font-semibold tracking-[.12em] text-txt-3 uppercase"
+        >
+          {{ sectionLabel(section.key) }} · {{ section.entries.length }}
+        </h3>
+
+        <article
+          v-for="entry in section.entries"
+          :key="entry.id"
+          class="border-b border-line px-6 py-4 last:border-b-0"
+        >
         <div class="flex items-center justify-between gap-4">
           <button
             type="button"
@@ -927,7 +954,8 @@ function natureLabel(type: CoffreEntryType): string {
             >{{ entry.content }}</pre
           >
         </template>
-      </article>
+        </article>
+      </template>
     </section>
   </div>
 </template>
