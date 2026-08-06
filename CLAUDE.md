@@ -824,6 +824,15 @@ produirait des codes refusés **sans lever d'erreur**.
   cessé d'être vrai. Détaché de `/review-mr` (2026-08-03, coût en tokens) : **à lancer à la
   main**, plus jamais systématiquement à chaque PR. N'existe qu'en version dépôt, pas de
   version globale.
+- **`/plan-sync`** (2026-08-06, CC-187) — met à jour **`CC-A-14`**, le plan d'exécution : *quoi
+  faire ensuite, dans quel ordre et pourquoi*, là où `CC-A-12` dit seulement ce qui existe. Il
+  rejoue `/kb-sync` **en phase 1** — un plan bâti sur une KB périmée propage l'erreur dans le
+  document qui décide de la suite — puis relit le backlog réel via un sous-agent et réécrit
+  l'article **en place**. À lancer à la main, depuis une conversation-orchestrateur seulement.
+  ⚠️ **Deux articles, jamais un** : un inventaire vieillit à chaque ticket créé, un plan à chaque
+  arbitrage pris ; les fondre ferait perdre laquelle des deux moitiés est encore vraie.
+  ⚠️ **C'est lui qui interdit `disable-model-invocation: true` sur `/kb-sync`** — voir le bloc du
+  drapeau plus bas : la phase 1 échouerait sans un mot.
 - **`/triage-youtrack`**, **`/create-issue-from-code`**, **`/summarize-sprint`**,
   **`/link-commit-to-issue`** (2026-08-04) — quatre skills légers autour du
   MCP YouTrack, pensés pour rester **strictement en MCP, jamais en REST direct** : un appel REST
