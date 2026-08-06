@@ -36,6 +36,8 @@ const ROUTES_MUREES = [
   // La révélation d'un mot de passe (CC-179) : la route la plus sensible du module, et la seule
   // dont une réponse porte un secret en clair.
   { methode: 'get' as const, url: '/coffre/1/secret' },
+  // Le proxy de vignette Immich (CC-180) : l'image EST le contenu du coffre.
+  { methode: 'get' as const, url: '/coffre/media/1/thumbnail' },
 ]
 
 test.group('Coffre / le mur', (group) => {
@@ -76,6 +78,9 @@ test.group('Coffre / le mur', (group) => {
     // toute façon — raison de plus pour asserter le middleware ici, où c'est le mécanisme qui se
     // lit, et pas seulement le refus qui s'observe.
     assert.include(nomsSur('/coffre/:id/secret', 'GET'), 'coffreOuvert')
+    // ⚠️ CC-180 : mesuré à l'identique — retirer cette route du mur ne fait rougir QUE cette
+    // assertion-là, le contrôleur rendant lui aussi un 403 sans clé de session.
+    assert.include(nomsSur('/coffre/media/:id/thumbnail', 'GET'), 'coffreOuvert')
 
     // ⚠️ Et la porte ne doit PAS le porter : sinon il faudrait avoir ouvert le coffre pour
     // atteindre l'écran qui l'ouvre. Sans cette moitié, poser le middleware partout passerait

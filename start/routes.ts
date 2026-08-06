@@ -49,6 +49,7 @@ const LeitnerLlmController = () => import('#modules/leitner/controllers/leitner_
 const LeitnerStatsController = () => import('#modules/leitner/controllers/leitner_stats_controller')
 const CoffreDoorController = () => import('#modules/coffre/controllers/coffre_door_controller')
 const CoffreController = () => import('#modules/coffre/controllers/coffre_controller')
+const CoffreMediaController = () => import('#modules/coffre/controllers/coffre_media_controller')
 
 /*
 |--------------------------------------------------------------------------
@@ -576,6 +577,12 @@ router
             .delete('/:id', [CoffreController, 'destroy'])
             .where('id', router.matchers.number())
             .use(middleware.can('coffre.write'))
+          // Le proxy de vignette (CC-180) : `:id` désigne notre ligne `coffre_entry_media`,
+          // jamais l'UUID Immich — même décision de sécurité que `/veille/items/:id/thumbnail`.
+          router
+            .get('/media/:id/thumbnail', [CoffreMediaController, 'thumbnail'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('coffre.view'))
         })
         .prefix('/coffre')
         .use(middleware.coffreOuvert())

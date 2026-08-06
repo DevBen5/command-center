@@ -22,21 +22,41 @@ interface CoffreEntry {
   title: string
   content: string
   createdAt: string | null
+  /**
+   * ⚠️ **Seul l'`id` de la ligne voyage jusqu'ici, jamais l'UUID Immich** (CC-180) : la charge
+   * utile de la page ne porte pas le secret que le proxy protège. `id` sert uniquement à
+   * construire `/coffre/media/:id/thumbnail`.
+   */
+  media: { id: number }[]
 }
 
 defineProps<{ entries: CoffreEntry[] }>()
+
+/** Un UUID Immich, vérifié côté client — défense en profondeur, la vraie garde est côté serveur. */
+const IMMICH_ASSET_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const { t } = useI18n()
 
 /** Combien de temps un mot de passe révélé reste à l'écran avant de se re-masquer seul. */
 const REVEAL_MS = 20_000
 
-const form = useForm<{ type: CoffreEntryType; title: string; content: string; password: string }>({
+const form = useForm<{
+  type: CoffreEntryType
+  title: string
+  content: string
+  password: string
+  media: string[]
+}>({
   type: 'note',
   title: '',
   content: '',
   password: '',
+  media: [],
 })
+
+/** Le champ de saisie d'un UUID Immich à ajouter — création comme édition. */
+const newMediaInput = ref('')
+const newMediaError = ref(false)
 
 /** Quelle entrée est dépliée — le contenu ne s'affiche pas de lui-même. */
 const opened = ref<number | null>(null)
@@ -48,11 +68,26 @@ const opened = ref<number | null>(null)
  */
 const editing = ref<{ id: number; type: CoffreEntryType } | null>(null)
 
-const editForm = useForm<{ title: string; content: string; password: string }>({
+/**
+ * ⚠️ **`media` est additif/soustractif, PAS un remplacement intégral** (CC-180) — contrairement à
+ * `title`/`content`. L'UUID Immich ne redescend jamais vers le client (voir `CoffreEntry.media`) :
+ * l'écran ne peut donc pas réafficher, puis renvoyer, l'état complet. `remove` porte les `id` des
+ * médias déjà attachés qu'on retire ; `add`, les UUID collés pendant cette édition.
+ */
+const editForm = useForm<{
+  title: string
+  content: string
+  password: string
+  media: { add: string[]; remove: number[] }
+}>({
   title: '',
   content: '',
   password: '',
+  media: { add: [], remove: [] },
 })
+
+/** Les médias déjà attachés à l'entrée en cours d'édition, MOINS ceux marqués pour retrait. */
+const editingRemainingMedia = ref<{ id: number }[]>([])
 
 /**
  * Le presse-papiers est-il utilisable ici ?
@@ -114,10 +149,15 @@ function oublier(): void {
   editing.value = null
   editForm.reset()
   editForm.clearErrors()
+  editingRemainingMedia.value = []
+  newMediaInput.value = ''
+  newMediaError.value = false
 }
 
 /** Ouvre le formulaire d'édition, préremplit depuis ce que la liste porte déjà — jamais le mot
- * de passe, qui n'y est jamais chargé (CC-179). */
+ * de passe, qui n'y est jamais chargé (CC-179), ni l'UUID d'un média, qui ne descend jamais
+ * (CC-180) : seuls les `id` déjà attachés sont connus, pour construire les vignettes et permettre
+ * un retrait. */
 function startEdit(entry: CoffreEntry): void {
   oublier()
 
@@ -125,12 +165,43 @@ function startEdit(entry: CoffreEntry): void {
   editing.value = { id: entry.id, type: entry.type }
   editForm.title = entry.title
   editForm.content = entry.content
+  editingRemainingMedia.value = [...entry.media]
 }
 
 function submitEdit(): void {
   if (editing.value === null) return
 
   editForm.put(`/coffre/${editing.value.id}`, { onSuccess: () => oublier() })
+}
+
+/** Valide et ajoute un UUID au champ courant (`form.media` en création, `editForm.media.add` en
+ * édition) — la vraie garde reste côté serveur, ceci n'évite qu'un aller-retour inutile. */
+function addMedia(target: string[]): void {
+  const assetId = newMediaInput.value.trim()
+
+  if (!IMMICH_ASSET_ID.test(assetId)) {
+    newMediaError.value = true
+    return
+  }
+
+  newMediaError.value = false
+  if (!target.includes(assetId)) target.push(assetId)
+  newMediaInput.value = ''
+}
+
+function removeMediaFromCreate(assetId: string): void {
+  form.media = form.media.filter((id) => id !== assetId)
+}
+
+function removePendingEditMedia(assetId: string): void {
+  editForm.media.add = editForm.media.add.filter((id) => id !== assetId)
+}
+
+/** Marque un média déjà attaché pour retrait — l'écran le fait disparaître tout de suite, le
+ * serveur n'agit qu'à la soumission (CC-180 : additif/soustractif, jamais un remplacement). */
+function removeExistingMedia(id: number): void {
+  editForm.media.remove.push(id)
+  editingRemainingMedia.value = editingRemainingMedia.value.filter((media) => media.id !== id)
 }
 
 function masquerSecret(): void {
@@ -211,7 +282,13 @@ async function afficherSecret(id: number): Promise<void> {
 }
 
 function submit(): void {
-  form.post('/coffre', { onSuccess: () => form.reset('title', 'content', 'password') })
+  form.post('/coffre', {
+    onSuccess: () => {
+      form.reset('title', 'content', 'password', 'media')
+      newMediaInput.value = ''
+      newMediaError.value = false
+    },
+  })
 }
 
 function remove(id: number): void {
@@ -337,6 +414,48 @@ function natureLabel(type: CoffreEntryType): string {
           </p>
         </div>
 
+        <div>
+          <label class="mb-[7px] block text-[12px] text-txt-2">{{ t('coffre.index.media') }}</label>
+          <p class="mb-2 text-[12px] text-txt-3">{{ t('coffre.index.mediaHint') }}</p>
+
+          <div class="flex gap-2">
+            <input
+              v-model="newMediaInput"
+              :placeholder="t('coffre.index.mediaPlaceholder')"
+              class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[13px] text-txt outline-none focus:border-aqua"
+              :class="newMediaError ? 'border-bad' : ''"
+              @keydown.enter.prevent="addMedia(form.media)"
+            />
+            <button
+              type="button"
+              class="shrink-0 rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt hover:border-aqua"
+              @click="addMedia(form.media)"
+            >
+              {{ t('coffre.index.mediaAddButton') }}
+            </button>
+          </div>
+          <p v-if="newMediaError" class="mt-1.5 text-[12.5px] text-bad">
+            {{ t('coffre.index.mediaInvalid') }}
+          </p>
+
+          <ul v-if="form.media.length > 0" class="mt-2 flex flex-wrap gap-2">
+            <li
+              v-for="assetId in form.media"
+              :key="assetId"
+              class="flex items-center gap-2 rounded-[7px] border border-line-2 px-2.5 py-1.5 text-[11px] text-txt-2"
+            >
+              <span class="font-mono">{{ assetId }}</span>
+              <button
+                type="button"
+                class="text-txt-3 hover:text-bad"
+                @click="removeMediaFromCreate(assetId)"
+              >
+                {{ t('coffre.index.mediaRemove') }}
+              </button>
+            </li>
+          </ul>
+        </div>
+
         <button
           type="submit"
           :disabled="form.processing"
@@ -456,6 +575,73 @@ function natureLabel(type: CoffreEntryType): string {
             </p>
           </div>
 
+          <div>
+            <label class="mb-[7px] block text-[12px] text-txt-2">{{ t('coffre.index.media') }}</label>
+            <p class="mb-2 text-[12px] text-txt-3">{{ t('coffre.index.mediaHint') }}</p>
+
+            <ul
+              v-if="editingRemainingMedia.length > 0"
+              class="mb-2 flex flex-wrap gap-2"
+            >
+              <li
+                v-for="media in editingRemainingMedia"
+                :key="media.id"
+                class="overflow-hidden rounded-[8px] border border-line-2"
+              >
+                <img
+                  :src="`/coffre/media/${media.id}/thumbnail`"
+                  class="block h-16 w-16 object-cover"
+                  alt=""
+                />
+                <button
+                  type="button"
+                  class="w-full bg-panel-2 py-1 text-[11px] text-txt-3 hover:text-bad"
+                  @click="removeExistingMedia(media.id)"
+                >
+                  {{ t('coffre.index.mediaRemove') }}
+                </button>
+              </li>
+            </ul>
+
+            <div class="flex gap-2">
+              <input
+                v-model="newMediaInput"
+                :placeholder="t('coffre.index.mediaPlaceholder')"
+                class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[13px] text-txt outline-none focus:border-aqua"
+                :class="newMediaError ? 'border-bad' : ''"
+                @keydown.enter.prevent="addMedia(editForm.media.add)"
+              />
+              <button
+                type="button"
+                class="shrink-0 rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt hover:border-aqua"
+                @click="addMedia(editForm.media.add)"
+              >
+                {{ t('coffre.index.mediaAddButton') }}
+              </button>
+            </div>
+            <p v-if="newMediaError" class="mt-1.5 text-[12.5px] text-bad">
+              {{ t('coffre.index.mediaInvalid') }}
+            </p>
+
+            <ul v-if="editForm.media.add.length > 0" class="mt-2 flex flex-wrap gap-2">
+              <li
+                v-for="assetId in editForm.media.add"
+                :key="assetId"
+                class="flex items-center gap-2 rounded-[7px] border border-line-2 px-2.5 py-1.5 text-[11px] text-txt-2"
+              >
+                <span class="font-mono">{{ assetId }}</span>
+                <span class="text-txt-3">({{ t('coffre.index.mediaPending') }})</span>
+                <button
+                  type="button"
+                  class="text-txt-3 hover:text-bad"
+                  @click="removePendingEditMedia(assetId)"
+                >
+                  {{ t('coffre.index.mediaRemove') }}
+                </button>
+              </li>
+            </ul>
+          </div>
+
           <div class="flex gap-2">
             <button
               type="submit"
@@ -475,6 +661,20 @@ function natureLabel(type: CoffreEntryType): string {
         </form>
 
         <template v-else-if="opened === entry.id">
+          <ul v-if="entry.media.length > 0" class="mt-3 flex flex-wrap gap-2">
+            <li
+              v-for="media in entry.media"
+              :key="media.id"
+              class="overflow-hidden rounded-[8px] border border-line-2"
+            >
+              <img
+                :src="`/coffre/media/${media.id}/thumbnail`"
+                class="block h-20 w-20 object-cover"
+                alt=""
+              />
+            </li>
+          </ul>
+
           <div v-if="entry.type === 'credential'" class="mt-3 grid gap-3">
             <div class="rounded-[8px] bg-panel-2 p-4">
               <p class="text-[11px] tracking-[.12em] text-txt-3 uppercase">

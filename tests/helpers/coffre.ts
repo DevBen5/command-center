@@ -3,8 +3,14 @@ import type { SessionData } from '@adonisjs/session/types'
 import type User from '#core/auth/models/user'
 import { LOGIN_STAMP_KEY } from '#core/auth/services/session_lifetime'
 import CoffreVault from '#modules/coffre/models/coffre_vault'
+import CoffreEntryMedia from '#modules/coffre/models/coffre_entry_media'
 import keyring from '#modules/coffre/services/vault_keyring'
-import { deriveKey, generateSalt, sealVerifier } from '#modules/coffre/services/vault_crypto'
+import {
+  deriveKey,
+  encrypt,
+  generateSalt,
+  sealVerifier,
+} from '#modules/coffre/services/vault_crypto'
 import { VAULT_UNLOCK_KEY, unlockMarkerFor } from '#modules/coffre/services/vault_session'
 
 /** La passphrase des tests — assez longue pour passer `MIN_PASSWORD_LENGTH`. */
@@ -56,4 +62,24 @@ export async function unlockedSession(
 /** Une session **connectée** mais coffre fermé — le cas que le mur doit refuser. */
 export function lockedSession(): SessionData {
   return { [LOGIN_STAMP_KEY]: DateTime.now().minus({ hours: 1 }).toISO() }
+}
+
+/**
+ * Attache une référence de média à une entrée, sans passer par la route (CC-180).
+ *
+ * ⚠️ **Écrit la colonne chiffrée directement, comme `createVault`** : un test qui doit fabriquer
+ * une entrée *et* attacher un média pour poser son décor testerait son propre décor avant
+ * d'atteindre ce qu'il vient vérifier.
+ */
+export async function createMedia(
+  entryId: number,
+  ownerId: number,
+  key: Buffer,
+  assetId = '11111111-2222-4333-8444-555555555555'
+): Promise<CoffreEntryMedia> {
+  return CoffreEntryMedia.create({
+    entryId,
+    ownerId,
+    assetIdCipher: encrypt(assetId, key),
+  })
 }
