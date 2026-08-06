@@ -4,6 +4,7 @@ description: |
   Passe en revue les issues du projet CC pour repérer ce qui manque de priorité, de type ou
   d'assigné, et produit une synthèse triée — aucune écriture sans confirmation explicite.
   Trigger : `/triage-youtrack [filtre YouTrack optionnel]` — défaut `project: CC State: Open`.
+disable-model-invocation: true
 ---
 
 # /triage-youtrack — Triage rapide du backlog CC

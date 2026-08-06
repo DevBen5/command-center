@@ -4,6 +4,7 @@ description: |
   Relie un commit déjà créé au ticket CC qu'il concerne, par un commentaire sur le ticket
   (hash + résumé + lien GitHub) — le footer `CC-XX` du commit ne se voit que depuis git.
   Trigger : `/link-commit-to-issue [sha]` — défaut `HEAD`.
+disable-model-invocation: true
 ---
 
 # /link-commit-to-issue — Relier un commit à son ticket

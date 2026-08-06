@@ -824,8 +824,8 @@ produirait des codes refusés **sans lever d'erreur**.
   cessé d'être vrai. Détaché de `/review-mr` (2026-08-03, coût en tokens) : **à lancer à la
   main**, plus jamais systématiquement à chaque PR. N'existe qu'en version dépôt, pas de
   version globale.
-- **`/triage-youtrack`**, **`/prepare-issue-context`**, **`/create-issue-from-code`**,
-  **`/summarize-sprint`**, **`/link-commit-to-issue`** (2026-08-04) — cinq skills légers autour du
+- **`/triage-youtrack`**, **`/create-issue-from-code`**, **`/summarize-sprint`**,
+  **`/link-commit-to-issue`** (2026-08-04) — quatre skills légers autour du
   MCP YouTrack, pensés pour rester **strictement en MCP, jamais en REST direct** : un appel REST
   exigerait le bearer token accessible à un script, ce qui contredit le point Sécurité sur les
   tokens (§ Garde-fous) pour un gain mesuré comme marginal (les champs qu'une sélection REST
@@ -834,10 +834,42 @@ produirait des codes refusés **sans lever d'erreur**.
   (`Agent`, `subagent_type: general-purpose`) qui ne renvoie qu'une synthèse — même pattern que
   `/kb-sync`. Toute écriture (`create_issue`, `update_issue`, `add_issue_comment`) attend une
   confirmation explicite avant l'appel MCP, jamais d'envoi silencieux.
+  ⚠️ **`/prepare-issue-context` a été SUPPRIMÉ le 2026-08-06 — ne le recrée pas.** Il enveloppait
+  un unique `get_issue` dans un skill, et il ne portait aucune connaissance qui ne soit ailleurs :
+  son seul contenu propre, `recentCommentsCount: 0`, est déjà la consigne par défaut de la mémoire
+  `youtrack-mcp-cout-tokens`. Surtout, il n'avait **aucune place dans le cursus réel** : quand
+  l'orchestrateur vient de créer le ticket, il en a le contenu en tête ; quand la
+  conversation-ticket démarre, l'étape 1 de `/task-flow` lit déjà tout — et en plus, elle passe
+  `In Progress`. Il n'a jamais été invoqué une seule fois (`.claude/youtrack-usage.log` n'existait
+  même pas), tout en coûtant sa `description` dans le contexte système de **chaque** session.
+
 - **`/youtrack-stats`** (2026-08-04) — agrège `.claude/youtrack-usage.log` (non versionné), alimenté
-  par les six skills ci-dessus à chaque invocation, et rapporte la réduction de contexte réelle de
-  la délégation à un sous-agent. Le journal est vide tant qu'aucun des six n'a tourné : le format
+  par les cinq skills ci-dessus à chaque invocation, et rapporte la réduction de contexte réelle de
+  la délégation à un sous-agent. Le journal est vide tant qu'aucun des cinq n'a tourné : le format
   est en place, la mesure ne l'est pas encore.
+
+⚠️ **Cinq skills YouTrack portent `disable-model-invocation: true` depuis le 2026-08-06 — il faut
+donc les TAPER, je ne les proposerai jamais.** Mesuré ce jour-là sur 298 sessions depuis le
+01/07 : `git-commit` 67 invocations, `lead-review` 62, `task-flow` ~74, `review-mr` 18 — et **zéro**
+pour les six skills YouTrack. Un skill que je n'invoque pas coûte quand même sa `description` dans
+le contexte système de **chaque** session ; le drapeau la retire de ma liste sans supprimer le
+skill, qui reste atteignable au slash. C'est la voie moyenne entre garder un poids mort et perdre
+une procédure écrite.
+
+- ⚠️ **`/kb-sync` est le SIXIÈME, et il est resté hors du lot — ce drapeau ne coupe pas seulement
+  la suggestion, il coupe l'APPEL.** Un skill qui le porte n'est plus atteignable par l'outil Skill
+  **depuis un autre skill** : `/plan-sync` (CC-187) rejoue `/kb-sync` en phase 1, et le flaguer
+  ferait échouer cette phase **sans un mot**. C'est exactement la raison pour laquelle
+  `/git-commit` et `/lead-review` sont eux aussi restés dehors — `/task-flow` les atteint de la
+  même façon à son étape 8. **Ne repose pas ce drapeau sur `/kb-sync` en croyant l'avoir oublié.**
+- ⚠️ **Zéro invocation ne prouve pas l'inutilité, et c'est pour ça qu'on n'a supprimé que
+  `/prepare-issue-context`.** `/kb-sync` était à zéro parce qu'il était **reporté** — la mémoire le
+  disait « passé d'utile à nécessaire » — pas parce qu'il ne servait à rien. Ce qui a condamné
+  `prepare`, c'est la redondance structurelle avec l'étape 1 de `/task-flow`, pas le compteur.
+- ⚠️ **Le coût du drapeau reste réel pour les cinq autres** : plus rien ne me fera dire « tu
+  devrais lancer `/triage-youtrack` ». Leur usage ne se rappellera plus tout seul ; il ne vit que
+  dans la mémoire de reprise et ici. `/kb-sync` échappe à ce coût par un autre chemin :
+  `/plan-sync` le rejoue, donc son rappel est devenu **structurel** plutôt que suggéré.
 
 ⚠️ **Les trois premiers de ces noms existent AUSSI en global**, dans une version qui vise l'autre
 workspace (GitLab, NestJS, `develop`, pnpm, `Refs: #SAAS-XX`). **Le skill du dépôt ne masque pas le

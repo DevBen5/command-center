@@ -4,6 +4,7 @@ description: |
   Résume l'état du backlog CC (par état, type, priorité) sur un périmètre donné — projet entier,
   epic, ou filtre libre. Tourne systématiquement dans un sous-agent, seule la synthèse revient.
   Trigger : `/summarize-sprint [filtre YouTrack optionnel]`.
+disable-model-invocation: true
 ---
 
 # /summarize-sprint — Résumé du backlog CC
