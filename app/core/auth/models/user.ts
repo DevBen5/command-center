@@ -75,6 +75,18 @@ export default class User extends compose(BaseModel, AuthFinder) {
   @hasMany(() => UserRecoveryCode)
   declare recoveryCodes: HasMany<typeof UserRecoveryCode>
 
+  /**
+   * La borne des sessions de ce compte (CC-176) : toute session dont le tampon de connexion
+   * précède cette date est morte, à sa requête suivante.
+   *
+   * ⚠️ **`null` n'est pas « inconnu », c'est « jamais révoqué »** — le comportement d'avant le
+   * lot, et le seul cas où une session sans tampon reste tolérée (voir `AuthMiddleware`).
+   * Ne l'écris jamais à la main : `revokeSessions` est le seul chemin, parce que c'est lui qui
+   * garantit que la session qui déclenche le geste ne s'auto-expulse pas.
+   */
+  @column.dateTime()
+  declare sessionsValidFrom: DateTime | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 

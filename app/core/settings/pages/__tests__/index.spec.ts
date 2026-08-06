@@ -169,15 +169,43 @@ describe('Core / écran de réglages', () => {
   })
 
   /*
-  | CC-147 : changer son mot de passe ne ferme aucune session déjà ouverte ailleurs (le store
-  | est `cookie`, il n'existe aucune liste côté serveur). Sans cet avertissement, l'écran
-  | fabrique une fausse sécurité — c'est la seule chose qui l'en empêche, et il doit survivre
-  | à tout remaniement de cette page.
+  | CC-176 : l'avertissement de CC-147 (« ce changement ne ferme aucune session ouverte
+  | ailleurs ») a disparu, parce que l'application sait désormais le faire. Ce qui le remplace
+  | porte de la logique, et c'est elle qui est couverte : le bouton ne poste **qu'après**
+  | confirmation.
+  |
+  | ⚠️ Les deux sens, comme pour le bouton de désactivation plus haut : n'observer que le refus
+  | passerait même si le `confirm` avait disparu et que le clic postait toujours.
+  |
+  | ⚠️ **Masquer ou garder un bouton n'est pas le contrôle** — `tests/functional/auth/
+  | session_revocation.spec.ts` prouve la route elle-même. Ici on vérifie seulement qu'un clic
+  | accidentel ne déconnecte pas les autres appareils sans un mot.
   */
-  test('avertit que le changement ne ferme aucune session déjà ouverte ailleurs', () => {
-    const wrapper = monter({ enabled: false })
+  test('la révocation des sessions n’est postée qu’après confirmation', async () => {
+    const { router } = await import('@inertiajs/vue3')
+    const post = vi.mocked(router.post)
 
-    expect(wrapper.text()).toContain(settingsFr.security.password.sessionsWarning)
+    const wrapper = monter({ enabled: false })
+    const bouton = wrapper
+      .findAll('button')
+      .find((b) => b.text() === settingsFr.security.sessions.submit)!
+
+    post.mockClear()
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false)
+    )
+    await bouton.trigger('click')
+    expect(post).not.toHaveBeenCalled()
+
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true)
+    )
+    await bouton.trigger('click')
+    expect(post).toHaveBeenCalledWith('/reglages/sessions', {}, { preserveScroll: true })
+
+    vi.unstubAllGlobals()
     wrapper.unmount()
   })
 })

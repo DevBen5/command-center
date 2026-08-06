@@ -33,8 +33,13 @@
       "current": "Current password",
       "new": "New password",
       "confirm": "Confirm new password",
-      "submit": "Change password",
-      "sessionsWarning": "This change does not close any session already open elsewhere: they remain valid for up to 7 days. If you think an unwanted device is signed in to this account, this action alone does not remove it."
+      "submit": "Change password"
+    },
+    "sessions": {
+      "title": "Sessions open elsewhere",
+      "lead": "Closes every session of this account at once, except this one: other devices will have to sign in again. Changing your password does it too.",
+      "submit": "Sign out other devices",
+      "confirm": "Close every session open elsewhere? Other devices will have to sign in again."
     }
   },
   "language": {

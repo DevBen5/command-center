@@ -264,8 +264,13 @@ qui relira ce registre.
 ⚠️ **Elle doit être déployée AVANT d'en avoir besoin.** Le jour où le propriétaire est dehors,
 l'image qui tourne sur le NAS est celle d'avant : il faut d'abord reconstruire et recharger.
 
-⚠️ **Elle ne ferme aucune session déjà ouverte** — le store est `cookie`, il n'existe aucune liste
-côté serveur. Un cookie volé reste valable jusqu'à la borne des 7 jours (CC-78), reset ou pas.
+**Elle ferme les sessions ouvertes ailleurs** (CC-176), en dernière écriture — après le second
+facteur et après le mot de passe, sans rouvrir l'ordre ci-dessus. Livrer un mot de passe neuf en
+laissant l'intrus dans la place viderait de son sens le filet du compte perdu : sans ce geste, un
+cookie volé restait valable jusqu'à la borne des 7 jours (CC-78), reset ou pas. ⚠️ **Elle n'en
+ferme aucune à l'unité** — le store est `cookie`, il n'existe aucune liste côté serveur : c'est
+une révocation **en bloc**, et une commande n'ayant pas de session, celle de l'opérateur tombe
+avec les autres.
 
 ## Architecture — feature-based
 
@@ -643,6 +648,51 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
   tampon absent est **posé, jamais expulsé** (sessions d'avant CC-78, `loginAs` des tests) ; le
   contrôleur re-tamponne à chaque connexion — retirer l'un des deux bouts recrée une boucle
   d'expulsion ou une session immortelle. Les liens d'invitation valent **48 h**.
+- **Les sessions ouvertes ailleurs se ferment en bloc** (CC-176) : `users.sessions_valid_from`,
+  comparée au même tampon par le même middleware — toute session connectée **avant** cette borne
+  est morte. Trois déclencheurs : le bouton de `/reglages`, le changement de mot de passe, et
+  `auth:reset-account`. Rien d'autre n'a changé — pas de table, pas de requête de plus (le compte
+  est déjà chargé), pas de store en base.
+
+  ⚠️ **`revokeSessions` (`session_revocation.ts`) est le seul chemin, et il fait les DEUX
+  écritures.** Le mode d'échec de ce mécanisme est un bug d'**appelant** : poser la borne d'un
+  côté puis re-tamponner sa propre session de l'autre revient à appeler `now` deux fois, et
+  l'utilisateur qui vient de cliquer se déconnecte lui-même au rechargement suivant. Aucun
+  appelant ne connaît donc l'instant — il passe sa session, ou rien (`auth:reset-account` n'en a
+  pas). Le tampon reposé vient de la valeur **relue en base**, jamais du `DateTime` fabriqué :
+  l'égalité avec la borne devient vraie par construction, quoi que fasse le driver, et la
+  comparaison **strictement `<`** laisse alors passer cette session-là.
+
+  ⚠️ **Un tampon absent est révoqué quand la borne est posée**, alors qu'`isStampExpired` le
+  tolère — c'est le trou par lequel la révocation fuirait. `AuthMiddleware` *repose* le tampon
+  quand il manque (décision de CC-78) : sans cette règle, une session sans tampon se verrait
+  offrir une date postérieure à la borne et y survivrait, le geste paraissant fonctionner sans
+  rien fermer. Quand la borne est `null`, on retombe sur la tolérance d'origine, intacte.
+
+  ⚠️ **La garde est `isSessionRevoked`, PAS la position du contrôle dans le middleware — mesuré,
+  contre ce que le ticket affirmait.** Déplacer le bloc *après* la branche « tampon absent » ne
+  fait rougir aucun test : le contrôle lit `stamp`, capturé en `const` avant le `session.put`,
+  donc l'ordre des deux blocs n'y change rien. Ce qui tient réellement est le `return true` sur
+  un tampon illisible, et une mutation le prouve. Le vrai piège pour un futur lecteur est de
+  **relire `ctx.session.get(…)` après la branche** au lieu d'utiliser la valeur capturée. Ne
+  « préserve » donc pas l'ordre en croyant préserver la garde.
+
+  ⚠️ **Aucune liste d'appareils, aucune révocation à l'unité, et rien ne doit le laisser
+  espérer.** Le serveur ne sait ni combien de sessions existent, ni depuis où. Un écran
+  « Appareils » demanderait de passer le store en base, avec une requête par requête HTTP et une
+  table à purger : autre ticket, autre arbitrage. L'écran dit « sessions », jamais « appareils
+  connectés ».
+
+  ⚠️ **`silent_auth_middleware` ne porte pas ce contrôle**, comme il ne porte déjà ni l'expiration
+  absolue ni `isActive` : il ne sert que les routes ouvertes, qui n'exposent aucune donnée
+  protégée.
+
+  ⚠️ **`invitation_controller.ts:74` est le seul chemin de connexion qui ne pose pas de tampon**,
+  contrairement à `auth_controller.store` et `two_factor_controller`. C'est inerte aujourd'hui —
+  un compte fraîchement invité a `sessions_valid_from` à `null`, donc le middleware lui pose le
+  tampon au premier écran — mais c'est le fil qui casserait si quelqu'un durcissait un jour le
+  cas « tampon absent » **sans** le conditionner à une borne posée : les comptes invités seraient
+  déconnectés au premier clic. Le lot ne l'a pas touché faute de besoin, pas par oubli.
 
 ### Le second facteur TOTP (CC-114)
 
