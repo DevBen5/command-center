@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Head } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
+import { copyText } from '~/utils/clipboard'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
 import { xsrfToken } from '../components/leitner_csrf'
 
@@ -228,9 +229,21 @@ const dockerBlock = computed(
 )
 
 const copied = ref<string | null>(null)
+/** Une copie qui n'a pas abouti — le bloc reste sélectionnable à la main. */
+const copyFailed = ref(false)
 
+/**
+ * ⚠️ **L'échec se dit** (CC-179) : sans garde, hors contexte sécurisé la promesse rejetait et
+ * le bouton ne changeait jamais d'état, sans un mot. Ici la conséquence est bénigne — le bloc est
+ * affiché juste en dessous et se sélectionne à la souris — mais un bouton muet reste un bouton
+ * dont on ne sait pas s'il a marché.
+ */
 async function copy(what: 'env' | 'docker'): Promise<void> {
-  await navigator.clipboard.writeText(what === 'env' ? envBlock.value : dockerBlock.value)
+  const outcome = await copyText(what === 'env' ? envBlock.value : dockerBlock.value)
+
+  copyFailed.value = outcome !== 'ok'
+  if (outcome !== 'ok') return
+
   copied.value = what
   setTimeout(() => (copied.value = null), 2000)
 }
@@ -482,6 +495,10 @@ const STEP_CLASSES: Record<StepState, string> = {
         <i18n-t keypath="leitner.llm.step4.intro" tag="p" scope="global" class="mt-2 text-[11.5px] text-txt-2">
           <template #boot><b>au démarrage</b></template>
         </i18n-t>
+
+        <p v-if="copyFailed" class="mt-2 text-[11.5px] text-bad">
+          {{ t('leitner.llm.step4.copyFailed') }}
+        </p>
 
         <div class="mt-3 flex items-center gap-2">
           <span class="text-[11px] tracking-[.1em] text-txt-3 uppercase">.env</span>

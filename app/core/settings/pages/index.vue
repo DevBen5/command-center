@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { Head, router, useForm, usePage } from '@inertiajs/vue3'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '~/layouts/AppLayout.vue'
+import { copyText, type CopyOutcome } from '~/utils/clipboard'
 
 defineOptions({ layout: AppLayout })
 
@@ -35,7 +36,8 @@ const busy = ref(false)
  * flash les enverrait chez le client.
  */
 const recoveryCodes = ref<string[] | null>(null)
-const copied = ref(false)
+/** Ce que la dernière tentative de copie a donné — `null` tant qu'on n'a rien tenté. */
+const copied = ref<CopyOutcome | null>(null)
 
 /** Le jeton CSRF pour les appels `fetch` — Inertia le pose lui-même sur ses propres requêtes. */
 function xsrfToken(): string {
@@ -139,14 +141,21 @@ function revokeSessions(): void {
  */
 function acknowledgeCodes(): void {
   recoveryCodes.value = null
-  copied.value = false
+  copied.value = null
   router.reload()
 }
 
+/**
+ * ⚠️ **L'échec se dit, il ne se tait pas** (CC-179). Cette fonction faisait
+ * `await navigator.clipboard.writeText(…)` puis `copied = true` sans garde : hors contexte
+ * sécurisé — une installation jointe en HTTP depuis une autre machine — la promesse rejetait, la
+ * ligne suivante ne s'exécutait jamais, et le bouton restait muet. Ces codes ne s'affichent
+ * **qu'une fois** : croire les avoir copiés sans les avoir est exactement ce qu'il ne faut pas.
+ */
 async function copyCodes(): Promise<void> {
   if (!recoveryCodes.value) return
-  await navigator.clipboard.writeText(recoveryCodes.value.join('\n'))
-  copied.value = true
+
+  copied.value = await copyText(recoveryCodes.value.join('\n'))
 }
 
 /**
@@ -206,13 +215,20 @@ function switchLocale(next: string): void {
           {{ one }}
         </li>
       </ul>
+      <p v-if="copied === 'unavailable' || copied === 'refused'" class="text-[12.5px] text-bad">
+        {{
+          copied === 'unavailable'
+            ? t('settings.security.copyUnavailable')
+            : t('settings.security.copyRefused')
+        }}
+      </p>
       <div class="flex gap-2">
         <button
           type="button"
           class="rounded-lg border border-line-2 px-3 py-2 text-[12.5px] text-txt-2 transition hover:border-accent hover:text-txt"
           @click="copyCodes"
         >
-          {{ copied ? t('settings.security.copied') : t('settings.security.copy') }}
+          {{ copied === 'ok' ? t('settings.security.copied') : t('settings.security.copy') }}
         </button>
         <button
           type="button"

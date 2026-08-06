@@ -26,6 +26,8 @@
     "codesDone": "I have saved my codes",
     "copy": "Copy",
     "copied": "Copied",
+    "copyUnavailable": "Automatic copy is unavailable: this page is not served over HTTPS. Select the codes above and copy them by hand.",
+    "copyRefused": "The copy failed. Click again, or select the codes by hand.",
     "failed": "The operation failed. Try again.",
     "password": {
       "title": "Password",

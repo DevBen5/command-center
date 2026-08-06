@@ -26,6 +26,8 @@
     "codesDone": "J'ai noté mes codes",
     "copy": "Copier",
     "copied": "Copié",
+    "copyUnavailable": "La copie automatique n’est pas disponible : cette page n’est pas servie en HTTPS. Sélectionnez les codes ci-dessus et copiez-les à la main.",
+    "copyRefused": "La copie a échoué. Cliquez à nouveau, ou sélectionnez les codes à la main.",
     "failed": "L'opération a échoué. Réessayez.",
     "password": {
       "title": "Mot de passe",

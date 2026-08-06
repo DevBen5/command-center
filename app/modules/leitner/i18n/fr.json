@@ -87,6 +87,7 @@
       "intro": "Cet écran n'enregistre rien : la configuration vit dans l'environnement, lu {boot}. Colle le bloc, redémarre le serveur — le bandeau du haut repassera au vert.",
       "copy": "Copier",
       "copied": "Copié",
+      "copyFailed": "La copie automatique n’a pas abouti (page non servie en HTTPS, ou refus du navigateur). Sélectionnez le bloc ci-dessous à la main.",
       "dockerHint": "Depuis un conteneur, {localhost} est le conteneur lui-même : le serveur LLM de la machine hôte s'atteint par {dockerHost}."
     },
     "errors": {
