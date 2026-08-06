@@ -117,7 +117,11 @@ describe('Fil d’Ariane — les clés existent réellement', () => {
   test('les modules à i18n par page sont bien ceux attendus', () => {
     // Si cette liste change, c'est que l'i18n d'un module a changé de forme — relire le bloc
     // ci-dessus avant de simplement mettre le nom à jour.
-    expect(modules.map((m) => m.name).sort()).toEqual(['leitner', 'veille'])
+    //
+    // ⚠️ **`coffre` y est bien qu'il n'ait aucune destination** (CC-178) : le rideau lui retire son
+    // entrée de barre latérale, pas ses écrans. Ses deux pages ont un fil d'Ariane comme les
+    // autres — simplement enraciné sur l'accueil, `destinations[0]`, et non sur une entrée à lui.
+    expect(modules.map((m) => m.name).sort()).toEqual(['coffre', 'leitner', 'veille'])
   })
 
   test('chaque page de ces modules porte un crumb ou un title', () => {

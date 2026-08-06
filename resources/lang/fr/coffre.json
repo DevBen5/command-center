@@ -1,0 +1,5 @@
+{
+  "invalidProof": "Code ou passphrase invalide.",
+  "totpRequired": "Le coffre exige un second facteur. Activez-le depuis vos réglages, puis revenez.",
+  "alreadyExists": "Ce coffre existe déjà : ouvrez-le au lieu d’en créer un second."
+}

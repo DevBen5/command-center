@@ -47,6 +47,8 @@ const LeitnerIngestionController = () =>
   import('#modules/leitner/controllers/leitner_ingestion_controller')
 const LeitnerLlmController = () => import('#modules/leitner/controllers/leitner_llm_controller')
 const LeitnerStatsController = () => import('#modules/leitner/controllers/leitner_stats_controller')
+const CoffreDoorController = () => import('#modules/coffre/controllers/coffre_door_controller')
+const CoffreController = () => import('#modules/coffre/controllers/coffre_controller')
 
 /*
 |--------------------------------------------------------------------------
@@ -507,6 +509,64 @@ router
             .use(middleware.can('leitner.review'))
         })
         .prefix('/revision')
+    }
+
+    /*
+    |------------------------------------------------------------------
+    | Coffre — deux étages, et la porte est hors du mur (CC-178)
+    |------------------------------------------------------------------
+    |
+    | ⚠️ **Module désactivable ET absent de `MODULES` par défaut** : une installation tierce
+    | qui suit le README n'a aucune de ces routes — 404, pas 403.
+    |
+    | ⚠️ **Le module n'enregistre AUCUNE destination**, délibérément (voir `start/navigation.ts`) :
+    | il n'apparaît ni dans la barre latérale, ni dans le fil d'Ariane, ni dans la palette ⌘K,
+    | qui en dérivent tous les trois. On y entre en tapant `/coffre/ouvrir`.
+    |
+    | Deux groupes, et la séparation n'est pas cosmétique :
+    |
+    |   - **la porte** — atteignable avec la seule capacité. Exiger d'avoir ouvert le coffre pour
+    |     atteindre l'écran qui l'ouvre serait un cercle, exactement celui que `/reglages` évite
+    |     avec `openRoute()` (CC-114) ;
+    |   - **le contenu** — `coffreOuvert()` en plus, donc `ForbiddenException` sans élévation, y
+    |     compris avec un cookie de session parfaitement valide.
+    |
+    | ⚠️ Les deux étages, jamais l'un sans l'autre : la capacité dit *qui* a le droit d'entrer,
+    | l'élévation dit *que la personne vient de le prouver*. Un cookie volé porte toutes les
+    | capacités de son propriétaire pendant sept jours (CC-78).
+    |
+    */
+    if (modules.has('coffre')) {
+      router
+        .group(() => {
+          router.get('/ouvrir', [CoffreDoorController, 'show']).use(middleware.can('coffre.view'))
+          router
+            .post('/ouvrir', [CoffreDoorController, 'unlock'])
+            .use(middleware.can('coffre.view'))
+          // Poser la passphrase, une seule fois — l'unicité est tenue par la base.
+          router
+            .post('/creation', [CoffreDoorController, 'create'])
+            .use(middleware.can('coffre.view'))
+          // Refermer n'ouvre rien : pas de ré-authentification, comme la révocation de CC-176.
+          router
+            .post('/verrouiller', [CoffreDoorController, 'lock'])
+            .use(middleware.can('coffre.view'))
+        })
+        .prefix('/coffre')
+
+      router
+        .group(() => {
+          router.get('/', [CoffreController, 'index']).use(middleware.can('coffre.view'))
+          router.post('/', [CoffreController, 'store']).use(middleware.can('coffre.write'))
+          // `where(number)` : sans lui, « ouvrir » serait un id recevable si un DELETE littéral
+          // apparaissait un jour sous ce préfixe.
+          router
+            .delete('/:id', [CoffreController, 'destroy'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('coffre.write'))
+        })
+        .prefix('/coffre')
+        .use(middleware.coffreOuvert())
     }
   })
   .use(middleware.auth())

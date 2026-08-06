@@ -35,3 +35,12 @@ if (modules.has('leitner')) {
   const { LEITNER_CAPABILITIES } = await import('#modules/leitner/capabilities')
   registry.register('leitner', LEITNER_CAPABILITIES)
 }
+
+// ⚠️ **Le coffre enregistre bien ses capacités** (CC-178), contrairement à ce qu'on pourrait
+// déduire de son absence de `start/navigation.ts` : le rideau ne concerne que la **navigation**.
+// Sans cette ligne, ses routes citeraient des capacités inconnues du registre — donc fermées à
+// tout non-admin, sans que `is_admin` s'en aperçoive, et `capabilities_routes.spec.ts` rougirait.
+if (modules.has('coffre')) {
+  const { COFFRE_CAPABILITIES } = await import('#modules/coffre/capabilities')
+  registry.register('coffre', COFFRE_CAPABILITIES)
+}

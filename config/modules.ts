@@ -5,10 +5,15 @@ import env from '#start/env'
  *
  * ⚠️ **Le noyau (`core/`) n'est pas dans cette liste** : `auth`, `dashboard`, `i18n`, `settings`
  * et `shared` sont toujours présents, ils ne se désactivent pas. Ce fichier ne connaît que les
- * quatre modules détachables, dans l'ordre canonique déjà utilisé par `config/database.ts` pour
- * les migrations (contraintes FK).
+ * modules détachables, dans l'ordre canonique déjà utilisé par `config/database.ts` pour les
+ * migrations (contraintes FK).
+ *
+ * ⚠️ **Être dans cette liste ne veut pas dire « activé par défaut »** : elle dit quels noms
+ * `MODULES` a le droit de citer, rien de plus. `coffre` (CC-178) y figure et reste **absent de
+ * `.env.example`** — une installation tierce qui suit le README n'en hérite pas. Il doit pourtant
+ * y être déclaré, sans quoi `parseModules` ferait échouer le démarrage de qui l'active.
  */
-export const KNOWN_MODULES = ['services', 'agents', 'veille', 'leitner'] as const
+export const KNOWN_MODULES = ['services', 'agents', 'veille', 'leitner', 'coffre'] as const
 
 export type ModuleName = (typeof KNOWN_MODULES)[number]
 
@@ -50,6 +55,7 @@ const MODULE_MIGRATION_PATHS: Record<ModuleName, string> = {
   agents: 'app/modules/agents/migrations',
   veille: 'app/modules/veille/migrations',
   leitner: 'app/modules/leitner/migrations',
+  coffre: 'app/modules/coffre/migrations',
 }
 
 /**

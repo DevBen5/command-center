@@ -12,12 +12,24 @@ import enabledModules, { KNOWN_MODULES, type ModuleName } from '#config/modules'
  * par `MODULES`. `.env.test` les active tous (`tests/unit/modules_config.spec.ts` le
  * garantit), donc cette table décrit ce qu'un module enregistre **quand il est activé** —
  * elle ne fait plus l'hypothèse qu'il l'est toujours.
+ *
+ * ⚠️ **`null` = ce module n'enregistre AUCUNE destination, délibérément** (CC-178). C'est le
+ * rideau du coffre : sans entrée dans ce registre, il disparaît de la barre latérale, du fil
+ * d'Ariane et de la palette ⌘K, qui en dérivent tous les trois.
+ *
+ * ⚠️ **Le `Record` reste TOTAL, et ce n'est pas un détail de style.** Le passer en `Partial`
+ * ou remplacer la valeur par une liste d'exceptions ferait naître la garde inerte que CC-112 et
+ * CC-113 ont documentée : un module ajouté demain sortirait de la table sans que `tsc` ne dise
+ * rien, et son oubli dans `start/navigation.ts` — celui que ce fichier existe pour attraper —
+ * passerait au vert. Ici, `ModuleName` gagné d'un membre fait toujours échouer le typecheck :
+ * il faut *déclarer* ce qu'on attend, fût-ce « rien ».
  */
-const DESTINATION_PAR_MODULE: Record<ModuleName, string> = {
+const DESTINATION_PAR_MODULE: Record<ModuleName, string | null> = {
   services: 'services → /services',
   agents: 'agents → /agents',
   veille: 'veille → /veille',
   leitner: 'revision → /revision',
+  coffre: null,
 }
 
 /**
@@ -46,11 +58,15 @@ test.group('Core / registre des destinations', () => {
     // `start/navigation.ts`, donc un littéral figé mentirait dès que l'installation de test
     // n'active plus tout. Ce que ce test garde, c'est l'ORDRE et la présence — pas l'hypothèse
     // que tout est toujours activé.
+    // ⚠️ Le `filter` sur `null` retire les modules **sans destination déclarée** (CC-178), pas
+    // les modules oubliés : la distinction tient au `Record` total juste au-dessus, qui force à
+    // écrire `null` plutôt qu'à omettre. Un module réellement oublié dans `start/navigation.ts`
+    // porte une chaîne ici, et la comparaison le nomme.
     const attendu = [
       'accueil → /',
-      ...KNOWN_MODULES.filter((module) => enabledModules.has(module)).map(
-        (module) => DESTINATION_PAR_MODULE[module]
-      ),
+      ...KNOWN_MODULES.filter((module) => enabledModules.has(module))
+        .map((module) => DESTINATION_PAR_MODULE[module])
+        .filter((destination): destination is string => destination !== null),
     ]
 
     assert.deepEqual(
