@@ -47,16 +47,45 @@ export const vaultUnlockValidator = vine.compile(
 )
 
 /**
+ * Le mot de passe d'un identifiant (CC-179).
+ *
+ * ⚠️ **Il n'est PAS `trim()`é**, contrairement au titre et au contenu, et pour la même raison que
+ * la passphrase ci-dessus : un espace de tête ou de fin fait partie du mot de passe. Le retirer
+ * enregistrerait autre chose que ce que l'utilisateur a collé, et personne ne le verrait — le
+ * champ ne se relit jamais à l'écran.
+ *
+ * ⚠️ **Le champ s'appelle `password`, et ce n'est pas cosmétique.** `@adonisjs/session` rejoue le
+ * corps soumis dans la session sur toute erreur de validation, en excluant quatre clés en dur
+ * dont `password` (voir `app/core/shared/exceptions/handler.ts`, qui ferme le cas général).
+ * Porter ce nom-là ajoute une seconde barrière, indépendante de la nôtre.
+ *
+ * ⚠️ **Pas de longueur minimale au-delà de 1, délibérément.** Ce n'est pas un mot de passe qu'on
+ * choisit ici, c'est un mot de passe qu'on **range** : celui d'un service tiers, dont les règles
+ * ne sont pas les nôtres. Refuser un code à quatre chiffres imposé par une banque rendrait le
+ * coffre inutilisable pour le cas qu'il sert.
+ */
+const password = () => vine.string().minLength(1).maxLength(1_000)
+
+/**
  * Une entrée du coffre.
  *
  * ⚠️ **`url` n'est pas validée comme une URL, et surtout pas résolue.** Le serveur n'ira jamais la
  * chercher — ce n'est pas une source de veille, c'est un signet chiffré. Y poser une garde SSRF
  * suggérerait qu'un appel réseau existe quelque part ; il n'y en a aucun dans ce module.
+ *
+ * ⚠️ **Pour un `credential`, `title` est le SERVICE et `content` le NOM D'UTILISATEUR** — la
+ * correspondance vit ici, dans le modèle et dans l'écran, jamais en base.
+ *
+ * ⚠️ **`requiredWhen` rend le mot de passe obligatoire, il n'INTERDIT rien sur les autres
+ * natures** : un `password` posté avec une note passe la validation. C'est `VaultService.addEntry`
+ * qui tranche et n'écrit la colonne que pour un identifiant — un validateur qui refuserait le
+ * champ en trop rendrait un message d'erreur là où il n'y a rien à corriger côté utilisateur.
  */
 export const entryValidator = vine.compile(
   vine.object({
-    type: vine.enum(['note', 'url'] as const),
+    type: vine.enum(['note', 'url', 'credential'] as const),
     title: vine.string().trim().minLength(1).maxLength(200),
     content: vine.string().trim().minLength(1).maxLength(20_000),
+    password: password().optional().requiredWhen('type', '=', 'credential'),
   })
 )

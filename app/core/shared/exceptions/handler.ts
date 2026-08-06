@@ -1,6 +1,6 @@
 import app from '@adonisjs/core/services/app'
 import { HttpContext, ExceptionHandler } from '@adonisjs/core/http'
-import type { StatusPageRange, StatusPageRenderer } from '@adonisjs/core/types/http'
+import type { HttpError, StatusPageRange, StatusPageRenderer } from '@adonisjs/core/types/http'
 
 export default class HttpExceptionHandler extends ExceptionHandler {
   /**
@@ -85,6 +85,46 @@ export default class HttpExceptionHandler extends ExceptionHandler {
     }
 
     return ctx.inertia.render('core/shared/errors/forbidden')
+  }
+
+  /**
+   * Une validation ratée renvoie ses **messages**, jamais le corps qui a été soumis (CC-179).
+   *
+   * ⚠️ **Sans cette méthode, un secret soumis repart chez le client — mesuré, pas redouté.**
+   * `@adonisjs/session` remplace `renderValidationErrorAsHTML` par une macro qui appelle
+   * `session.flashValidationErrors(error)`, lequel fait
+   * `flashExcept(['_csrf', '_method', 'password', 'password_confirmation'])` : **tout** le corps
+   * de la requête est rejoué dans la session, sauf ces quatre clés écrites en dur dans le
+   * paquet. Le store de session étant `cookie` (`config/session.ts`), ce corps voyage chiffré
+   * par `APP_KEY` chez le client, puis revient à la requête suivante.
+   *
+   * Pour le coffre, c'est la dépendance que le module entier existe pour refuser (voir
+   * `app/modules/coffre/CLAUDE.md`, « pourquoi PAS `APP_KEY` ») : `POST /coffre/ouvrir` avec un
+   * code mal formé suffisait à faire partir la **passphrase** — qui n'est dans aucune des quatre
+   * clés — dans un cookie. Ailleurs, c'était un code TOTP, une clé d'API collée dans un
+   * formulaire, ou n'importe quel champ qu'un lot futur nommera autrement que `password`.
+   *
+   * ⚠️ **On appelle `super` plutôt que de recopier ce que fait le paquet.** La forme du bagage
+   * d'erreurs (`errors`, `inputErrorsBag`, `errorsBag`, le résumé traduit) lui appartient et
+   * changera sans nous prévenir ; la reproduire ici divergerait en silence. On le laisse écrire,
+   * puis on écrase la **seule** clé qui porte des valeurs saisies.
+   *
+   * ⚠️ **`flashOnly([])` plutôt qu'une liste d'exclusion à tenir à jour.** Une liste demanderait
+   * d'y penser à chaque champ sensible ajouté, et l'oubli irait vers la fuite. Rien de ce dépôt
+   * ne lit le corps rejoué : les vues sont Inertia, `useForm` garde l'état côté client, et les
+   * lectures de `flashMessages` portent toutes une clé nommée (`notice`, `errorsBag`,
+   * `importReport`…), jamais `input`. Le rejeu ne servait donc **rien** ici — il ne faisait que
+   * transporter.
+   *
+   * ⚠️ **Le corps rejoué s'étale à la RACINE du bagage de flash** (c'est ce qui fait marcher
+   * `old('champ')` côté Edge), il ne se range pas sous une clé `input`. Un test qui chercherait
+   * `flashMessages().input` lirait `undefined` et passerait au vert sans rien regarder —
+   * `tests/functional/core/validation_flash.spec.ts` porte le piège en commentaire.
+   */
+  async renderValidationErrorAsHTML(error: HttpError, ctx: HttpContext) {
+    await super.renderValidationErrorAsHTML(error, ctx)
+
+    ctx.session?.flashOnly([])
   }
 
   /**

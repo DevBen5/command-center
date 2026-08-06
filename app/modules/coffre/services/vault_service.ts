@@ -19,7 +19,13 @@ import {
   unlockedKeyId,
 } from '#modules/coffre/services/vault_session'
 
-/** Une entrée telle qu'une page la reçoit : déchiffrée, sans une trace du chiffré. */
+/**
+ * Une entrée telle qu'une page la reçoit : déchiffrée, sans une trace du chiffré.
+ *
+ * ⚠️ **Aucun champ de secret ici, et il ne faut pas en ajouter** (CC-179). Un identifiant porte
+ * son service dans `title` et son nom d'utilisateur dans `content` ; son mot de passe ne descend
+ * au navigateur que par `secretFor`, à la demande, pour une entrée à la fois.
+ */
 export interface CoffreEntryView {
   id: number
   type: CoffreEntryType
@@ -27,6 +33,39 @@ export interface CoffreEntryView {
   content: string
   createdAt: string | null
 }
+
+/**
+ * Ce qu'une demande de secret peut donner.
+ *
+ * ⚠️ **`illisible` n'est pas `introuvable`, et surtout pas une chaîne vide.** C'est la doctrine du
+ * module : un déchiffrement raté est un **refus**, jamais « pas de contenu » (voir le `unreadable`
+ * de `TwoFactorService`). Les confondre désarmerait la protection au moment précis où quelque
+ * chose d'anormal est arrivé à la base.
+ */
+export type CoffreSecret =
+  { status: 'ok'; secret: string } | { status: 'introuvable' } | { status: 'illisible' }
+
+/**
+ * Les colonnes qu'une LISTE a le droit de charger.
+ *
+ * ⚠️ **`secret_cipher` n'y est pas, et c'est la garantie centrale du lot 2** (CC-179) — pas une
+ * optimisation. Tant que la colonne n'est pas dans cette liste, le chiffré n'est jamais chargé,
+ * donc le clair n'existe à **aucun instant** en mémoire du serveur pendant un rendu de liste : il
+ * n'y a rien à oublier de retirer. Charger la colonne puis la filtrer en JS marcherait
+ * aujourd'hui et fuirait au premier `...entry` de complaisance.
+ *
+ * ⚠️ **Énumérer plutôt que `select('*')` moins un** : une colonne ajoutée demain entre dans un
+ * `*`, elle n'entre pas dans une liste. L'oubli va donc vers l'absence, jamais vers la fuite.
+ */
+const COLONNES_DE_LISTE = [
+  'id',
+  'owner_id',
+  'type',
+  'title_cipher',
+  'content_cipher',
+  'created_at',
+  'updated_at',
+] as const
 
 /**
  * Ce que la partie « base » du coffre sait faire (CC-178).
@@ -107,6 +146,29 @@ class VaultService {
   }
 
   /**
+   * La requête que la liste exécute — **publique pour être INSPECTABLE**, pas pour être appelée
+   * ailleurs (CC-179).
+   *
+   * ⚠️ **Sans elle, la promesse du lot 2 n'était mesurable qu'à son résultat, et c'est
+   * insuffisant.** Deux mécanismes indépendants empêchent le mot de passe d'atteindre le
+   * navigateur : cette liste de colonnes, et le fait qu'`entriesFor` construise une vue qui n'a
+   * pas de champ pour lui. Retirer le `select` laisserait donc **toute** la suite verte — c'est
+   * exactement la situation que `coffre_wall.spec.ts` a mesurée sur le middleware du mur, où dix
+   * tests restaient verts parce qu'un second garde rendait le même refus. Un test qui mesure un
+   * comportement ne prouve pas le mécanisme qui le tient : `coffre_credentials.spec.ts` lit donc
+   * le SQL, comme le test du mur lit le routeur.
+   *
+   * ⚠️ **`created_at desc`, jamais le titre** : il est chiffré, Postgres ne voit que des octets.
+   */
+  listQueryFor(userId: number) {
+    return CoffreEntry.query()
+      .select([...COLONNES_DE_LISTE])
+      .where('owner_id', userId)
+      .orderBy('created_at', 'desc')
+      .orderBy('id', 'desc')
+  }
+
+  /**
    * Les entrées d'un compte, déchiffrées.
    *
    * ⚠️ **Une entrée illisible est SIGNALÉE, jamais sautée.** La faire disparaître de la liste
@@ -114,13 +176,11 @@ class VaultService {
    * une entrée en silence est pire qu'un coffre qui dit avoir mal. On rend un titre de repli et un
    * contenu vide ; l'utilisateur voit qu'il y a un problème sur cette ligne-là.
    *
-   * ⚠️ **`created_at desc`, jamais le titre** : il est chiffré, Postgres ne voit que des octets.
+   * ⚠️ **Le mot de passe d'un identifiant n'est PAS chargé** (CC-179) — voir `COLONNES_DE_LISTE`.
+   * C'est la promesse du lot 2, et elle est tenue par la requête, pas par ce qui suit.
    */
   async entriesFor(user: User, key: Buffer): Promise<CoffreEntryView[]> {
-    const entries = await CoffreEntry.query()
-      .where('owner_id', user.id)
-      .orderBy('created_at', 'desc')
-      .orderBy('id', 'desc')
+    const entries = await this.listQueryFor(user.id)
 
     return entries.map((entry) => ({
       id: entry.id,
@@ -131,17 +191,53 @@ class VaultService {
     }))
   }
 
-  /** Ajoute une entrée. Le titre est chiffré comme le contenu — voir la migration. */
+  /**
+   * Le mot de passe d'UNE entrée, à la demande — l'unique chemin par lequel un secret descend
+   * jusqu'au navigateur (CC-179).
+   *
+   * ⚠️ **`owner_id` est dans la clause**, comme pour la suppression : un identifiant deviné ne
+   * doit pas atteindre l'entrée de quelqu'un d'autre, et il n'y a alors rien à comparer donc rien
+   * à oublier de comparer.
+   *
+   * ⚠️ **Une entrée qui n'est pas un identifiant est `introuvable`, pas « secret vide ».** Il n'y
+   * a pas de secret à révéler sur une note ; répondre une chaîne vide inviterait l'écran à
+   * afficher un mot de passe blanc.
+   */
+  async secretFor(user: User, key: Buffer, id: number): Promise<CoffreSecret> {
+    const entry = await CoffreEntry.query().where('id', id).where('owner_id', user.id).first()
+
+    if (entry === null || entry.type !== 'credential' || entry.secretCipher === null) {
+      return { status: 'introuvable' }
+    }
+
+    const secret = decrypt(entry.secretCipher, key)
+    if (secret === null) return { status: 'illisible' }
+
+    return { status: 'ok', secret }
+  }
+
+  /**
+   * Ajoute une entrée. Le titre est chiffré comme le contenu — voir la migration.
+   *
+   * ⚠️ **Le mot de passe n'est écrit que pour un `credential`**, quoi qu'ait envoyé le
+   * formulaire. Le validateur le rend obligatoire sur cette nature-là mais n'interdit pas de le
+   * poster avec une note ; c'est **ici** que ça se tranche, pour qu'une colonne de secret ne
+   * s'attache jamais à une entrée dont l'écran ne proposera jamais de la révéler — un chiffré que
+   * plus rien ne lit, mais que chaque sauvegarde emporterait.
+   */
   async addEntry(
     user: User,
     key: Buffer,
-    entry: { type: CoffreEntryType; title: string; content: string }
+    entry: { type: CoffreEntryType; title: string; content: string; password?: string }
   ): Promise<CoffreEntry> {
+    const secret = entry.type === 'credential' ? (entry.password ?? null) : null
+
     return CoffreEntry.create({
       ownerId: user.id,
       type: entry.type,
       titleCipher: encrypt(entry.title, key),
       contentCipher: encrypt(entry.content, key),
+      secretCipher: secret === null ? null : encrypt(secret, key),
     })
   }
 
