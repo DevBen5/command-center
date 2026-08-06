@@ -15,6 +15,7 @@ Le lot porte quatre affirmations, et elles ne se vérifient pas au même endroit
 | le contenu **n'est pas lisible en base** | `tests/functional/modules/coffre_storage.spec.ts`, sur la **colonne brute** |
 | le module **n'apparaît nulle part** dans l'interface | `tests/functional/modules/coffre_curtain.spec.ts` |
 | un mot de passe **ne descend pas dans la liste** | `tests/functional/modules/coffre_credentials.spec.ts`, sur la prop Inertia **et** sur le SQL |
+| éditer **remplace** en base, un mot de passe vide ne l'efface pas (CC-186) | `coffre_storage.spec.ts` (remplacement, cloisonnement) et `coffre_credentials.spec.ts` (rotation, préservation, type non postable) |
 
 ⚠️ **Le troisième est celui qu'un test rend faussement vert.** Relire ce qu'on vient d'écrire
 réussirait à l'identique sans le moindre chiffrement ; seul un `select` qui court-circuite le modèle
@@ -56,7 +57,8 @@ et la session révoquée qui est expulsée **en amont** (302 vers `/login`, pas 
 
 ⚠️ Le premier test **lit le routeur** pour asserter que `coffreOuvert` est branché. Il a été ajouté
 après mesure : sans lui, retirer le middleware de `start/routes.ts` laissait les dix autres verts,
-le `#key()` du contrôleur rendant le même 403.
+le `#key()` du contrôleur rendant le même 403. La route d'édition (CC-186) y entre pour la même
+raison, mesurée à l'identique : la retirer du mur ne fait rougir QUE cette assertion-là.
 
 ### `tests/functional/modules/coffre_unlock.spec.ts`
 
@@ -72,6 +74,10 @@ Ce que la base porte vraiment. Titre **et** contenu absents des colonnes, en cla
 la relecture par la page qui rend bien le clair ; le chiffré qui ne descend jamais au navigateur ;
 et le cloisonnement par compte en lecture **et** à la suppression — vérifié en base, jamais sur le
 code de réponse, la suppression ne devant pas être un oracle d'existence.
+
+Depuis CC-186 : l'édition **remplace** la colonne en base (même ligne, chiffré différent — la
+mutation l'a confirmé) plutôt que d'en ajouter une, et le cloisonnement par compte vaut aussi pour
+elle, vérifié en base comme pour la suppression.
 
 ### `tests/functional/modules/coffre_credentials.spec.ts`
 
@@ -94,6 +100,12 @@ résultat.
 `select`, la requête devient `select * …` : elle charge la colonne **sans la nommer**, donc
 l'assertion d'absence passe au vert sur le code qu'elle interdit. C'est `notInclude(sql, 'select *')`
 qui porte la règle réelle — « les colonnes sont énumérées, et celle-là n'y est pas ».
+
+Depuis CC-186, un groupe de plus couvre l'édition : la rotation d'un mot de passe (le chiffré
+change, l'ancien secret n'est plus rendu, le nouveau l'est), sa **préservation** quand le champ est
+laissé vide (mutation vérifiée : sans le garde, le test rougit et lui seul), et l'absence d'effet
+d'un mot de passe posté en éditant une note — la validation ne portant pas de champ `type`, il n'y a
+rien à contourner côté client.
 
 ### `tests/functional/modules/coffre_curtain.spec.ts`
 

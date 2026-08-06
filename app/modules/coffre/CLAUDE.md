@@ -286,6 +286,38 @@ tenir hors d'`APP_KEY`.
   liste du vendeur ne connaît pas. Un test écrit sur `password` passerait au vert sans le
   correctif, et ne prouverait donc rien.
 
+## L'édition : remplace, ne fusionne pas (CC-186)
+
+Les trois natures (note, lien, identifiant) partagent le même écran et la même route,
+`PUT /coffre/:id` — dans le groupe déjà muré, capacité `coffre.write` : **une édition rechiffre**,
+elle n'a donc aucune raison d'échapper au mur qui couvre `store`/`destroy`.
+
+⚠️ **Le formulaire d'édition ne reçoit JAMAIS le clair d'un mot de passe.** La tentation
+immédiate — préremplir depuis ce que la base porte — défait exactement ce que CC-179 a construit :
+le secret n'est pas filtré après coup, il n'est **pas chargé** par la requête de liste. Le titre et
+le contenu, eux, se préremplissent depuis la prop `entries` : ils sont **déjà** en clair côté
+navigateur à chaque affichage de la liste (c'est la promesse du lot 1), donc les préremplir n'ouvre
+aucune surface nouvelle. Seul le mot de passe reste à part : le champ part **vide**, et un champ
+laissé vide veut dire « garde l'actuel », jamais « efface-le ».
+
+⚠️ **Le `type` ne fait pas partie du schéma d'édition, et ce n'est pas une omission.** Une entrée
+ne change jamais de nature après coup (une note transformée en identifiant laisserait un
+`secret_cipher` orphelin dont plus rien ne dirait ce qu'il est). Deux mécanismes indépendants
+ferment cette porte : VineJS ne copie pas les propriétés non déclarées dans l'objet validé (sans
+`.allowUnknownProperties()`), donc un `type` posté n'atteint jamais `updateEntry` — **et** même
+s'il l'atteignait, `updateEntry` n'assigne jamais `entry.type`, quoi que porte le patch. Testé en
+postant délibérément un `type` avec l'édition (`coffre_storage.spec.ts`).
+
+⚠️ **`VaultService.updateEntry` charge la ligne complète (secret compris), et c'est sans risque
+ici, contrairement à une liste.** La restriction `COLONNES_DE_LISTE` ne vaut que pour
+`listQueryFor` : un point d'accès ciblé sur un seul `id` (comme `secretFor`, comme `deleteEntry`)
+n'a jamais eu cette contrainte, parce que rien de ce qu'il charge n'est ensuite sérialisé vers le
+client — le contrôleur ne fait ici que rediriger.
+
+⚠️ **Éditer l'entrée d'un autre compte échoue en silence** — même doctrine que la suppression :
+`owner_id` dans la clause de lecture, no-op si la ligne n'appartient pas à l'appelant, 302 dans
+tous les cas. Une édition ne doit pas plus être un oracle d'existence qu'une suppression.
+
 ## Un coffre par compte
 
 `coffre_vaults.user_id` est **unique**, les entrées portent `owner_id`, rien n'est partagé. Un
@@ -367,7 +399,4 @@ Le détail par fichier est dans [TESTS.md](./TESTS.md) — à lire avant de **mo
   limite que CC-114, et elle mord davantage ici : sans TOTP, le coffre est inatteignable.
 - **Le lot 2 ne porte ni médias, ni fichiers** : notes, URLs et identifiants seulement. Les lots
   suivants héritent de ce socle et ne redéfinissent pas leur propre porte.
-- ⚠️ **Une entrée ne s'ÉDITE pas** — ni au lot 1, ni au lot 2. Un mot de passe qui change se
-  resaisit, l'ancienne entrée se supprime. Ce n'est pas un oubli, mais ce n'est pas non plus une
-  décision défendue : c'est le comportement du lot 1 qu'on n'a pas élargi, et c'est le premier
-  manque qu'un usage réel fera remonter.
+- ~~Une entrée ne s'ÉDITE pas~~ — comblé par CC-186 (lot 3), voir « L'édition » plus bas.
