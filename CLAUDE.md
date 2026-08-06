@@ -279,7 +279,7 @@ Chaque feature est une tranche verticale complète. Les dossiers AdonisJS par d�
 
 ```
 app/core/     auth · dashboard · i18n · settings · shared   → import via #core/*
-app/modules/  services · agents · veille · leitner  → import via #modules/*
+app/modules/  services · agents · veille · leitner · coffre  → import via #modules/*
   └── controllers/ models/ migrations/ seeders/ services/ validators/ pages/
 providers/    installation_provider · leitner_provider · veille_provider    → import via #providers/*
 commands/     reset_account                         → import via #commands/*
@@ -444,6 +444,15 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
    dise `MODULES`, parce que son chemin ne passe plus par le filtre. Ce n'est pas un plantage,
    c'est l'absence silencieuse d'un comportement qu'on croyait acquis.
 
+   ⚠️ **Être dans `KNOWN_MODULES` ne veut PAS dire « activé par défaut »** (CC-178). La liste dit
+   quels noms `MODULES` a le droit de citer, rien de plus — `parseModules` fait échouer le
+   démarrage sur un nom absent, donc un module optionnel doit **quand même** y figurer.
+   `coffre` en est le premier cas : il est dans `KNOWN_MODULES`, **absent de `.env.example`** (une
+   installation tierce ne l'hérite pas), et **présent dans `.env.test`** — ce dernier point est
+   obligatoire, `modules_config.spec.ts` l'exige pour tous les modules connus, et pour une bonne
+   raison : un module détachable non activé en test est un module dont plus une ligne n'est
+   vérifiée. Les deux fichiers ne répondent pas à la même question.
+
 2. **Migration neuve → la jouer sur la base de dev** (`node ace migration:run`). Le cousin du
    précédent, et il mord même quand tout est correct : la migration écrite, le path enregistré,
    les tests verts.
@@ -558,6 +567,16 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
    `tests/functional/core/navigation_registry.spec.ts` asserte la liste attendue, croise chaque
    capacité citée avec le registre de capacités, et vérifie que **la condition d'accès déclarée est
    celle de la route** — sans quoi l'atterrissage enverrait droit sur un 403.
+
+   ⚠️ **Un module peut vouloir n'avoir AUCUNE destination, et c'est alors une décision qui
+   s'écrit** (CC-178). `coffre` est le premier : sans entrée au registre, il disparaît de la barre,
+   du fil d'Ariane **et** de la palette ⌘K, qui en dérivent tous les trois — il n'y a aucun code
+   d'invisibilité à écrire. Deux choses à ne pas rater : `start/navigation.ts` porte la raison sur
+   place, pour qu'on ne « répare » pas l'absence ; et `DESTINATION_PAR_MODULE` du spec accepte
+   `null` **en gardant son `Record` total**, pour qu'un module ajouté demain doive toujours
+   *déclarer* ce qu'on attend de lui — le passer en `Partial` ferait naître la garde inerte de
+   CC-112/CC-113. La contrepartie est réelle et assumée : un compte qui n'aurait de droits que sur
+   ce module atterrit sur « aucun accès » et doit taper l'URL.
 
    ⚠️ **Un refus se lève, il ne se retourne pas.** `throw new ForbiddenException(…)`, jamais
    `response.forbidden({…})` : `statusPages` n'est consulté que par le gestionnaire d'**exceptions**,
@@ -693,6 +712,26 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
   tampon au premier écran — mais c'est le fil qui casserait si quelqu'un durcissait un jour le
   cas « tampon absent » **sans** le conditionner à une borne posée : les comptes invités seraient
   déconnectés au premier clic. Le lot ne l'a pas touché faute de besoin, pas par oubli.
+
+- **Le coffre a sa propre porte, et elle ne se recopie pas ailleurs** (CC-178,
+  `app/modules/coffre/CLAUDE.md`). Deux points de ce fichier y sont **volontairement enfreints**,
+  et il faut savoir lesquels avant de « corriger » :
+  - ⚠️ **Son chiffrement n'utilise PAS `encryption` / `APP_KEY`**, contrairement au secret TOTP.
+    `APP_KEY` vit dans le `.env`, à côté de la base : les deux tombent ensemble. La clé dérive
+    d'une **passphrase** (scrypt + AES-256-GCM, `node:crypto` seul), qui n'est stockée nulle part —
+    donc **passphrase perdue = contenu perdu**, sans équivalent d'`auth:reset-account` possible :
+    ce serait une porte dérobée. C'est le raisonnement des codes de secours de CC-114, poussé d'un
+    cran.
+  - ⚠️ **Il n'enregistre aucune destination** (voir le point 6) et reste **hors de `MODULES` par
+    défaut**. Le rideau protège d'un regard, jamais d'une recherche : le bundle JS livré au
+    navigateur porte ses clés i18n, et le dépôt est public. Ce qui protège est le mur —
+    `can('coffre.view')` **plus** une élévation de session à durée courte (15 min), sans laquelle
+    chaque route du contenu lève `ForbiddenException`, `curl` avec un cookie valide compris.
+  - ⚠️ **La clé déchiffrée vit en MÉMOIRE du process**, jamais en session : le store est `cookie`,
+    donc tout ce qu'on y écrit est chiffré par `APP_KEY` et voyage chez le client. Un redémarrage
+    referme donc tous les coffres, et le mécanisme suppose une seule instance.
+  - ⚠️ **L'élévation ne survit pas à une reconnexion** : le marqueur est comparé au
+    `LOGIN_STAMP_KEY` de CC-78 — `auth.logout()` n'efface que la clé du guard, pas la session.
 
 ### Le second facteur TOTP (CC-114)
 
