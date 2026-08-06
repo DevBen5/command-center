@@ -4,6 +4,8 @@ import type User from '#core/auth/models/user'
 import { LOGIN_STAMP_KEY } from '#core/auth/services/session_lifetime'
 import CoffreVault from '#modules/coffre/models/coffre_vault'
 import CoffreEntryMedia from '#modules/coffre/models/coffre_entry_media'
+import CoffreEntryNasFile from '#modules/coffre/models/coffre_entry_nas_file'
+import { nasFileKindFor } from '#modules/coffre/services/nas_file_format'
 import keyring from '#modules/coffre/services/vault_keyring'
 import {
   deriveKey,
@@ -81,5 +83,24 @@ export async function createMedia(
     entryId,
     ownerId,
     assetIdCipher: encrypt(assetId, key),
+  })
+}
+
+/**
+ * Attache une référence de média NAS à une entrée, sans passer par la route (CC-181) — même
+ * doctrine que `createMedia` : écrit la colonne chiffrée directement. `kind` se dérive du chemin
+ * par défaut, comme le fait réellement `VaultService.#attachNasFiles`.
+ */
+export async function createNasFile(
+  entryId: number,
+  ownerId: number,
+  key: Buffer,
+  path = 'films/exemple.mp4'
+): Promise<CoffreEntryNasFile> {
+  return CoffreEntryNasFile.create({
+    entryId,
+    ownerId,
+    pathCipher: encrypt(path, key),
+    kind: nasFileKindFor(path) ?? 'video',
   })
 }

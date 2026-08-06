@@ -2,7 +2,13 @@ import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
 import db from '@adonisjs/lucid/services/db'
 import { createUserWith } from '#tests/helpers/users'
-import { createVault, createMedia, unlockedSession, PASSPHRASE } from '#tests/helpers/coffre'
+import {
+  createVault,
+  createMedia,
+  createNasFile,
+  unlockedSession,
+  PASSPHRASE,
+} from '#tests/helpers/coffre'
 import CoffreEntry from '#modules/coffre/models/coffre_entry'
 import { deriveKey } from '#modules/coffre/services/vault_crypto'
 
@@ -472,6 +478,205 @@ test.group('Coffre / les médias', (group) => {
     edition.assertStatus(302)
 
     const restant = await db.rawQuery('select id from coffre_entry_media where id = ?', [media.id])
+    assert.lengthOf(restant.rows, 1, 'le média du propriétaire a été supprimé par un autre compte')
+  })
+})
+
+/**
+ * Les références de médias NAS — photos et vidéos (CC-181) — mêmes garanties que les médias
+ * Immich, vérifiées en base : le chemin n'est pas lisible en clair, l'ajout/retrait est cloisonné
+ * par compte.
+ */
+const VIDEO_A = 'films/exemple.mp4'
+const VIDEO_B = 'series/episode.webm'
+const PHOTO_A = 'photos/exemple.jpg'
+
+test.group('Coffre / les médias NAS', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+
+  test('un média posté à la création n’est pas lisible en clair dans `path_cipher`', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUserWith(['coffre.view', 'coffre.write'])
+    const vault = await createVault(user)
+
+    const ecriture = await client
+      .post('/coffre')
+      .json({ type: 'note', title: TITRE, content: SECRET, nasFiles: [VIDEO_A] })
+      .loginAs(user)
+      .withSession(await unlockedSession(user, vault))
+      .withCsrfToken()
+      .redirects(0)
+
+    ecriture.assertStatus(302)
+
+    const lignes = await db.rawQuery(
+      'select entry_id, owner_id, path_cipher, kind from coffre_entry_nas_file where owner_id = ?',
+      [user.id]
+    )
+
+    assert.lengthOf(lignes.rows, 1, 'le média n’a pas été écrit — le reste ne prouve rien')
+    assert.notInclude(lignes.rows[0].path_cipher, VIDEO_A)
+    assert.notInclude(lignes.rows[0].path_cipher, Buffer.from(VIDEO_A).toString('base64'))
+    // ⚠️ `kind`, lui, EST en clair — ce n'est pas le secret que la colonne protège.
+    assert.equal(lignes.rows[0].kind, 'video')
+  })
+
+  test('un chemin photo est écrit avec `kind = photo`, dérivé de l’extension', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUserWith(['coffre.view', 'coffre.write'])
+    const vault = await createVault(user)
+
+    await client
+      .post('/coffre')
+      .json({ type: 'note', title: TITRE, content: SECRET, nasFiles: [PHOTO_A] })
+      .loginAs(user)
+      .withSession(await unlockedSession(user, vault))
+      .withCsrfToken()
+      .redirects(0)
+
+    const lignes = await db.rawQuery('select kind from coffre_entry_nas_file where owner_id = ?', [
+      user.id,
+    ])
+    assert.equal(lignes.rows[0].kind, 'photo')
+  })
+
+  test('la charge utile de la page ne porte que l’`id` et le `kind` du média, jamais le chemin', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUserWith(['coffre.view', 'coffre.write'])
+    const vault = await createVault(user)
+    const session = await unlockedSession(user, vault)
+
+    await client
+      .post('/coffre')
+      .json({ type: 'note', title: TITRE, content: SECRET, nasFiles: [VIDEO_A] })
+      .loginAs(user)
+      .withSession(session)
+      .withCsrfToken()
+      .redirects(0)
+
+    const lecture = await client.get('/coffre').loginAs(user).withSession(session).withInertia()
+    lecture.assertStatus(200)
+    const props = lecture.inertiaProps as {
+      entries: Array<{ nasFiles: Array<Record<string, unknown>> }>
+    }
+
+    assert.lengthOf(props.entries[0].nasFiles, 1)
+    assert.deepEqual(Object.keys(props.entries[0].nasFiles[0]).sort(), ['id', 'kind'])
+    assert.equal(props.entries[0].nasFiles[0].kind, 'video')
+    assert.notInclude(JSON.stringify(props), VIDEO_A)
+  })
+
+  test('coller deux fois le même chemin à la création ne pose qu’une ligne', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUserWith(['coffre.view', 'coffre.write'])
+    const vault = await createVault(user)
+
+    await client
+      .post('/coffre')
+      .json({ type: 'note', title: TITRE, content: SECRET, nasFiles: [VIDEO_A, VIDEO_A] })
+      .loginAs(user)
+      .withSession(await unlockedSession(user, vault))
+      .withCsrfToken()
+      .redirects(0)
+
+    const lignes = await db.rawQuery('select id from coffre_entry_nas_file where owner_id = ?', [
+      user.id,
+    ])
+    assert.lengthOf(lignes.rows, 1)
+  })
+
+  test('`nasFiles.add` ajoute une référence, `nasFiles.remove` en retire une — vérifié en base', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUserWith(['coffre.view', 'coffre.write'])
+    const vault = await createVault(user)
+    const session = await unlockedSession(user, vault)
+
+    await client
+      .post('/coffre')
+      .json({ type: 'note', title: TITRE, content: SECRET, nasFiles: [VIDEO_A] })
+      .loginAs(user)
+      .withSession(session)
+      .withCsrfToken()
+      .redirects(0)
+
+    const entrees = await db.rawQuery('select id from coffre_entries where owner_id = ?', [user.id])
+    const entryId = entrees.rows[0].id as number
+    const avant = await db.rawQuery('select id from coffre_entry_nas_file where entry_id = ?', [
+      entryId,
+    ])
+    const ancienId = avant.rows[0].id as number
+
+    const edition = await client
+      .put(`/coffre/${entryId}`)
+      .json({
+        title: TITRE,
+        content: SECRET,
+        nasFiles: { add: [VIDEO_B], remove: [ancienId] },
+      })
+      .loginAs(user)
+      .withSession(session)
+      .withCsrfToken()
+      .redirects(0)
+
+    edition.assertStatus(302)
+
+    const apres = await db.rawQuery(
+      'select id, path_cipher from coffre_entry_nas_file where entry_id = ?',
+      [entryId]
+    )
+
+    assert.lengthOf(apres.rows, 1, 'il doit rester exactement un média après add+remove')
+    assert.notEqual(apres.rows[0].id, ancienId, 'l’ancienne référence aurait dû être retirée')
+    assert.notInclude(apres.rows[0].path_cipher, VIDEO_B)
+  })
+
+  test('retirer un média d’un autre compte ne supprime rien — vérifié en base', async ({
+    client,
+    assert,
+  }) => {
+    const proprietaire = await createUserWith(['coffre.view', 'coffre.write'])
+    const vaultProprietaire = await createVault(proprietaire)
+    const entree = await CoffreEntry.create({
+      ownerId: proprietaire.id,
+      type: 'note',
+      titleCipher: 'x',
+      contentCipher: 'x',
+    })
+    const key = deriveKey(PASSPHRASE, vaultProprietaire.kdfSalt)
+    const fichier = await createNasFile(entree.id, proprietaire.id, key, VIDEO_A)
+
+    const intrus = await createUserWith(['coffre.view', 'coffre.write'])
+    const vaultIntrus = await createVault(intrus, 'autre-passphrase-de-test')
+    const entreeIntrus = await CoffreEntry.create({
+      ownerId: intrus.id,
+      type: 'note',
+      titleCipher: 'x',
+      contentCipher: 'x',
+    })
+
+    const edition = await client
+      .put(`/coffre/${entreeIntrus.id}`)
+      .json({ title: 'x', content: 'x', nasFiles: { remove: [fichier.id] } })
+      .loginAs(intrus)
+      .withSession(await unlockedSession(intrus, vaultIntrus, 'autre-passphrase-de-test'))
+      .withCsrfToken()
+      .redirects(0)
+
+    edition.assertStatus(302)
+
+    const restant = await db.rawQuery('select id from coffre_entry_nas_file where id = ?', [
+      fichier.id,
+    ])
     assert.lengthOf(restant.rows, 1, 'le média du propriétaire a été supprimé par un autre compte')
   })
 })

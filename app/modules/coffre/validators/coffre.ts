@@ -1,5 +1,6 @@
 import vine from '@vinejs/vine'
 import { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH } from '#core/auth/constants/password_rules'
+import { NAS_EXTENSIONS } from '#modules/coffre/services/nas_file_format'
 
 /**
  * Les références de médias Immich (CC-180). Un UUID générique, pas `.uuid()` de VineJS : c'est la
@@ -11,6 +12,23 @@ import { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH } from '#core/auth/constants/p
  */
 const IMMICH_ASSET_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MEDIA_MAX = 20
+
+/**
+ * Un chemin relatif de média NAS — photo ou vidéo (CC-181) — **première ligne de défense
+ * seulement**. La seule qui compte est `NasRootsService.resolve`, qui compare après `realpath`
+ * (voir son fichier) : cette regex ne fait qu'empêcher d'écrire en base une forme manifestement
+ * hostile, avant même d'y arriver.
+ *
+ * Refuse : un chemin absolu (`/etc/passwd`), une lettre de lecteur Windows (`C:\...`), une
+ * traversée (`..`), l'antislash (un seul séparateur, `/`, pour une forme stockée cohérente) et
+ * l'octet nul. Exige une extension de l'allow-list partagée avec le serveur de contenu — vidéo ET
+ * photo, la même garde de chemin sert les deux (amendement du ticket du 2026-08-06).
+ */
+const NAS_PATH = new RegExp(
+  `^(?!/)(?![a-zA-Z]:)(?!.*\\.\\.)(?!.*\\\\)(?!.*\\x00).+\\.(${NAS_EXTENSIONS.join('|')})$`,
+  'i'
+)
+const NAS_FILE_MAX = 20
 
 /**
  * Les validateurs du coffre (CC-178).
@@ -100,6 +118,9 @@ export const entryValidator = vine.compile(
     password: password().optional().requiredWhen('type', '=', 'credential'),
     // Les médias à attacher dès la création — voir `VaultService.addEntry` (CC-180).
     media: vine.array(vine.string().regex(IMMICH_ASSET_ID)).maxLength(MEDIA_MAX).optional(),
+    // Les médias NAS (photo ou vidéo) à attacher dès la création (CC-181) — même doctrine que
+    // `media`, la nature (`kind`) se dérive du chemin, jamais postée par le client.
+    nasFiles: vine.array(vine.string().regex(NAS_PATH)).maxLength(NAS_FILE_MAX).optional(),
   })
 )
 
@@ -130,6 +151,14 @@ export const entryUpdateValidator = vine.compile(
       .object({
         add: vine.array(vine.string().regex(IMMICH_ASSET_ID)).maxLength(MEDIA_MAX).optional(),
         remove: vine.array(vine.number().positive()).maxLength(MEDIA_MAX).optional(),
+      })
+      .optional(),
+    // ⚠️ `add`/`remove`, jamais un remplacement intégral — même raison que `media` (CC-180) : le
+    // chemin ne redescend jamais vers le client, qui ne peut donc pas réémettre l'état complet.
+    nasFiles: vine
+      .object({
+        add: vine.array(vine.string().regex(NAS_PATH)).maxLength(NAS_FILE_MAX).optional(),
+        remove: vine.array(vine.number().positive()).maxLength(NAS_FILE_MAX).optional(),
       })
       .optional(),
   })

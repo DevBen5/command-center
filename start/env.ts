@@ -220,6 +220,26 @@ export default await Env.create(new URL('../', import.meta.url), {
 
   /*
   |----------------------------------------------------------
+  | Racines de médias du coffre — lecture depuis le NAS (CC-181)
+  |----------------------------------------------------------
+  |
+  | ⚠️ Même frontière de confiance qu'Immich et le LLM : ces chemins viennent DE
+  | l'environnement, jamais de la base ni d'un formulaire. Une racine persistée
+  | depuis une requête HTTP serait une lecture arbitraire du disque, permanente.
+  |
+  | Liste séparée par des virgules. Chaque valeur est le chemin tel que LE
+  | PROCESSUS le voit — un chemin réel du poste en dev, le chemin FIXE monté
+  | dans le conteneur en production (voir docker-compose.install.yml, où seul
+  | le côté HÔTE du montage se règle). Optionnelle : sans elle, la lecture de
+  | médias NAS du coffre reste simplement inactive (toute référence rend 404).
+  | Couvre photos ET vidéos — une seule garde de chemin pour les deux, la
+  | nature du fichier ne change rien à la sécurité de l'accès. Normalisation
+  | dans `config/coffre_nas.ts`.
+  */
+  COFFRE_NAS_ROOTS: Env.schema.string.optional(),
+
+  /*
+  |----------------------------------------------------------
   | Playlist « Veille » YouTube — seconde source média (CC-85)
   |----------------------------------------------------------
   |

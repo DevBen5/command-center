@@ -18,6 +18,9 @@ Le lot porte quatre affirmations, et elles ne se vérifient pas au même endroit
 | éditer **remplace** en base, un mot de passe vide ne l'efface pas (CC-186) | `coffre_storage.spec.ts` (remplacement, cloisonnement) et `coffre_credentials.spec.ts` (rotation, préservation, type non postable) |
 | une référence de média n'est pas lisible en clair en base, s'ajoute/se retire sans oracle d'existence (CC-180) | `coffre_storage.spec.ts` (colonne brute, dédup, cloisonnement) |
 | le proxy de vignette refuse sans élévation, sert la bonne image sans cache, absorbe une panne Immich en 404 (CC-180) | `coffre_media.spec.ts`, plus `coffre_wall.spec.ts` pour le mur |
+| une référence de média NAS n'est pas lisible en clair en base, s'ajoute/se retire sans oracle d'existence, `kind` dérivé de l'extension (CC-181) | `coffre_storage.spec.ts` (colonne brute, dédup, cloisonnement) |
+| le résolveur de racines NAS refuse une traversée, un lien symbolique posé DANS une racine et pointant DEHORS, et un chemin absolu — contre un vrai filesystem, photos et vidéos confondues (CC-181) | `coffre_nas_roots.spec.ts` |
+| le proxy de streaming refuse sans élévation, sert le corps entier (photo/vidéo) ou une plage `Range` exacte (vidéo), refuse une plage invalide, absorbe une résolution ratée **et un DOSSIER portant une extension autorisée** en 404 (CC-181) | `coffre_nas.spec.ts`, plus `coffre_wall.spec.ts` pour le mur |
 
 ⚠️ **Le troisième est celui qu'un test rend faussement vert.** Relire ce qu'on vient d'écrire
 réussirait à l'identique sans le moindre chiffrement ; seul un `select` qui court-circuite le modèle
@@ -59,9 +62,9 @@ et la session révoquée qui est expulsée **en amont** (302 vers `/login`, pas 
 
 ⚠️ Le premier test **lit le routeur** pour asserter que `coffreOuvert` est branché. Il a été ajouté
 après mesure : sans lui, retirer le middleware de `start/routes.ts` laissait les dix autres verts,
-le `#key()` du contrôleur rendant le même 403. La route d'édition (CC-186) et le proxy de vignette
-(CC-180) y entrent pour la même raison, mesurée à l'identique : la retirer du mur ne fait rougir
-QUE cette assertion-là.
+le `#key()` du contrôleur rendant le même 403. La route d'édition (CC-186), le proxy de vignette
+(CC-180) et le proxy de streaming NAS (CC-181) y entrent pour la même raison, mesurée à
+l'identique : la retirer du mur ne fait rougir QUE cette assertion-là.
 
 ### `tests/functional/modules/coffre_unlock.spec.ts`
 
@@ -88,6 +91,12 @@ même UUID à la création ne pose qu'une ligne (dédup) ; `media.add`/`media.re
 ajoutent/retirent réellement, vérifié en base (compte de lignes, id de la ligne restante) ; et
 retirer l'id de média d'un autre compte ne supprime rien — même doctrine que la suppression
 d'entrée, vérifiée en base et pas sur le code HTTP (toujours 302).
+
+Depuis CC-181, un groupe de plus (« Coffre / les médias NAS ») couvre les références NAS — photos
+ET vidéos, à l'identique : `path_cipher` illisible en clair et en base64 sur
+`coffre_entry_nas_file` ; `kind` (« video »/« photo ») bien dérivé de l'extension, lui EN CLAIR
+(pas le secret que la colonne protège) ; dédup à la création ; `nasFiles.add`/`nasFiles.remove`
+vérifiés en base ; cloisonnement par compte au retrait.
 
 ### `tests/functional/modules/coffre_credentials.spec.ts`
 
@@ -130,6 +139,36 @@ l'assure ; `FakeImmichClient` remplace la couche API tout entière, comme pour l
 prouve ici, c'est ce que le contrôleur du coffre fait d'un succès et d'un échec de cette couche,
 jamais le transport lui-même.
 
+### `tests/unit/coffre_nas_roots.spec.ts`
+
+Le résolveur de racines de médias NAS (CC-181), **pur-ish** : fs réel, aucune requête HTTP ni
+base. Un dossier temporaire par test, dont un vrai lien symbolique posé DANS la racine autorisée
+et pointant DEHORS — le cas qu'une comparaison de chaînes avant `realpath` ne voit pas. Couvre les
+trois chemins hostiles du ticket (traversée, lien symbolique, absolu), un chemin légitime,
+plusieurs racines dont une non montée (ignorée sans lever), et l'absence de toute racine
+configurée. Ne teste rien de spécifique à une nature de fichier : le résolveur ne connaît que des
+chemins.
+
+### `tests/unit/coffre_nas_file_format.spec.ts`
+
+L'allow-list de formats (CC-181), **pure**. `nasContentTypeFor`/`nasFileKindFor` sur une extension
+vidéo connue, une extension photo connue, la casse (sans effet), une extension hors allow-list
+(`null`, jamais un type deviné), un chemin sans extension.
+
+### `tests/unit/coffre_byte_range.spec.ts`
+
+Le parseur de l'en-tête `Range` (CC-181), **pur**. Plage simple, ouverte (`start-`), suffixe
+(`-N`), bornes hors taille, multi-range (refusé), syntaxe invalide, ressource de taille nulle.
+
+### `tests/functional/modules/coffre_nas.spec.ts`
+
+Le proxy de streaming (CC-181), avec `NasRootsService` substitué par une vraie racine de
+fixtures (`app.container.swap`, même patron que `FakeImmichClient`). Vidéo sans `Range` → 200
+corps entier ; `Range` valide → 206 avec le segment exact ; `Range` hors bornes → 416 ; photo →
+200 avec le bon `content-type`, sans `Range` ; média inconnu, média d'un autre compte, et
+référence qui ne résout sous aucune racine (fichier disparu) rendent tous 404, jamais une erreur
+brute.
+
 ### `tests/functional/modules/coffre_curtain.spec.ts`
 
 Le rideau : le plancher qui vérifie que le module est bien activé (sinon rien ne prouve rien),
@@ -167,3 +206,6 @@ condition 3 — le test rougirait en accusant le mur alors que c'est le décor q
 
 `createMedia` (CC-180) — attache une référence de média à une entrée sans passer par la route, même
 doctrine que `createVault` : écrit `asset_id_cipher` directement avec la clé fournie.
+
+`createNasFile` (CC-181) — même doctrine, écrit `path_cipher` directement ; `kind` se dérive du
+chemin par défaut, comme le fait réellement `VaultService.#attachNasFiles`.

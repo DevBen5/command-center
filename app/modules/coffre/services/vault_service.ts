@@ -8,6 +8,8 @@ import { LOGIN_STAMP_KEY } from '#core/auth/services/session_lifetime'
 import CoffreVault from '#modules/coffre/models/coffre_vault'
 import CoffreEntry, { type CoffreEntryType } from '#modules/coffre/models/coffre_entry'
 import CoffreEntryMedia from '#modules/coffre/models/coffre_entry_media'
+import CoffreEntryNasFile from '#modules/coffre/models/coffre_entry_nas_file'
+import { nasFileKindFor, type NasFileKind } from '#modules/coffre/services/nas_file_format'
 import keyring from '#modules/coffre/services/vault_keyring'
 import {
   decrypt,
@@ -44,6 +46,14 @@ export interface CoffreEntryView {
    * reçu — voir `updateEntry` (`mediaAdd`/`mediaRemove`).
    */
   media: { id: number }[]
+  /**
+   * ⚠️ **Seul l'`id` et le `kind` de la ligne `coffre_entry_nas_file` voyagent jusqu'ici, jamais
+   * le chemin sur le disque** (CC-181) — même doctrine que `media`. La page construit
+   * `/coffre/nas/:id/stream` avec l'`id`, et choisit `<video>`/`<img>` avec `kind` — le serveur
+   * seul déchiffre le chemin, et seulement dans ce proxy. `kind` n'est pas sensible : il ne
+   * révèle que la nature du fichier, déjà connue de l'allow-list publique.
+   */
+  nasFiles: { id: number; kind: NasFileKind }[]
 }
 
 /**
@@ -194,6 +204,7 @@ class VaultService {
   async entriesFor(user: User, key: Buffer): Promise<CoffreEntryView[]> {
     const entries = await this.listQueryFor(user.id)
     const mediaByEntry = await this.#mediaIdsByEntry(user.id)
+    const nasFilesByEntry = await this.#nasFileIdsByEntry(user.id)
 
     return entries.map((entry) => ({
       id: entry.id,
@@ -202,6 +213,7 @@ class VaultService {
       content: decrypt(entry.contentCipher, key) ?? '',
       createdAt: entry.createdAt?.toISO() ?? null,
       media: mediaByEntry.get(entry.id) ?? [],
+      nasFiles: nasFilesByEntry.get(entry.id) ?? [],
     }))
   }
 
@@ -222,6 +234,33 @@ class VaultService {
     for (const row of rows) {
       const list = byEntry.get(row.entryId) ?? []
       list.push({ id: row.id })
+      byEntry.set(row.entryId, list)
+    }
+
+    return byEntry
+  }
+
+  /**
+   * Les médias NAS de CHAQUE entrée d'un compte, en une seule requête — même doctrine que
+   * `#mediaIdsByEntry` (CC-181).
+   *
+   * ⚠️ **`path_cipher` n'est PAS sélectionnée** : rien n'a besoin du chemin pour construire une
+   * liste, donc rien ne le charge. Seul le proxy de streaming le déchiffre, une ligne à la fois.
+   * `kind`, lui, EST sélectionné : ce n'est pas le secret que cette liste protège (voir la
+   * migration), et c'est ce qui permet à l'écran de choisir `<video>`/`<img>` sans déchiffrer.
+   */
+  async #nasFileIdsByEntry(
+    userId: number
+  ): Promise<Map<number, { id: number; kind: NasFileKind }[]>> {
+    const rows = await CoffreEntryNasFile.query()
+      .select(['id', 'entry_id', 'kind'])
+      .where('owner_id', userId)
+      .orderBy('id', 'asc')
+
+    const byEntry = new Map<number, { id: number; kind: NasFileKind }[]>()
+    for (const row of rows) {
+      const list = byEntry.get(row.entryId) ?? []
+      list.push({ id: row.id, kind: row.kind })
       byEntry.set(row.entryId, list)
     }
 
@@ -275,6 +314,26 @@ class VaultService {
   }
 
   /**
+   * Le chemin relatif d'UNE référence de média NAS, pour le proxy de streaming — l'unique endroit
+   * qui le déchiffre (CC-181).
+   *
+   * ⚠️ **`owner_id` est dans la clause de lecture**, même doctrine que `mediaThumbnailAssetId` :
+   * un identifiant deviné ne trouve rien pour un autre compte. `null` couvre indistinctement
+   * « ligne introuvable » et « déchiffrement raté » — la résolution contre les racines autorisées
+   * (`NasRootsService`) se rejoue ensuite côté contrôleur, jamais ici : cette méthode ne touche
+   * pas au disque, seulement à la base et au chiffrement.
+   */
+  async nasFilePathFor(user: User, key: Buffer, nasFileId: number): Promise<string | null> {
+    const file = await CoffreEntryNasFile.query()
+      .where('id', nasFileId)
+      .where('owner_id', user.id)
+      .first()
+    if (file === null) return null
+
+    return decrypt(file.pathCipher, key)
+  }
+
+  /**
    * Ajoute une entrée. Le titre est chiffré comme le contenu — voir la migration.
    *
    * ⚠️ **Le mot de passe n'est écrit que pour un `credential`**, quoi qu'ait envoyé le
@@ -292,6 +351,7 @@ class VaultService {
       content: string
       password?: string
       media?: string[]
+      nasFiles?: string[]
     }
   ): Promise<CoffreEntry> {
     const secret = entry.type === 'credential' ? (entry.password ?? null) : null
@@ -309,6 +369,7 @@ class VaultService {
       )
 
       await this.#attachMedia(trx, user.id, created.id, entry.media ?? [], key)
+      await this.#attachNasFiles(trx, user.id, created.id, entry.nasFiles ?? [], key)
 
       return created
     })
@@ -347,6 +408,7 @@ class VaultService {
       content: string
       password?: string
       media?: { add?: string[]; remove?: number[] }
+      nasFiles?: { add?: string[]; remove?: number[] }
     }
   ): Promise<void> {
     await db.transaction(async (trx) => {
@@ -378,6 +440,18 @@ class VaultService {
       }
 
       await this.#attachMedia(trx, user.id, entry.id, patch.media?.add ?? [], key)
+
+      // ⚠️ Même doctrine que `media` ci-dessus (CC-181) : additif/soustractif, scopé.
+      const nasFilesRemove = patch.nasFiles?.remove ?? []
+      if (nasFilesRemove.length > 0) {
+        await CoffreEntryNasFile.query({ client: trx })
+          .where('entry_id', entry.id)
+          .where('owner_id', user.id)
+          .whereIn('id', nasFilesRemove)
+          .delete()
+      }
+
+      await this.#attachNasFiles(trx, user.id, entry.id, patch.nasFiles?.add ?? [], key)
     })
   }
 
@@ -406,6 +480,39 @@ class VaultService {
     for (const assetId of uniques) {
       await CoffreEntryMedia.create(
         { ownerId, entryId, assetIdCipher: encrypt(assetId, key) },
+        { client: trx }
+      )
+    }
+  }
+
+  /**
+   * Insère les nouvelles références de médias NAS d'une entrée. Dédupe les chemins répétés dans un
+   * même lot — coller deux fois le même chemin ne doit pas poser deux lignes identiques.
+   *
+   * ⚠️ **PAS de normalisation de casse, contrairement à `#attachMedia`.** Un UUID Immich est
+   * insensible à la casse par construction ; un chemin de fichier sur le NAS ne l'est pas — le
+   * mettre en minuscules changerait un chemin réel en un chemin qui n'existe plus. La dédup porte
+   * donc sur la chaîne exacte.
+   *
+   * ⚠️ **`kind` est dérivé ICI, jamais posté par le client** — même doctrine que `type` sur
+   * `addEntry` : un chemin dont l'extension n'est pas dans l'allow-list (`nasFileKindFor` rend
+   * `null`) est silencieusement écarté, seconde barrière derrière le validateur.
+   */
+  async #attachNasFiles(
+    trx: TransactionClientContract,
+    ownerId: number,
+    entryId: number,
+    paths: string[],
+    key: Buffer
+  ): Promise<void> {
+    const uniques = [...new Set(paths)]
+
+    for (const path of uniques) {
+      const kind = nasFileKindFor(path)
+      if (kind === null) continue
+
+      await CoffreEntryNasFile.create(
+        { ownerId, entryId, pathCipher: encrypt(path, key), kind },
         { client: trx }
       )
     }
