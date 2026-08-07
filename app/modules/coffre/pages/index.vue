@@ -40,7 +40,7 @@ interface CoffreEntry {
   nasFiles: { id: number; kind: 'video' | 'photo' }[]
 }
 
-const props = defineProps<{ entries: CoffreEntry[] }>()
+const props = defineProps<{ entries: CoffreEntry[]; immichFolderAvailable: boolean }>()
 
 /**
  * L'écran par nature (CC-204) : notes · liens · identifiants · photos, une entrée avec média
@@ -82,6 +82,62 @@ const form = useForm<{
 /** Le champ de saisie d'un UUID Immich à ajouter — création comme édition. */
 const newMediaInput = ref('')
 const newMediaError = ref(false)
+
+/**
+ * Le parcours du dossier verrouillé Immich (CC-205) — le repli du collage manuel.
+ *
+ * ⚠️ **Un seul panneau partagé entre la création et l'édition**, jamais deux : `editing` ne porte
+ * de toute façon qu'une entrée à la fois (voir plus haut), donc `folderOpenFor` distingue seulement
+ * QUEL tableau cible reçoit la sélection — le contenu du dossier lui-même est le même quel que
+ * soit le formulaire ouvert, il n'est donc chargé qu'une fois.
+ */
+const folderOpenFor = ref<'create' | 'edit' | null>(null)
+const folderPhotos = ref<{ assetId: string }[] | null>(null)
+const folderTruncated = ref(false)
+const folderLoading = ref(false)
+const folderError = ref(false)
+
+/** Ouvre ou ferme le panneau, et charge le dossier au premier besoin — jamais deux fois. */
+async function toggleFolder(target: 'create' | 'edit'): Promise<void> {
+  if (folderOpenFor.value === target) {
+    folderOpenFor.value = null
+    return
+  }
+
+  folderOpenFor.value = target
+  if (folderPhotos.value !== null || folderLoading.value) return
+
+  folderLoading.value = true
+  folderError.value = false
+
+  try {
+    const response = await fetch('/coffre/immich/dossier', {
+      headers: { accept: 'application/json' },
+    })
+    const body = (await response.json()) as {
+      available: boolean
+      truncated: boolean
+      photos: { assetId: string }[]
+    }
+
+    if (!response.ok || !body.available) {
+      folderError.value = true
+      return
+    }
+
+    folderPhotos.value = body.photos
+    folderTruncated.value = body.truncated
+  } catch {
+    folderError.value = true
+  } finally {
+    folderLoading.value = false
+  }
+}
+
+/** Sélectionne une photo du dossier — même effet que coller son UUID à la main. */
+function selectFolderPhoto(assetId: string, target: string[]): void {
+  if (!target.includes(assetId)) target.push(assetId)
+}
 
 /** Le champ de saisie d'un chemin de média NAS à ajouter — création comme édition. */
 const newNasFileInput = ref('')
@@ -191,6 +247,8 @@ function oublier(): void {
   newMediaError.value = false
   newNasFileInput.value = ''
   newNasFileError.value = false
+  // Le panneau du dossier verrouillé n'a plus de cible valide une fois l'édition abandonnée.
+  folderOpenFor.value = null
 }
 
 /** Ouvre le formulaire d'édition, préremplit depuis ce que la liste porte déjà — jamais le mot
@@ -535,6 +593,44 @@ function sectionLabel(key: CoffreSectionKey): string {
               </button>
             </li>
           </ul>
+
+          <button
+            v-if="immichFolderAvailable"
+            type="button"
+            class="mt-2 rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt-2 hover:border-aqua"
+            @click="toggleFolder('create')"
+          >
+            {{ folderOpenFor === 'create' ? t('coffre.index.folderClose') : t('coffre.index.folderBrowse') }}
+          </button>
+
+          <div v-if="folderOpenFor === 'create'" class="mt-2 rounded-[8px] border border-line-2 p-3">
+            <p v-if="folderLoading" class="text-[12px] text-txt-3">{{ t('coffre.index.folderLoading') }}</p>
+            <p v-else-if="folderError" class="text-[12px] text-bad">{{ t('coffre.index.folderError') }}</p>
+            <p v-else-if="folderPhotos?.length === 0" class="text-[12px] text-txt-3">
+              {{ t('coffre.index.folderEmpty') }}
+            </p>
+            <template v-else-if="folderPhotos">
+              <p v-if="folderTruncated" class="mb-2 text-[11px] text-txt-3">
+                {{ t('coffre.index.folderTruncated') }}
+              </p>
+              <ul class="flex flex-wrap gap-2">
+                <li v-for="photo in folderPhotos" :key="photo.assetId">
+                  <button
+                    type="button"
+                    class="block overflow-hidden rounded-[8px] border border-line-2 hover:border-aqua"
+                    :class="form.media.includes(photo.assetId) ? 'opacity-40' : ''"
+                    @click="selectFolderPhoto(photo.assetId, form.media)"
+                  >
+                    <img
+                      :src="`/coffre/immich/dossier/${photo.assetId}/thumbnail`"
+                      class="block h-16 w-16 object-cover"
+                      alt=""
+                    />
+                  </button>
+                </li>
+              </ul>
+            </template>
+          </div>
         </div>
 
         <div>
@@ -770,6 +866,44 @@ function sectionLabel(key: CoffreSectionKey): string {
                 </button>
               </li>
             </ul>
+
+            <button
+              v-if="immichFolderAvailable"
+              type="button"
+              class="mt-2 rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt-2 hover:border-aqua"
+              @click="toggleFolder('edit')"
+            >
+              {{ folderOpenFor === 'edit' ? t('coffre.index.folderClose') : t('coffre.index.folderBrowse') }}
+            </button>
+
+            <div v-if="folderOpenFor === 'edit'" class="mt-2 rounded-[8px] border border-line-2 p-3">
+              <p v-if="folderLoading" class="text-[12px] text-txt-3">{{ t('coffre.index.folderLoading') }}</p>
+              <p v-else-if="folderError" class="text-[12px] text-bad">{{ t('coffre.index.folderError') }}</p>
+              <p v-else-if="folderPhotos?.length === 0" class="text-[12px] text-txt-3">
+                {{ t('coffre.index.folderEmpty') }}
+              </p>
+              <template v-else-if="folderPhotos">
+                <p v-if="folderTruncated" class="mb-2 text-[11px] text-txt-3">
+                  {{ t('coffre.index.folderTruncated') }}
+                </p>
+                <ul class="flex flex-wrap gap-2">
+                  <li v-for="photo in folderPhotos" :key="photo.assetId">
+                    <button
+                      type="button"
+                      class="block overflow-hidden rounded-[8px] border border-line-2 hover:border-aqua"
+                      :class="editForm.media.add.includes(photo.assetId) ? 'opacity-40' : ''"
+                      @click="selectFolderPhoto(photo.assetId, editForm.media.add)"
+                    >
+                      <img
+                        :src="`/coffre/immich/dossier/${photo.assetId}/thumbnail`"
+                        class="block h-16 w-16 object-cover"
+                        alt=""
+                      />
+                    </button>
+                  </li>
+                </ul>
+              </template>
+            </div>
           </div>
 
           <div>

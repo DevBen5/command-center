@@ -51,6 +51,8 @@ const CoffreDoorController = () => import('#modules/coffre/controllers/coffre_do
 const CoffreController = () => import('#modules/coffre/controllers/coffre_controller')
 const CoffreMediaController = () => import('#modules/coffre/controllers/coffre_media_controller')
 const CoffreNasController = () => import('#modules/coffre/controllers/coffre_nas_controller')
+const CoffreImmichFolderController = () =>
+  import('#modules/coffre/controllers/coffre_immich_folder_controller')
 
 /*
 |--------------------------------------------------------------------------
@@ -589,6 +591,16 @@ router
           router
             .get('/nas/:id/stream', [CoffreNasController, 'stream'])
             .where('id', router.matchers.number())
+            .use(middleware.can('coffre.view'))
+          // Le dossier verrouillé d'Immich (CC-205) : second mode d'authentification (session +
+          // PIN) pour un contenu qu'une clé d'API ne peut pas voir. `:assetId` est un UUID Immich
+          // brut, validé en contrôleur (`isImmichAssetId`) — voir son fichier pour pourquoi ce
+          // n'est pas le même refus de principe que `/media/:id/thumbnail`.
+          router
+            .get('/immich/dossier', [CoffreImmichFolderController, 'index'])
+            .use(middleware.can('coffre.view'))
+          router
+            .get('/immich/dossier/:assetId/thumbnail', [CoffreImmichFolderController, 'thumbnail'])
             .use(middleware.can('coffre.view'))
         })
         .prefix('/coffre')

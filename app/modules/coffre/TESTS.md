@@ -22,6 +22,10 @@ Le lot porte quatre affirmations, et elles ne se vérifient pas au même endroit
 | le résolveur de racines NAS refuse une traversée, un lien symbolique posé DANS une racine et pointant DEHORS, et un chemin absolu — contre un vrai filesystem, photos et vidéos confondues (CC-181) | `coffre_nas_roots.spec.ts` |
 | le proxy de streaming refuse sans élévation, sert le corps entier (photo/vidéo) ou une plage `Range` exacte (vidéo), refuse une plage invalide, absorbe une résolution ratée **et un DOSSIER portant une extension autorisée** en 404 (CC-181) | `coffre_nas.spec.ts`, plus `coffre_wall.spec.ts` pour le mur |
 | l'écran range les entrées en sections par nature, une entrée avec média (Immich ou NAS) primant sur son `type`, exclusivement, une section sans entrée n'apparaît jamais (CC-204) | `coffre_entry_sections.spec.ts` |
+| le client de session Immich réutilise entre requêtes, coordonne les logins concurrents, retente UNE fois sur expiration, ferme la session précédente avant d'en ouvrir une autre, ne retente jamais un login/PIN refusé (CC-205) | `coffre_immich_session_client.spec.ts` |
+| le dossier verrouillé et sa vignette refusent sans élévation, le listing rend `available: false` sur une panne plutôt qu'une erreur, la vignette absorbe un échec en 404 (CC-205) | `coffre_immich_folder.spec.ts`, plus `coffre_wall.spec.ts` pour le mur |
+| un asset verrouillé (clé d'API refusée) est servi par le repli en session du proxy existant (CC-205) | `coffre_media.spec.ts` |
+| l'activation du dossier verrouillé exige les quatre variables, et n'y touche jamais en test (CC-205) | `coffre_immich_config.spec.ts`, plus `tests/unit/env_isolation.spec.ts` pour l'isolation |
 
 ⚠️ **Le troisième est celui qu'un test rend faussement vert.** Relire ce qu'on vient d'écrire
 réussirait à l'identique sans le moindre chiffrement ; seul un `select` qui court-circuite le modèle
@@ -73,8 +77,9 @@ et la session révoquée qui est expulsée **en amont** (302 vers `/login`, pas 
 ⚠️ Le premier test **lit le routeur** pour asserter que `coffreOuvert` est branché. Il a été ajouté
 après mesure : sans lui, retirer le middleware de `start/routes.ts` laissait les dix autres verts,
 le `#key()` du contrôleur rendant le même 403. La route d'édition (CC-186), le proxy de vignette
-(CC-180) et le proxy de streaming NAS (CC-181) y entrent pour la même raison, mesurée à
-l'identique : la retirer du mur ne fait rougir QUE cette assertion-là.
+(CC-180), le proxy de streaming NAS (CC-181) et les deux routes du dossier verrouillé (CC-205) y
+entrent pour la même raison, mesurée à l'identique : les retirer du mur ne fait rougir QUE cette
+assertion-là.
 
 ### `tests/functional/modules/coffre_unlock.spec.ts`
 
@@ -149,6 +154,48 @@ l'assure ; `FakeImmichClient` remplace la couche API tout entière, comme pour l
 prouve ici, c'est ce que le contrôleur du coffre fait d'un succès et d'un échec de cette couche,
 jamais le transport lui-même.
 
+Depuis CC-205, deux tests de plus : un asset dont la clé d'API échoue (aucun asset scripté dans
+`FakeImmichClient`, comme le ferait une vraie clé sur `visibility: locked`) est servi par
+`FakeImmichSessionClient` — le repli fonctionne ; et les deux modes en échec restent un 404 propre,
+jamais une erreur brute.
+
+### `tests/unit/coffre_immich_session_client.spec.ts`
+
+Le client de session Immich du dossier verrouillé (CC-205), `fetch` mocké — aucun test ne touche le
+réseau ni une vraie instance, comme `veille_immich_client.spec.ts`. Login puis unlock avec le jeton
+en `Authorization: Bearer` sur l'appel de données ; réutilisation entre deux appels (une seule paire
+login+unlock) ; des appels CONCURRENTS ne déclenchent qu'un seul login (le cas réel de la grille de
+vignettes) ; un 401 sur un appel de données déclenche une reprise UNIQUE, jamais une boucle ; la
+session précédente est fermée (`/api/auth/logout`) avant qu'une nouvelle ne s'établisse ; des
+identifiants ou un PIN refusés ne sont JAMAIS retentés ; le repli HTML d'Immich sur le login ;
+aucune redirection suivie ; la pagination en chaîne (`nextPage` en string) et son plafond
+(`truncated`) ; un identifiant malformé sauté sans faire échouer le listing ; `closeSession` ferme
+une session ouverte et ne fait rien sans session.
+
+⚠️ **Une `ImmichSessionState` neuve à chaque test, jamais le singleton par défaut** — même doctrine
+que `VaultKeyring` (CC-178) : le singleton est un état partagé entre tous les tests du process, et
+l'ordre d'exécution déciderait du résultat.
+
+### `tests/unit/coffre_immich_config.spec.ts`
+
+La configuration du dossier verrouillé (CC-205), **pure** — sur le patron de
+`veille_youtube_config.spec.ts`. `enabled` exige les QUATRE valeurs (base URL, email, mot de passe,
+PIN) ; retrait des blancs et du slash parasite sur l'hôte et l'email, JAMAIS sur le mot de passe ni
+le PIN (un espace en fait partie, même doctrine que la passphrase du coffre) ; délai par défaut
+repris d'`IMMICH_DEFAULT_TIMEOUT_MS`.
+
+### `tests/functional/modules/coffre_immich_folder.spec.ts`
+
+Le dossier verrouillé (CC-205), avec `FakeImmichSessionClient` — remplace la couche API tout
+entière, même doctrine que `coffre_media.spec.ts`. Le listing rend les photos scriptées avec
+`cache-control: no-store` ; une panne de la session rend `available: false` en 200, jamais une
+erreur brute ; la vignette d'une photo connue est servie avec le bon `content-type` ; un identifiant
+qui n'est pas un UUID Immich rend 404 SANS appeler le client (`isImmichAssetId` en amont) ; une
+vignette inconnue du client rend 404.
+
+⚠️ **Le mur (l'élévation requise) se prouve dans `coffre_wall.spec.ts`, pas ici** — même répartition
+que les deux autres proxies du module.
+
 ### `tests/unit/coffre_nas_roots.spec.ts`
 
 Le résolveur de racines de médias NAS (CC-181), **pur-ish** : fs réel, aucune requête HTTP ni
@@ -219,3 +266,7 @@ doctrine que `createVault` : écrit `asset_id_cipher` directement avec la clé f
 
 `createNasFile` (CC-181) — même doctrine, écrit `path_cipher` directement ; `kind` se dérive du
 chemin par défaut, comme le fait réellement `VaultService.#attachNasFiles`.
+
+`tests/fakes/fake_immich_session_client.ts` (CC-205) — sur le patron de `fake_immich_client.ts` :
+remplace la couche API (`lockedPhotos`, `thumbnail`) tout entière, jamais le transport ni la
+coordination des sessions, qui ont leur propre test.

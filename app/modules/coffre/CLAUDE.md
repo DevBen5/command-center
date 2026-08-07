@@ -1,7 +1,8 @@
 # Module Coffre — notes, URLs, identifiants, médias Immich et médias NAS chiffrés, invisibles, derrière deux portes
 
 Routes `/coffre/ouvrir` · `/coffre` · `/coffre/:id/secret` · `/coffre/media/:id/thumbnail` ·
-`/coffre/nas/:id/stream` · pages Inertia `modules/coffre/{ouvrir, index}` · tables
+`/coffre/nas/:id/stream` · `/coffre/immich/dossier` · `/coffre/immich/dossier/:assetId/thumbnail` ·
+pages Inertia `modules/coffre/{ouvrir, index}` · tables
 `coffre_vaults`, `coffre_entries`, `coffre_entry_media`, `coffre_entry_nas_file`. Lot 1 de l'épique
 CC-177 (CC-178) : le **socle**, dont tous les lots suivants héritent — aucun ne redéfinit sa propre
 porte. Lot 2 (CC-179) : les **identifiants**, qui ajoutent une nature d'entrée et une route.
@@ -10,7 +11,9 @@ leur ticket** — CC-180 a été planifié avant CC-186 dans l'épique, mais CC-
 premier. Ce fichier ne tranche pas laquelle des deux est *la* troisième : il cite chaque décision
 par son numéro de ticket, pas par un rang. Lot 4 (CC-181) : la **lecture NAS**, photos ET vidéos —
 voir « Les médias du NAS » plus bas. Lot 5 (CC-182, non livré au moment d'écrire ceci) portera les
-fichiers téléversés — un gisement de données distinct, que CC-181 ne recouvre pas.
+fichiers téléversés — un gisement de données distinct, que CC-181 ne recouvre pas. Lot 6 (CC-205) :
+le **dossier verrouillé d'Immich**, parcourable en vignettes depuis le coffre — voir « Le dossier
+verrouillé — session Immich » plus bas.
 
 ⚠️ **CC-181 a été amendé le 2026-08-06, en cours de lot** : le ticket ne portait au départ que les
 vidéos ; le propriétaire a élargi le périmètre aux photos avant la fin de l'implémentation, parce
@@ -35,9 +38,12 @@ middleware/vault_unlocked_middleware.ts  le second étage du mur
 controllers/coffre_door_controller.ts    la porte : créer, ouvrir, verrouiller — SANS élévation
 controllers/coffre_controller.ts         le contenu : lister, ajouter, supprimer, RÉVÉLER — AVEC
                                          élévation
-controllers/coffre_media_controller.ts   le proxy de vignette Immich (CC-180) — AVEC élévation
+controllers/coffre_media_controller.ts   le proxy de vignette Immich (CC-180) — AVEC élévation,
+                                         repli en session depuis CC-205
 controllers/coffre_nas_controller.ts     le proxy de streaming NAS, photos ET vidéos (CC-181) —
                                          AVEC élévation
+controllers/coffre_immich_folder_controller.ts  le dossier verrouillé (CC-205) : listing + vignette
+                                         — AVEC élévation
 models/coffre_vault.ts                   un coffre PAR COMPTE : sel + témoin
 models/coffre_entry.ts                   note | url | credential · titre, contenu ET secret chiffrés
 models/coffre_entry_media.ts             une référence d'asset Immich, chiffrée (CC-180)
@@ -48,6 +54,10 @@ services/nas_roots_service.ts            PUR-ish (fs) · résout un chemin contr
 services/nas_file_format.ts              PUR · allow-lists photo/vidéo, content-type, kind (CC-181)
 services/byte_range.ts                   PUR · parseur de l'en-tête `Range` (CC-181)
 shared/entry_sections.ts                 PUR · le regroupement de l'écran par nature (CC-204)
+services/immich_session_state.ts         la session Immich en MÉMOIRE, TTL, coordination anti-course
+                                         (CC-205)
+services/immich_session_client.ts        login, élévation PIN, listing du dossier verrouillé,
+                                         vignette (CC-205)
 validators/coffre.ts                     ⚠️ des FABRIQUES, jamais des nœuds VineJS partagés
 ```
 
@@ -66,6 +76,16 @@ coffre). Voir « Les médias Immich » plus bas et `app/modules/veille/CLAUDE.md
 vit dans `config/` par convention du dépôt (comme `config/immich.ts`, `config/agents.ts`), pas
 sous `app/modules/coffre/` — c'est le seul endroit qu'AdonisJS balaie au démarrage pour ce genre
 de fichier. Rien d'autre ne le lit.
+
+⚠️ **Un neuvième depuis CC-205, même raison que le huitième** : `config/coffre_immich.ts`, dans
+`config/` pour la même convention. Il relit `IMMICH_BASE_URL`/`IMMICH_TIMEOUT_MS` — les MÊMES
+variables que `config/immich.ts` (CC-180), une seule instance Immich à déclarer — et ajoute
+`COFFRE_IMMICH_EMAIL`/`COFFRE_IMMICH_PASSWORD`/`COFFRE_IMMICH_PIN`, propres au dossier verrouillé.
+
+⚠️ **Un dixième depuis CC-205 : `providers/coffre_provider.ts`**, à la racine pour la même raison
+structurelle que `providers/veille_provider.ts` (voir le `CLAUDE.md` racine, point 7) — un
+provider est chargé par le framework au boot/shutdown, avant toute notion de module. Son seul rôle :
+fermer la session Immich élevée à l'arrêt du serveur, voir « Le dossier verrouillé » plus bas.
 
 ⚠️ **Deux dépendances de plus depuis CC-179, et aucune n'est propre au coffre** : la page importe
 `inertia/utils/clipboard.ts` (partagé avec `/reglages` et l'écran LLM de Leitner), et la promesse
@@ -424,6 +444,141 @@ vide = « ne change rien ».
 - `addEntry`/`updateEntry` sont transactionnels (`db.transaction`) : l'entrée et ses médias
   s'écrivent ensemble.
 
+## Le dossier verrouillé — session Immich (CC-205)
+
+CC-180 sait référencer un asset Immich en collant son UUID à la main, mais **une clé d'API ne voit
+jamais un asset `visibility: locked`** : `401 Elevated permission is required`, comportement
+**voulu** d'Immich — l'issue immich-app/immich#20622 est fermée « as not planned ». Coller l'UUID
+d'un asset verrouillé échouait donc silencieusement en 404, comme n'importe quel autre échec. Ce
+lot ajoute un second mode d'authentification — une SESSION, avec élévation par PIN — et un écran
+qui parcourt le dossier verrouillé en vignettes au lieu d'obliger à connaître l'UUID par cœur.
+
+⚠️ **Le contournement qui existe et qu'il ne fallait pas prendre** : `POST /api/search/random` en
+omettant `visibility` renvoie les assets verrouillés à une session qui n'a jamais saisi le PIN
+(divulgué en juillet 2026). C'est une **faille de sécurité d'Immich**, pas une API — elle sera
+corrigée. Le module dont toute la raison d'être est la sûreté ne s'appuie pas dessus.
+
+### Un secret de premier ordre dans le `.env` — exception ASSUMÉE, ne « corrige » pas
+
+Le `CLAUDE.md` racine explique pourquoi le chiffrement du coffre ne dérive **pas** d'`APP_KEY` :
+`APP_KEY` vit dans le `.env`, à côté de la base, et les deux tombent ensemble dans une sauvegarde,
+une image disque, un vol de machine.
+
+**Ce lot met dans ce MÊME `.env` les identifiants COMPLETS du compte Immich et le PIN du dossier
+verrouillé** (`COFFRE_IMMICH_EMAIL`/`COFFRE_IMMICH_PASSWORD`/`COFFRE_IMMICH_PIN`). Il n'y a pas
+d'autre chemin — voir « Pourquoi » ci-dessus, tranché par le ticket. Conséquence, écrite noir sur
+blanc : **qui obtient le `.env` et joint le serveur Immich ouvre le dossier verrouillé**, sans
+passphrase ni TOTP. Une sauvegarde de configuration devient un secret de premier ordre.
+
+⚠️ **Décision prise en connaissance de cause par le propriétaire le 2026-08-06, le coût sous les
+yeux — ne « corrige » pas cette exception en croyant réparer une incohérence.** Ce qui reste vrai,
+et qui ne bouge pas : le chiffrement des ENTRÉES du coffre continue de ne dépendre QUE de la
+passphrase (`vault_crypto.ts`, inchangé) — un `.env` volé n'ouvre aucune note, aucun identifiant,
+aucune photo déjà attachée. Il ouvre uniquement le PARCOURS du dossier verrouillé — un accès en
+lecture à ce qu'Immich, lui, protège.
+
+### L'UUID en sélection n'est pas l'UUID en liste
+
+⚠️ **`GET /coffre/immich/dossier` rend l'UUID de chaque photo au navigateur, et ce n'est PAS une
+régression de la doctrine « aucun secret ne redescend » de CC-180.** Cette doctrine porte sur les
+médias déjà ATTACHÉS à une entrée — `CoffreEntryView.media` ne porte que l'`id` de la ligne
+`coffre_entry_media`, jamais l'UUID, parce que l'utilisateur n'a plus aucune raison de le
+reconnaître une fois l'entrée créée. La phase de SÉLECTION est une frontière de confiance
+différente : l'utilisateur a DÉJÀ cette information en parcourant Immich lui-même, exactement comme
+il l'a déjà quand il colle un UUID à la main dans le formulaire (CC-180, chemin qui reste). Le
+dossier n'est qu'une commodité qui affiche la même chose en vignette au lieu de forcer un copier-
+coller. Cliquer une vignette pousse l'UUID dans le MÊME `form.media`/`editForm.media.add` que le
+collage — zéro changement de schéma, de validateur, ou d'`VaultService`.
+
+### Le client de session — cycle de vie
+
+`services/immich_session_state.ts` (l'état, en mémoire) + `services/immich_session_client.ts` (la
+logique HTTP) — split volontaire, sur le même principe que `vault_service.ts`/`vault_keyring.ts` :
+le second est un singleton manuel exporté par défaut (`export default new ImmichSessionState()`),
+le premier est résolu par le conteneur IoC (`@inject()`-compatible comme `ImmichClient` du core),
+donc reconstruit à chaque requête — la statefulness qui permet la RÉUTILISATION vient du singleton
+importé par défaut, jamais de l'instance du client.
+
+⚠️ **Une seule session pour toute l'installation, jamais une par compte Command Center.** Les
+identifiants Immich sont ceux du `.env` — un seul compte Immich, partagé. Fermer une session coffre
+(verrouillage, révocation CC-176) ne touche jamais cette session-ci, et réciproquement : les deux
+sont des concepts indépendants qui partagent le mot « session » par coïncidence.
+
+⚠️ **Le jeton ET l'élévation par PIN expirent, indépendamment — et c'est indiscernable depuis ce
+poste, faute d'instance réelle à observer.** La réponse retenue ne tente PAS de deviner les deux
+durées réelles : un 401/403 sur un appel de DONNÉES (listing, vignette) déclenche une reprise
+**unique** — nouveau login, nouvelle élévation — que la cause soit l'un, l'autre, ou les deux à la
+fois. Un login ou une élévation refusés (mauvais identifiants, mauvais PIN dans le `.env`) ne sont
+JAMAIS retentés : ce sont des erreurs de configuration, pas des expirations, et boucler dessus
+martèlerait Immich sans jamais réussir.
+
+⚠️ **« Réutilise, et ferme ce que tu ouvres » — les deux moitiés du ticket, à deux endroits
+différents.** Chaque `POST /api/auth/login` crée une session visible dans la liste d'appareils
+autorisés d'Immich :
+
+1. **Réutilise** — `ImmichSessionState.authorize` ne relogue pas tant que la session n'a pas
+   dépassé `SESSION_REUSE_MINUTES` (10, une fenêtre de réutilisation, PAS la durée de vie réelle
+   côté Immich, inconnue). Des requêtes CONCURRENTES (la grille de vignettes rend plusieurs `<img>`
+   à la fois) sont coordonnées par un verrou en mémoire (`#inFlight`) : une seule établit la
+   session, les autres attendent son résultat. ⚠️ La coordination est sûre SANS mutex explicite —
+   entre la lecture de l'état et sa pose, aucun `await` n'a lieu : la portion critique s'exécute
+   d'un bloc, comme tout code JS synchrone jusqu'à son premier point de suspension.
+2. **Ferme** — avant tout renouvellement (`#establish` logue l'ancien jeton s'il y en avait un),
+   ET à l'arrêt du serveur (`CoffreProvider.shutdown`, sinon un redémarrage — le cas COURANT sur la
+   durée de vie d'une installation, bien plus fréquent qu'un crash — laisserait une session
+   orpheline à chaque fois, sans jamais la nettoyer : l'ancien process a disparu).
+
+⚠️ **Le mode d'échec évité, mesuré en écrivant le test avant le correctif :** un premier jet
+appelait `state.clear()` explicitement avant de relancer l'établissement — ce qui PERD la référence
+au jeton périmé avant que le mécanisme de coordination ne puisse le récupérer pour le fermer côté
+Immich. `ImmichSessionState.reauthorize` existe pour ça : il force un nouvel établissement SANS
+jamais appeler `clear()` en amont, laissant la coordination interne être la SEULE à décider quel
+jeton était là.
+
+⚠️ **Ne réutilise pas `#core/shared/services/immich_client.ts` pour ce transport.** L'en-tête
+d'authentification diffère (`Authorization: Bearer` ici, `x-api-key` là-bas) et les endpoints
+(`/api/auth/login`, `/api/auth/session/unlock`, `/api/auth/logout`) n'ont pas d'équivalent dans le
+client partagé. Le hardening (redirections refusées, assertion de content-type, plafonds de taille
+et de temps) est dupliqué plutôt que tordu pour un second mode d'auth — un seul consommateur (le
+coffre), donc il reste local au module (voir le point 5 du ticket, et « Modules strictement
+séparés »).
+
+### Le proxy de vignette existant — repli, pas remplacement
+
+`CoffreMediaController.thumbnail` (CC-180) tente d'abord la clé d'API (chemin rapide — la majorité
+des assets ne sont pas verrouillés), puis, si elle échoue, tente la session. ⚠️ **Aucune garde
+`coffreImmichConfig.enabled` dans ce contrôleur, délibérément** : `ImmichSessionClient` porte déjà
+son propre refus rapide (« pas configuré », avant tout `fetch`) — dupliquer le contrôle ici ferait
+deux sources de vérité, et le rendrait dépendant d'un singleton non substituable en test
+(`app.container.swap` remplace la classe injectée, pas la config qu'elle lit).
+
+### Le contrôleur du dossier — deux routes, deux doctrines de réponse différentes
+
+`GET /coffre/immich/dossier` (listing) rend **toujours 200** — `available: false` porte l'échec
+(non configuré, panne Immich), jamais un code d'erreur : ce n'est pas « photo introuvable », c'est
+« je n'ai pas pu parler à Immich », deux choses différentes que la doctrine 404-uniforme des
+proxies par média (établie par CC-180/181) ne couvre pas. `GET
+/coffre/immich/dossier/:assetId/thumbnail`, elle, suit cette doctrine à l'identique (404 uniforme,
+`logger.warn` côté serveur) — c'est un proxy par média comme les deux autres.
+
+⚠️ **Le listing plafonne à 10 pages de 100 (`MAX_PAGES` de `immich_session_client.ts`), et
+`truncated: true` le dit plutôt que de lever.** Différent de `MAX_PAGES` côté veille, qui LÈVE : là-
+bas c'est un garde-fou anti-boucle sur un album de collecte qui ne devrait jamais en approcher ;
+ici, un dossier verrouillé personnel peut légitimement dépasser 1000 photos au fil des années — ce
+n'est pas une anomalie, juste un dossier qu'on ne montre pas en entier.
+
+⚠️ **`POST /api/search/metadata` avec `visibility: 'locked'` n'est PAS vérifié contre une vraie
+instance — c'est une extrapolation de l'usage déjà vérifié en veille pour `albumIds` sur le MÊME
+endpoint** (même pagination `items`/`nextPage` en chaîne). À confirmer avant de faire confiance au
+listing en production.
+
+### Les deux registres du mur, comme les deux autres proxies
+
+Les deux routes du dossier entrent dans `ROUTES_MUREES` de `coffre_wall.spec.ts` **et** dans
+l'assertion qui lit le routeur — mesuré à l'identique à CC-180/181 : les sortir du groupe muré ne
+fait rougir QUE cette assertion-là, `#requireElevation` du contrôleur rendant le même 403 par
+ailleurs.
+
 ## Les médias du NAS : lire depuis le disque, sans l'ouvrir — photos ET vidéos (CC-181)
 
 **Le lot dangereux de l'épique**, pris seul une fois les autres livrés — voir CC-177. Servir un
@@ -723,3 +878,14 @@ Le détail par fichier est dans [TESTS.md](./TESTS.md) — à lire avant de **mo
   CC-181. Le regroupement est prouvé par test sur la fonction pure ; l'alignement visuel, la
   lisibilité des en-têtes de section et leur ordre à l'écran restent un passage navigateur pour le
   propriétaire.
+- ⚠️ **Aucun accès à une vraie instance Immich pour vérifier le dossier verrouillé (CC-205), et
+  c'est plus grave que les limites précédentes** : la forme exacte de `POST /api/auth/login`,
+  `POST /api/auth/session/unlock` et `POST /api/search/metadata {visibility: 'locked'}` n'a pas
+  été confirmée — seule la pagination (`items`/`nextPage` en chaîne) est une extrapolation d'un
+  usage déjà vérifié en veille sur le MÊME endpoint (filtre `albumIds` plutôt que `visibility`).
+  Un passage réel (API **et** navigateur) est requis avant d'activer
+  `COFFRE_IMMICH_EMAIL/PASSWORD/PIN` en confiance sur une installation qui compte dessus.
+- **Le rendu de la grille de vignettes du dossier n'est couvert par aucun test de composant** —
+  même limite que le reste du module : jsdom ne fait aucun layout. Le contrôleur et le client de
+  session sont prouvés par test ; l'alignement, la lisibilité du bouton « Parcourir », et le fait
+  qu'une vignette cliquée s'ajoute visiblement à la sélection restent un passage navigateur.
