@@ -24,6 +24,10 @@
     "logout": "Quitter →",
     "logoutTitle": "Se déconnecter"
   },
+  "confirm": {
+    "cancel": "Annuler",
+    "confirm": "Confirmer"
+  },
   "palette": {
     "placeholder": "Tapez une commande, un service, un agent…",
     "navigation": "Navigation",
