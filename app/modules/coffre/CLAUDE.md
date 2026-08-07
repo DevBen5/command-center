@@ -145,6 +145,24 @@ le contenu par `<slot>`.
   Un confirm-modal (CC-206) n'a pas besoin de ces trois bandes ; leur imposer depuis le chassis
   les lui aurait forcées inutilement.
 
+**Mise à jour 2026-08-07 (CC-209)** : le chassis est désormais durci — `role="dialog"` +
+`aria-modal="true"` + `aria-labelledby` (l'id est exposé au slot via `v-slot="{ titleId }"`, à
+poser sur ce que le contenu considère être son titre, jamais fabriqué par le chassis lui-même),
+focus posé sur le premier élément focalisable à l'ouverture et piégé dedans (Tab/Maj+Tab), focus
+rendu à l'ouvrant au démontage (donc sur les trois chemins de fermeture à la fois : bouton, Échap,
+clic-extérieur), défilement de fond bloqué. Une pile de module (hors `<script setup>`, qui
+s'exécute par instance) coordonne plusieurs modales ouvertes en même temps — un cas que CC-206
+va créer (confirmation par-dessus un formulaire) : seule l'instance empilée en dernier répond à
+Échap, le défilement n'est débloqué qu'au retour à zéro instance. **Les deux overlays maison
+restants ont été ramenés dans ce chassis** — `leitner/pages/settings.vue` et la palette ⌘K
+d'`AppLayout.vue`, y compris cette dernière (initialement vue comme optionnelle par le ticket) :
+le rembourrage vertical (`py-16` pour les deux premiers, `pt-[120px]` pour la palette) est sorti
+du chassis, qui n'en porte plus aucun, et reporté en `mt-16`/`mt-[120px]` sur le panneau de
+chaque consommateur — visuellement identique (CC-66 réserve déjà le budget vertical via
+`max-h-[calc(100vh_-_8rem)]`), vérifié par `npm run build` + grep du CSS produit. `EntryFormModal`
+porte donc maintenant `:id="titleId"` sur sa barre de titre existante — geste invisible, pas une
+refonte visuelle.
+
 ## Le rideau — ce qu'il achète, et ce qu'il n'achète pas
 
 Le module **n'enregistre aucune destination**. Il disparaît alors mécaniquement de la barre
