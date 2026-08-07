@@ -74,7 +74,12 @@ function monter(props: {
           legacy: false,
           locale: 'fr',
           fallbackLocale: 'fr',
-          messages: { fr: { settings: settingsFr } },
+          // ⚠️ `confirm` est un namespace RACINE (le chassis, `inertia/i18n/{fr,en}.json`),
+          // jamais sous `settings` : c'est exactement comme `inertia/i18n/index.ts` les monte en
+          // production. `ConfirmModal` (CC-206) lit `t('confirm.cancel')`/`t('confirm.confirm')`.
+          messages: {
+            fr: { settings: settingsFr, confirm: { cancel: 'Annuler', confirm: 'Confirmer' } },
+          },
         }),
       ],
     },
@@ -175,11 +180,15 @@ describe('Core / écran de réglages', () => {
   | confirmation.
   |
   | ⚠️ Les deux sens, comme pour le bouton de désactivation plus haut : n'observer que le refus
-  | passerait même si le `confirm` avait disparu et que le clic postait toujours.
+  | passerait même si la confirmation avait disparu et que le clic postait toujours.
   |
   | ⚠️ **Masquer ou garder un bouton n'est pas le contrôle** — `tests/functional/auth/
   | session_revocation.spec.ts` prouve la route elle-même. Ici on vérifie seulement qu'un clic
   | accidentel ne déconnecte pas les autres appareils sans un mot.
+  |
+  | ⚠️ Depuis CC-206, la confirmation n'est plus `window.confirm` mais `ConfirmModal` (CC-207/
+  | CC-209) — monté pour de vrai par cette page, jamais stubbé : on clique ses propres boutons
+  | plutôt que de simuler un `confirm` global.
   */
   test('la révocation des sessions n’est postée qu’après confirmation', async () => {
     const { router } = await import('@inertiajs/vue3')
@@ -191,21 +200,24 @@ describe('Core / écran de réglages', () => {
       .find((b) => b.text() === settingsFr.security.sessions.submit)!
 
     post.mockClear()
-    vi.stubGlobal(
-      'confirm',
-      vi.fn(() => false)
-    )
+
     await bouton.trigger('click')
+    await wrapper.vm.$nextTick()
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === 'Annuler')!
+      .trigger('click')
     expect(post).not.toHaveBeenCalled()
 
-    vi.stubGlobal(
-      'confirm',
-      vi.fn(() => true)
-    )
     await bouton.trigger('click')
+    await wrapper.vm.$nextTick()
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text() === 'Confirmer')!
+      .trigger('click')
+    await wrapper.vm.$nextTick()
     expect(post).toHaveBeenCalledWith('/reglages/sessions', {}, { preserveScroll: true })
 
-    vi.unstubAllGlobals()
     wrapper.unmount()
   })
 })

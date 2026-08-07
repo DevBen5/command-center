@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { Head, router, useForm, usePage } from '@inertiajs/vue3'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '~/layouts/AppLayout.vue'
+import ConfirmModal from '~/components/ConfirmModal.vue'
 import { copyText, type CopyOutcome } from '~/utils/clipboard'
 
 defineOptions({ layout: AppLayout })
@@ -26,6 +27,7 @@ const { t } = useI18n()
 const code = ref('')
 const error = ref<string | null>(null)
 const busy = ref(false)
+const confirmModal = ref<InstanceType<typeof ConfirmModal> | null>(null)
 
 /**
  * Les codes de secours, tels qu'ils viennent d'être fabriqués.
@@ -86,7 +88,7 @@ async function confirmEnrollment(): Promise<void> {
 }
 
 async function regenerate(): Promise<void> {
-  if (!confirm(t('settings.security.regenerateConfirm'))) return
+  if (!(await confirmModal.value?.ask(t('settings.security.regenerateConfirm')))) return
 
   error.value = null
   busy.value = true
@@ -98,8 +100,9 @@ async function regenerate(): Promise<void> {
   recoveryCodes.value = result.recoveryCodes
 }
 
-function disable(): void {
-  if (!confirm(t('settings.security.disableConfirm'))) return
+async function disable(): Promise<void> {
+  if (!(await confirmModal.value?.ask(t('settings.security.disableConfirm'), { danger: true })))
+    return
   router.post('/reglages/2fa/desactivation', {}, { preserveScroll: true })
 }
 
@@ -130,8 +133,9 @@ function changePassword(): void {
  * appareils, qui devront se reconnecter, et rien à l'écran ne dit combien ils sont — il n'existe
  * aucune liste côté serveur. Un clic accidentel n'a pas de retour en arrière.
  */
-function revokeSessions(): void {
-  if (!confirm(t('settings.security.sessions.confirm'))) return
+async function revokeSessions(): Promise<void> {
+  if (!(await confirmModal.value?.ask(t('settings.security.sessions.confirm'), { danger: true })))
+    return
   router.post('/reglages/sessions', {}, { preserveScroll: true })
 }
 
@@ -465,4 +469,6 @@ function switchLocale(next: string): void {
       <p v-else>{{ t('settings.about.dev') }}</p>
     </section>
   </div>
+
+  <ConfirmModal ref="confirmModal" />
 </template>
