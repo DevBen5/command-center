@@ -2,7 +2,9 @@ import { test } from '@japa/runner'
 import app from '@adonisjs/core/services/app'
 import testUtils from '@adonisjs/core/services/test_utils'
 import ImmichClient from '#core/shared/services/immich_client'
+import ImmichSessionClient from '#modules/coffre/services/immich_session_client'
 import FakeImmichClient from '#tests/fakes/fake_immich_client'
+import FakeImmichSessionClient from '#tests/fakes/fake_immich_session_client'
 import { createUserWith } from '#tests/helpers/users'
 import { createVault, createMedia, unlockedSession, PASSPHRASE } from '#tests/helpers/coffre'
 import CoffreEntry from '#modules/coffre/models/coffre_entry'
@@ -16,12 +18,20 @@ import { deriveKey } from '#modules/coffre/services/vault_crypto'
  * — qui le prouve contre un `fetch` mocké. `FakeImmichClient` remplace la couche API tout entière,
  * comme pour la veille : ce qui se prouve ici, c'est ce que le CONTRÔLEUR du coffre fait d'un
  * succès et d'un échec de cette couche, pas le transport lui-même.
+ *
+ * ⚠️ **Depuis CC-205, le repli en session est couvert ici aussi** — même doctrine : `FakeImmichSessionClient`
+ * remplace la couche API du client de session tout entière (login/unlock/coordination ont leur
+ * propre test, `tests/unit/coffre_immich_session_client.spec.ts`), ce qui se prouve ici c'est ce
+ * que le contrôleur fait d'un échec de la clé d'API suivi d'un succès (ou d'un échec) en session.
  */
 const ASSET_ID = '11111111-2222-4333-8444-555555555555'
 
 test.group('Coffre / le proxy de vignette Immich', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
-  group.each.teardown(() => app.container.restore(ImmichClient))
+  group.each.teardown(() => {
+    app.container.restore(ImmichClient)
+    app.container.restore(ImmichSessionClient)
+  })
 
   test('une vignette connue rend l’image, sans cache, avec le bon content-type', async ({
     client,
@@ -115,6 +125,74 @@ test.group('Coffre / le proxy de vignette Immich', (group) => {
     const media = await createMedia(entry.id, user.id, key, ASSET_ID)
 
     app.container.swap(ImmichClient, () => new FakeImmichClient([]))
+
+    const response = await client
+      .get(`/coffre/media/${media.id}/thumbnail`)
+      .loginAs(user)
+      .withSession(await unlockedSession(user, vault))
+
+    response.assertStatus(404)
+  })
+
+  test('CC-205 : un asset verrouillé (clé d’API refusée) est servi par le repli en session', async ({
+    client,
+    assert,
+  }) => {
+    /**
+     * ⚠️ **Le cas motivant du ticket** : coller l'UUID d'un asset verrouillé échouait
+     * silencieusement en 404 avant ce lot, la clé d'API ne pouvant pas le lire. La clé échoue ici
+     * (aucun asset scripté dans `FakeImmichClient`, comme une vraie clé d'API le ferait sur
+     * `visibility: locked`), le repli en session doit prendre le relais et réussir.
+     */
+    const user = await createUserWith(['coffre.view'])
+    const vault = await createVault(user)
+    const entry = await CoffreEntry.create({
+      ownerId: user.id,
+      type: 'note',
+      titleCipher: 'x',
+      contentCipher: 'x',
+    })
+    const key = deriveKey(PASSPHRASE, vault.kdfSalt)
+    const media = await createMedia(entry.id, user.id, key, ASSET_ID)
+
+    app.container.swap(ImmichClient, () => new FakeImmichClient([]))
+
+    const sessionFake = new FakeImmichSessionClient({
+      photos: [{ assetId: ASSET_ID }],
+      truncated: false,
+    })
+    app.container.swap(ImmichSessionClient, () => sessionFake)
+
+    const response = await client
+      .get(`/coffre/media/${media.id}/thumbnail`)
+      .loginAs(user)
+      .withSession(await unlockedSession(user, vault))
+
+    response.assertStatus(200)
+    response.assertHeader('content-type', 'image/webp')
+    response.assertHeader('cache-control', 'no-store')
+    assert.deepEqual(sessionFake.thumbnailed, [ASSET_ID])
+  })
+
+  test('CC-205 : les deux modes en échec restent un 404, jamais une erreur brute', async ({
+    client,
+  }) => {
+    const user = await createUserWith(['coffre.view'])
+    const vault = await createVault(user)
+    const entry = await CoffreEntry.create({
+      ownerId: user.id,
+      type: 'note',
+      titleCipher: 'x',
+      contentCipher: 'x',
+    })
+    const key = deriveKey(PASSPHRASE, vault.kdfSalt)
+    const media = await createMedia(entry.id, user.id, key, ASSET_ID)
+
+    app.container.swap(ImmichClient, () => new FakeImmichClient([]))
+    app.container.swap(
+      ImmichSessionClient,
+      () => new FakeImmichSessionClient({ photos: [], truncated: false })
+    )
 
     const response = await client
       .get(`/coffre/media/${media.id}/thumbnail`)

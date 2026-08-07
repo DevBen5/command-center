@@ -98,6 +98,12 @@ export default defineConfig({
       file: () => import('#providers/backup_provider'),
       environment: ['web'],
     },
+    // Ferme la session Immich du dossier verrouillé du coffre à l'arrêt du serveur (CC-205).
+    // `web` seulement : aucune commande ace ni aucun test n'ouvre de session Immich à fermer.
+    {
+      file: () => import('#providers/coffre_provider'),
+      environment: ['web'],
+    },
   ],
 
   /*

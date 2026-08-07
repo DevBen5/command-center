@@ -3,6 +3,7 @@ import { externalServicesIsolated } from '#config/env_isolation'
 import immichConfig, { immichConfigFrom } from '#config/immich'
 import youtubeConfig, { youtubeConfigFrom } from '#config/youtube'
 import llmConfig, { llmConfigFrom, LLM_DEFAULT_BASE_URL, LLM_DEFAULT_MODEL } from '#config/llm'
+import coffreImmichConfig, { coffreImmichConfigFrom } from '#config/coffre_immich'
 
 /**
  * CC-101 — « aucun test ne touche une vraie instance » devient une propriété du code.
@@ -66,6 +67,23 @@ test.group('Isolation des clients externes pendant les tests', () => {
     assert.isUndefined(llm.apiKey, 'la clé du .env entrerait dans les tests')
     assert.equal(llm.baseUrl, LLM_DEFAULT_BASE_URL)
     assert.equal(llm.model, LLM_DEFAULT_MODEL)
+
+    /**
+     * ⚠️ **Le cas le plus sensible du lot (CC-205)** : ces trois valeurs sont les identifiants
+     * COMPLETS d'un compte Immich, pas une clé à portée réduite. Sans cette garde, un poste de dev
+     * dont le `.env` réel les configure enverrait de vrais identifiants vers une vraie instance
+     * pendant `npm test`.
+     */
+    const coffreImmich = coffreImmichConfigFrom('test', {
+      baseUrl: 'https://immich.exemple.dev',
+      email: 'proprietaire@exemple.dev',
+      password: 'mot-de-passe-reel',
+      pinCode: '123456',
+    })
+    assert.isFalse(
+      coffreImmich.enabled,
+      'le dossier verrouillé resterait joignable pendant npm test'
+    )
   })
 
   /**
@@ -93,6 +111,15 @@ test.group('Isolation des clients externes pendant les tests', () => {
     const llm = llmConfigFrom('development', { apiKey: 'clef-llm-du-poste', model: 'mistral' })
     assert.equal(llm.apiKey, 'clef-llm-du-poste')
     assert.equal(llm.model, 'mistral')
+
+    const coffreImmich = coffreImmichConfigFrom('development', {
+      baseUrl: 'https://immich.exemple.dev',
+      email: 'proprietaire@exemple.dev',
+      password: 'mot-de-passe-reel',
+      pinCode: '123456',
+    })
+    assert.isTrue(coffreImmich.enabled)
+    assert.equal(coffreImmich.baseUrl, 'https://immich.exemple.dev')
   })
 
   /**
@@ -106,5 +133,6 @@ test.group('Isolation des clients externes pendant les tests', () => {
     assert.isFalse(immichConfig.enabled)
     assert.isFalse(youtubeConfig.enabled)
     assert.isUndefined(llmConfig.apiKey)
+    assert.isFalse(coffreImmichConfig.enabled)
   })
 })

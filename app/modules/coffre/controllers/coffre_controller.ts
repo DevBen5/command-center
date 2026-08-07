@@ -2,6 +2,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import type { Session } from '@adonisjs/session'
 import ForbiddenException from '#core/shared/exceptions/forbidden_exception'
 import type User from '#core/auth/models/user'
+import coffreImmichConfig from '#config/coffre_immich'
 import vault from '#modules/coffre/services/vault_service'
 import { entryValidator, entryUpdateValidator } from '#modules/coffre/validators/coffre'
 
@@ -22,6 +23,9 @@ export default class CoffreController {
 
     return inertia.render('modules/coffre/index', {
       entries: await vault.entriesFor(user, key),
+      // ⚠️ Un booléen, jamais un secret : dit si le bouton « parcourir le dossier verrouillé »
+      // (CC-205) a une chance de fonctionner, sans jamais dire pourquoi ni exposer un identifiant.
+      immichFolderAvailable: coffreImmichConfig.enabled,
     })
   }
 
