@@ -17,8 +17,31 @@ export type CoffreEntryType = 'note' | 'url' | 'credential'
 export type CoffreSectionKey = CoffreEntryType | 'photo'
 
 /** L'ordre d'affichage des sections — c'est aussi l'ordre du ticket : notes · liens ·
- * identifiants · photos. */
-const SECTION_ORDER: readonly CoffreSectionKey[] = ['note', 'url', 'credential', 'photo']
+ * identifiants · photos. Exporté depuis CC-208 : `sectionCardsFor` en a besoin pour compléter
+ * les sections absentes dans le même ordre. */
+export const SECTION_ORDER: readonly CoffreSectionKey[] = ['note', 'url', 'credential', 'photo']
+
+/**
+ * Les segments d'URL des pages de section (CC-208) — en français, cohérent avec le reste des
+ * routes du module (`/coffre/ouvrir`, `/coffre/creation`…). Seul point qui traduit une
+ * `CoffreSectionKey` interne en mot d'URL ; `start/routes.ts` et l'accueil (liens des cartes) s'y
+ * réfèrent tous deux pour ne jamais diverger.
+ */
+export const SECTION_SLUGS: Record<CoffreSectionKey, string> = {
+  note: 'notes',
+  url: 'liens',
+  credential: 'identifiants',
+  photo: 'photos',
+}
+
+/** L'inverse de `SECTION_SLUGS` — `null` sur un slug inconnu (le contrôleur en fait une erreur
+ * explicite : la route ne devrait jamais laisser passer autre chose que ces quatre mots). */
+export function sectionKeyFromSlug(slug: string): CoffreSectionKey | null {
+  const found = (Object.entries(SECTION_SLUGS) as [CoffreSectionKey, string][]).find(
+    ([, value]) => value === slug
+  )
+  return found?.[0] ?? null
+}
 
 /** Ce qu'une entrée doit porter pour être rangée — structurel, pas le DTO complet de la page :
  * ce fichier ne connaît ni le titre ni le contenu, seulement ce qui décide de la section. */
@@ -68,4 +91,20 @@ export function groupEntriesByNature<T extends SectionableEntry>(entries: T[]): 
     key,
     entries: buckets.get(key) as T[],
   }))
+}
+
+/**
+ * Complète les sections absentes de `groupEntriesByNature` par une carte vide (CC-208) : l'accueil
+ * affiche toujours quatre cartes, contrairement à la liste de CC-204 qui omettait une section vide
+ * — un en-tête suivi du vide est du bruit sur une liste, mais une carte manquante casse la grille
+ * et fait croire que la fonctionnalité n'existe pas.
+ *
+ * ⚠️ **Le contrat de `groupEntriesByNature` ne change pas** — c'est cet appelant qui complète
+ * après coup, décision du ticket CC-208 écrite ici pour que personne ne « répare » l'un des deux
+ * en croyant l'autre incohérent.
+ */
+export function sectionCardsFor<T extends SectionableEntry>(entries: T[]): CoffreSection<T>[] {
+  const present = new Map(groupEntriesByNature(entries).map((section) => [section.key, section]))
+
+  return SECTION_ORDER.map((key) => present.get(key) ?? { key, entries: [] })
 }

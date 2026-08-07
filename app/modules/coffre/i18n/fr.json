@@ -22,7 +22,13 @@
     "lead": "Ouvert pour un temps limité. Le contenu est chiffré au repos : ni une sauvegarde, ni un accès direct à la base ne le rendent lisible.",
     "lock": "Verrouiller",
     "empty": "Le coffre est vide.",
+    "cardEmpty": "Aucune entrée.",
+    "backToCoffre": "← Coffre",
     "addTitle": "Ajouter une entrée",
+    "addNote": "Ajouter une note",
+    "addUrl": "Ajouter un lien",
+    "addCredential": "Ajouter un identifiant",
+    "addPhoto": "Ajouter une photo",
     "modalCreateTitle": "Nouvelle entrée",
     "modalEditTitle": "Modifier l'entrée",
     "type": "Nature",
@@ -76,5 +82,8 @@
     "nasFileInvalid": "Ce n'est pas un chemin de média valide (formats acceptés : mp4, webm, mov, mkv, avi, jpg, jpeg, png, webp, gif, heic).",
     "nasFileRemove": "Retirer",
     "nasFilePending": "sera ajouté à l'enregistrement"
+  },
+  "section": {
+    "title": "Coffre"
   }
 }

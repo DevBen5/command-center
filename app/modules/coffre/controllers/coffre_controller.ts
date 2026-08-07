@@ -5,6 +5,7 @@ import type User from '#core/auth/models/user'
 import coffreImmichConfig from '#config/coffre_immich'
 import vault from '#modules/coffre/services/vault_service'
 import { entryValidator, entryUpdateValidator } from '#modules/coffre/validators/coffre'
+import { groupEntriesByNature, sectionKeyFromSlug } from '#modules/coffre/shared/entry_sections'
 
 /**
  * Le contenu du coffre (CC-178) — **toutes ces routes sont derrière l'élévation**
@@ -25,6 +26,36 @@ export default class CoffreController {
       entries: await vault.entriesFor(user, key),
       // ⚠️ Un booléen, jamais un secret : dit si le bouton « parcourir le dossier verrouillé »
       // (CC-205) a une chance de fonctionner, sans jamais dire pourquoi ni exposer un identifiant.
+      immichFolderAvailable: coffreImmichConfig.enabled,
+    })
+  }
+
+  /**
+   * Une section de l'écran, en entier — `GET /coffre/:section` (CC-208). `:section` est un mot
+   * français (`notes`, `liens`, `identifiants`, `photos`) ; la route ne laisse passer que ces
+   * quatre valeurs (`.where()`, `start/routes.ts`), donc le `throw` ci-dessous ne devrait jamais
+   * partir — il couvre une désynchronisation future entre ce regex et `SECTION_SLUGS`.
+   *
+   * ⚠️ **Le filtre passe par `groupEntriesByNature`, jamais par une requête SQL sur `type`** : la
+   * section d'une entrée dépend de la présence de médias, pas seulement de sa colonne `type` (voir
+   * le ticket). Réutiliser la même fonction pure que l'accueil est ce qui empêche les deux vues de
+   * diverger sur ce qu'elles considèrent comme « une photo ».
+   */
+  async section({ inertia, auth, session, params }: HttpContext) {
+    const user = auth.user!
+    const key = this.#key(user, session)
+
+    const sectionKey = sectionKeyFromSlug(params.section)
+    if (sectionKey === null) {
+      throw new Error(`Segment de section inconnu : ${params.section}`)
+    }
+
+    const sections = groupEntriesByNature(await vault.entriesFor(user, key))
+    const entries = sections.find((section) => section.key === sectionKey)?.entries ?? []
+
+    return inertia.render('modules/coffre/section', {
+      section: sectionKey,
+      entries,
       immichFolderAvailable: coffreImmichConfig.enabled,
     })
   }
@@ -73,6 +104,12 @@ export default class CoffreController {
     return response.ok({ secret: verdict.secret })
   }
 
+  /**
+   * ⚠️ **`redirect().back()`, pas `/coffre` en dur** (CC-208) : ajouter depuis une page de
+   * section (`/coffre/notes`) doit y ramener, pas renvoyer systématiquement à l'accueil. Reprend
+   * l'accueil lui-même quand l'ajout part de là (referer = `/coffre`) — comportement inchangé
+   * pour ce cas, qui était le seul avant ce lot.
+   */
   async store({ auth, request, response, session }: HttpContext) {
     const user = auth.user!
     const key = this.#key(user, session)
@@ -80,13 +117,16 @@ export default class CoffreController {
 
     await vault.addEntry(user, key, entry)
 
-    return response.redirect('/coffre')
+    return response.redirect().back()
   }
 
   /**
    * Remplace le titre, le contenu et — sur un identifiant, si fourni — le mot de passe (CC-186).
    * Une édition rechiffre : elle est donc derrière le même mur que `store`/`destroy`, pas une
    * exception.
+   *
+   * ⚠️ **`redirect().back()`, même raison que `store`** (CC-208) : éditer depuis une page de
+   * section y reste.
    */
   async update({ auth, params, request, response, session }: HttpContext) {
     const user = auth.user!
@@ -95,13 +135,15 @@ export default class CoffreController {
 
     await vault.updateEntry(user, key, Number(params.id), patch)
 
-    return response.redirect('/coffre')
+    return response.redirect().back()
   }
 
   /**
    * ⚠️ **La suppression est définitive et sans corbeille**, contrairement à la veille (CC-63). Rien
    * ne peut ressusciter une entrée : il n'y a ni collecte qui la réinsérerait — donc aucune raison
    * de poser une pierre tombale — ni copie ailleurs. Le dialogue de confirmation vit dans la page.
+   *
+   * ⚠️ **`redirect().back()`, même raison que `store`/`update`** (CC-208).
    */
   async destroy({ auth, params, response, session }: HttpContext) {
     const user = auth.user!
@@ -114,7 +156,7 @@ export default class CoffreController {
 
     await vault.deleteEntry(user, Number(params.id))
 
-    return response.redirect('/coffre')
+    return response.redirect().back()
   }
 
   #key(user: User, session: Session): Buffer {

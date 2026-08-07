@@ -30,6 +30,9 @@ import { createVault, lockedSession, unlockedSession, PASSPHRASE } from '#tests/
  */
 const ROUTES_MUREES = [
   { methode: 'get' as const, url: '/coffre' },
+  // Une page par section (CC-208) : représentative du groupe `/coffre/:section`, un seul slug
+  // suffit — même doctrine que les autres routes paramétrées de cette liste.
+  { methode: 'get' as const, url: '/coffre/notes' },
   { methode: 'post' as const, url: '/coffre' },
   { methode: 'put' as const, url: '/coffre/1' },
   { methode: 'delete' as const, url: '/coffre/1' },
@@ -78,6 +81,9 @@ test.group('Coffre / le mur', (group) => {
         .map((one) => (one as { name: string }).name)
 
     assert.include(nomsSur('/coffre', 'GET'), 'coffreOuvert')
+    // ⚠️ CC-208 : mesuré à l'identique aux autres — retirer cette route du mur ne fait rougir
+    // QUE cette assertion-là, le contrôleur levant lui aussi sans clé de session.
+    assert.include(nomsSur('/coffre/:section', 'GET'), 'coffreOuvert')
     assert.include(nomsSur('/coffre', 'POST'), 'coffreOuvert')
     // ⚠️ CC-186 : une édition rechiffre, elle n'a pas le droit d'être une exception au mur.
     assert.include(nomsSur('/coffre/:id', 'PUT'), 'coffreOuvert')

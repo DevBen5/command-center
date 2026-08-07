@@ -1,5 +1,11 @@
 import { test } from '@japa/runner'
-import { groupEntriesByNature, type SectionableEntry } from '#modules/coffre/shared/entry_sections'
+import {
+  groupEntriesByNature,
+  sectionCardsFor,
+  SECTION_SLUGS,
+  sectionKeyFromSlug,
+  type SectionableEntry,
+} from '#modules/coffre/shared/entry_sections'
 
 /*
 |--------------------------------------------------------------------------
@@ -131,5 +137,42 @@ test.group('Coffre — regroupement par nature', () => {
 
     assert.sameMembers(seen, [1, 2, 3, 4, 5])
     assert.equal(seen.length, input.length)
+  })
+})
+
+test.group('Coffre — les quatre cartes de l’accueil (CC-208)', () => {
+  test('les sections absentes sont complétées par une carte vide', ({ assert }) => {
+    const cards = sectionCardsFor([entry({ id: 1, type: 'note' })])
+
+    assert.deepEqual(
+      cards.map((c) => c.key),
+      ['note', 'url', 'credential', 'photo']
+    )
+    assert.deepEqual(cards.find((c) => c.key === 'url')?.entries, [])
+    assert.deepEqual(cards.find((c) => c.key === 'credential')?.entries, [])
+    assert.deepEqual(cards.find((c) => c.key === 'photo')?.entries, [])
+    assert.deepEqual(
+      cards.find((c) => c.key === 'note')?.entries.map((e) => e.id),
+      [1]
+    )
+  })
+
+  test('aucune entrée → quatre cartes vides quand même', ({ assert }) => {
+    const cards = sectionCardsFor([])
+
+    assert.equal(cards.length, 4)
+    assert.isTrue(cards.every((c) => c.entries.length === 0))
+  })
+})
+
+test.group('Coffre — les segments d’URL de section (CC-208)', () => {
+  test('chaque nature a un segment, et il fait l’aller-retour', ({ assert }) => {
+    for (const key of ['note', 'url', 'credential', 'photo'] as const) {
+      assert.equal(sectionKeyFromSlug(SECTION_SLUGS[key]), key)
+    }
+  })
+
+  test('un segment inconnu ne résout à aucune nature', ({ assert }) => {
+    assert.isNull(sectionKeyFromSlug('inconnu'))
   })
 })

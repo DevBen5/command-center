@@ -26,6 +26,7 @@ Le lot porte quatre affirmations, et elles ne se vérifient pas au même endroit
 | le dossier verrouillé et sa vignette refusent sans élévation, le listing rend `available: false` sur une panne plutôt qu'une erreur, la vignette absorbe un échec en 404 (CC-205) | `coffre_immich_folder.spec.ts`, plus `coffre_wall.spec.ts` pour le mur |
 | un asset verrouillé (clé d'API refusée) est servi par le repli en session du proxy existant (CC-205) | `coffre_media.spec.ts` |
 | l'activation du dossier verrouillé exige les quatre variables, et n'y touche jamais en test (CC-205) | `coffre_immich_config.spec.ts`, plus `tests/unit/env_isolation.spec.ts` pour l'isolation |
+| l'accueil complète les quatre sections y compris vides, une page de section ne rend que les entrées de sa nature (CC-208) | `coffre_entry_sections.spec.ts` (`sectionCardsFor`, pur) et `coffre_section_pages.spec.ts` (le contrôleur, contre une vraie base) |
 
 ⚠️ **Le troisième est celui qu'un test rend faussement vert.** Relire ce qu'on vient d'écrire
 réussirait à l'identique sans le moindre chiffrement ; seul un `select` qui court-circuite le modèle
@@ -67,6 +68,11 @@ sans entrée absente du résultat plutôt que rendue vide, ordre des sections fi
 l'ordre d'arrivée des entrées, ordre interne d'une section jamais retrié (suppose `created_at desc`
 déjà appliqué côté serveur), et chaque entrée comptée exactement une fois.
 
+Depuis CC-208, deux groupes de plus, toujours **purs** : `sectionCardsFor` (les quatre cartes de
+l'accueil, TOUJOURS les quatre — complétion vérifiée y compris sur une base vide, contrat de
+`groupEntriesByNature` inchangé) et `sectionKeyFromSlug`/`SECTION_SLUGS` (l'aller-retour des quatre
+segments d'URL français, et un segment inconnu qui ne résout à rien).
+
 ### `tests/functional/modules/coffre_wall.spec.ts`
 
 Le mur. Quatre routes murées en 403 **avec un compte réellement capable et une session réellement
@@ -77,9 +83,9 @@ et la session révoquée qui est expulsée **en amont** (302 vers `/login`, pas 
 ⚠️ Le premier test **lit le routeur** pour asserter que `coffreOuvert` est branché. Il a été ajouté
 après mesure : sans lui, retirer le middleware de `start/routes.ts` laissait les dix autres verts,
 le `#key()` du contrôleur rendant le même 403. La route d'édition (CC-186), le proxy de vignette
-(CC-180), le proxy de streaming NAS (CC-181) et les deux routes du dossier verrouillé (CC-205) y
-entrent pour la même raison, mesurée à l'identique : les retirer du mur ne fait rougir QUE cette
-assertion-là.
+(CC-180), le proxy de streaming NAS (CC-181), les deux routes du dossier verrouillé (CC-205) et la
+page de section (CC-208) y entrent pour la même raison, mesurée à l'identique : les retirer du mur
+ne fait rougir QUE cette assertion-là.
 
 ### `tests/functional/modules/coffre_unlock.spec.ts`
 
@@ -226,6 +232,24 @@ corps entier ; `Range` valide → 206 avec le segment exact ; `Range` hors borne
 référence qui ne résout sous aucune racine (fichier disparu) rendent tous 404, jamais une erreur
 brute.
 
+### `tests/functional/modules/coffre_section_pages.spec.ts`
+
+Les pages de section (CC-208), contre une vraie base. `GET /coffre/<section>` ne rend que les
+entrées de la nature demandée — y compris le cas qui prouve que le filtre passe par
+`groupEntriesByNature` et non par une requête `where('type', …)` : une entrée `type: 'note'`
+porteuse d'un média sort dans `/coffre/photos`, jamais dans `/coffre/notes`. Une section sans
+entrée rend une liste vide (200), un segment inconnu répond 404 (fermé par le `.where()` de la
+route, avant le contrôleur).
+
+⚠️ **Le mur de cette route se prouve dans `coffre_wall.spec.ts`, pas ici** — même répartition que
+les autres routes du module.
+
+Un second groupe, dans le même fichier, prouve `redirect().back()` sur `store` (CC-208) : ajouter
+depuis `/coffre/notes` (`referrer` posé sur la requête de test) ramène à `/coffre/notes`, ajouter
+depuis `/coffre` y reste — le seul cas qui existait avant ce lot, donc le comportement à ne pas
+casser. `update`/`destroy` partagent le même appel (`response.redirect().back()`), non re-testé
+séparément.
+
 ### `tests/functional/modules/coffre_curtain.spec.ts`
 
 Le rideau : le plancher qui vérifie que le module est bien activé (sinon rien ne prouve rien),
@@ -241,6 +265,11 @@ qu'en création, le titre et le contenu se préremplissent en édition, **le mot
 vide en édition d'un identifiant** (il n'est même pas dans la prop `entry`, CC-179), la
 soumission (création comme édition) émet `close`, le bouton Annuler aussi sans soumettre, et les
 médias déjà attachés ne s'affichent qu'en édition.
+
+Depuis CC-208 : `presetType` masque le sélecteur **et** fixe réellement le type créé — prouvé sur
+un champ qui ne dépend QUE du type effectif (le mot de passe n'apparaît que sur `credential`),
+pas seulement sur l'absence du sélecteur, sans quoi un bug qui masquerait le sélecteur sans
+changer la valeur par défaut `'note'` passerait au vert.
 
 ⚠️ **Le rendu du panneau du dossier verrouillé et le CSS de la modale ne sont couverts par
 aucun test** — même limite que le reste du module, jsdom ne fait aucun layout. Voir

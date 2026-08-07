@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { Head, router } from '@inertiajs/vue3'
+import { computed, ref } from 'vue'
+import { Head, Link, router } from '@inertiajs/vue3'
 import { useI18n } from 'vue-i18n'
+import { KeyRound, Link2, NotebookText, Image as ImageIcon } from 'lucide-vue-next'
 import AppLayout from '~/layouts/AppLayout.vue'
-import { CLIPBOARD_CLEAR_MS, clearClipboardIn, clipboardAvailable, copyText } from '~/utils/clipboard'
 import {
-  groupEntriesByNature,
+  sectionCardsFor,
+  SECTION_SLUGS,
   type CoffreEntryType,
   type CoffreSectionKey,
 } from '../shared/entry_sections.js'
@@ -13,241 +14,66 @@ import EntryFormModal from '../components/EntryFormModal.vue'
 
 defineOptions({ layout: AppLayout })
 
-interface CoffreEntry {
+/**
+ * L'accueil du coffre (CC-208) — une carte par section, façon `app/core/dashboard/pages/home.vue`
+ * (grille de deux colonnes, en-tête cliquable, aperçu des derniers éléments). La liste complète
+ * avec accordéon, secret, édition et suppression a déménagé dans `pages/section.vue` — cette page
+ * ne fait plus que résumer et aiguiller.
+ *
+ * ⚠️ **Ce fichier reçoit `entries` en entier, comme avant CC-208** : les compteurs et aperçus se
+ * calculent ici, côté client, sur ce que le serveur envoie déjà déchiffré. Pas de requête de plus
+ * pour les cartes — voir `CoffreController#index`, inchangé par ce lot.
+ */
+interface CoffreCardEntry {
   id: number
   type: CoffreEntryType
-  /**
-   * Déjà déchiffré côté serveur — le chiffré ne descend jamais jusqu'ici.
-   *
-   * ⚠️ Sur un `credential`, `title` est le **service** et `content` le **nom d'utilisateur**. Le
-   * mot de passe n'est PAS dans cette charge utile, et il ne doit jamais y entrer (CC-179) : il
-   * se demande une entrée à la fois par `GET /coffre/:id/secret`.
-   */
   title: string
-  content: string
-  createdAt: string | null
-  /**
-   * ⚠️ **Seul l'`id` de la ligne voyage jusqu'ici, jamais l'UUID Immich** (CC-180) : la charge
-   * utile de la page ne porte pas le secret que le proxy protège. `id` sert uniquement à
-   * construire `/coffre/media/:id/thumbnail`.
-   */
   media: { id: number }[]
-  /**
-   * ⚠️ **Seuls l'`id` et le `kind` de la ligne voyagent jusqu'ici, jamais le chemin sur le
-   * disque** (CC-181) — même doctrine que `media`. `id` sert à construire
-   * `/coffre/nas/:id/stream` ; `kind` (« video » | « photo ») dit à l'écran quel élément rendre
-   * — il ne révèle rien de sensible, seulement la nature du fichier.
-   */
   nasFiles: { id: number; kind: 'video' | 'photo' }[]
 }
 
-const props = defineProps<{ entries: CoffreEntry[]; immichFolderAvailable: boolean }>()
-
-/**
- * L'écran par nature (CC-204) : notes · liens · identifiants · photos, une entrée avec média
- * (Immich ou NAS) primant sur son `type` — voir `shared/entry_sections.ts`, PUR et testé à part.
- * Une section sans entrée n'apparaît pas dans le tableau : rien à filtrer ici.
- */
-const sections = computed(() => groupEntriesByNature(props.entries))
+const props = defineProps<{ entries: CoffreCardEntry[]; immichFolderAvailable: boolean }>()
 
 const { t } = useI18n()
 
-/** Combien de temps un mot de passe révélé reste à l'écran avant de se re-masquer seul. */
-const REVEAL_MS = 20_000
+/** Combien d'entrées récentes une carte montre en aperçu, avant qu'il faille ouvrir la section. */
+const PREVIEW_COUNT = 3
 
 /**
- * La modale de création/édition (CC-207) — `modalEntry` à `null` = création. Portée entière dans
- * `components/EntryFormModal.vue` : `v-if` la démonte à la fermeture, ce qui efface tout état
- * local (y compris un mot de passe frappé non soumis) sans rien à faire ici.
+ * Les quatre cartes, TOUJOURS les quatre — même une section sans entrée (CC-208, un renversement
+ * assumé de CC-204 : voir `sectionCardsFor` pour la raison). `groupEntriesByNature` ne change pas
+ * de contrat, c'est cet appel qui complète.
  */
-const modalOpen = ref(false)
-const modalEntry = ref<CoffreEntry | null>(null)
+const cards = computed(() => sectionCardsFor(props.entries))
 
-function openCreate(): void {
-  modalEntry.value = null
-  modalOpen.value = true
+const ICONS: Record<CoffreSectionKey, unknown> = {
+  note: NotebookText,
+  url: Link2,
+  credential: KeyRound,
+  photo: ImageIcon,
 }
 
-function startEdit(entry: CoffreEntry): void {
-  modalEntry.value = entry
-  modalOpen.value = true
-}
-
-function closeModal(): void {
-  modalOpen.value = false
-  modalEntry.value = null
-}
-
-/** Quelle entrée est dépliée — le contenu ne s'affiche pas de lui-même. */
-const opened = ref<number | null>(null)
-
-/**
- * Le presse-papiers est-il utilisable ici ?
- *
- * ⚠️ **Lu au montage, jamais à la volée dans le template** : `navigator` n'existe pas à
- * l'évaluation du module côté rendu, et un test de disponibilité qui lèverait laisserait la page
- * blanche. Faux tant qu'on ne sait pas — donc l'écran propose d'emblée le chemin de secours.
- */
-const copiePossible = ref(false)
-
-/** Le mot de passe actuellement révélé, et pour quelle entrée. Jamais plus d'un à la fois. */
-const revele = ref<{ id: number; secret: string } | null>(null)
-
-/** L'entrée dont le mot de passe vient de partir au presse-papiers. */
-const copie = ref<number | null>(null)
-
-/** Un message d'échec attaché à une entrée — sa clé i18n, jamais le secret. */
-const echec = ref<{ id: number; message: string } | null>(null)
-
-let annulerEffacement: (() => void) | null = null
-let masquage: ReturnType<typeof setTimeout> | null = null
-
-onMounted(() => {
-  copiePossible.value = clipboardAvailable()
-})
-
-/**
- * ⚠️ **Le secret révélé ne survit pas au démontage.** Sans ça, une navigation Inertia laisserait
- * un minuteur de re-masquage tourner pour un écran qui n'existe plus.
- *
- * ⚠️ **L'effacement du presse-papiers, lui, n'est PAS annulé — c'est délibéré.** L'annuler
- * signifierait qu'il suffit de quitter la page dans les trente secondes pour que le mot de passe
- * y reste indéfiniment, ce qui est exactement ce qu'on cherche à éviter. Le minuteur vit dans le
- * contexte JS de l'application, donc il survit à la navigation Inertia et finit son travail.
- */
-onUnmounted(() => {
-  masquerSecret()
-})
-
-/**
- * ⚠️ **On oublie à chaque bascule, pas seulement quand on replie la ligne courante.** Ne le faire
- * qu'au repli laisserait le secret de l'entrée A vivre en mémoire après un clic sur l'entrée B :
- * il ne serait plus **affiché** (le rendu est conditionné à `opened`), donc rien ne se verrait —
- * et c'est précisément ce qui le rendrait durable.
- */
-function toggle(id: number): void {
-  oublier()
-
-  opened.value = opened.value === id ? null : id
-}
-
-/** Efface tout ce qui, à l'écran, porte encore un secret ou son souvenir. */
-function oublier(): void {
-  masquerSecret()
-  copie.value = null
-  echec.value = null
-}
-
-function masquerSecret(): void {
-  revele.value = null
-  if (masquage !== null) clearTimeout(masquage)
-  masquage = null
-}
-
-/**
- * Va chercher le mot de passe d'une entrée. `null` si ça n'a pas abouti — l'écran le dit alors.
- *
- * ⚠️ **`fetch`, jamais `router.get`** : le client Inertia range les props de page dans
- * `history.state`, donc un secret passé par une prop serait écrit sur le disque du navigateur par
- * l'historique, et y resterait après la fermeture du coffre.
- *
- * ⚠️ **`accept: application/json`** : sans cet en-tête, un refus (élévation expirée) reviendrait
- * en page HTML 403 au lieu d'un corps exploitable — voir la négociation de `renderForbidden`.
- */
-async function demanderSecret(id: number): Promise<string | null> {
-  echec.value = null
-
-  try {
-    const response = await fetch(`/coffre/${id}/secret`, {
-      headers: { accept: 'application/json' },
-    })
-
-    if (!response.ok) {
-      echec.value = {
-        id,
-        message: response.status === 403 ? t('coffre.index.locked') : t('coffre.index.secretError'),
-      }
-      return null
-    }
-
-    return ((await response.json()) as { secret: string }).secret
-  } catch {
-    echec.value = { id, message: t('coffre.index.secretError') }
-    return null
-  }
-}
-
-/** Le geste nominal : le mot de passe part au presse-papiers **sans jamais toucher le DOM**. */
-async function copierSecret(id: number): Promise<void> {
-  oublier()
-
-  const secret = await demanderSecret(id)
-  if (secret === null) return
-
-  const outcome = await copyText(secret)
-
-  if (outcome !== 'ok') {
-    echec.value = {
-      id,
-      message:
-        outcome === 'unavailable'
-          ? t('coffre.index.copyUnavailable')
-          : t('coffre.index.copyRefused'),
-    }
-    return
-  }
-
-  copie.value = id
-  // Un seul minuteur à la fois : deux copies successives ne doivent pas laisser le premier
-  // effacer le presse-papiers pendant que la seconde valeur y est encore utile.
-  annulerEffacement?.()
-  annulerEffacement = clearClipboardIn(CLIPBOARD_CLEAR_MS)
-}
-
-/** Le chemin de secours : afficher, faute de pouvoir copier — ou parce qu'on le demande. */
-async function afficherSecret(id: number): Promise<void> {
-  oublier()
-
-  const secret = await demanderSecret(id)
-  if (secret === null) return
-
-  revele.value = { id, secret }
-  masquage = setTimeout(masquerSecret, REVEAL_MS)
-}
-
-function remove(id: number): void {
-  if (!window.confirm(t('coffre.index.deleteConfirm'))) return
-
-  // Une visite Inertia re-rend le composant sans le démonter : sans cet oubli, le secret d'une
-  // entrée qu'on vient de supprimer survivrait à la ligne qui le portait.
-  oublier()
-  router.delete(`/coffre/${id}`)
-}
-
-function lock(): void {
-  // Verrouiller efface ce qui est à l'écran avant même la réponse du serveur : le contenu ne doit
-  // pas rester visible pendant l'aller-retour.
-  oublier()
-  closeModal()
-  router.post('/coffre/verrouiller')
-}
-
-/** Le libellé d'une nature. Clés **littérales** : une clé calculée échappe à `keys.spec.ts`. */
-function natureLabel(type: CoffreEntryType): string {
-  if (type === 'url') return t('coffre.index.typeUrl')
-  if (type === 'credential') return t('coffre.index.typeCredential')
-
-  return t('coffre.index.typeNote')
-}
-
-/** Le titre d'une section (CC-204). Clés **littérales**, même doctrine que `natureLabel` — ne
- * pas calculer `` `coffre.index.section${key}` `` : ça échapperait à `keys.spec.ts`. */
+/** Le libellé d'une section. Clés **littérales** : une clé calculée échapperait à `keys.spec.ts`. */
 function sectionLabel(key: CoffreSectionKey): string {
   if (key === 'url') return t('coffre.index.sectionUrl')
   if (key === 'credential') return t('coffre.index.sectionCredential')
   if (key === 'photo') return t('coffre.index.sectionPhoto')
 
   return t('coffre.index.sectionNote')
+}
+
+function sectionHref(key: CoffreSectionKey): string {
+  return `/coffre/${SECTION_SLUGS[key]}`
+}
+
+/**
+ * Le bouton global (CC-207) : le type se choisit librement, c'est le seul endroit où il se
+ * choisit encore — chaque page de section impose le sien (`presetType`, voir `section.vue`).
+ */
+const modalOpen = ref(false)
+
+function lock(): void {
+  router.post('/coffre/verrouiller')
 }
 </script>
 
@@ -261,7 +87,7 @@ function sectionLabel(key: CoffreSectionKey): string {
         <button
           type="button"
           class="rounded-[7px] border border-accent bg-accent px-4 py-2.5 text-[13px] font-semibold text-bg hover:opacity-90"
-          @click="openCreate"
+          @click="modalOpen = true"
         >
           {{ t('coffre.index.addTitle') }}
         </button>
@@ -275,159 +101,48 @@ function sectionLabel(key: CoffreSectionKey): string {
       </div>
     </header>
 
-    <section class="rounded-[14px] border border-line bg-panel">
-      <p v-if="entries.length === 0" class="p-6 text-[13px] text-txt-3">
-        {{ t('coffre.index.empty') }}
-      </p>
-
-      <template v-for="section in sections" :key="section.key">
-        <h3
-          class="border-b border-line bg-panel-2 px-6 py-2.5 text-[11px] font-semibold tracking-[.12em] text-txt-3 uppercase"
+    <div class="grid grid-cols-2 gap-5">
+      <div
+        v-for="card in cards"
+        :key="card.key"
+        class="overflow-hidden rounded-[14px] border border-line bg-panel"
+      >
+        <Link
+          :href="sectionHref(card.key)"
+          class="flex items-center gap-3 border-b border-line px-[18px] py-4 transition hover:bg-panel-2"
         >
-          {{ sectionLabel(section.key) }} · {{ section.entries.length }}
-        </h3>
-
-        <article
-          v-for="entry in section.entries"
-          :key="entry.id"
-          class="border-b border-line px-6 py-4 last:border-b-0"
-        >
-        <div class="flex items-center justify-between gap-4">
-          <button
-            type="button"
-            class="flex-1 text-left text-[14px] text-txt hover:text-aqua"
-            @click="toggle(entry.id)"
+          <div
+            class="grid h-[30px] w-[30px] place-items-center rounded-lg border border-line-2 bg-accent-soft text-accent"
           >
-            <span class="mr-2 text-[11px] tracking-[.12em] text-txt-3 uppercase">
-              {{ natureLabel(entry.type) }}
-            </span>
-            <!-- Un titre vide signe un déchiffrement échoué : on le NOMME plutôt que d'afficher
-                 une ligne muette, qui laisserait croire à une entrée sans titre. -->
-            {{ entry.title || t('coffre.index.unreadable') }}
-          </button>
-          <button
-            type="button"
-            class="shrink-0 text-[12.5px] text-txt-3 hover:text-aqua"
-            @click="startEdit(entry)"
-          >
-            {{ t('coffre.index.edit') }}
-          </button>
-          <button
-            type="button"
-            class="shrink-0 text-[12.5px] text-txt-3 hover:text-bad"
-            @click="remove(entry.id)"
-          >
-            {{ t('coffre.index.delete') }}
-          </button>
-        </div>
-
-        <template v-if="opened === entry.id">
-          <ul v-if="entry.media.length > 0" class="mt-3 flex flex-wrap gap-2">
-            <li
-              v-for="media in entry.media"
-              :key="media.id"
-              class="overflow-hidden rounded-[8px] border border-line-2"
-            >
-              <img
-                :src="`/coffre/media/${media.id}/thumbnail`"
-                class="block h-20 w-20 object-cover"
-                alt=""
-              />
-            </li>
-          </ul>
-
-          <ul v-if="entry.nasFiles.length > 0" class="mt-3 flex flex-wrap gap-2">
-            <li
-              v-for="file in entry.nasFiles"
-              :key="file.id"
-              class="overflow-hidden rounded-[8px] border border-line-2"
-            >
-              <!-- ⚠️ `kind` choisit l'élément — le serveur ne redescend jamais le chemin, donc
-                   jamais l'extension : sans ce champ, l'écran ne pourrait pas savoir quoi rendre. -->
-              <video
-                v-if="file.kind === 'video'"
-                :src="`/coffre/nas/${file.id}/stream`"
-                class="block max-h-64 max-w-full"
-                controls
-                preload="metadata"
-              />
-              <img
-                v-else
-                :src="`/coffre/nas/${file.id}/stream`"
-                class="block max-h-64 max-w-full object-contain"
-                alt=""
-              />
-            </li>
-          </ul>
-
-          <div v-if="entry.type === 'credential'" class="mt-3 grid gap-3">
-            <div class="rounded-[8px] bg-panel-2 p-4">
-              <p class="text-[11px] tracking-[.12em] text-txt-3 uppercase">
-                {{ t('coffre.index.username') }}
-              </p>
-              <p class="mt-1 font-mono text-[13px] break-all text-txt-2">{{ entry.content }}</p>
-            </div>
-
-            <div class="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                :disabled="!copiePossible"
-                class="rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt hover:border-aqua disabled:cursor-not-allowed disabled:opacity-50"
-                @click="copierSecret(entry.id)"
-              >
-                {{
-                  copie === entry.id
-                    ? t('coffre.index.secretCopied')
-                    : t('coffre.index.copySecret')
-                }}
-              </button>
-              <button
-                type="button"
-                class="rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt-2 hover:border-aqua"
-                @click="revele?.id === entry.id ? masquerSecret() : afficherSecret(entry.id)"
-              >
-                {{
-                  revele?.id === entry.id
-                    ? t('coffre.index.hideSecret')
-                    : t('coffre.index.showSecret')
-                }}
-              </button>
-            </div>
-
-            <p v-if="!copiePossible" class="text-[12px] text-warn">
-              {{ t('coffre.index.copyUnavailable') }}
-            </p>
-            <p v-if="copie === entry.id" class="text-[12px] text-txt-3">
-              {{ t('coffre.index.clipboardNotice') }}
-            </p>
-            <p v-if="echec?.id === entry.id" class="text-[12px] text-bad">{{ echec.message }}</p>
-
-            <!-- ⚠️ Le mot de passe n'entre dans le DOM QUE là, et seulement après un clic sur
-                 « Afficher ». Il en repart au re-masquage, au repli de la ligne, au verrouillage
-                 et au démontage de la page. -->
-            <p
-              v-if="revele?.id === entry.id"
-              class="rounded-[8px] border border-aqua/40 bg-panel-2 p-4 font-mono text-[13px] break-all text-txt"
-            >
-              {{ revele.secret }}
-            </p>
+            <component :is="ICONS[card.key]" :size="16" :stroke-width="1.5" aria-hidden="true" />
           </div>
-
-          <pre
-            v-else
-            class="mt-3 overflow-x-auto rounded-[8px] bg-panel-2 p-4 font-mono text-[12.5px] whitespace-pre-wrap text-txt-2"
-            >{{ entry.content }}</pre
+          <h3 class="text-[15px] font-semibold">{{ sectionLabel(card.key) }}</h3>
+          <span class="ml-auto font-mono text-[11.5px] text-txt-2">{{ card.entries.length }}</span>
+        </Link>
+        <div class="px-[18px] py-2">
+          <Link
+            v-for="entry in card.entries.slice(0, PREVIEW_COUNT)"
+            :key="entry.id"
+            :href="sectionHref(card.key)"
+            class="flex items-center gap-3.5 border-b border-line py-3.5 last:border-0"
           >
-        </template>
-        </article>
-      </template>
-    </section>
+            <span class="min-h-[34px] w-[3px] shrink-0 self-stretch rounded-[3px] bg-line-2"></span>
+            <div class="flex-1 text-[13.5px] font-semibold">
+              {{ entry.title || t('coffre.index.unreadable') }}
+            </div>
+          </Link>
+          <div v-if="card.entries.length === 0" class="py-3.5 text-[12.5px] text-txt-2">
+            {{ t('coffre.index.cardEmpty') }}
+          </div>
+        </div>
+      </div>
+    </div>
 
     <EntryFormModal
       v-if="modalOpen"
-      :entry="modalEntry"
+      :entry="null"
       :immich-folder-available="immichFolderAvailable"
-      @close="closeModal"
+      @close="modalOpen = false"
     />
   </div>
 </template>
