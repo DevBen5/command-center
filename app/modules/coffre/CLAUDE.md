@@ -1,8 +1,9 @@
 # Module Coffre — notes, URLs, identifiants, médias Immich et médias NAS chiffrés, invisibles, derrière deux portes
 
-Routes `/coffre/ouvrir` · `/coffre` · `/coffre/:id/secret` · `/coffre/media/:id/thumbnail` ·
-`/coffre/nas/:id/stream` · `/coffre/immich/dossier` · `/coffre/immich/dossier/:assetId/thumbnail` ·
-pages Inertia `modules/coffre/{ouvrir, index}` · tables
+Routes `/coffre/ouvrir` · `/coffre` · `/coffre/:section` · `/coffre/:id/secret` ·
+`/coffre/media/:id/thumbnail` · `/coffre/nas/:id/stream` · `/coffre/immich/dossier` ·
+`/coffre/immich/dossier/:assetId/thumbnail` · pages Inertia
+`modules/coffre/{ouvrir, index, section}` · tables
 `coffre_vaults`, `coffre_entries`, `coffre_entry_media`, `coffre_entry_nas_file`. Lot 1 de l'épique
 CC-177 (CC-178) : le **socle**, dont tous les lots suivants héritent — aucun ne redéfinit sa propre
 porte. Lot 2 (CC-179) : les **identifiants**, qui ajoutent une nature d'entrée et une route.
@@ -13,7 +14,10 @@ par son numéro de ticket, pas par un rang. Lot 4 (CC-181) : la **lecture NAS**,
 voir « Les médias du NAS » plus bas. Lot 5 (CC-182, non livré au moment d'écrire ceci) portera les
 fichiers téléversés — un gisement de données distinct, que CC-181 ne recouvre pas. Lot 6 (CC-205) :
 le **dossier verrouillé d'Immich**, parcourable en vignettes depuis le coffre — voir « Le dossier
-verrouillé — session Immich » plus bas.
+verrouillé — session Immich » plus bas. La refonte d'écran vient ensuite, en deux tickets : CC-207
+(la saisie derrière une modale unique) puis CC-208 (l'accueil en cartes de sections, et une page
+par section) — voir « La saisie : une modale unique » et « L'écran en cartes de sections » plus
+bas.
 
 ⚠️ **CC-181 a été amendé le 2026-08-06, en cours de lot** : le ticket ne portait au départ que les
 vidéos ; le propriétaire a élargi le périmètre aux photos avant la fin de l'implémentation, parce
@@ -36,8 +40,8 @@ services/vault_service.ts                la partie base + session : créer, ouvr
                                          médias
 middleware/vault_unlocked_middleware.ts  le second étage du mur
 controllers/coffre_door_controller.ts    la porte : créer, ouvrir, verrouiller — SANS élévation
-controllers/coffre_controller.ts         le contenu : lister, ajouter, supprimer, RÉVÉLER — AVEC
-                                         élévation
+controllers/coffre_controller.ts         le contenu : lister (accueil ET par section, CC-208),
+                                         ajouter, supprimer, RÉVÉLER — AVEC élévation
 controllers/coffre_media_controller.ts   le proxy de vignette Immich (CC-180) — AVEC élévation,
                                          repli en session depuis CC-205
 controllers/coffre_nas_controller.ts     le proxy de streaming NAS, photos ET vidéos (CC-181) —
@@ -53,7 +57,9 @@ services/nas_roots_service.ts            PUR-ish (fs) · résout un chemin contr
                                          realpath (CC-181)
 services/nas_file_format.ts              PUR · allow-lists photo/vidéo, content-type, kind (CC-181)
 services/byte_range.ts                   PUR · parseur de l'en-tête `Range` (CC-181)
-shared/entry_sections.ts                 PUR · le regroupement de l'écran par nature (CC-204)
+shared/entry_sections.ts                 PUR · le regroupement de l'écran par nature (CC-204),
+                                         PLUS les cartes de l'accueil et les segments d'URL de
+                                         section (CC-208)
 services/immich_session_state.ts         la session Immich en MÉMOIRE, TTL, coordination anti-course
                                          (CC-205)
 services/immich_session_client.ts        login, élévation PIN, listing du dossier verrouillé,
@@ -779,6 +785,13 @@ peut donc pas réémettre l'état complet pour un remplacement intégral.
 
 ## L'écran par nature (CC-204)
 
+⚠️ **Amendé par CC-208 (2026-08-07) : `pages/index.vue` ne range plus les entrées en sections —
+il en montre un résumé en cartes.** La liste plate groupée par section décrite ci-dessous a
+déménagé telle quelle dans `pages/section.vue`, une page par nature. `groupEntriesByNature`, la
+fonction pure qui fait la répartition, n'a pas changé et reste au cœur des deux écrans (l'accueil
+via `sectionCardsFor`, la page de section via `CoffreController#section`) — voir « L'écran en
+cartes de sections » plus bas pour la forme actuelle.
+
 La liste n'est plus plate : `pages/index.vue` range les entrées en sections — notes · liens ·
 identifiants · photos — chacune avec son titre et son compte, une section sans entrée n'étant
 jamais rendue. Ce lot **range l'écran tel qu'il existait**, il n'ajoute aucune nature : `type`
@@ -814,6 +827,100 @@ continue de dire le vrai `type` ; seul l'endroit où l'entrée est rangée à l'
 poste n'a aucun outil de pilotage. Le regroupement est prouvé par test
 (`tests/unit/coffre_entry_sections.spec.ts`) sur la fonction pure, jamais sur le rendu — alignement
 visuel, lisibilité des en-têtes, ordre à l'écran restent un passage navigateur pour le propriétaire.
+
+## L'écran en cartes de sections (CC-208)
+
+Second lot de la refonte, le plus visible. L'accueil ressemble désormais au tableau de bord
+(`app/core/dashboard/pages/home.vue`) : une grille de deux colonnes, une carte par section — Notes,
+Liens, Identifiants, Photos — avec un en-tête cliquable (icône, nom, compteur), et en dessous un
+aperçu des trois dernières entrées, elles-mêmes cliquables. Cliquer mène à `/coffre/<section>`, qui
+porte tout ce que l'accueil faisait avant ce lot : la liste complète, l'accordéon, la
+révélation/copie de mot de passe, l'édition, la suppression.
+
+- **`pages/index.vue`** ne fait plus que résumer : il reçoit `entries` en entier (inchangé côté
+  serveur, `CoffreController#index` n'a pas bougé) et calcule cartes et aperçus **côté client**,
+  sur ce qui est déjà déchiffré. Aucune requête de plus pour les compteurs — répond au point
+  d'attention du ticket sur le déchiffrement, en réutilisant `entriesFor` tel quel.
+- **`pages/section.vue`** reçoit `{ section, entries, immichFolderAvailable }` — `entries` est
+  **déjà filtré côté serveur** à la nature demandée, via `groupEntriesByNature` (jamais une
+  requête SQL `where('type', …)`, voir plus bas pourquoi).
+
+### Une carte par section, TOUJOURS les quatre — un renversement assumé de CC-204
+
+⚠️ **`groupEntriesByNature` omet toujours une section vide de son résultat, et ça ne change PAS**
+(voir plus haut) : sur une LISTE, un en-tête suivi du vide est du bruit. Sur une GRILLE de quatre
+cartes, une carte manquante casse la mise en page et donne à croire que la fonctionnalité n'existe
+pas. `shared/entry_sections.ts` ajoute donc `sectionCardsFor`, une fonction pure **séparée** qui
+complète les sections absentes par une carte vide, dans l'ordre fixe de `SECTION_ORDER` (exporté
+depuis ce lot).
+
+⚠️ **Ne fusionne jamais `sectionCardsFor` dans `groupEntriesByNature`.** Le contrat de cette
+dernière ne change pas — c'est la décision explicite du ticket, écrite ici pour qu'un futur lecteur
+ne « répare » pas l'un des deux en croyant l'autre incohérent : une section absente reste une
+section absente pour tout appelant qui n'a pas besoin de la compléter.
+
+### Une page par section : URL françaises, un seul fichier
+
+`/coffre/notes` · `/coffre/liens` · `/coffre/identifiants` · `/coffre/photos` sont une **seule**
+route dynamique, `GET /coffre/:section`, et un **seul** composant Inertia (`modules/coffre/section`
+⇄ `pages/section.vue`) — pas quatre fichiers quasi identiques, exactement le problème que CC-207
+venait de fermer pour la modale.
+
+- **`shared/entry_sections.ts` porte `SECTION_SLUGS`** (`CoffreSectionKey → mot français`) et son
+  inverse `sectionKeyFromSlug`, **l'unique source du mapping** : `start/routes.ts` construit son
+  `.where('section', …)` à partir de `Object.values(SECTION_SLUGS)` plutôt que de recopier les
+  quatre mots en dur, et l'accueil s'en sert pour construire les liens des cartes
+  (`sectionHref`). Un slug hors de cette liste ne match même pas la route : 404 avant le
+  contrôleur, pas un cas à gérer dedans.
+- ⚠️ **`CoffreController#section` filtre via `groupEntriesByNature`, jamais une requête SQL sur
+  `type`** (point d'attention n°4 du ticket) : la section d'une entrée dépend de la présence de
+  médias, pas seulement de sa colonne `type` — une requête `where('type', 'note')` inclurait à tort
+  une entrée « note » porteuse d'un média, qui doit sortir en Photos. Réutiliser la même fonction
+  pure que l'accueil est ce qui empêche les deux vues de diverger sur ce qu'elles considèrent comme
+  une photo. `tests/functional/modules/coffre_section_pages.spec.ts` le prouve explicitement avec
+  une entrée `type: 'note'` porteuse d'un média, qui doit sortir dans `/coffre/photos` et nulle
+  part ailleurs.
+- **Photos n'est pas un `type`** (voir CC-204 plus haut) : le formulaire de création de cette page
+  impose donc `'note'` en coulisse — arbitraire, jamais affiché — puisque seule la présence d'un
+  média décide du classement, jamais la valeur choisie ici.
+
+### La modale : le type se choisit une fois, jamais deux
+
+`EntryFormModal.vue` gagne une prop optionnelle **`presetType`** (CC-208) : fournie, elle masque le
+sélecteur de nature et préinitialise `form.type`. L'accueil ne la fournit pas — c'est le seul
+endroit où le type se choisit encore librement (CC-207, inchangé) ; chaque page de section la
+fournit, fixée à sa propre nature (`'note'` pour Photos, voir plus haut).
+
+⚠️ **`presetType` n'a d'effet qu'en création.** En édition le type vient toujours de `entry.type`,
+non modifiable (CC-186) — la prop est acceptée sans effet si `startEdit` la transmet aussi, ce
+qu'elle fait par simplicité d'appel plutôt que par nécessité.
+
+### `redirect().back()` remplace le `/coffre` en dur — `store`/`update`/`destroy`
+
+⚠️ **Changement de comportement non explicitement demandé par le ticket, mais nécessaire à la
+cohérence du découpage en pages** : avant ce lot, les trois actions d'écriture redirigeaient
+toujours vers `/coffre`, qui était alors la seule page existante. Ajouter, éditer ou supprimer
+depuis `/coffre/notes` renverrait sinon systématiquement à l'accueil au lieu d'y laisser
+l'utilisateur. Les trois passent donc à `response.redirect().back()` — le pattern déjà dominant du
+reste du dépôt (leitner, veille, services l'utilisent tous pour ce type d'action).
+
+- Depuis l'accueil (`referer = /coffre`), le comportement est **inchangé** : c'était le seul cas
+  avant ce lot.
+- Aucun test existant n'asserte la `location` de ces trois actions (vérifié avant le changement) :
+  aucune régression de test à prévoir de ce côté.
+- Sans en-tête `Referer` (le cas des clients de test Japa qui n'en posent pas), Adonis retombe sur
+  `/` — sans conséquence ici, aucun test de ce module n'inspecte cette valeur.
+
+⚠️ **Aucun navigateur n'a affiché la grille de cartes ni les pages de section (CC-208)** — même
+limite que CC-180/CC-181/CC-204/CC-205/CC-207, ce poste n'a aucun outil de pilotage. Sont prouvés
+par test : la complétion des quatre cartes (`sectionCardsFor`, fonction pure), le filtrage par
+section contre une vraie base, le mur des nouvelles routes, `presetType` sur la modale. Restent un
+passage navigateur pour le propriétaire : l'allure des cartes, la lisibilité des aperçus, la grille
+sur petit écran, et ce que devient réellement le fil d'Ariane à l'écran — le coffre n'ayant aucune
+destination (CC-178), `AppLayout.vue` ne résout jamais de segment pour ses pages (`activeDestination`
+reste `null` sur toute URL `/coffre/*`, tracé dans le code), donc les clés `coffre.section.crumb`/
+`.title` ajoutées pour satisfaire le plancher de `breadcrumb.spec.ts` (CC-110) ne devraient rien
+changer à l'écran — à confirmer, pas déduit.
 
 ## Un coffre par compte
 
@@ -941,3 +1048,10 @@ Le détail par fichier est dans [TESTS.md](./TESTS.md) — à lire avant de **mo
   le comportement d'Échap et du clic-extérieur en conditions réelles, et l'utilisabilité de la
   grille de vignettes du dossier verrouillé **dans** la modale restent un passage navigateur pour
   le propriétaire.
+- ⚠️ **Aucun navigateur n'a affiché la grille de cartes de l'accueil ni une page de section
+  (CC-208)**, même limite que le reste du module. Sont prouvés par test : la complétion des quatre
+  cartes (fonction pure), le filtrage d'une section contre une vraie base, le mur des nouvelles
+  routes, `presetType` sur la modale. L'allure de la grille sur deux colonnes, la lisibilité des
+  aperçus, le comportement sur petit écran, et ce que le fil d'Ariane affiche réellement (le code
+  suggère qu'il n'affiche rien de plus pour ce module sans destination — voir « L'écran en cartes
+  de sections » plus haut) restent un passage navigateur pour le propriétaire.
