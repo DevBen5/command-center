@@ -232,6 +232,21 @@ Le rideau : le plancher qui vérifie que le module est bien activé (sinon rien 
 l'absence de toute destination `/coffre`, la prop partagée `destinations` vue depuis une page du
 coffre ouvert, et le rappel que les **capacités**, elles, sont bien au registre.
 
+### `app/modules/coffre/components/__tests__/entry_form_modal.spec.ts`
+
+Vitest — la modale de création/édition (CC-207), sur le patron de `useForm` factice
+d'`app/core/settings/pages/__tests__/index.spec.ts` (`post`/`put` invoquent `onSuccess`
+directement, jsdom ne fait aucune visite Inertia réelle) : le sélecteur de nature n'apparaît
+qu'en création, le titre et le contenu se préremplissent en édition, **le mot de passe reste
+vide en édition d'un identifiant** (il n'est même pas dans la prop `entry`, CC-179), la
+soumission (création comme édition) émet `close`, le bouton Annuler aussi sans soumettre, et les
+médias déjà attachés ne s'affichent qu'en édition.
+
+⚠️ **Le rendu du panneau du dossier verrouillé et le CSS de la modale ne sont couverts par
+aucun test** — même limite que le reste du module, jsdom ne fait aucun layout. Voir
+`inertia/components/__tests__/app_modal.spec.ts` (hors index, `tests_index.spec.ts` ne balaie
+pas `inertia/**`) pour le chassis partagé (Échap, clic-extérieur) qu'`AppModal.vue` fournit.
+
 ## Hors du module, mais amendés par CC-179
 
 - `tests/functional/core/validation_flash.spec.ts` — **une validation ratée ne rejoue pas le corps

@@ -93,6 +93,52 @@ fermer la session Immich élevée à l'arrêt du serveur, voir « Le dossier ver
 `app/core/shared/exceptions/handler.ts`, dans le **noyau**. Ce dernier point est le seul du module
 dont le remède vit ailleurs — parce que le défaut y vivait aussi.
 
+⚠️ **Une troisième depuis CC-207 : `inertia/components/AppModal.vue`**, le chassis de modale
+partagé (overlay, clic-extérieur, Échap) — créé **par ce lot**, pas hérité. Voir « La saisie : une
+modale unique » plus bas pour la raison de son existence et l'arbitrage qui l'a tranchée.
+
+## La saisie : une modale unique, sur un chassis partagé (CC-207)
+
+Le formulaire de création/édition vivait **déplié en permanence** en haut de `pages/index.vue`,
+dupliqué en deux copies quasi identiques (création, édition) — chaque lot depuis CC-180 avait dû
+modifier les deux. Il vit désormais dans `components/EntryFormModal.vue`, derrière un bouton
+« Ajouter une entrée », monté par `index.vue` en `v-if` (jamais `v-show`) : fermer la modale la
+**démonte**, ce qui efface tout état local — y compris un mot de passe frappé non soumis — sans
+rien à faire côté page, cohérent avec la doctrine CC-179 (« un mot de passe frappé mais non
+soumis quitte l'écran en même temps que le reste »).
+
+⚠️ **Une seule copie du panneau du dossier verrouillé (CC-205), et c'est l'essentiel du gain.**
+Il était écrit deux fois dans l'ancien fichier (une par formulaire) ; il n'existe plus qu'une
+fois dans `EntryFormModal.vue`, sa cible (`mediaTarget`) se déduisant simplement du mode —
+`entry !== null` — puisque le composant ne porte plus qu'un seul mode par montage.
+
+⚠️ **`v-model` ne peut pas cibler un opérateur ternaire.** `v-model="isEdit ? editForm.title :
+form.title"` compile en `(isEdit ? editForm.title : form.title) = valeur`, un `SyntaxError` JS
+(« left-hand side of an assignment »), pas une astuce Vue qui marcherait. C'est ce qui a forcé
+trois `computed` avec `get`/`set` (`titleModel`, `contentModel`, `passwordModel`) plutôt qu'un
+seul template alimenté directement par les deux `useForm` sous-jacents — piège à connaître avant
+de fusionner un futur formulaire à deux sources.
+
+### L'arbitrage du ticket : composant partagé, pas une modale locale au coffre
+
+CC-206 (remplacer les `confirm()` natifs) et CC-208 (les pages de section) auront eux aussi
+besoin d'une modale. Le ticket demandait de trancher, pas de laisser implicite. **Décision :
+`inertia/components/AppModal.vue`**, un chassis minimal — overlay `fixed inset-0`,
+clic-extérieur (`@click.self`), Échap (`window` keydown posé/retiré au montage, patron déjà
+utilisé par la palette ⌘K d'`AppLayout.vue`) — que `EntryFormModal.vue` monte et dont il fournit
+le contenu par `<slot>`.
+
+- ⚠️ **Échap n'existait nulle part ailleurs dans le dépôt avant ce lot**, y compris sur la
+  modale de `leitner/settings.vue` (seul le clic-extérieur y était géré). Le chassis le couvre
+  pour toute modale future qui l'adopte ; `settings.vue` n'a pas été touché — ce lot ne touchait
+  que `.vue` et i18n du coffre, migrer Leitner est un geste séparé, pas fait ici.
+- ⚠️ **Le chassis ne porte AUCUNE structure interne** (pas de bandes en-tête/corps/pied) : c'est
+  au contenu du `<slot>` de les poser, comme le fait `EntryFormModal.vue` en reprenant tel quel
+  le patron CC-66 de `leitner/settings.vue` (`max-h-[calc(100vh_-_8rem)]`, `min-h-0`, `shrink-0`
+  sur le corps défilant — voir le `CLAUDE.md` du module Leitner pour ce que chaque classe tient).
+  Un confirm-modal (CC-206) n'a pas besoin de ces trois bandes ; leur imposer depuis le chassis
+  les lui aurait forcées inutilement.
+
 ## Le rideau — ce qu'il achète, et ce qu'il n'achète pas
 
 Le module **n'enregistre aucune destination**. Il disparaît alors mécaniquement de la barre
@@ -889,3 +935,9 @@ Le détail par fichier est dans [TESTS.md](./TESTS.md) — à lire avant de **mo
   même limite que le reste du module : jsdom ne fait aucun layout. Le contrôleur et le client de
   session sont prouvés par test ; l'alignement, la lisibilité du bouton « Parcourir », et le fait
   qu'une vignette cliquée s'ajoute visiblement à la sélection restent un passage navigateur.
+- ⚠️ **Aucun navigateur n'a ouvert la modale de saisie (CC-207)**, même limite que le reste du
+  module. La logique (ouverture, préremplissage sans le mot de passe, fermeture) est prouvée par
+  test mutation-vérifié ; le débordement sur petit écran, la superposition qui couvre bien l'écran,
+  le comportement d'Échap et du clic-extérieur en conditions réelles, et l'utilisabilité de la
+  grille de vignettes du dossier verrouillé **dans** la modale restent un passage navigateur pour
+  le propriétaire.
