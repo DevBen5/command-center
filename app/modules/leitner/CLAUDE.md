@@ -319,8 +319,10 @@ désormais `AppModal` et ne porte plus son propre `<div class="fixed inset-0 …
 trois bandes décrite ci-dessus (`max-h-[calc(100vh_-_8rem)]`, `min-h-0`, `shrink-0`) **reste
 inchangée, dans le contenu du `<slot>`** : c'est une décision explicite de CC-207, le chassis ne
 porte aucune structure interne. Seul l'overlay a changé de main, et son rembourrage vertical est
-sorti du chassis pour être reporté en `mt-16` sur le `<form>` de cette page (voir le `CLAUDE.md`
-du coffre, section « L'arbitrage du ticket », pour le détail du chassis durci).
+sorti du chassis pour être reporté en `mt-16` sur le `<form>` de cette page. ⚠️ **Le chassis est
+documenté dans le `CLAUDE.md` RACINE**, section « Une seule modale dans tout le dépôt » — il vit
+dans `inertia/components/`, c'est du châssis et non le bien d'un module ; le `CLAUDE.md` du coffre
+ne garde que l'histoire de sa création (CC-207).
 
 ### Après un import, la vue suit le bloc Sauvegarde (CC-67)
 

@@ -344,6 +344,39 @@ commands/     reset_account                         → import via #commands/*
     mode d'échec que `tests_index.spec.ts` (CC-112). Vérifié en cassant le balayage — la garde
     principale passe alors au **vert** en n'ayant rien comparé, seul le plancher rougit.
 
+## Une seule modale dans tout le dépôt — `inertia/components/AppModal.vue` (CC-207, CC-209)
+
+**Plus aucune modale ne s'écrit à la main.** Le chassis partagé porte l'overlay, la fermeture par
+Échap et par clic-extérieur, `role="dialog"`/`aria-modal`/`aria-labelledby`, le focus (posé à
+l'ouverture, piégé, **rendu à l'ouvrant**) et le blocage du défilement de fond. Ses trois
+consommateurs — `coffre/components/EntryFormModal.vue`, `leitner/pages/settings.vue`, la palette
+⌘K d'`inertia/layouts/AppLayout.vue` — n'en réimplémentent aucun.
+
+⚠️ **Il vit dans `inertia/components/`, jamais dans un module.** C'est du châssis : ses tests sont
+dans `inertia/components/__tests__/app_modal.spec.ts` et ses libellés, s'il en gagne, iront dans
+`inertia/i18n/`. Le documenter dans le `CLAUDE.md` d'un module serait le ranger là où personne ne
+le cherche — d'autant que `coffre` est hors de `MODULES` par défaut.
+
+⚠️ **Le chassis ne porte AUCUNE structure interne** — ni bandes en-tête/corps/pied, ni rembourrage
+vertical. C'est au contenu du `<slot>` de les poser (`mt-16` pour les deux modales de formulaire,
+`mt-[120px]` pour la palette). Décision de CC-207, confirmée par CC-209 : une confirmation
+(CC-206) n'a pas besoin de trois bandes, et le rembourrage sorti du chassis est **ce qui a permis
+d'y ramener la palette** sans toucher sa logique clavier.
+
+- ⚠️ **`mt-16` sur le contenu et non `py-16` sur l'overlay : l'arithmétique compte.** L'ancien
+  `py-16` posait 4 rem en haut *et* en bas ; le `max-h-[calc(100vh_-_8rem)]` des consommateurs
+  (patron CC-66) rend les 4 rem du bas. Retirer l'un sans l'autre colle la modale au bord.
+- ⚠️ **L'état de pile vit dans un bloc `<script>` de MODULE, pas dans `<script setup>`.** `setup`
+  s'exécute une fois par instance : un compteur de modales ouvertes qui y vivrait serait remis à
+  zéro par chaque nouvelle modale. C'est lui qui fait qu'Échap ne ferme que l'instance du dessus
+  et que le défilement n'est rendu qu'à la fermeture de la dernière.
+- ⚠️ **Le focus est rendu dans `onUnmounted`, jamais à l'émission de `close`** : c'est ce qui
+  couvre les trois chemins de fermeture (bouton, Échap, clic-extérieur) d'un seul geste. Le
+  restaurer au clic sur « fermer » n'en couvrirait qu'un, et rien ne le signalerait.
+- ⚠️ **Le piège `Tab` suppose que des modales empilées sont des FRÈRES dans le DOM.** Une modale
+  montée à l'intérieur du `<slot>` d'une autre verrait ses éléments comptés par le piège de
+  l'englobante. Aucun consommateur ne le fait ; la limite est notée dans le composant.
+
 ## Les tests : deux runners, et ce que chacun ne voit pas
 
 `npm test` lance **les deux** suites, dans cet ordre : Japa (`node ace test`) puis Vitest

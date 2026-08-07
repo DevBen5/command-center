@@ -1037,7 +1037,8 @@ function deleteTheme(theme: ThemeNode): void {
   </div>
 
   <!-- Modale de création / édition (CC-209 : chassis partagé `AppModal`, voir le CLAUDE.md
-       racine). `modalOpen` n'est armé que par les boutons masqués en lecture seule ;
+       racine, « Une seule modale dans tout le dépôt »).
+       `modalOpen` n'est armé que par les boutons masqués en lecture seule ;
        `canWriteCards` double la garde, au cas où l'état fuiterait. -->
   <AppModal v-if="modalOpen && canWriteCards" v-slot="{ titleId }" @close="modalOpen = false">
     <!--
@@ -1045,7 +1046,9 @@ function deleteTheme(theme: ThemeNode): void {
       décorative — `max-h-[calc()]` et ses tirets bas, `min-h-0`, `shrink-0`, `overflow-hidden` :
       en retirer une rend le pied inatteignable, sans rien casser de visible. Voir le CLAUDE.md
       du module, « Sa structure est en trois bandes ». `mt-16` remplace le rembourrage vertical
-      que le chassis portait avant CC-209 (voir le CLAUDE.md racine, « L'arbitrage du ticket »).
+      que le chassis portait avant CC-209 — l'arithmétique est expliquée dans le CLAUDE.md racine,
+      « Une seule modale dans tout le dépôt » : retirer `mt-16` sans toucher au `max-h-[calc()]`
+      colle la modale au bord haut, et l'inverse la colle au bord bas.
     -->
     <form
       class="mt-16 flex max-h-[calc(100vh_-_8rem)] w-[560px] max-w-[90%] flex-col overflow-hidden rounded-[14px] border border-line-2 bg-panel shadow-2xl"

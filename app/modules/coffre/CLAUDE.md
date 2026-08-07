@@ -127,6 +127,13 @@ de fusionner un futur formulaire à deux sources.
 
 ### L'arbitrage du ticket : composant partagé, pas une modale locale au coffre
 
+⚠️ **Cette section garde l'HISTOIRE de la création du chassis (CC-207) ; sa doctrine courante vit
+dans le `CLAUDE.md` RACINE**, section « Une seule modale dans tout le dépôt » (append du
+2026-08-07, CC-209). `AppModal.vue` est du châssis, utilisé par le core et deux modules : le
+documenter ici en ferait le bien d'un module que le dépôt garde hors de `MODULES` par défaut,
+donc l'endroit où personne n'irait le chercher. Ce qui suit décrit l'état **à la livraison de
+CC-207**, avant que CC-209 n'y ajoute ARIA, focus, blocage du défilement et pile d'instances.
+
 CC-206 (remplacer les `confirm()` natifs) et CC-208 (les pages de section) auront eux aussi
 besoin d'une modale. Le ticket demandait de trancher, pas de laisser implicite. **Décision :
 `inertia/components/AppModal.vue`**, un chassis minimal — overlay `fixed inset-0`,
