@@ -22,6 +22,7 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 import modules from '#config/modules'
+import { SECTION_SLUGS } from '#modules/coffre/shared/entry_sections'
 
 const AuthController = () => import('#core/auth/controllers/auth_controller')
 const InstallationController = () => import('#core/auth/controllers/installation_controller')
@@ -561,6 +562,13 @@ router
       router
         .group(() => {
           router.get('/', [CoffreController, 'index']).use(middleware.can('coffre.view'))
+          // Une page par section (CC-208) : `:section` est un mot français dérivé de
+          // `SECTION_SLUGS` (`shared/entry_sections.ts`, unique source du mapping), jamais recopié
+          // en dur ici — sans quoi ce regex et la table divergeraient en silence.
+          router
+            .get('/:section', [CoffreController, 'section'])
+            .where('section', new RegExp(`^(${Object.values(SECTION_SLUGS).join('|')})$`))
+            .use(middleware.can('coffre.view'))
           router.post('/', [CoffreController, 'store']).use(middleware.can('coffre.write'))
           // Le mot de passe d'un identifiant, à la demande (CC-179) : du JSON nu, jamais une
           // prop Inertia — le client range ses props dans `history.state`, donc sur le disque.

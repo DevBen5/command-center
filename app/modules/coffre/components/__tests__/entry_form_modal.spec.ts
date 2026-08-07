@@ -42,11 +42,13 @@ function monter(props: {
     nasFiles: { id: number; kind: 'video' | 'photo' }[]
   } | null
   immichFolderAvailable?: boolean
+  presetType?: 'note' | 'url' | 'credential'
 }) {
   return mount(EntryFormModal, {
     props: {
       entry: props.entry ?? null,
       immichFolderAvailable: props.immichFolderAvailable ?? false,
+      presetType: props.presetType,
     },
     global: {
       plugins: [
@@ -147,6 +149,22 @@ describe('Coffre / EntryFormModal', () => {
     await annuler.trigger('click')
 
     expect(wrapper.emitted('close')).toHaveLength(1)
+
+    wrapper.unmount()
+  })
+
+  // ⚠️ Le lot CC-208 : une page de section impose son type, le sélecteur disparaît. On ne peut
+  // pas inspecter `form.type` directement (`<script setup>` n'expose rien) — on prouve l'effet
+  // RÉEL en observant un champ qui ne dépend QUE du type effectif : le mot de passe n'apparaît
+  // que sur un `credential`. Si `presetType` n'était pas réellement appliqué à `form.type` (ex.
+  // un bug qui masquerait juste le sélecteur sans changer la valeur par défaut 'note'), ce champ
+  // resterait absent et le test rougirait.
+  test('presetType masque le sélecteur ET fixe réellement le type créé', () => {
+    const wrapper = monter({ entry: null, presetType: 'credential' })
+
+    expect(wrapper.find('select').exists()).toBe(false)
+    expect(wrapper.find('input[type="password"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain(fr.index.username)
 
     wrapper.unmount()
   })

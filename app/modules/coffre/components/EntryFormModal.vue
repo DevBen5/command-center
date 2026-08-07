@@ -25,7 +25,17 @@ interface EntryProp {
   nasFiles: { id: number; kind: 'video' | 'photo' }[]
 }
 
-const props = defineProps<{ entry: EntryProp | null; immichFolderAvailable: boolean }>()
+/**
+ * ⚠️ **`presetType` n'a d'effet qu'en création** (CC-208) : en édition, le type vient toujours de
+ * `entry.type`, jamais modifiable (CC-186). Une page de section le fournit pour ne pas redemander
+ * un type déjà décidé par la page où l'on se trouve ; l'accueil ne le fournit pas — c'est le seul
+ * endroit où le type se choisit librement.
+ */
+const props = defineProps<{
+  entry: EntryProp | null
+  immichFolderAvailable: boolean
+  presetType?: CoffreEntryType
+}>()
 const emit = defineEmits<{ close: [] }>()
 
 const { t } = useI18n()
@@ -85,7 +95,7 @@ const form = useForm<{
   media: string[]
   nasFiles: string[]
 }>({
-  type: 'note',
+  type: props.presetType ?? 'note',
   title: '',
   content: '',
   password: '',
@@ -267,7 +277,9 @@ function submit(): void {
       </div>
 
       <div class="flex min-h-0 flex-col gap-[14px] overflow-y-auto p-5">
-        <div v-if="!isEdit">
+        <!-- ⚠️ Masqué dès qu'une page de section impose son type (CC-208) : le type est déjà
+             décidé par la page où l'on se trouve, on ne le redemande pas. -->
+        <div v-if="!isEdit && !presetType">
           <label class="mb-[7px] block text-[12px] text-txt-2">{{ t('coffre.index.type') }}</label>
           <select
             v-model="form.type"
