@@ -262,17 +262,19 @@ function submit(): void {
 </script>
 
 <template>
-  <AppModal @close="emit('close')">
+  <AppModal @close="emit('close')" v-slot="{ titleId }">
     <!--
       En-tête et pied figés, corps défilant — même patron que `leitner/settings.vue` (CC-66) :
       « Enregistrer » et « Annuler » ne quittent jamais l'écran. Aucune classe de structure n'est
       décorative : `max-h-[calc()]` et ses tirets bas, `min-h-0`, `shrink-0`, `overflow-hidden`.
+      `mt-16` remplace le rembourrage vertical qu'AppModal portait avant CC-209 : le chassis ne
+      porte plus aucun rembourrage vertical, chaque consommateur porte désormais le sien.
     -->
     <form
-      class="flex max-h-[calc(100vh_-_8rem)] w-[560px] max-w-[90%] flex-col overflow-hidden rounded-[14px] border border-line-2 bg-panel shadow-2xl"
+      class="mt-16 flex max-h-[calc(100vh_-_8rem)] w-[560px] max-w-[90%] flex-col overflow-hidden rounded-[14px] border border-line-2 bg-panel shadow-2xl"
       @submit.prevent="submit"
     >
-      <div class="shrink-0 border-b border-line px-5 py-4 text-[13.5px] font-bold">
+      <div :id="titleId" class="shrink-0 border-b border-line px-5 py-4 text-[13.5px] font-bold">
         {{ isEdit ? t('coffre.index.modalEditTitle') : t('coffre.index.modalCreateTitle') }}
       </div>
 

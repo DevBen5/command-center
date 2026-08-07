@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import type { Component } from 'vue'
 import { Link, router, usePage } from '@inertiajs/vue3'
 import { useI18n } from 'vue-i18n'
+import AppModal from '~/components/AppModal.vue'
 // Icônes importées nommément : le barrel entier casserait le tree-shaking.
 import {
   Bot,
@@ -470,19 +471,20 @@ function logout(): void {
       </div>
     </div>
 
-    <div
-      v-if="paletteOpen"
-      class="fixed inset-0 z-50 flex items-start justify-center bg-[rgba(4,5,14,.6)] pt-[120px]"
-      @click.self="closePalette"
-    >
+    <!-- Palette ⌘K (CC-209 : chassis partagé `AppModal`, voir le CLAUDE.md racine).
+         `onKeydown` ci-dessus garde sa propre gestion d'Échap et de ↑↓/↵ (CC-26, CC-27) —
+         redondante mais harmless avec celle du chassis, volontairement non touchée. -->
+    <AppModal v-if="paletteOpen" v-slot="{ titleId }" @close="closePalette">
       <div
-        class="w-[640px] max-w-[90%] overflow-hidden rounded-[14px] border border-line-2 bg-panel shadow-2xl"
+        class="mt-[120px] w-[640px] max-w-[90%] overflow-hidden rounded-[14px] border border-line-2 bg-panel shadow-2xl"
       >
+        <h2 :id="titleId" class="sr-only">{{ t('palette.placeholder') }}</h2>
         <div class="flex items-center gap-3 border-b border-line px-[19px] py-[17px]">
           <Search :size="17" :stroke-width="1.5" aria-hidden="true" class="shrink-0 text-txt-3" />
+          <!-- Pas d'`autofocus` : c'est AppModal qui pose le focus sur ce champ (premier
+               élément focalisable) depuis CC-209 — un second mécanisme dessus serait redondant. -->
           <input
             v-model="paletteQuery"
-            autofocus
             :placeholder="t('palette.placeholder')"
             class="flex-1 bg-transparent text-[15px] text-txt placeholder:text-txt-3 outline-none"
           />
@@ -534,6 +536,6 @@ function logout(): void {
           <span>esc {{ t('palette.close') }}</span>
         </div>
       </div>
-    </div>
+    </AppModal>
   </div>
 </template>
