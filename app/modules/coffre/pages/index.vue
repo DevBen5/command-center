@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { Head, router, useForm } from '@inertiajs/vue3'
+import { Head, router } from '@inertiajs/vue3'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '~/layouts/AppLayout.vue'
 import { CLIPBOARD_CLEAR_MS, clearClipboardIn, clipboardAvailable, copyText } from '~/utils/clipboard'
@@ -9,6 +9,7 @@ import {
   type CoffreEntryType,
   type CoffreSectionKey,
 } from '../shared/entry_sections.js'
+import EntryFormModal from '../components/EntryFormModal.vue'
 
 defineOptions({ layout: AppLayout })
 
@@ -49,137 +50,36 @@ const props = defineProps<{ entries: CoffreEntry[]; immichFolderAvailable: boole
  */
 const sections = computed(() => groupEntriesByNature(props.entries))
 
-/** Un UUID Immich, vérifié côté client — défense en profondeur, la vraie garde est côté serveur. */
-const IMMICH_ASSET_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-/** Un chemin de média NAS (photo ou vidéo), vérifié côté client — même défense en profondeur,
- * même limite : la vraie garde est `NasRootsService.resolve`, côté serveur, après `realpath`
- * (CC-181). */
-const NAS_PATH =
-  /^(?!\/)(?![a-zA-Z]:)(?!.*\.\.)(?!.*\\)(?!.*\x00).+\.(mp4|webm|mov|mkv|avi|jpg|jpeg|png|webp|gif|heic)$/i
-
 const { t } = useI18n()
 
 /** Combien de temps un mot de passe révélé reste à l'écran avant de se re-masquer seul. */
 const REVEAL_MS = 20_000
 
-const form = useForm<{
-  type: CoffreEntryType
-  title: string
-  content: string
-  password: string
-  media: string[]
-  nasFiles: string[]
-}>({
-  type: 'note',
-  title: '',
-  content: '',
-  password: '',
-  media: [],
-  nasFiles: [],
-})
-
-/** Le champ de saisie d'un UUID Immich à ajouter — création comme édition. */
-const newMediaInput = ref('')
-const newMediaError = ref(false)
-
 /**
- * Le parcours du dossier verrouillé Immich (CC-205) — le repli du collage manuel.
- *
- * ⚠️ **Un seul panneau partagé entre la création et l'édition**, jamais deux : `editing` ne porte
- * de toute façon qu'une entrée à la fois (voir plus haut), donc `folderOpenFor` distingue seulement
- * QUEL tableau cible reçoit la sélection — le contenu du dossier lui-même est le même quel que
- * soit le formulaire ouvert, il n'est donc chargé qu'une fois.
+ * La modale de création/édition (CC-207) — `modalEntry` à `null` = création. Portée entière dans
+ * `components/EntryFormModal.vue` : `v-if` la démonte à la fermeture, ce qui efface tout état
+ * local (y compris un mot de passe frappé non soumis) sans rien à faire ici.
  */
-const folderOpenFor = ref<'create' | 'edit' | null>(null)
-const folderPhotos = ref<{ assetId: string }[] | null>(null)
-const folderTruncated = ref(false)
-const folderLoading = ref(false)
-const folderError = ref(false)
+const modalOpen = ref(false)
+const modalEntry = ref<CoffreEntry | null>(null)
 
-/** Ouvre ou ferme le panneau, et charge le dossier au premier besoin — jamais deux fois. */
-async function toggleFolder(target: 'create' | 'edit'): Promise<void> {
-  if (folderOpenFor.value === target) {
-    folderOpenFor.value = null
-    return
-  }
-
-  folderOpenFor.value = target
-  if (folderPhotos.value !== null || folderLoading.value) return
-
-  folderLoading.value = true
-  folderError.value = false
-
-  try {
-    const response = await fetch('/coffre/immich/dossier', {
-      headers: { accept: 'application/json' },
-    })
-    const body = (await response.json()) as {
-      available: boolean
-      truncated: boolean
-      photos: { assetId: string }[]
-    }
-
-    if (!response.ok || !body.available) {
-      folderError.value = true
-      return
-    }
-
-    folderPhotos.value = body.photos
-    folderTruncated.value = body.truncated
-  } catch {
-    folderError.value = true
-  } finally {
-    folderLoading.value = false
-  }
+function openCreate(): void {
+  modalEntry.value = null
+  modalOpen.value = true
 }
 
-/** Sélectionne une photo du dossier — même effet que coller son UUID à la main. */
-function selectFolderPhoto(assetId: string, target: string[]): void {
-  if (!target.includes(assetId)) target.push(assetId)
+function startEdit(entry: CoffreEntry): void {
+  modalEntry.value = entry
+  modalOpen.value = true
 }
 
-/** Le champ de saisie d'un chemin de média NAS à ajouter — création comme édition. */
-const newNasFileInput = ref('')
-const newNasFileError = ref(false)
+function closeModal(): void {
+  modalOpen.value = false
+  modalEntry.value = null
+}
 
 /** Quelle entrée est dépliée — le contenu ne s'affiche pas de lui-même. */
 const opened = ref<number | null>(null)
-
-/**
- * L'entrée en cours d'édition — `null` sinon. On garde son type à part : il ne fait pas partie
- * du formulaire (une entrée n'en change jamais, CC-186), mais l'écran en a besoin pour choisir
- * quels champs afficher, comme pour la création.
- */
-const editing = ref<{ id: number; type: CoffreEntryType } | null>(null)
-
-/**
- * ⚠️ **`media` est additif/soustractif, PAS un remplacement intégral** (CC-180) — contrairement à
- * `title`/`content`. L'UUID Immich ne redescend jamais vers le client (voir `CoffreEntry.media`) :
- * l'écran ne peut donc pas réafficher, puis renvoyer, l'état complet. `remove` porte les `id` des
- * médias déjà attachés qu'on retire ; `add`, les UUID collés pendant cette édition.
- */
-const editForm = useForm<{
-  title: string
-  content: string
-  password: string
-  media: { add: string[]; remove: number[] }
-  nasFiles: { add: string[]; remove: number[] }
-}>({
-  title: '',
-  content: '',
-  password: '',
-  media: { add: [], remove: [] },
-  nasFiles: { add: [], remove: [] },
-})
-
-/** Les médias déjà attachés à l'entrée en cours d'édition, MOINS ceux marqués pour retrait. */
-const editingRemainingMedia = ref<{ id: number }[]>([])
-
-/** Les médias NAS déjà attachés à l'entrée en cours d'édition, MOINS ceux marqués pour retrait.
- * ⚠️ Le `kind` n'est PAS gardé ici : pendant l'édition, les chips ne rendent ni `<video>` ni
- * `<img>` (voir plus bas, doctrine anti-bande-passante), donc rien n'a besoin de la nature. */
-const editingRemainingNasFiles = ref<{ id: number }[]>([])
 
 /**
  * Le presse-papiers est-il utilisable ici ?
@@ -236,99 +136,6 @@ function oublier(): void {
   masquerSecret()
   copie.value = null
   echec.value = null
-  // Un mot de passe frappé mais non soumis dans le formulaire d'édition est aussi sensible que
-  // le secret révélé ci-dessus : il quitte l'écran en même temps que le reste.
-  editing.value = null
-  editForm.reset()
-  editForm.clearErrors()
-  editingRemainingMedia.value = []
-  editingRemainingNasFiles.value = []
-  newMediaInput.value = ''
-  newMediaError.value = false
-  newNasFileInput.value = ''
-  newNasFileError.value = false
-  // Le panneau du dossier verrouillé n'a plus de cible valide une fois l'édition abandonnée.
-  folderOpenFor.value = null
-}
-
-/** Ouvre le formulaire d'édition, préremplit depuis ce que la liste porte déjà — jamais le mot
- * de passe, qui n'y est jamais chargé (CC-179), ni l'UUID d'un média, qui ne descend jamais
- * (CC-180) : seuls les `id` déjà attachés sont connus, pour construire les vignettes et permettre
- * un retrait. */
-function startEdit(entry: CoffreEntry): void {
-  oublier()
-
-  opened.value = entry.id
-  editing.value = { id: entry.id, type: entry.type }
-  editForm.title = entry.title
-  editForm.content = entry.content
-  editingRemainingMedia.value = [...entry.media]
-  editingRemainingNasFiles.value = entry.nasFiles.map(({ id }) => ({ id }))
-}
-
-function submitEdit(): void {
-  if (editing.value === null) return
-
-  editForm.put(`/coffre/${editing.value.id}`, { onSuccess: () => oublier() })
-}
-
-/** Valide et ajoute un UUID au champ courant (`form.media` en création, `editForm.media.add` en
- * édition) — la vraie garde reste côté serveur, ceci n'évite qu'un aller-retour inutile. */
-function addMedia(target: string[]): void {
-  const assetId = newMediaInput.value.trim()
-
-  if (!IMMICH_ASSET_ID.test(assetId)) {
-    newMediaError.value = true
-    return
-  }
-
-  newMediaError.value = false
-  if (!target.includes(assetId)) target.push(assetId)
-  newMediaInput.value = ''
-}
-
-function removeMediaFromCreate(assetId: string): void {
-  form.media = form.media.filter((id) => id !== assetId)
-}
-
-function removePendingEditMedia(assetId: string): void {
-  editForm.media.add = editForm.media.add.filter((id) => id !== assetId)
-}
-
-/** Marque un média déjà attaché pour retrait — l'écran le fait disparaître tout de suite, le
- * serveur n'agit qu'à la soumission (CC-180 : additif/soustractif, jamais un remplacement). */
-function removeExistingMedia(id: number): void {
-  editForm.media.remove.push(id)
-  editingRemainingMedia.value = editingRemainingMedia.value.filter((media) => media.id !== id)
-}
-
-/** Valide et ajoute un chemin de média NAS au champ courant — même doctrine que `addMedia`
- * (CC-181), la vraie garde reste `NasRootsService.resolve`, côté serveur. */
-function addNasFile(target: string[]): void {
-  const path = newNasFileInput.value.trim()
-
-  if (!NAS_PATH.test(path)) {
-    newNasFileError.value = true
-    return
-  }
-
-  newNasFileError.value = false
-  if (!target.includes(path)) target.push(path)
-  newNasFileInput.value = ''
-}
-
-function removeNasFileFromCreate(path: string): void {
-  form.nasFiles = form.nasFiles.filter((p) => p !== path)
-}
-
-function removePendingEditNasFile(path: string): void {
-  editForm.nasFiles.add = editForm.nasFiles.add.filter((p) => p !== path)
-}
-
-/** Marque un média NAS déjà attaché pour retrait — même doctrine que `removeExistingMedia`. */
-function removeExistingNasFile(id: number): void {
-  editForm.nasFiles.remove.push(id)
-  editingRemainingNasFiles.value = editingRemainingNasFiles.value.filter((file) => file.id !== id)
 }
 
 function masquerSecret(): void {
@@ -408,18 +215,6 @@ async function afficherSecret(id: number): Promise<void> {
   masquage = setTimeout(masquerSecret, REVEAL_MS)
 }
 
-function submit(): void {
-  form.post('/coffre', {
-    onSuccess: () => {
-      form.reset('title', 'content', 'password', 'media', 'nasFiles')
-      newMediaInput.value = ''
-      newMediaError.value = false
-      newNasFileInput.value = ''
-      newNasFileError.value = false
-    },
-  })
-}
-
 function remove(id: number): void {
   if (!window.confirm(t('coffre.index.deleteConfirm'))) return
 
@@ -433,6 +228,7 @@ function lock(): void {
   // Verrouiller efface ce qui est à l'écran avant même la réponse du serveur : le contenu ne doit
   // pas rester visible pendant l'aller-retour.
   oublier()
+  closeModal()
   router.post('/coffre/verrouiller')
 }
 
@@ -461,229 +257,23 @@ function sectionLabel(key: CoffreSectionKey): string {
   <div class="mx-auto grid w-full max-w-[900px] gap-6">
     <header class="flex items-start justify-between gap-4">
       <p class="max-w-[560px] text-[13px] text-txt-2">{{ t('coffre.index.lead') }}</p>
-      <button
-        type="button"
-        class="shrink-0 rounded-[7px] border border-line-2 px-4 py-2.5 text-[13px] text-txt hover:border-aqua"
-        @click="lock"
-      >
-        {{ t('coffre.index.lock') }}
-      </button>
-    </header>
-
-    <section class="rounded-[14px] border border-line bg-panel p-6">
-      <h2 class="mb-4 text-[15px] font-semibold text-txt">{{ t('coffre.index.addTitle') }}</h2>
-
-      <form novalidate class="grid gap-[14px]" @submit.prevent="submit">
-        <div>
-          <label class="mb-[7px] block text-[12px] text-txt-2">{{ t('coffre.index.type') }}</label>
-          <select
-            v-model="form.type"
-            class="w-full rounded-[7px] border border-line-2 bg-panel-2 px-3.5 py-[11px] text-[14px] text-txt outline-none focus:border-aqua"
-          >
-            <option value="note">{{ t('coffre.index.typeNote') }}</option>
-            <option value="url">{{ t('coffre.index.typeUrl') }}</option>
-            <option value="credential">{{ t('coffre.index.typeCredential') }}</option>
-          </select>
-        </div>
-
-        <div>
-          <label class="mb-[7px] block text-[12px] text-txt-2">
-            {{
-              form.type === 'credential'
-                ? t('coffre.index.service')
-                : t('coffre.index.entryTitle')
-            }}
-          </label>
-          <input
-            v-model="form.title"
-            class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[14px] text-txt outline-none focus:border-aqua"
-            :class="form.errors.title ? 'border-bad' : ''"
-          />
-          <p v-if="form.errors.title" class="mt-1.5 text-[12.5px] text-bad">
-            {{ form.errors.title }}
-          </p>
-        </div>
-
-        <div>
-          <label class="mb-[7px] block text-[12px] text-txt-2">
-            {{
-              form.type === 'credential'
-                ? t('coffre.index.username')
-                : form.type === 'url'
-                  ? t('coffre.index.contentUrl')
-                  : t('coffre.index.content')
-            }}
-          </label>
-          <!-- Une seule ligne pour un nom d'utilisateur : un textarea de quatre lignes inviterait
-               à y coller autre chose que ce que le champ nomme. -->
-          <input
-            v-if="form.type === 'credential'"
-            v-model="form.content"
-            autocomplete="off"
-            class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[14px] text-txt outline-none focus:border-aqua"
-            :class="form.errors.content ? 'border-bad' : ''"
-          />
-          <textarea
-            v-else
-            v-model="form.content"
-            rows="4"
-            class="w-full resize-y rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[14px] text-txt outline-none focus:border-aqua"
-            :class="form.errors.content ? 'border-bad' : ''"
-          ></textarea>
-          <p v-if="form.errors.content" class="mt-1.5 text-[12.5px] text-bad">
-            {{ form.errors.content }}
-          </p>
-        </div>
-
-        <!-- ⚠️ `new-password` et pas `current-password` : sans ça, le gestionnaire du navigateur
-             proposerait de remplir ce champ avec le mot de passe de CETTE application. -->
-        <div v-if="form.type === 'credential'">
-          <label class="mb-[7px] block text-[12px] text-txt-2">
-            {{ t('coffre.index.password') }}
-          </label>
-          <input
-            v-model="form.password"
-            type="password"
-            autocomplete="new-password"
-            class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[14px] text-txt outline-none focus:border-aqua"
-            :class="form.errors.password ? 'border-bad' : ''"
-          />
-          <p v-if="form.errors.password" class="mt-1.5 text-[12.5px] text-bad">
-            {{ form.errors.password }}
-          </p>
-        </div>
-
-        <div>
-          <label class="mb-[7px] block text-[12px] text-txt-2">{{ t('coffre.index.media') }}</label>
-          <p class="mb-2 text-[12px] text-txt-3">{{ t('coffre.index.mediaHint') }}</p>
-
-          <div class="flex gap-2">
-            <input
-              v-model="newMediaInput"
-              :placeholder="t('coffre.index.mediaPlaceholder')"
-              class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[13px] text-txt outline-none focus:border-aqua"
-              :class="newMediaError ? 'border-bad' : ''"
-              @keydown.enter.prevent="addMedia(form.media)"
-            />
-            <button
-              type="button"
-              class="shrink-0 rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt hover:border-aqua"
-              @click="addMedia(form.media)"
-            >
-              {{ t('coffre.index.mediaAddButton') }}
-            </button>
-          </div>
-          <p v-if="newMediaError" class="mt-1.5 text-[12.5px] text-bad">
-            {{ t('coffre.index.mediaInvalid') }}
-          </p>
-
-          <ul v-if="form.media.length > 0" class="mt-2 flex flex-wrap gap-2">
-            <li
-              v-for="assetId in form.media"
-              :key="assetId"
-              class="flex items-center gap-2 rounded-[7px] border border-line-2 px-2.5 py-1.5 text-[11px] text-txt-2"
-            >
-              <span class="font-mono">{{ assetId }}</span>
-              <button
-                type="button"
-                class="text-txt-3 hover:text-bad"
-                @click="removeMediaFromCreate(assetId)"
-              >
-                {{ t('coffre.index.mediaRemove') }}
-              </button>
-            </li>
-          </ul>
-
-          <button
-            v-if="immichFolderAvailable"
-            type="button"
-            class="mt-2 rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt-2 hover:border-aqua"
-            @click="toggleFolder('create')"
-          >
-            {{ folderOpenFor === 'create' ? t('coffre.index.folderClose') : t('coffre.index.folderBrowse') }}
-          </button>
-
-          <div v-if="folderOpenFor === 'create'" class="mt-2 rounded-[8px] border border-line-2 p-3">
-            <p v-if="folderLoading" class="text-[12px] text-txt-3">{{ t('coffre.index.folderLoading') }}</p>
-            <p v-else-if="folderError" class="text-[12px] text-bad">{{ t('coffre.index.folderError') }}</p>
-            <p v-else-if="folderPhotos?.length === 0" class="text-[12px] text-txt-3">
-              {{ t('coffre.index.folderEmpty') }}
-            </p>
-            <template v-else-if="folderPhotos">
-              <p v-if="folderTruncated" class="mb-2 text-[11px] text-txt-3">
-                {{ t('coffre.index.folderTruncated') }}
-              </p>
-              <ul class="flex flex-wrap gap-2">
-                <li v-for="photo in folderPhotos" :key="photo.assetId">
-                  <button
-                    type="button"
-                    class="block overflow-hidden rounded-[8px] border border-line-2 hover:border-aqua"
-                    :class="form.media.includes(photo.assetId) ? 'opacity-40' : ''"
-                    @click="selectFolderPhoto(photo.assetId, form.media)"
-                  >
-                    <img
-                      :src="`/coffre/immich/dossier/${photo.assetId}/thumbnail`"
-                      class="block h-16 w-16 object-cover"
-                      alt=""
-                    />
-                  </button>
-                </li>
-              </ul>
-            </template>
-          </div>
-        </div>
-
-        <div>
-          <label class="mb-[7px] block text-[12px] text-txt-2">{{ t('coffre.index.nasFile') }}</label>
-          <p class="mb-2 text-[12px] text-txt-3">{{ t('coffre.index.nasFileHint') }}</p>
-
-          <div class="flex gap-2">
-            <input
-              v-model="newNasFileInput"
-              :placeholder="t('coffre.index.nasFilePlaceholder')"
-              class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[13px] text-txt outline-none focus:border-aqua"
-              :class="newNasFileError ? 'border-bad' : ''"
-              @keydown.enter.prevent="addNasFile(form.nasFiles)"
-            />
-            <button
-              type="button"
-              class="shrink-0 rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt hover:border-aqua"
-              @click="addNasFile(form.nasFiles)"
-            >
-              {{ t('coffre.index.nasFileAddButton') }}
-            </button>
-          </div>
-          <p v-if="newNasFileError" class="mt-1.5 text-[12.5px] text-bad">
-            {{ t('coffre.index.nasFileInvalid') }}
-          </p>
-
-          <ul v-if="form.nasFiles.length > 0" class="mt-2 flex flex-wrap gap-2">
-            <li
-              v-for="path in form.nasFiles"
-              :key="path"
-              class="flex items-center gap-2 rounded-[7px] border border-line-2 px-2.5 py-1.5 text-[11px] text-txt-2"
-            >
-              <span class="font-mono">{{ path }}</span>
-              <button
-                type="button"
-                class="text-txt-3 hover:text-bad"
-                @click="removeNasFileFromCreate(path)"
-              >
-                {{ t('coffre.index.nasFileRemove') }}
-              </button>
-            </li>
-          </ul>
-        </div>
-
+      <div class="flex shrink-0 gap-2">
         <button
-          type="submit"
-          :disabled="form.processing"
-          class="justify-self-start rounded-[7px] bg-accent px-5 py-2.5 text-[13px] font-semibold text-bg disabled:opacity-60"
+          type="button"
+          class="rounded-[7px] border border-accent bg-accent px-4 py-2.5 text-[13px] font-semibold text-bg hover:opacity-90"
+          @click="openCreate"
         >
-          {{ t('coffre.index.add') }}
+          {{ t('coffre.index.addTitle') }}
         </button>
-      </form>
-    </section>
+        <button
+          type="button"
+          class="rounded-[7px] border border-line-2 px-4 py-2.5 text-[13px] text-txt hover:border-aqua"
+          @click="lock"
+        >
+          {{ t('coffre.index.lock') }}
+        </button>
+      </div>
+    </header>
 
     <section class="rounded-[14px] border border-line bg-panel">
       <p v-if="entries.length === 0" class="p-6 text-[13px] text-txt-3">
@@ -731,266 +321,7 @@ function sectionLabel(key: CoffreSectionKey): string {
           </button>
         </div>
 
-        <form
-          v-if="editing?.id === entry.id"
-          novalidate
-          class="mt-3 grid gap-[14px]"
-          @submit.prevent="submitEdit"
-        >
-          <div>
-            <label class="mb-[7px] block text-[12px] text-txt-2">
-              {{
-                editing.type === 'credential'
-                  ? t('coffre.index.service')
-                  : t('coffre.index.entryTitle')
-              }}
-            </label>
-            <input
-              v-model="editForm.title"
-              class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[14px] text-txt outline-none focus:border-aqua"
-              :class="editForm.errors.title ? 'border-bad' : ''"
-            />
-            <p v-if="editForm.errors.title" class="mt-1.5 text-[12.5px] text-bad">
-              {{ editForm.errors.title }}
-            </p>
-          </div>
-
-          <div>
-            <label class="mb-[7px] block text-[12px] text-txt-2">
-              {{
-                editing.type === 'credential'
-                  ? t('coffre.index.username')
-                  : editing.type === 'url'
-                    ? t('coffre.index.contentUrl')
-                    : t('coffre.index.content')
-              }}
-            </label>
-            <input
-              v-if="editing.type === 'credential'"
-              v-model="editForm.content"
-              autocomplete="off"
-              class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[14px] text-txt outline-none focus:border-aqua"
-              :class="editForm.errors.content ? 'border-bad' : ''"
-            />
-            <textarea
-              v-else
-              v-model="editForm.content"
-              rows="4"
-              class="w-full resize-y rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[14px] text-txt outline-none focus:border-aqua"
-              :class="editForm.errors.content ? 'border-bad' : ''"
-            ></textarea>
-            <p v-if="editForm.errors.content" class="mt-1.5 text-[12.5px] text-bad">
-              {{ editForm.errors.content }}
-            </p>
-          </div>
-
-          <div v-if="editing.type === 'credential'">
-            <label class="mb-[7px] block text-[12px] text-txt-2">
-              {{ t('coffre.index.password') }}
-            </label>
-            <input
-              v-model="editForm.password"
-              type="password"
-              autocomplete="new-password"
-              class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[14px] text-txt outline-none focus:border-aqua"
-              :class="editForm.errors.password ? 'border-bad' : ''"
-            />
-            <p class="mt-1.5 text-[12px] text-txt-3">{{ t('coffre.index.passwordEditHint') }}</p>
-            <p v-if="editForm.errors.password" class="mt-1.5 text-[12.5px] text-bad">
-              {{ editForm.errors.password }}
-            </p>
-          </div>
-
-          <div>
-            <label class="mb-[7px] block text-[12px] text-txt-2">{{ t('coffre.index.media') }}</label>
-            <p class="mb-2 text-[12px] text-txt-3">{{ t('coffre.index.mediaHint') }}</p>
-
-            <ul
-              v-if="editingRemainingMedia.length > 0"
-              class="mb-2 flex flex-wrap gap-2"
-            >
-              <li
-                v-for="media in editingRemainingMedia"
-                :key="media.id"
-                class="overflow-hidden rounded-[8px] border border-line-2"
-              >
-                <img
-                  :src="`/coffre/media/${media.id}/thumbnail`"
-                  class="block h-16 w-16 object-cover"
-                  alt=""
-                />
-                <button
-                  type="button"
-                  class="w-full bg-panel-2 py-1 text-[11px] text-txt-3 hover:text-bad"
-                  @click="removeExistingMedia(media.id)"
-                >
-                  {{ t('coffre.index.mediaRemove') }}
-                </button>
-              </li>
-            </ul>
-
-            <div class="flex gap-2">
-              <input
-                v-model="newMediaInput"
-                :placeholder="t('coffre.index.mediaPlaceholder')"
-                class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[13px] text-txt outline-none focus:border-aqua"
-                :class="newMediaError ? 'border-bad' : ''"
-                @keydown.enter.prevent="addMedia(editForm.media.add)"
-              />
-              <button
-                type="button"
-                class="shrink-0 rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt hover:border-aqua"
-                @click="addMedia(editForm.media.add)"
-              >
-                {{ t('coffre.index.mediaAddButton') }}
-              </button>
-            </div>
-            <p v-if="newMediaError" class="mt-1.5 text-[12.5px] text-bad">
-              {{ t('coffre.index.mediaInvalid') }}
-            </p>
-
-            <ul v-if="editForm.media.add.length > 0" class="mt-2 flex flex-wrap gap-2">
-              <li
-                v-for="assetId in editForm.media.add"
-                :key="assetId"
-                class="flex items-center gap-2 rounded-[7px] border border-line-2 px-2.5 py-1.5 text-[11px] text-txt-2"
-              >
-                <span class="font-mono">{{ assetId }}</span>
-                <span class="text-txt-3">({{ t('coffre.index.mediaPending') }})</span>
-                <button
-                  type="button"
-                  class="text-txt-3 hover:text-bad"
-                  @click="removePendingEditMedia(assetId)"
-                >
-                  {{ t('coffre.index.mediaRemove') }}
-                </button>
-              </li>
-            </ul>
-
-            <button
-              v-if="immichFolderAvailable"
-              type="button"
-              class="mt-2 rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt-2 hover:border-aqua"
-              @click="toggleFolder('edit')"
-            >
-              {{ folderOpenFor === 'edit' ? t('coffre.index.folderClose') : t('coffre.index.folderBrowse') }}
-            </button>
-
-            <div v-if="folderOpenFor === 'edit'" class="mt-2 rounded-[8px] border border-line-2 p-3">
-              <p v-if="folderLoading" class="text-[12px] text-txt-3">{{ t('coffre.index.folderLoading') }}</p>
-              <p v-else-if="folderError" class="text-[12px] text-bad">{{ t('coffre.index.folderError') }}</p>
-              <p v-else-if="folderPhotos?.length === 0" class="text-[12px] text-txt-3">
-                {{ t('coffre.index.folderEmpty') }}
-              </p>
-              <template v-else-if="folderPhotos">
-                <p v-if="folderTruncated" class="mb-2 text-[11px] text-txt-3">
-                  {{ t('coffre.index.folderTruncated') }}
-                </p>
-                <ul class="flex flex-wrap gap-2">
-                  <li v-for="photo in folderPhotos" :key="photo.assetId">
-                    <button
-                      type="button"
-                      class="block overflow-hidden rounded-[8px] border border-line-2 hover:border-aqua"
-                      :class="editForm.media.add.includes(photo.assetId) ? 'opacity-40' : ''"
-                      @click="selectFolderPhoto(photo.assetId, editForm.media.add)"
-                    >
-                      <img
-                        :src="`/coffre/immich/dossier/${photo.assetId}/thumbnail`"
-                        class="block h-16 w-16 object-cover"
-                        alt=""
-                      />
-                    </button>
-                  </li>
-                </ul>
-              </template>
-            </div>
-          </div>
-
-          <div>
-            <label class="mb-[7px] block text-[12px] text-txt-2">{{ t('coffre.index.nasFile') }}</label>
-            <p class="mb-2 text-[12px] text-txt-3">{{ t('coffre.index.nasFileHint') }}</p>
-            <!-- ⚠️ Pas d'aperçu `<video>`/`<img>` ici, contrairement aux vignettes Immich : sans
-                 redimensionnement côté serveur, plusieurs chips chargeraient chacune le fichier
-                 complet — exactement le piège de bande passante que le ticket nomme. L'aperçu
-                 réel n'apparaît qu'à l'affichage de l'entrée ouverte, un média à la fois. -->
-            <ul
-              v-if="editingRemainingNasFiles.length > 0"
-              class="mb-2 flex flex-wrap gap-2"
-            >
-              <li
-                v-for="file in editingRemainingNasFiles"
-                :key="file.id"
-                class="flex items-center gap-2 rounded-[7px] border border-line-2 px-2.5 py-1.5 text-[11px] text-txt-2"
-              >
-                <span class="font-mono">#{{ file.id }}</span>
-                <button
-                  type="button"
-                  class="text-txt-3 hover:text-bad"
-                  @click="removeExistingNasFile(file.id)"
-                >
-                  {{ t('coffre.index.nasFileRemove') }}
-                </button>
-              </li>
-            </ul>
-
-            <div class="flex gap-2">
-              <input
-                v-model="newNasFileInput"
-                :placeholder="t('coffre.index.nasFilePlaceholder')"
-                class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[13px] text-txt outline-none focus:border-aqua"
-                :class="newNasFileError ? 'border-bad' : ''"
-                @keydown.enter.prevent="addNasFile(editForm.nasFiles.add)"
-              />
-              <button
-                type="button"
-                class="shrink-0 rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt hover:border-aqua"
-                @click="addNasFile(editForm.nasFiles.add)"
-              >
-                {{ t('coffre.index.nasFileAddButton') }}
-              </button>
-            </div>
-            <p v-if="newNasFileError" class="mt-1.5 text-[12.5px] text-bad">
-              {{ t('coffre.index.nasFileInvalid') }}
-            </p>
-
-            <ul v-if="editForm.nasFiles.add.length > 0" class="mt-2 flex flex-wrap gap-2">
-              <li
-                v-for="path in editForm.nasFiles.add"
-                :key="path"
-                class="flex items-center gap-2 rounded-[7px] border border-line-2 px-2.5 py-1.5 text-[11px] text-txt-2"
-              >
-                <span class="font-mono">{{ path }}</span>
-                <span class="text-txt-3">({{ t('coffre.index.nasFilePending') }})</span>
-                <button
-                  type="button"
-                  class="text-txt-3 hover:text-bad"
-                  @click="removePendingEditNasFile(path)"
-                >
-                  {{ t('coffre.index.nasFileRemove') }}
-                </button>
-              </li>
-            </ul>
-          </div>
-
-          <div class="flex gap-2">
-            <button
-              type="submit"
-              :disabled="editForm.processing"
-              class="justify-self-start rounded-[7px] bg-accent px-5 py-2.5 text-[13px] font-semibold text-bg disabled:opacity-60"
-            >
-              {{ t('coffre.index.editSave') }}
-            </button>
-            <button
-              type="button"
-              class="justify-self-start rounded-[7px] border border-line-2 px-5 py-2.5 text-[13px] text-txt hover:border-aqua"
-              @click="oublier"
-            >
-              {{ t('coffre.index.editCancel') }}
-            </button>
-          </div>
-        </form>
-
-        <template v-else-if="opened === entry.id">
+        <template v-if="opened === entry.id">
           <ul v-if="entry.media.length > 0" class="mt-3 flex flex-wrap gap-2">
             <li
               v-for="media in entry.media"
@@ -1091,5 +422,12 @@ function sectionLabel(key: CoffreSectionKey): string {
         </article>
       </template>
     </section>
+
+    <EntryFormModal
+      v-if="modalOpen"
+      :entry="modalEntry"
+      :immich-folder-available="immichFolderAvailable"
+      @close="closeModal"
+    />
   </div>
 </template>
