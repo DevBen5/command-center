@@ -309,10 +309,20 @@ trois étaient verts sur la version cassée. C'est **`npm run build`** qui tranc
 ne peut couvrir ça** ; ça se vérifie au navigateur, en agrandissant le verso au maximum.
 
 `resize-y` garde la poignée verticale (agrandir pour relire un long verso est légitime) et ferme le
-défaut `resize: both`, qui laissait tirer le champ plus large que la modale. ⚠️ L'autre `fixed
-inset-0` du dépôt est la palette ⌘K, qui n'a **pas** ce bug (contenu borné, aucun champ
-redimensionnable) : ce n'est pas une incohérence à rattraper, et deux occurrences dont une inerte ne
-justifient pas d'extraire un composant `Modal`.
+défaut `resize: both`, qui laissait tirer le champ plus large que la modale.
+
+⚠️ **Périmé depuis CC-209 (2026-08-07), gardé pour la trace historique du bug CC-66** : la phrase
+ci-dessus disait qu'un composant `Modal` partagé n'était pas justifié pour deux occurrences dont
+une inerte. CC-207 en a créé un quand même (`inertia/components/AppModal.vue`, pour le coffre) ;
+CC-209 y a ramené **les deux** overlays restants, y compris la palette ⌘K — `settings.vue` importe
+désormais `AppModal` et ne porte plus son propre `<div class="fixed inset-0 …">`. L'ossature en
+trois bandes décrite ci-dessus (`max-h-[calc(100vh_-_8rem)]`, `min-h-0`, `shrink-0`) **reste
+inchangée, dans le contenu du `<slot>`** : c'est une décision explicite de CC-207, le chassis ne
+porte aucune structure interne. Seul l'overlay a changé de main, et son rembourrage vertical est
+sorti du chassis pour être reporté en `mt-16` sur le `<form>` de cette page. ⚠️ **Le chassis est
+documenté dans le `CLAUDE.md` RACINE**, section « Une seule modale dans tout le dépôt » — il vit
+dans `inertia/components/`, c'est du châssis et non le bien d'un module ; le `CLAUDE.md` du coffre
+ne garde que l'histoire de sa création (CC-207).
 
 ### Après un import, la vue suit le bloc Sauvegarde (CC-67)
 

@@ -3,6 +3,7 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Head, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
+import AppModal from '~/components/AppModal.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
 import { useCan } from '../components/leitner_can'
 import { scrollTopKeepingAnchor } from '../shared/settings_page'
@@ -1035,24 +1036,25 @@ function deleteTheme(theme: ThemeNode): void {
     </div>
   </div>
 
-  <!-- Modale de création / édition. `modalOpen` n'est armé que par les boutons masqués en
-       lecture seule ; `canWriteCards` double la garde, au cas où l'état fuiterait. -->
-  <div
-    v-if="modalOpen && canWriteCards"
-    class="fixed inset-0 z-50 flex items-start justify-center bg-[rgba(4,5,14,.6)] py-16"
-    @click.self="modalOpen = false"
-  >
+  <!-- Modale de création / édition (CC-209 : chassis partagé `AppModal`, voir le CLAUDE.md
+       racine, « Une seule modale dans tout le dépôt »).
+       `modalOpen` n'est armé que par les boutons masqués en lecture seule ;
+       `canWriteCards` double la garde, au cas où l'état fuiterait. -->
+  <AppModal v-if="modalOpen && canWriteCards" v-slot="{ titleId }" @close="modalOpen = false">
     <!--
       En-tête et pied figés, corps défilant (CC-66). Aucune des classes de structure n'est
       décorative — `max-h-[calc()]` et ses tirets bas, `min-h-0`, `shrink-0`, `overflow-hidden` :
       en retirer une rend le pied inatteignable, sans rien casser de visible. Voir le CLAUDE.md
-      du module, « Sa structure est en trois bandes ».
+      du module, « Sa structure est en trois bandes ». `mt-16` remplace le rembourrage vertical
+      que le chassis portait avant CC-209 — l'arithmétique est expliquée dans le CLAUDE.md racine,
+      « Une seule modale dans tout le dépôt » : retirer `mt-16` sans toucher au `max-h-[calc()]`
+      colle la modale au bord haut, et l'inverse la colle au bord bas.
     -->
     <form
-      class="flex max-h-[calc(100vh_-_8rem)] w-[560px] max-w-[90%] flex-col overflow-hidden rounded-[14px] border border-line-2 bg-panel shadow-2xl"
+      class="mt-16 flex max-h-[calc(100vh_-_8rem)] w-[560px] max-w-[90%] flex-col overflow-hidden rounded-[14px] border border-line-2 bg-panel shadow-2xl"
       @submit.prevent="submitCard()"
     >
-      <div class="shrink-0 border-b border-line px-5 py-4 text-[13.5px] font-bold">
+      <div :id="titleId" class="shrink-0 border-b border-line px-5 py-4 text-[13.5px] font-bold">
         {{ editing ? t('leitner.settings.modalEditTitle') : t('leitner.settings.modalCreateTitle') }}
       </div>
       <div class="flex min-h-0 flex-col gap-2 overflow-y-auto p-5">
@@ -1061,7 +1063,6 @@ function deleteTheme(theme: ThemeNode): void {
           ref="frontInput"
           v-model="cardForm.front"
           rows="2"
-          autofocus
           class="shrink-0 resize-y rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
         ></textarea>
 
@@ -1122,5 +1123,5 @@ function deleteTheme(theme: ThemeNode): void {
         </button>
       </div>
     </form>
-  </div>
+  </AppModal>
 </template>
