@@ -230,4 +230,40 @@ describe('Coffre / EntryFormModal', () => {
 
     wrapper.unmount()
   })
+
+  // ⚠️ CC-215 : la SEULE porte par laquelle la borne ci-dessus pouvait encore fuir. Replier le
+  // panneau ne démonte rien (contrairement à fermer la modale, montée en `v-if` depuis CC-207) et
+  // `folderPhotos` reste délibérément en mémoire — sans remise à zéro du compteur, redéployer
+  // rendait d'un coup tout ce qui avait été révélé, et le `no-store` du proxy fait repartir
+  // CHAQUE vignette vers Immich. Le geste réel est donc : voir plus, replier, redéployer.
+  test('replier le panneau du dossier remet le rendu au premier lot', async () => {
+    const photos = Array.from({ length: 120 }, (_, i) => ({ assetId: `asset-${i}` }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ available: true, truncated: false, photos }),
+      })
+    )
+
+    const wrapper = monter({ entry: null, immichFolderAvailable: true })
+    const bouton = (libelle: string) => wrapper.findAll('button').find((b) => b.text() === libelle)!
+    const vignettes = () => wrapper.findAll('img[src^="/coffre/immich/dossier/"]').length
+
+    await bouton(fr.index.folderBrowse).trigger('click')
+    await flushPromises()
+    await bouton(fr.index.folderShowMore).trigger('click')
+    expect(vignettes()).toBe(80)
+
+    // Replier — le libellé du bouton bascule sur « fermer le dossier ».
+    await bouton(fr.index.folderClose).trigger('click')
+    expect(vignettes()).toBe(0)
+
+    // Redéployer : aucun nouveau listing (`folderPhotos` est en mémoire), et surtout un seul lot.
+    await bouton(fr.index.folderBrowse).trigger('click')
+    await flushPromises()
+    expect(vignettes()).toBe(40)
+
+    wrapper.unmount()
+  })
 })

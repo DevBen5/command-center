@@ -172,7 +172,19 @@ const mediaTarget = computed<string[]>(() => (isEdit ? editForm.media.add : form
 
 async function toggleFolder(): Promise<void> {
   folderOpen.value = !folderOpen.value
-  if (!folderOpen.value) return
+
+  // ⚠️ **Replier le panneau remet le compteur au premier lot, et sans ça la borne de CC-215
+  // fuirait par sa seule porte non fermée.** `folderPhotos` reste délibérément en mémoire (ligne
+  // suivante) : redéployer ne relance aucun listing — mais rien n'est en cache non plus
+  // (`no-store` sur le proxy), donc TOUTES les vignettes révélées repartent vers Immich. Sans
+  // cette remise à zéro, quelqu'un qui a cliqué « voir plus » quatre fois puis replié le panneau
+  // le rouvre sur 200 requêtes simultanées — exactement ce que ce lot existe pour empêcher, en
+  // plus petit.
+  if (!folderOpen.value) {
+    folderDisplayCount.value = FOLDER_DISPLAY_BATCH
+    return
+  }
+
   if (folderPhotos.value !== null || folderLoading.value) return
 
   folderLoading.value = true
