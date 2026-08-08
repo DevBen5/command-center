@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
+import ConfirmModal from '~/components/ConfirmModal.vue'
 // ⚠️ Import **relatif**, jamais `#modules/*` : l'alias vise des `.js` qui n'existent qu'après un
 // build, Vite ne les résout pas et la page casse. Le `.js` bascule sur le `.ts` côté Vite.
 import {
@@ -131,6 +132,7 @@ const queueItems = computed(() => props.items.filter((item) => item.readingQueue
  * affichés, mais l'état ne doit pas mentir non plus.
  */
 const selected = ref<number[]>([])
+const confirmModal = ref<InstanceType<typeof ConfirmModal> | null>(null)
 
 /** Le décompte serveur est un aller-retour : sans ce verrou, deux clics posent deux dialogues. */
 const deletingFiltered = ref(false)
@@ -151,9 +153,10 @@ function toggleEveryItem(): void {
  * La suppression. **Rien ne part sans confirmation** — et le message dit combien d'assets Immich
  * sont concernés, pas seulement combien de lignes disparaissent de l'écran.
  */
-function deleteSelected(): void {
+async function deleteSelected(): Promise<void> {
   const message = confirmationMessage(selection.value, 'selected')
-  if (message === null || !confirm(message)) return
+  if (message === null) return
+  if (!(await confirmModal.value?.ask(message, { danger: true }))) return
 
   router.post(
     '/veille/items/delete',
@@ -197,7 +200,8 @@ async function deleteFiltered(): Promise<void> {
 
     const summary = (await response.json()) as { total: number; media: number }
     const message = confirmationMessage(summary, 'filtered')
-    if (message === null || !confirm(message)) return
+    if (message === null) return
+    if (!(await confirmModal.value?.ask(message, { danger: true }))) return
 
     selected.value = []
     router.post('/veille/items/filtered/delete', payload, { preserveScroll: true })
@@ -1019,4 +1023,6 @@ function submitCapture(): void {
       </form>
     </div>
   </div>
+
+  <ConfirmModal ref="confirmModal" />
 </template>

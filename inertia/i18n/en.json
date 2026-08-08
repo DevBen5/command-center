@@ -24,6 +24,10 @@
     "logout": "Sign out →",
     "logoutTitle": "Sign out"
   },
+  "confirm": {
+    "cancel": "Cancel",
+    "confirm": "Confirm"
+  },
   "palette": {
     "placeholder": "Type a command, a service, an agent…",
     "navigation": "Navigation",

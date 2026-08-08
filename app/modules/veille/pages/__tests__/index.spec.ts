@@ -18,6 +18,12 @@ import Index from '../index.vue'
 |
 | ⚠️ L'instance i18n embarque le namespace `veille` : sans lui, `t('veille.index.…')` rendrait la
 | clé brute et l'assertion échouerait sur la mauvaise cause.
+|
+| ⚠️ `confirm` (racine, le chassis) est monté pour la même raison que `veille` : depuis CC-206 la
+| page inclut `ConfirmModal`, dont `useI18n()` lit `t('confirm.cancel')`/`t('confirm.confirm')`.
+| Aucun test d'ici ne déclenche `deleteSelected`/`deleteFiltered` aujourd'hui, mais un test qui le
+| ferait sans cette entrée verrait les boutons rendre les clés brutes plutôt que « Annuler »/
+| « Confirmer », et chercherait la panne au mauvais endroit.
 */
 
 vi.mock('@inertiajs/vue3', () => ({
@@ -87,7 +93,7 @@ function mountIndex(props: Record<string, unknown> = {}) {
           legacy: false,
           locale: 'fr',
           fallbackLocale: 'fr',
-          messages: { fr: { veille: fr } },
+          messages: { fr: { veille: fr, confirm: { cancel: 'Annuler', confirm: 'Confirmer' } } },
         }),
       ],
     },

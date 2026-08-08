@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { Head, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import AppModal from '~/components/AppModal.vue'
+import ConfirmModal from '~/components/ConfirmModal.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
 import { useCan } from '../components/leitner_can'
 import { scrollTopKeepingAnchor } from '../shared/settings_page'
@@ -11,6 +12,8 @@ import { scrollTopKeepingAnchor } from '../shared/settings_page'
 defineOptions({ layout: AppLayout })
 
 const { t } = useI18n()
+
+const confirmModal = ref<InstanceType<typeof ConfirmModal> | null>(null)
 
 /**
  * L'écran de gestion mêle lecture (catalogue, arbre de taxonomie) et écriture. En lecture
@@ -218,16 +221,14 @@ function bulkAssign(): void {
   )
 }
 
-function bulkDelete(): void {
+async function bulkDelete(): Promise<void> {
   const count = selected.value.length
   if (count === 0) return
   const message =
     count > 1
       ? t('leitner.settings.confirmBulkDeletePlural', { count })
       : t('leitner.settings.confirmBulkDeleteSingular', { count })
-  if (!confirm(message)) {
-    return
-  }
+  if (!(await confirmModal.value?.ask(message, { danger: true }))) return
   router.post(
     '/revision/cards/delete',
     { ids: selected.value },
@@ -235,8 +236,9 @@ function bulkDelete(): void {
   )
 }
 
-function deleteCard(card: Card): void {
-  if (!confirm(t('leitner.settings.confirmDeleteCard', { front: card.front.slice(0, 60) }))) return
+async function deleteCard(card: Card): Promise<void> {
+  const message = t('leitner.settings.confirmDeleteCard', { front: card.front.slice(0, 60) })
+  if (!(await confirmModal.value?.ask(message, { danger: true }))) return
   router.delete(`/revision/cards/${card.id}`, { preserveScroll: true })
 }
 
@@ -275,6 +277,22 @@ function openEdit(card: Card): void {
   cardForm.leitnerThemeId = card.theme?.id ?? null
   cardForm.isShared = card.isShared
   modalOpen.value = true
+}
+
+/**
+ * Supprimer depuis la modale d'édition (CC-206) — ouvre une confirmation PAR-DESSUS le
+ * formulaire déjà en modale, le cas pour lequel CC-209 a ajouté la pile d'instances
+ * d'`AppModal`. Ferme la modale d'édition une fois la suppression acceptée par le serveur.
+ */
+async function deleteEditingCard(): Promise<void> {
+  if (!editing.value) return
+  const card = editing.value
+  const message = t('leitner.settings.confirmDeleteCard', { front: card.front.slice(0, 60) })
+  if (!(await confirmModal.value?.ask(message, { danger: true }))) return
+  router.delete(`/revision/cards/${card.id}`, {
+    preserveScroll: true,
+    onSuccess: () => (modalOpen.value = false),
+  })
 }
 
 /**
@@ -491,7 +509,7 @@ function submitRenameTheme(theme: ThemeNode, categoryId: number): void {
   )
 }
 
-function deleteCategory(category: CategoryNode): void {
+async function deleteCategory(category: CategoryNode): Promise<void> {
   const message = category.cardCount
     ? t('leitner.settings.confirmDeleteCategory', {
         name: category.name,
@@ -499,15 +517,15 @@ function deleteCategory(category: CategoryNode): void {
         cards: category.cardCount,
       })
     : t('leitner.settings.confirmDeleteCategoryEmpty', { name: category.name })
-  if (!confirm(message)) return
+  if (!(await confirmModal.value?.ask(message, { danger: true }))) return
   router.delete(`/revision/categories/${category.id}`, { preserveScroll: true })
 }
 
-function deleteTheme(theme: ThemeNode): void {
+async function deleteTheme(theme: ThemeNode): Promise<void> {
   const message = theme.cardCount
     ? t('leitner.settings.confirmDeleteTheme', { name: theme.name, cards: theme.cardCount })
     : t('leitner.settings.confirmDeleteThemeEmpty', { name: theme.name })
-  if (!confirm(message)) return
+  if (!(await confirmModal.value?.ask(message, { danger: true }))) return
   router.delete(`/revision/themes/${theme.id}`, { preserveScroll: true })
 }
 </script>
@@ -1097,7 +1115,19 @@ function deleteTheme(theme: ThemeNode): void {
           </span>
         </label>
       </div>
-      <div class="flex shrink-0 justify-end gap-2 border-t border-line px-5 py-4">
+      <div class="flex shrink-0 items-center justify-end gap-2 border-t border-line px-5 py-4">
+        <!-- ⚠️ Supprimer une carte depuis sa propre modale d'édition (CC-206) : c'est le cas
+             pour lequel CC-209 a ajouté la pile d'instances d'`AppModal` — la confirmation
+             s'ouvre par-dessus ce formulaire encore ouvert. -->
+        <button
+          v-if="editing"
+          type="button"
+          class="mr-auto rounded-md border border-bad/50 px-3 py-2 text-[12.5px] text-bad transition hover:bg-bad hover:text-white disabled:opacity-50"
+          :disabled="saving"
+          @click="deleteEditingCard"
+        >
+          {{ t('leitner.settings.delete') }}
+        </button>
         <button
           type="button"
           class="rounded-md border border-line-2 bg-panel-2 px-3 py-2 text-[12.5px] text-txt-2"
@@ -1124,4 +1154,6 @@ function deleteTheme(theme: ThemeNode): void {
       </div>
     </form>
   </AppModal>
+
+  <ConfirmModal ref="confirmModal" />
 </template>

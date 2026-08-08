@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
+import ConfirmModal from '~/components/ConfirmModal.vue'
 
 defineOptions({ layout: AppLayout })
 
@@ -30,6 +31,8 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+
+const confirmModal = ref<InstanceType<typeof ConfirmModal> | null>(null)
 
 const identity = ref({
   fullName: props.account.fullName ?? '',
@@ -74,25 +77,25 @@ function toggleActivation(): void {
   router.post(`/admin/users/${props.account.id}/activation`, {}, { preserveScroll: true })
 }
 
-function destroy(): void {
+async function destroy(): Promise<void> {
   const nom = props.account.fullName ?? props.account.email
   const message =
     `Supprimer définitivement le compte « ${nom} » ? ` +
     'Ses capacités et ses invitations seront détruites avec lui ; ' +
     'le contenu partagé n’est pas affecté. Cette action est irréversible.'
-  if (!confirm(message)) {
+  if (!(await confirmModal.value?.ask(message, { danger: true }))) {
     return
   }
   router.delete(`/admin/users/${props.account.id}`)
 }
 
-function resetTwoFactor(): void {
+async function resetTwoFactor(): Promise<void> {
   const nom = props.account.fullName ?? props.account.email
   const message =
     `Réinitialiser le second facteur de « ${nom} » ? ` +
     'Ses codes de secours restants seront effacés, et son compte se reconnectera ' +
     'avec son seul mot de passe jusqu’à ce qu’il se réenrôle.'
-  if (!confirm(message)) {
+  if (!(await confirmModal.value?.ask(message, { danger: true }))) {
     return
   }
   router.post(`/admin/users/${props.account.id}/2fa/reset`, {}, { preserveScroll: true })
@@ -321,4 +324,6 @@ async function issueInvitation(): Promise<void> {
       </div>
     </section>
   </div>
+
+  <ConfirmModal ref="confirmModal" />
 </template>

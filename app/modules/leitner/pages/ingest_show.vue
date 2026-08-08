@@ -3,6 +3,7 @@ import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
+import ConfirmModal from '~/components/ConfirmModal.vue'
 import IngestionTitle from '../components/IngestionTitle.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
 import TaxonomyCombobox from '../components/TaxonomyCombobox.vue'
@@ -176,6 +177,8 @@ const pendingDrafts = computed(() => props.drafts.filter((draft) => draft.status
 const acceptedDrafts = computed(() => props.drafts.filter((draft) => draft.status === 'accepted'))
 const rejectedDrafts = computed(() => props.drafts.filter((draft) => draft.status === 'rejected'))
 
+const confirmModal = ref<InstanceType<typeof ConfirmModal> | null>(null)
+
 const selected = ref<number[]>([])
 const allSelected = computed(
   () => pendingDrafts.value.length > 0 && selected.value.length === pendingDrafts.value.length
@@ -236,8 +239,9 @@ function reject(ids: number[]): void {
   selected.value = []
 }
 
-function destroyIngestion(): void {
-  if (!confirm(t('leitner.ingestShow.confirmDelete'))) return
+async function destroyIngestion(): Promise<void> {
+  if (!(await confirmModal.value?.ask(t('leitner.ingestShow.confirmDelete'), { danger: true })))
+    return
   router.delete(`/revision/ingest/${props.ingestion.id}`)
 }
 </script>
@@ -538,4 +542,5 @@ function destroyIngestion(): void {
     </div>
   </div>
 
+  <ConfirmModal ref="confirmModal" />
 </template>

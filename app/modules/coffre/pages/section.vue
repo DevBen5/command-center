@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Head, Link, router } from '@inertiajs/vue3'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '~/layouts/AppLayout.vue'
+import ConfirmModal from '~/components/ConfirmModal.vue'
 import { CLIPBOARD_CLEAR_MS, clearClipboardIn, clipboardAvailable, copyText } from '~/utils/clipboard'
 import type { CoffreEntryType, CoffreSectionKey } from '../shared/entry_sections.js'
 import EntryFormModal from '../components/EntryFormModal.vue'
@@ -80,6 +81,7 @@ const presetType = computed<CoffreEntryType>(() => (props.section === 'photo' ? 
  */
 const modalOpen = ref(false)
 const modalEntry = ref<CoffreEntry | null>(null)
+const confirmModal = ref<InstanceType<typeof ConfirmModal> | null>(null)
 
 function openCreate(): void {
   modalEntry.value = null
@@ -233,8 +235,8 @@ async function afficherSecret(id: number): Promise<void> {
   masquage = setTimeout(masquerSecret, REVEAL_MS)
 }
 
-function remove(id: number): void {
-  if (!window.confirm(t('coffre.index.deleteConfirm'))) return
+async function remove(id: number): Promise<void> {
+  if (!(await confirmModal.value?.ask(t('coffre.index.deleteConfirm'), { danger: true }))) return
 
   // Une visite Inertia re-rend le composant sans le démonter : sans cet oubli, le secret d'une
   // entrée qu'on vient de supprimer survivrait à la ligne qui le portait.
@@ -435,4 +437,6 @@ function natureLabel(type: CoffreEntryType): string {
       @close="closeModal"
     />
   </div>
+
+  <ConfirmModal ref="confirmModal" />
 </template>

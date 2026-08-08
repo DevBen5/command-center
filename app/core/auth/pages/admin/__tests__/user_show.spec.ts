@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createI18n } from 'vue-i18n'
 import UserShow from '../user_show.vue'
 
 /*
@@ -14,6 +15,11 @@ import UserShow from '../user_show.vue'
 | Le garde-fou de cette collision vit côté serveur : `tests/functional/modules/pages.spec.ts`
 | vérifie sur **chaque** page que la prop partagée `user` est toujours le compte connecté.
 | Ne rapatrie pas ce test ici en croyant l'y renforcer : il y serait aveugle.
+|
+| ⚠️ Depuis CC-206, la page monte `ConfirmModal` (racine, hors module) — son `useI18n()`
+| exige qu'UNE instance i18n soit installée globalement, même si cette page n'utilise elle-même
+| aucune clé de traduction (tout son texte est écrit en dur). Sans ce plugin, le montage lève
+| au setup de `ConfirmModal`, pour une raison qui n'a rien à voir avec ce que ces tests prouvent.
 */
 
 vi.mock('@inertiajs/vue3', () => ({
@@ -46,6 +52,16 @@ function monter(
       catalog: CATALOG,
       invitation,
       deletable: false,
+    },
+    global: {
+      plugins: [
+        createI18n({
+          legacy: false,
+          locale: 'fr',
+          fallbackLocale: 'fr',
+          messages: { fr: { confirm: { cancel: 'Annuler', confirm: 'Confirmer' } } },
+        }),
+      ],
     },
   })
 }
