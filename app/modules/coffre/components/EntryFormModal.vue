@@ -151,13 +151,40 @@ const folderTruncated = ref(false)
 const folderLoading = ref(false)
 const folderError = ref(false)
 
+/**
+ * ⚠️ **Borne le RENDU, jamais le ramassage** (CC-215) — `MAX_PAGES`/`PAGE_SIZE` de
+ * `immich_session_client.ts` restent inchangés : peu importe combien Immich a rendu (jusqu'à
+ * 1000), le navigateur n'affiche jamais plus d'un lot à la fois. Baisser `MAX_PAGES` aurait rendu
+ * `folderTruncated` visible en usage normal — décision produit distincte, pas prise ici.
+ * `loading="lazy"` sur la vignette (voir plus bas) diffère encore le départ des N premières ; sans
+ * cette borne il ne suffirait pas, un panneau assez long restant dans la distance de préchargement
+ * du navigateur.
+ */
+const FOLDER_DISPLAY_BATCH = 40
+const folderDisplayCount = ref(FOLDER_DISPLAY_BATCH)
+
+/** Les photos réellement rendues — un lot à la fois, révélé par `showMoreFolderPhotos`. */
+const visibleFolderPhotos = computed(() => folderPhotos.value?.slice(0, folderDisplayCount.value) ?? [])
+
 /** La cible qui reçoit un UUID collé ou sélectionné dans le dossier — `form.media` en création,
  * `editForm.media.add` en édition. */
 const mediaTarget = computed<string[]>(() => (isEdit ? editForm.media.add : form.media))
 
 async function toggleFolder(): Promise<void> {
   folderOpen.value = !folderOpen.value
-  if (!folderOpen.value) return
+
+  // ⚠️ **Replier le panneau remet le compteur au premier lot, et sans ça la borne de CC-215
+  // fuirait par sa seule porte non fermée.** `folderPhotos` reste délibérément en mémoire (ligne
+  // suivante) : redéployer ne relance aucun listing — mais rien n'est en cache non plus
+  // (`no-store` sur le proxy), donc TOUTES les vignettes révélées repartent vers Immich. Sans
+  // cette remise à zéro, quelqu'un qui a cliqué « voir plus » quatre fois puis replié le panneau
+  // le rouvre sur 200 requêtes simultanées — exactement ce que ce lot existe pour empêcher, en
+  // plus petit.
+  if (!folderOpen.value) {
+    folderDisplayCount.value = FOLDER_DISPLAY_BATCH
+    return
+  }
+
   if (folderPhotos.value !== null || folderLoading.value) return
 
   folderLoading.value = true
@@ -190,6 +217,12 @@ async function toggleFolder(): Promise<void> {
 /** Sélectionne une photo du dossier — même effet que coller son UUID à la main. */
 function selectFolderPhoto(assetId: string): void {
   if (!mediaTarget.value.includes(assetId)) mediaTarget.value.push(assetId)
+}
+
+/** Révèle un lot de plus — aucune nouvelle requête de listing, les `assetId` sont déjà en
+ * mémoire ; seules les vignettes nouvellement révélées partent vers le proxy. */
+function showMoreFolderPhotos(): void {
+  folderDisplayCount.value += FOLDER_DISPLAY_BATCH
 }
 
 /** Valide et ajoute un UUID au champ courant — la vraie garde reste côté serveur, ceci n'évite
@@ -436,7 +469,7 @@ function submit(): void {
                 {{ t('coffre.index.folderTruncated') }}
               </p>
               <ul class="flex flex-wrap gap-2">
-                <li v-for="photo in folderPhotos" :key="photo.assetId">
+                <li v-for="photo in visibleFolderPhotos" :key="photo.assetId">
                   <button
                     type="button"
                     class="block overflow-hidden rounded-[8px] border border-line-2 hover:border-aqua"
@@ -445,12 +478,21 @@ function submit(): void {
                   >
                     <img
                       :src="`/coffre/immich/dossier/${photo.assetId}/thumbnail`"
+                      loading="lazy"
                       class="block h-16 w-16 object-cover"
                       alt=""
                     />
                   </button>
                 </li>
               </ul>
+              <button
+                v-if="folderPhotos.length > folderDisplayCount"
+                type="button"
+                class="mt-2 w-full rounded-[7px] border border-line-2 py-1.5 text-[12px] text-txt-2 hover:border-aqua"
+                @click="showMoreFolderPhotos"
+              >
+                {{ t('coffre.index.folderShowMore') }}
+              </button>
             </template>
           </div>
         </div>

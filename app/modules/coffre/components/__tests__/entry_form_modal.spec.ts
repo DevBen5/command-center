@@ -1,5 +1,5 @@
-import { describe, expect, test, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import { reactive } from 'vue'
 import fr from '../../i18n/fr.json' with { type: 'json' }
@@ -64,6 +64,10 @@ function monter(props: {
 }
 
 describe('Coffre / EntryFormModal', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   test('en création, le sélecteur de nature est proposé, le titre de la modale l’annonce', () => {
     const wrapper = monter({ entry: null })
 
@@ -188,5 +192,78 @@ describe('Coffre / EntryFormModal', () => {
     const enCreation = monter({ entry: null })
     expect(enCreation.find('img[src^="/coffre/media/"]').exists()).toBe(false)
     enCreation.unmount()
+  })
+
+  // ⚠️ CC-215 : le dossier verrouillé peut porter plus de 100 photos (mesuré contre la vraie
+  // instance du propriétaire) — le panneau ne doit JAMAIS rendre plus d'un lot à la fois, quel
+  // que soit le nombre rapporté par le listing. Vérifié mutation : retirer le `.slice` du
+  // composant fait rougir ce test, et lui seul.
+  test('la grille du dossier verrouillé borne le rendu à un lot, « voir plus » révèle le suivant', async () => {
+    const photos = Array.from({ length: 120 }, (_, i) => ({ assetId: `asset-${i}` }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ available: true, truncated: false, photos }),
+      })
+    )
+
+    const wrapper = monter({ entry: null, immichFolderAvailable: true })
+
+    const browse = wrapper.findAll('button').find((b) => b.text() === fr.index.folderBrowse)!
+    await browse.trigger('click')
+    await flushPromises()
+
+    const vignette = (index: number) =>
+      wrapper.find(`img[src="/coffre/immich/dossier/asset-${index}/thumbnail"]`)
+
+    expect(wrapper.findAll('img[src^="/coffre/immich/dossier/"]')).toHaveLength(40)
+    expect(vignette(0).attributes('loading')).toBe('lazy')
+    expect(vignette(40).exists()).toBe(false)
+
+    const voirPlus = wrapper.findAll('button').find((b) => b.text() === fr.index.folderShowMore)!
+    await voirPlus.trigger('click')
+
+    expect(wrapper.findAll('img[src^="/coffre/immich/dossier/"]')).toHaveLength(80)
+    expect(vignette(79).exists()).toBe(true)
+    expect(vignette(80).exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  // ⚠️ CC-215 : la SEULE porte par laquelle la borne ci-dessus pouvait encore fuir. Replier le
+  // panneau ne démonte rien (contrairement à fermer la modale, montée en `v-if` depuis CC-207) et
+  // `folderPhotos` reste délibérément en mémoire — sans remise à zéro du compteur, redéployer
+  // rendait d'un coup tout ce qui avait été révélé, et le `no-store` du proxy fait repartir
+  // CHAQUE vignette vers Immich. Le geste réel est donc : voir plus, replier, redéployer.
+  test('replier le panneau du dossier remet le rendu au premier lot', async () => {
+    const photos = Array.from({ length: 120 }, (_, i) => ({ assetId: `asset-${i}` }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ available: true, truncated: false, photos }),
+      })
+    )
+
+    const wrapper = monter({ entry: null, immichFolderAvailable: true })
+    const bouton = (libelle: string) => wrapper.findAll('button').find((b) => b.text() === libelle)!
+    const vignettes = () => wrapper.findAll('img[src^="/coffre/immich/dossier/"]').length
+
+    await bouton(fr.index.folderBrowse).trigger('click')
+    await flushPromises()
+    await bouton(fr.index.folderShowMore).trigger('click')
+    expect(vignettes()).toBe(80)
+
+    // Replier — le libellé du bouton bascule sur « fermer le dossier ».
+    await bouton(fr.index.folderClose).trigger('click')
+    expect(vignettes()).toBe(0)
+
+    // Redéployer : aucun nouveau listing (`folderPhotos` est en mémoire), et surtout un seul lot.
+    await bouton(fr.index.folderBrowse).trigger('click')
+    await flushPromises()
+    expect(vignettes()).toBe(40)
+
+    wrapper.unmount()
   })
 })
