@@ -1,10 +1,18 @@
 import { spawn } from 'node:child_process'
 import { createWriteStream, existsSync, mkdirSync, statSync } from 'node:fs'
-import { copyFile, rename, stat, unlink } from 'node:fs/promises'
+import { copyFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 
-import { dumpsAPurger, listerDumps, lireGarder, verifierDump } from './lib/dumps.js'
+import {
+  chiffrerDump,
+  dumpsAPurger,
+  estDumpChiffre,
+  listerDumps,
+  lireGarder,
+  verifierDump,
+  verifierDumpChiffre,
+} from './lib/dumps.js'
 
 /*
 | Sauvegarde de la base dans un fichier SQL, sur le disque de la machine — puis, si
@@ -23,10 +31,19 @@ import { dumpsAPurger, listerDumps, lireGarder, verifierDump } from './lib/dumps
 | par rançongiciel : les deux partaient ensemble. D'où la troisième copie, sur un support
 | que ce disque n'emporte pas.
 |
-| ⚠️ **L'ordre des étapes n'est pas décoratif** : dump → flush → vérification → miroir →
-| purge. La purge est la seule opération destructive et elle vient EN DERNIER : si la
-| copie vers le miroir échoue, rien n'est supprimé localement. Sans ça, un NAS débranché
-| ferait disparaître des dumps que l'archive n'a jamais reçus.
+| ⚠️ **L'ordre des étapes n'est pas décoratif** : dump → flush → vérification → CHIFFREMENT
+| → relecture du chiffré → suppression du clair → miroir → purge (CC-223). La purge est la
+| seule opération destructive et elle vient EN DERNIER : si la copie vers le miroir échoue,
+| rien n'est supprimé localement. Sans ça, un NAS débranché ferait disparaître des dumps que
+| l'archive n'a jamais reçus.
+|
+| ⚠️ **Le chiffrement est opt-in** (`BACKUP_ENCRYPTION_RECIPIENT`, une clé publique age
+| `age1...`) — même doctrine que `BACKUP_MIRROR_DIR` : absente, le dump reste en clair comme
+| aujourd'hui, et le script l'annonce à chaque exécution. Configurée mais invalide (mauvais
+| format, par exemple), le script s'arrête : il ne mirrorerait jamais un clair alors qu'un
+| chiffrement était censé le protéger. Le clair n'est JAMAIS supprimé avant que le fichier
+| `.sql.age` ait été relu et vérifié bon — la clé PRIVÉE, elle, ne vit jamais sur cette
+| machine : ce script peut chiffrer sans jamais pouvoir relire ce qu'il vient d'écrire.
 |
 | `spawn` reçoit un TABLEAU d'arguments, jamais une chaîne interpolée dans un shell
 | (même règle que `SystemStatsService`).
@@ -84,14 +101,19 @@ async function dumper() {
 }
 
 /**
- * Copie le dump hors de ce disque, puis le relit DEPUIS le support.
+ * Copie `source` hors de ce disque, puis la relit DEPUIS le support.
  *
  * ⚠️ Le dossier doit EXISTER — il n'est jamais créé. Un `mkdir -p` sur un NAS non monté
  * fabriquerait un dossier sur le disque local : on croirait avoir une copie hors-site,
  * on aurait un doublon dans le même panier. C'est exactement la panne que CC-69 corrige,
  * et la créer en silence serait pire que de ne rien copier.
+ *
+ * ⚠️ `source` est le fichier final à propager — le `.sql` en clair si le chiffrement n'est
+ * pas configuré, le `.sql.age` sinon (CC-223). La fonction de vérification se déduit du nom
+ * (`estDumpChiffre`) plutôt que d'être passée par l'appelant : une seule source de vérité
+ * sur « quelle forme mérite quelle vérification », partagée avec la purge et le restore.
  */
-async function copierVersLeMiroir(destination) {
+async function copierVersLeMiroir(destination, source) {
   const cible = resolve(destination)
 
   if (cible === dossier) {
@@ -106,14 +128,14 @@ async function copierVersLeMiroir(destination) {
   }
 
   // Nom temporaire puis renommage : une copie interrompue (NAS débranché) laisse un
-  // `.part` visible, jamais un `.sql` tronqué qui passerait pour une sauvegarde.
-  const partiel = resolve(cible, `${basename(fichier)}.part`)
-  const final = resolve(cible, basename(fichier))
+  // `.part` visible, jamais un fichier tronqué qui passerait pour une sauvegarde.
+  const partiel = resolve(cible, `${basename(source)}.part`)
+  const final = resolve(cible, basename(source))
 
   try {
-    await copyFile(fichier, partiel)
+    await copyFile(source, partiel)
 
-    const { size: attendu } = await stat(fichier)
+    const { size: attendu } = await stat(source)
     const { size: copie } = await stat(partiel)
     if (copie !== attendu) {
       await unlink(partiel).catch(() => {})
@@ -130,7 +152,8 @@ async function copierVersLeMiroir(destination) {
   // copie qui compte — la seule qui survive à la perte de ce disque — et comparer les
   // tailles ne prouve que la longueur, jamais la lisibilité. Un support fatigué ou un
   // partage réseau capricieux ne se trahit qu'ici, en relisant depuis lui.
-  const { ok, raison } = verifierDump(final)
+  const verifier = estDumpChiffre(basename(final)) ? verifierDumpChiffre : verifierDump
+  const { ok, raison } = verifier(final)
   if (!ok) {
     // Illisible et pourtant nommé comme un dump : il passerait pour une sauvegarde sur
     // l'archive. Même traitement qu'en local — on l'efface. Le dump local, lui, est bon.
@@ -139,6 +162,32 @@ async function copierVersLeMiroir(destination) {
   }
 
   return null
+}
+
+/**
+ * Chiffre `fichierClair` pour `clePublique`, relit le résultat, puis supprime le clair.
+ * Ne rend le chemin du `.sql.age` QUE si toute la chaîne a réussi — sur n'importe quel
+ * échec, le clair reste intact et RIEN n'est supprimé (CC-223, même doctrine que le miroir).
+ */
+async function chiffrerEtRemplacer(fichierClair, clePublique) {
+  let chiffre
+  try {
+    chiffre = await chiffrerDump(fichierClair, clePublique)
+  } catch (erreur) {
+    throw new Error(`Chiffrement échoué : ${erreur.message}`)
+  }
+
+  const cheminChiffre = `${fichierClair}.age`
+  await writeFile(cheminChiffre, chiffre)
+
+  const { ok, raison } = verifierDumpChiffre(cheminChiffre)
+  if (!ok) {
+    await unlink(cheminChiffre).catch(() => {})
+    throw new Error(`Dump chiffré illisible une fois écrit, supprimé : ${raison}`)
+  }
+
+  await unlink(fichierClair)
+  return cheminChiffre
 }
 
 /**
@@ -182,9 +231,28 @@ async function principal() {
   const { size } = await stat(fichier)
   console.log(`Sauvegarde : ${fichier} (${Math.round(size / 1024)} Ko, vérifiée)`)
 
+  let cheminAPropager = fichier
+  const recipient = process.env.BACKUP_ENCRYPTION_RECIPIENT?.trim()
+  if (recipient) {
+    try {
+      cheminAPropager = await chiffrerEtRemplacer(fichier, recipient)
+      console.log(`Chiffré : ${cheminAPropager}`)
+    } catch (erreur) {
+      // Le clair reste une sauvegarde valide, jamais supprimé pour un chiffrement en
+      // échec — mais on s'arrête là : hors de question de mirrorer ce clair alors qu'un
+      // chiffrement était configuré pour le protéger.
+      return echouer(`${erreur.message}\nLe dump local reste en clair, conservé : ${fichier}`)
+    }
+  } else {
+    console.log(
+      'Dump non chiffré (BACKUP_ENCRYPTION_RECIPIENT non renseignée) : il vit en clair, ' +
+        'sur ce disque et sur le miroir le cas échéant.'
+    )
+  }
+
   const destination = process.env.BACKUP_MIRROR_DIR?.trim()
   if (destination) {
-    const probleme = await copierVersLeMiroir(destination)
+    const probleme = await copierVersLeMiroir(destination, cheminAPropager)
     if (probleme) {
       // Le dump local est bon : on le garde, et surtout on ne purge pas.
       return echouer(`${probleme}\nLe dump local est conservé, aucune purge effectuée.`)

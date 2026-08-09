@@ -23,6 +23,7 @@ export default class BackupAdminController {
       dailyEnabled: settings.dailyEnabled,
       directoryReady: status.directoryReady,
       mirrorConfigured: status.mirrorConfigured,
+      encryptionConfigured: status.encryptionConfigured,
       dumps: dumps
         .slice()
         .reverse()

@@ -2,13 +2,18 @@ import { test } from '@japa/runner'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import * as age from 'age-encryption'
 
 import {
   GARDER_PAR_DEFAUT,
+  chiffrerDump,
+  dechiffrerDump,
   dumpsAPurger,
+  estDumpChiffre,
   listerDumps,
   lireGarder,
   verifierDump,
+  verifierDumpChiffre,
 } from '../../scripts/lib/dumps.js'
 
 /**
@@ -271,5 +276,220 @@ test.group('CC-69 / rétention — choisir ce qui disparaît', () => {
     for (const invalide of [-1, 1.5, Number.NaN]) {
       assert.throws(() => dumpsAPurger(dumps, invalide), /garder/, `${invalide} a été accepté`)
     }
+  })
+})
+
+/**
+ * CC-223 — chiffrement asymétrique des dumps (`age-encryption`, implémentation JS pure).
+ *
+ * Chaque test fabrique sa propre paire de clés à la volée : rien de figé dans un fichier,
+ * donc aucun risque qu'une clé de test finisse un jour confondue avec une vraie.
+ */
+test.group('CC-223 / vérification du chiffré — un fichier age complet', (group) => {
+  let dossier: string
+
+  group.each.setup(() => {
+    dossier = mkdtempSync(join(tmpdir(), 'cc-dumps-'))
+    return () => rmSync(dossier, { recursive: true, force: true })
+  })
+
+  test('un fichier age valide passe', async ({ assert }) => {
+    const identity = await age.generateIdentity()
+    const recipient = await age.identityToRecipient(identity)
+    const chiffreur = new age.Encrypter()
+    chiffreur.addRecipient(recipient)
+    const chiffre = await chiffreur.encrypt('peu importe le contenu')
+
+    const chemin = join(dossier, 'plein.sql.age')
+    writeFileSync(chemin, chiffre)
+
+    assert.deepEqual(verifierDumpChiffre(chemin), { ok: true })
+  })
+
+  test('un fichier vide est refusé', ({ assert }) => {
+    const chemin = join(dossier, 'rien.sql.age')
+    writeFileSync(chemin, '')
+
+    const { ok, raison } = verifierDumpChiffre(chemin)
+    assert.isFalse(ok)
+    assert.include(raison ?? '', 'vide')
+  })
+
+  test("un fichier qui n'a pas l'en-tête age est refusé", ({ assert }) => {
+    const chemin = join(dossier, 'pas-age.sql.age')
+    writeFileSync(chemin, '-- PostgreSQL database dump\n')
+
+    const { ok, raison } = verifierDumpChiffre(chemin)
+    assert.isFalse(ok)
+    assert.include(raison ?? '', 'en-tête')
+  })
+
+  test('un chemin inexistant est refusé sans lever', ({ assert }) => {
+    const { ok, raison } = verifierDumpChiffre(join(dossier, 'jamais-ecrit.sql.age'))
+    assert.isFalse(ok)
+    assert.include(raison ?? '', 'introuvable')
+  })
+})
+
+test.group('CC-223 / chiffrement et déchiffrement — l’aller-retour', (group) => {
+  let dossier: string
+
+  group.each.setup(() => {
+    dossier = mkdtempSync(join(tmpdir(), 'cc-dumps-'))
+    return () => rmSync(dossier, { recursive: true, force: true })
+  })
+
+  /**
+   * ⚠️ Ce que CC-223 exige de prouver, littéralement — pas déduit du fait qu'`age` a
+   * répondu 0 : l'octet brut du fichier chiffré ne contient AUCUN texte SQL reconnaissable.
+   */
+  test('un dump chiffré puis déchiffré rend le même contenu, et ne ressemble à rien en clair', async ({
+    assert,
+  }) => {
+    const identity = await age.generateIdentity()
+    const recipient = await age.identityToRecipient(identity)
+
+    const clair = dumpComplet()
+    const cheminClair = join(dossier, 'clair.sql')
+    writeFileSync(cheminClair, clair)
+
+    const chiffre = await chiffrerDump(cheminClair, recipient)
+
+    assert.notInclude(chiffre.toString('latin1'), 'CREATE TABLE')
+    assert.notInclude(chiffre.toString('latin1'), 'PostgreSQL database dump')
+
+    const cheminChiffre = join(dossier, 'clair.sql.age')
+    writeFileSync(cheminChiffre, chiffre)
+    assert.deepEqual(verifierDumpChiffre(cheminChiffre), { ok: true })
+
+    const dechiffre = await dechiffrerDump(cheminChiffre, identity)
+    assert.equal(dechiffre.toString('utf8'), clair)
+  })
+
+  test('une clé privée qui ne correspond à aucun destinataire est refusée', async ({ assert }) => {
+    const identity = await age.generateIdentity()
+    const recipient = await age.identityToRecipient(identity)
+    const autreIdentity = await age.generateIdentity()
+
+    const cheminClair = join(dossier, 'clair.sql')
+    writeFileSync(cheminClair, dumpComplet())
+    const chiffre = await chiffrerDump(cheminClair, recipient)
+    const cheminChiffre = join(dossier, 'clair.sql.age')
+    writeFileSync(cheminChiffre, chiffre)
+
+    await assert.rejects(() => dechiffrerDump(cheminChiffre, autreIdentity))
+  })
+
+  /**
+   * Le cas que `verifierDumpChiffre` ne peut PAS attraper (documenté dans son commentaire) :
+   * l'en-tête reste intact, seul le corps authentifié est altéré. C'est `dechiffrerDump`
+   * — et lui seul — qui doit refuser ici.
+   */
+  test('un contenu chiffré corrompu est refusé, jamais restauré à moitié', async ({ assert }) => {
+    const identity = await age.generateIdentity()
+    const recipient = await age.identityToRecipient(identity)
+
+    const cheminClair = join(dossier, 'clair.sql')
+    writeFileSync(cheminClair, dumpComplet())
+    const chiffre = await chiffrerDump(cheminClair, recipient)
+    chiffre[chiffre.length - 5] ^= 0xff
+
+    const cheminChiffre = join(dossier, 'corrompu.sql.age')
+    writeFileSync(cheminChiffre, chiffre)
+    assert.deepEqual(verifierDumpChiffre(cheminChiffre), { ok: true })
+
+    await assert.rejects(() => dechiffrerDump(cheminChiffre, identity))
+  })
+
+  test('une clé publique malformée est refusée AVANT tout chiffrement', async ({ assert }) => {
+    const cheminClair = join(dossier, 'clair.sql')
+    writeFileSync(cheminClair, dumpComplet())
+
+    await assert.rejects(
+      () => chiffrerDump(cheminClair, 'pas-une-clé-age'),
+      /BACKUP_ENCRYPTION_RECIPIENT/
+    )
+  })
+
+  test('une clé privée malformée est refusée, jamais un déchiffrement silencieux', async ({
+    assert,
+  }) => {
+    const identity = await age.generateIdentity()
+    const recipient = await age.identityToRecipient(identity)
+
+    const cheminClair = join(dossier, 'clair.sql')
+    writeFileSync(cheminClair, dumpComplet())
+    const chiffre = await chiffrerDump(cheminClair, recipient)
+    const cheminChiffre = join(dossier, 'clair.sql.age')
+    writeFileSync(cheminChiffre, chiffre)
+
+    await assert.rejects(
+      () => dechiffrerDump(cheminChiffre, 'pas-une-clé-privée'),
+      /Clé privée invalide/
+    )
+  })
+
+  /**
+   * ⚠️ **La garde de sécurité réelle, indépendante du garde-fou UX des appelants.**
+   * `scripts/db-restore.js` et `commands/db_restore.ts` refusent tôt avec un message clair
+   * quand `BACKUP_DECRYPTION_KEY` est absente — mais MÊME sans ce garde-fou, `dechiffrerDump`
+   * doit refuser une clé `undefined`/vide plutôt que de rendre un résultat silencieux. Vérifié
+   * par mutation : `age.Decrypter#addIdentity(undefined)` n'ajoute aucune identité SANS lever
+   * (constaté), c'est `decrypt()` qui échoue ensuite — cette chaîne est ce qui garantit qu'un
+   * appelant qui oublierait le garde-fou ne romprait quand même jamais l'invariant « refuse
+   * avant d'écrire ».
+   */
+  test('une clé privée absente (undefined ou vide) est refusée, jamais silencieuse', async ({
+    assert,
+  }) => {
+    const identity = await age.generateIdentity()
+    const recipient = await age.identityToRecipient(identity)
+
+    const cheminClair = join(dossier, 'clair.sql')
+    writeFileSync(cheminClair, dumpComplet())
+    const chiffre = await chiffrerDump(cheminClair, recipient)
+    const cheminChiffre = join(dossier, 'clair.sql.age')
+    writeFileSync(cheminChiffre, chiffre)
+
+    await assert.rejects(() => dechiffrerDump(cheminChiffre, undefined))
+    await assert.rejects(() => dechiffrerDump(cheminChiffre, ''), /Clé privée invalide/)
+  })
+})
+
+test.group('CC-223 / listage — clair et chiffré mélangés', (group) => {
+  let dossier: string
+
+  group.each.setup(() => {
+    dossier = mkdtempSync(join(tmpdir(), 'cc-dumps-'))
+    return () => rmSync(dossier, { recursive: true, force: true })
+  })
+
+  test('estDumpChiffre distingue les deux formes', ({ assert }) => {
+    assert.isTrue(estDumpChiffre('command-center-2026-08-06_14h30.sql.age'))
+    assert.isFalse(estDumpChiffre('command-center-2026-08-06_14h30.sql'))
+  })
+
+  /**
+   * Un dump d'avant CC-223 reste `.sql` pour toujours (aucun chiffrement rétroactif) : la
+   * purge et le choix « dernier dump » doivent voir les deux formes comme UNE seule chronologie.
+   */
+  test('listerDumps reconnaît les deux formes et les trie ensemble, chronologiquement', ({
+    assert,
+  }) => {
+    for (const nom of [
+      'command-center-2026-07-20_16h33.sql',
+      'command-center-2026-07-21_12h16.sql.age',
+      'command-center-2026-07-19_09h00.sql.age',
+      'notes.sql',
+      'command-center-2026-07-21_12h16.sql.age.part',
+    ]) {
+      writeFileSync(join(dossier, nom), 'peu importe')
+    }
+
+    assert.deepEqual(listerDumps(dossier), [
+      'command-center-2026-07-19_09h00.sql.age',
+      'command-center-2026-07-20_16h33.sql',
+      'command-center-2026-07-21_12h16.sql.age',
+    ])
   })
 })

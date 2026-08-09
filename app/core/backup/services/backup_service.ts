@@ -1,22 +1,36 @@
 import { spawn } from 'node:child_process'
 import { createWriteStream, existsSync, statSync } from 'node:fs'
-import { copyFile, rename, stat, unlink } from 'node:fs/promises'
+import { copyFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import logger from '@adonisjs/core/services/logger'
 import env from '#start/env'
 import { BACKUP_DIR, BACKUP_MIRROR_DIR } from '#config/backup'
 import backupSettings from '#core/backup/services/backup_settings_service'
-import { dumpsAPurger, listerDumps, verifierDump } from '../../../../scripts/lib/dumps.js'
+import {
+  chiffrerDump,
+  dumpsAPurger,
+  estDumpChiffre,
+  listerDumps,
+  verifierDump,
+  verifierDumpChiffre,
+} from '../../../../scripts/lib/dumps.js'
 
 /**
  * L'orchestration de `node ace db:backup` ET de l'écran d'administration (CC-140) — un seul
  * point d'écriture, pour que les deux appelants ne divergent jamais sur l'ordre des étapes.
  *
- * ⚠️ **L'ordre n'est pas décoratif** : dump → écriture close → vérification → miroir → purge.
- * La purge est la seule opération destructive, elle vient EN DERNIER — si la copie vers le
- * miroir échoue, RIEN n'est supprimé. Même doctrine que `scripts/db-backup.js`, dont ce service
- * réutilise la logique de vérification/purge (`scripts/lib/dumps.js`) sans la réécrire.
+ * ⚠️ **L'ordre n'est pas décoratif** : dump → écriture close → vérification → CHIFFREMENT →
+ * relecture du chiffré → suppression du clair → miroir → purge (CC-223). La purge est la seule
+ * opération destructive, elle vient EN DERNIER — si la copie vers le miroir échoue, RIEN n'est
+ * supprimé. Même doctrine que `scripts/db-backup.js`, dont ce service réutilise la logique de
+ * vérification/chiffrement/purge (`scripts/lib/dumps.js`) sans la réécrire.
+ *
+ * ⚠️ **Le chiffrement est opt-in** (`BACKUP_ENCRYPTION_RECIPIENT`, clé publique age `age1...`,
+ * lue depuis l'environnement — jamais la base ni un formulaire, même frontière de confiance que
+ * `LLM_BASE_URL`/`IMMICH_BASE_URL`) : absente, le dump reste en clair, annoncé à chaque exécution.
+ * Configurée mais invalide, la sauvegarde s'arrête plutôt que de mirrorer un clair qu'un
+ * chiffrement était censé protéger — le dump local, lui, n'est jamais supprimé.
  *
  * ⚠️ **`pg_dump` est invoqué en connexion TCP directe** (`-h DB_HOST -p DB_PORT`), pas via
  * `docker compose exec` : ce service tourne DANS le conteneur applicatif, qui n'a pas accès au
@@ -35,6 +49,8 @@ export interface BackupOptions {
   directory?: string
   mirrorDirectory?: string
   runner?: DumpRunner
+  /** Clé publique age (`age1...`) — par défaut `BACKUP_ENCRYPTION_RECIPIENT`. Override de test. */
+  recipient?: string
 }
 
 export interface BackupResult {
@@ -93,6 +109,7 @@ export class BackupService {
   #directory: string
   #mirrorDirectory: string
   #runner: DumpRunner
+  #recipient: string | undefined
   /**
    * ⚠️ Garde anti-chevauchement, en mémoire — même patron que `veille_scheduler`. Sans elle,
    * un déclenchement admin et le tick automatique retombant dans la même minute (résolution de
@@ -107,6 +124,15 @@ export class BackupService {
     this.#directory = options.directory ?? BACKUP_DIR
     this.#mirrorDirectory = options.mirrorDirectory ?? BACKUP_MIRROR_DIR
     this.#runner = options.runner ?? pgDumpRunner
+    // ⚠️ `|| undefined`, PAS `?? undefined` : une chaîne vide n'est pas nullish, donc `??` la
+    // laisserait passer. `Env.schema.string.optional()` traduit bien `VAR=` en `undefined`, mais
+    // PAS `VAR="   "`, qui arrive ici en `'   '` puis devient `''` au `trim()`. Ce `''` est falsy
+    // — aucun chiffrement n'aurait lieu — tout en étant `!== undefined`, donc `status()` aurait
+    // annoncé le chiffrement CONFIGURÉ sur l'écran d'administration pendant que les dumps
+    // partent en clair. C'est la panne de `BACKUP_MIRROR_DIR` prise dans l'autre sens : croire
+    // qu'on est protégé sans l'être est pire que de savoir qu'on ne l'est pas.
+    const destinataire = (options.recipient ?? env.get('BACKUP_ENCRYPTION_RECIPIENT'))?.trim()
+    this.#recipient = destinataire || undefined
   }
 
   /** Les dumps du dossier de sauvegarde, du plus ancien au plus récent, avec taille et âge. */
@@ -118,11 +144,12 @@ export class BackupService {
   }
 
   /** Le dossier de sauvegarde et le miroir existent-ils et sont-ils des dossiers ? */
-  status(): { directoryReady: boolean; mirrorConfigured: boolean } {
+  status(): { directoryReady: boolean; mirrorConfigured: boolean; encryptionConfigured: boolean } {
     return {
       directoryReady: existsSync(this.#directory) && statSync(this.#directory).isDirectory(),
       mirrorConfigured:
         existsSync(this.#mirrorDirectory) && statSync(this.#mirrorDirectory).isDirectory(),
+      encryptionConfigured: this.#recipient !== undefined,
     }
   }
 
@@ -190,12 +217,32 @@ export class BackupService {
 
     const { size } = await stat(fichier)
 
-    const miroir = await this.#copierVersLeMiroir(fichier)
+    let cheminAPropager = fichier
+    if (this.#recipient) {
+      try {
+        cheminAPropager = await this.#chiffrerEtRemplacer(fichier, this.#recipient)
+      } catch (erreur) {
+        // Le clair reste une sauvegarde valide, jamais supprimé pour un chiffrement en
+        // échec — mais on s'arrête là : hors de question de mirrorer ce clair alors qu'un
+        // chiffrement était configuré pour le protéger.
+        const message = erreur instanceof Error ? erreur.message : String(erreur)
+        return {
+          ok: false,
+          file: fichier,
+          sizeBytes: size,
+          mirrored: false,
+          purged: 0,
+          error: `${message}\nLe dump local reste en clair, conservé : ${fichier}`,
+        }
+      }
+    }
+
+    const miroir = await this.#copierVersLeMiroir(cheminAPropager)
     if (miroir.error) {
       // Le dump local est bon : on le garde, et surtout on ne purge pas.
       return {
         ok: true,
-        file: fichier,
+        file: cheminAPropager,
         sizeBytes: size,
         mirrored: false,
         purged: 0,
@@ -205,7 +252,34 @@ export class BackupService {
 
     const purged = await this.#purger()
 
-    return { ok: true, file: fichier, sizeBytes: size, mirrored: miroir.copied, purged }
+    return { ok: true, file: cheminAPropager, sizeBytes: size, mirrored: miroir.copied, purged }
+  }
+
+  /**
+   * Chiffre `fichierClair` pour `clePublique`, relit le résultat, puis supprime le clair.
+   * Ne rend le chemin du `.sql.age` QUE si toute la chaîne a réussi — sur n'importe quel
+   * échec, le clair reste intact et RIEN n'est supprimé (CC-223, même doctrine que le miroir).
+   */
+  async #chiffrerEtRemplacer(fichierClair: string, clePublique: string): Promise<string> {
+    let chiffre: Buffer
+    try {
+      chiffre = await chiffrerDump(fichierClair, clePublique)
+    } catch (erreur) {
+      const message = erreur instanceof Error ? erreur.message : String(erreur)
+      throw new Error(`Chiffrement échoué : ${message}`)
+    }
+
+    const cheminChiffre = `${fichierClair}.age`
+    await writeFile(cheminChiffre, chiffre)
+
+    const { ok, raison } = verifierDumpChiffre(cheminChiffre)
+    if (!ok) {
+      await unlink(cheminChiffre).catch(() => {})
+      throw new Error(`Dump chiffré illisible une fois écrit, supprimé : ${raison}`)
+    }
+
+    await unlink(fichierClair)
+    return cheminChiffre
   }
 
   /**
@@ -252,8 +326,10 @@ export class BackupService {
     }
 
     // La relecture porte sur le fichier ARRIVÉ, pas sur celui qu'on a envoyé — comparer les
-    // tailles ne prouve que la longueur, pas la lisibilité.
-    const { ok, raison } = verifierDump(final)
+    // tailles ne prouve que la longueur, pas la lisibilité. La forme (clair ou chiffré) se
+    // déduit du nom, même source de vérité que `scripts/db-backup.js` et la purge.
+    const verifier = estDumpChiffre(basename(final)) ? verifierDumpChiffre : verifierDump
+    const { ok, raison } = verifier(final)
     if (!ok) {
       await unlink(final).catch(() => {})
       return { copied: false, error: `Copie illisible une fois sur ${cible} — ${raison}` }

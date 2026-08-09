@@ -1,4 +1,5 @@
-import { closeSync, openSync, readSync, readdirSync, statSync } from 'node:fs'
+import { closeSync, openSync, readFileSync, readSync, readdirSync, statSync } from 'node:fs'
+import * as age from 'age-encryption'
 
 /*
 | Ce que sait un dump, sans le restaurer.
@@ -10,6 +11,14 @@ import { closeSync, openSync, readSync, readdirSync, statSync } from 'node:fs'
 |
 | Ce module ne connaît ni Docker, ni Postgres, ni le réseau : il lit des fichiers et
 | des noms de fichiers. C'est ce qui le rend testable (`tests/unit/db_dumps.spec.ts`).
+|
+| ⚠️ Le chiffrement (CC-223) tient dans ce module pour la même raison : `age-encryption`
+| est une implémentation JS pure (aucun binaire externe), donc chiffrer/déchiffrer ne
+| dépend pas plus de Docker que vérifier ou lister. `chiffrerDump`/`dechiffrerDump` ne
+| touchent jamais le disque en ÉCRITURE — elles LISENT un fichier et rendent des octets ;
+| c'est aux appelants (scripts, `BackupService`) d'écrire, dans le même ordre déjà en
+| vigueur pour le miroir et la purge : jamais de suppression avant qu'un résultat en aval
+| soit vérifié bon.
 */
 
 /**
@@ -18,12 +27,27 @@ import { closeSync, openSync, readSync, readdirSync, statSync } from 'node:fs'
  */
 export const MOTIF_DUMP = /^command-center-\d{4}-\d{2}-\d{2}_\d{2}h\d{2}\.sql$/
 
+/**
+ * Le nom d'un dump chiffré par `chiffrerDump` — même horodatage, suffixe `.age` en plus.
+ * Un dump d'avant CC-223 ne porte jamais ce motif : il reste `.sql`, en clair, restaurable
+ * tel quel (aucun chiffrement rétroactif).
+ */
+export const MOTIF_DUMP_CHIFFRE = /^command-center-\d{4}-\d{2}-\d{2}_\d{2}h\d{2}\.sql\.age$/
+
+/** Le fichier désigné par `nom` est-il chiffré ? Décide, côté restauration, s'il faut déchiffrer. */
+export function estDumpChiffre(nom) {
+  return MOTIF_DUMP_CHIFFRE.test(nom)
+}
+
 /** Nombre de dumps conservés dans `backups/` quand `BACKUP_KEEP` est absent. */
 export const GARDER_PAR_DEFAUT = 10
 
 const ENTETE = '-- PostgreSQL database dump'
 const FIN = '-- PostgreSQL database dump complete'
 const TABLE = '\nCREATE TABLE '
+// Premiers octets de tout fichier produit par le format age v1 — indépendant du
+// destinataire, donc vérifiable sans aucune clé.
+const ENTETE_AGE = 'age-encryption.org/v1'
 
 // La fenêtre de queue est large : `pg_dump` récent écrit un `\unrestrict <jeton>` APRÈS
 // le marqueur de fin, donc celui-ci n'est pas la dernière ligne. Chercher « en dernière
@@ -103,10 +127,105 @@ export function verifierDump(chemin) {
 }
 
 /**
- * Les dumps d'un dossier, du plus ancien au plus récent.
+ * Le fichier chiffré ressemble-t-il à un dump age complet ?
  *
- * L'horodatage est en tête du nom et de largeur fixe : le tri lexicographique est donc
- * chronologique. Un dossier absent rend une liste vide, pas une erreur.
+ * Volontairement plus frustre que `verifierDump` : sans la clé privée (qui n'est jamais
+ * sur cette machine), impossible de vérifier le CONTENU.
+ *
+ * ⚠️ **Ce qu'elle attrape exactement : le fichier vide, et le fichier qui n'est pas un age.
+ * PAS la troncature** — et c'est la différence de fond avec `verifierDump`, qu'il ne faut
+ * pas croire équivalente. Le clair se vérifie par un marqueur de FIN, donc une coupure au
+ * milieu se voit ; un fichier age n'a aucun marqueur de fin, et un fichier tronqué garde
+ * son en-tête intact — il passe donc ici. La troncature d'une COPIE reste couverte, mais
+ * par la comparaison de tailles qui précède le renommage, jamais par cette fonction. Le
+ * reste (payload corrompu, coupé) n'est vu que par `dechiffrerDump`, au moment de la
+ * restauration, `age` authentifiant le texte chiffré (CC-223).
+ */
+export function verifierDumpChiffre(chemin) {
+  let taille
+  try {
+    taille = statSync(chemin).size
+  } catch {
+    return { ok: false, raison: 'fichier introuvable' }
+  }
+
+  if (taille === 0) {
+    return { ok: false, raison: 'fichier vide (0 octet)' }
+  }
+
+  const descripteur = openSync(chemin, 'r')
+  try {
+    if (!lire(descripteur, 0, Math.min(FENETRE, taille)).includes(ENTETE_AGE)) {
+      return {
+        ok: false,
+        raison: `en-tête « ${ENTETE_AGE} » absent — ce n'est pas un dump chiffré par age`,
+      }
+    }
+  } finally {
+    closeSync(descripteur)
+  }
+
+  return { ok: true }
+}
+
+/**
+ * Chiffre le contenu de `cheminClair` pour `clePublique` (`age1...`) et rend les octets
+ * chiffrés. N'ÉCRIT RIEN : c'est à l'appelant de poser le fichier `.sql.age`, et de ne
+ * supprimer le clair qu'après avoir relu ce résultat avec `verifierDumpChiffre` — même
+ * doctrine que le miroir, jamais de suppression avant qu'un résultat en aval soit vérifié
+ * bon.
+ *
+ * ⚠️ `addRecipient` valide le FORMAT de la clé de façon SYNCHRONE et lève avant tout
+ * chiffrement : une clé mal configurée ne consomme jamais un dump pour rien, et l'appelant
+ * peut distinguer « clé invalide » de « chiffrement impossible pour une autre raison ».
+ */
+export async function chiffrerDump(cheminClair, clePublique) {
+  const contenu = readFileSync(cheminClair)
+
+  const chiffreur = new age.Encrypter()
+  try {
+    chiffreur.addRecipient(clePublique)
+  } catch (erreur) {
+    throw new Error(`BACKUP_ENCRYPTION_RECIPIENT invalide : ${erreur.message}`)
+  }
+
+  return Buffer.from(await chiffreur.encrypt(contenu))
+}
+
+/**
+ * Déchiffre `cheminChiffre` avec `clePrivee` (`AGE-SECRET-KEY-1...`) et rend le clair.
+ * N'ÉCRIT RIEN — c'est ce qui permet aux appelants de pipeliner le résultat directement
+ * vers `psql` sans jamais poser le clair sur le disque au moment de la restauration.
+ *
+ * ⚠️ Lève dans tous les cas d'échec (clé malformée, clé qui ne correspond à aucun
+ * destinataire du fichier, contenu corrompu) — jamais un résultat vide silencieux. C'est
+ * ce qui permet à l'appelant de refuser AVANT d'ouvrir le moindre flux vers `psql`.
+ */
+export async function dechiffrerDump(cheminChiffre, clePrivee) {
+  const contenu = readFileSync(cheminChiffre)
+
+  const dechiffreur = new age.Decrypter()
+  try {
+    dechiffreur.addIdentity(clePrivee)
+  } catch (erreur) {
+    throw new Error(`Clé privée invalide : ${erreur.message}`)
+  }
+
+  try {
+    return Buffer.from(await dechiffreur.decrypt(contenu, 'uint8array'))
+  } catch (erreur) {
+    throw new Error(`Déchiffrement impossible : ${erreur.message}`)
+  }
+}
+
+/**
+ * Les dumps d'un dossier, du plus ancien au plus récent — les deux formes confondues
+ * (`.sql` en clair, `.sql.age` chiffré). Un dump d'avant CC-223 reste `.sql` pour
+ * toujours : aucun chiffrement rétroactif, donc `db:restore` doit continuer à le voir.
+ *
+ * L'horodatage est en tête du nom et de largeur fixe, suffixe mis à part : le tri
+ * lexicographique reste chronologique même en mélangeant les deux formes. Un dossier
+ * absent rend une liste vide, pas une erreur.
  */
 export function listerDumps(dossier) {
   let noms
@@ -116,7 +235,7 @@ export function listerDumps(dossier) {
     return []
   }
 
-  return noms.filter((nom) => MOTIF_DUMP.test(nom)).sort()
+  return noms.filter((nom) => MOTIF_DUMP.test(nom) || MOTIF_DUMP_CHIFFRE.test(nom)).sort()
 }
 
 /**
