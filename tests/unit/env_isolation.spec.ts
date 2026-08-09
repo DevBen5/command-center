@@ -4,6 +4,7 @@ import immichConfig, { immichConfigFrom } from '#config/immich'
 import youtubeConfig, { youtubeConfigFrom } from '#config/youtube'
 import llmConfig, { llmConfigFrom, LLM_DEFAULT_BASE_URL, LLM_DEFAULT_MODEL } from '#config/llm'
 import coffreImmichConfig, { coffreImmichConfigFrom } from '#config/coffre_immich'
+import backupEncryptionConfig, { backupEncryptionConfigFrom } from '#config/backup'
 
 /**
  * CC-101 — « aucun test ne touche une vraie instance » devient une propriété du code.
@@ -16,6 +17,14 @@ import coffreImmichConfig, { coffreImmichConfigFrom } from '#config/coffre_immic
  * ⚠️ Ce sont les fonctions `*ConfigFrom` des `config/*.ts` qui sont appelées, pas une recomposition
  * locale de `externalServicesIsolated` et `normalize*`. Recomposer ici prouverait l'expression de ce
  * fichier ; retirer la garde d'un `config/*.ts` laisserait la spec verte.
+ *
+ * ⚠️ **`config/backup.ts` est entré ici en CC-231, et ce n'est PAS un client externe** — aucun
+ * appel réseau, aucune instance à joindre. Ce que la fusion par truthiness menace, c'est
+ * n'importe quelle variable lue hors d'un `config/*.ts` : `BackupService` lisait
+ * `BACKUP_ENCRYPTION_RECIPIENT` en `env.get(...)` direct, et la suite chiffrait ses dumps avec la
+ * clé publique réelle du propriétaire dès que le poste activait la fonctionnalité. Le titre du
+ * groupe dit « clients externes » pour des raisons historiques (CC-101) ; la propriété réellement
+ * tenue est « aucune valeur du `.env` de la machine n'entre dans la suite ».
  */
 test.group('Isolation des clients externes pendant les tests', () => {
   /**
@@ -84,6 +93,18 @@ test.group('Isolation des clients externes pendant les tests', () => {
       coffreImmich.enabled,
       'le dossier verrouillé resterait joignable pendant npm test'
     )
+
+    /**
+     * ⚠️ **CC-231 — le seul cas du lot qui ne parle à personne sur le réseau.** Sans cette garde,
+     * la suite chiffre ses dumps de test avec la clé publique RÉELLE du propriétaire, et surtout
+     * le test « pas de clé configurée ⇒ dump en clair » — le comportement que reçoit toute
+     * installation tierce — rougit en permanence sur le poste qui a activé la fonctionnalité,
+     * en exerçant l'autre branche. Un gate rouge en permanence cesse d'être un gate.
+     */
+    const backup = backupEncryptionConfigFrom('test', {
+      recipient: 'age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3wzz0m',
+    })
+    assert.isUndefined(backup.recipient, 'les dumps de test seraient chiffrés avec la clé du poste')
   })
 
   /**
@@ -120,6 +141,13 @@ test.group('Isolation des clients externes pendant les tests', () => {
     })
     assert.isTrue(coffreImmich.enabled)
     assert.equal(coffreImmich.baseUrl, 'https://immich.exemple.dev')
+
+    // ⚠️ Sans ce contre-test, une garde qui neutraliserait TOUJOURS passerait au vert tout en
+    // envoyant en clair, sur un NAS, les sauvegardes d'une installation qui croit les chiffrer.
+    const backup = backupEncryptionConfigFrom('production', {
+      recipient: 'age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3wzz0m',
+    })
+    assert.equal(backup.recipient, 'age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3wzz0m')
   })
 
   /**
@@ -134,5 +162,6 @@ test.group('Isolation des clients externes pendant les tests', () => {
     assert.isFalse(youtubeConfig.enabled)
     assert.isUndefined(llmConfig.apiKey)
     assert.isFalse(coffreImmichConfig.enabled)
+    assert.isUndefined(backupEncryptionConfig.recipient)
   })
 })

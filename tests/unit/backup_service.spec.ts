@@ -249,6 +249,18 @@ test.group('BackupService / runBackup — chiffrement (CC-223)', (group) => {
     }
   })
 
+  /*
+  | ⚠️ **Ce test est le seul qui couvre le comportement par DÉFAUT** — celui que reçoit toute
+  | installation tierce qui suit le README : pas de clé publique, donc dump en clair. Il ne tient
+  | que parce que `config/backup.ts` neutralise `BACKUP_ENCRYPTION_RECIPIENT` sous `NODE_ENV=test`
+  | (CC-231). Avant ça, `BackupService` lisait l'environnement en direct : sur un poste ayant
+  | réellement activé CC-223, le `.env` passait derrière un `.env.test` qui ne déclare pas la
+  | variable (fusion par truthiness, CC-88), ce test rougissait en permanence — et la CI restait
+  | verte, faute de `.env` sur un runner.
+  |
+  | Vérifié par mutation : faire renvoyer `raw` sans condition à `backupEncryptionConfigFrom` le
+  | refait rougir ici, sur un poste dont le `.env` porte la clé.
+  */
   test('sans recipient configuré : comportement inchangé, dump en clair', async ({ assert }) => {
     await backupSettings.update({ keep: 10, dailyEnabled: false })
 

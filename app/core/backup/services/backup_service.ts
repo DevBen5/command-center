@@ -5,7 +5,7 @@ import { basename, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import logger from '@adonisjs/core/services/logger'
 import env from '#start/env'
-import { BACKUP_DIR, BACKUP_MIRROR_DIR } from '#config/backup'
+import backupEncryptionConfig, { BACKUP_DIR, BACKUP_MIRROR_DIR } from '#config/backup'
 import backupSettings from '#core/backup/services/backup_settings_service'
 import {
   chiffrerDump,
@@ -31,6 +31,14 @@ import {
  * `LLM_BASE_URL`/`IMMICH_BASE_URL`) : absente, le dump reste en clair, annoncé à chaque exécution.
  * Configurée mais invalide, la sauvegarde s'arrête plutôt que de mirrorer un clair qu'un
  * chiffrement était censé protéger — le dump local, lui, n'est jamais supprimé.
+ *
+ * ⚠️ **Cette clé se lit dans `config/backup.ts`, jamais en `env.get(...)` ici** (CC-231). La
+ * lecture directe faisait entrer le `.env` du poste sous `NODE_ENV=test` — `.env.test` ne déclare
+ * pas cette variable et le chargeur d'`@adonisjs/env` fusionne par *truthiness* (CC-88) : la suite
+ * chiffrait avec la clé réelle du propriétaire, et le seul test qui couvre le comportement par
+ * défaut (« pas de clé ⇒ dump en clair », celui que reçoit toute installation tierce) rougissait
+ * en permanence. La CI, elle, restait verte — aucun `.env` sur un runner. Ne remets donc pas
+ * `env.get` ici « pour raccourcir » : rien ne le signalerait.
  *
  * ⚠️ **`pg_dump` est invoqué en connexion TCP directe** (`-h DB_HOST -p DB_PORT`), pas via
  * `docker compose exec` : ce service tourne DANS le conteneur applicatif, qui n'a pas accès au
@@ -131,7 +139,12 @@ export class BackupService {
     // annoncé le chiffrement CONFIGURÉ sur l'écran d'administration pendant que les dumps
     // partent en clair. C'est la panne de `BACKUP_MIRROR_DIR` prise dans l'autre sens : croire
     // qu'on est protégé sans l'être est pire que de savoir qu'on ne l'est pas.
-    const destinataire = (options.recipient ?? env.get('BACKUP_ENCRYPTION_RECIPIENT'))?.trim()
+    //
+    // ⚠️ Depuis CC-231 la valeur de l'environnement arrive DÉJÀ normalisée par
+    // `normalizeBackupEncryptionConfig` ; ce nettoyage-ci n'est donc pas un doublon inutile : il
+    // couvre le chemin de l'`options.recipient`, le seul qui n'y passe pas — et c'est lui que le
+    // test « recipient fait uniquement d'espaces » exerce.
+    const destinataire = (options.recipient ?? backupEncryptionConfig.recipient)?.trim()
     this.#recipient = destinataire || undefined
   }
 
