@@ -27,6 +27,9 @@ Le lot porte quatre affirmations, et elles ne se vérifient pas au même endroit
 | un asset verrouillé (clé d'API refusée) est servi par le repli en session du proxy existant (CC-205) | `coffre_media.spec.ts` |
 | l'activation du dossier verrouillé exige les quatre variables, et n'y touche jamais en test (CC-205) | `coffre_immich_config.spec.ts`, plus `tests/unit/env_isolation.spec.ts` pour l'isolation |
 | l'accueil complète les quatre sections y compris vides, une page de section ne rend que les entrées de sa nature (CC-208) | `coffre_entry_sections.spec.ts` (`sectionCardsFor`, pur) et `coffre_section_pages.spec.ts` (le contrôleur, contre une vraie base) |
+| le listing de catalogue Immich extrait nature/nom/date/taille avec repli sur `null`/`'other'`, jamais une valeur devinée, plafond d'indexation séparé de l'affichage (CC-225) | `coffre_immich_session_client.spec.ts` (groupe « le catalogue Immich ») |
+| l'adaptateur Immich de l'abstraction `CatalogSource` traduit vers `CatalogSourceItem` sans rattraper une panne d'énumération (CC-225) | `coffre_catalog_source_immich.spec.ts` |
+| le couple (owner, source, référence) est unique en base, une énumération réussie mais TRONQUÉE ou en ÉCHEC ne marque rien absent, une seconde synchro identique n'insère aucun doublon, chaque compte reçoit sa propre copie (CC-225) | `coffre_catalog_sync.spec.ts` |
 
 ⚠️ **Le troisième est celui qu'un test rend faussement vert.** Relire ce qu'on vient d'écrire
 réussirait à l'identique sans le moindre chiffrement ; seul un `select` qui court-circuite le modèle
@@ -182,6 +185,12 @@ une session ouverte et ne fait rien sans session.
 que `VaultKeyring` (CC-178) : le singleton est un état partagé entre tous les tests du process, et
 l'ordre d'exécution déciderait du résultat.
 
+Depuis CC-225, un second groupe (« le catalogue Immich ») couvre `lockedAssetsForCatalog()` :
+extraction de nature/nom/date/taille quand Immich les rend, repli sur `null`/`'other'` sur des
+champs absents ou malformés (jamais une valeur devinée, jamais un crash), identifiant malformé
+sauté (même doctrine que `lockedPhotos`), pagination sur plusieurs pages, et une session refusée
+en cours de listing qui lève sans rendre de résultat partiel.
+
 ### `tests/unit/coffre_immich_config.spec.ts`
 
 La configuration du dossier verrouillé (CC-205), **pure** — sur le patron de
@@ -249,6 +258,29 @@ depuis `/coffre/notes` (`referrer` posé sur la requête de test) ramène à `/c
 depuis `/coffre` y reste — le seul cas qui existait avant ce lot, donc le comportement à ne pas
 casser. `update`/`destroy` partagent le même appel (`response.redirect().back()`), non re-testé
 séparément.
+
+### `tests/unit/coffre_catalog_source_immich.spec.ts`
+
+L'implémentation Immich de l'abstraction `CatalogSource` (CC-225), avec `FakeImmichSessionClient`
+injecté directement (pas de `app.container.swap`, pas de DB) : `key` vaut `'immich_locked'`,
+`enumerate()` traduit les assets vers `CatalogSourceItem` et propage `truncated`, une panne du
+client remonte telle quelle (l'adaptateur ne l'avale jamais), `thumbnailFor()` délègue au client.
+
+### `tests/functional/modules/coffre_catalog_sync.spec.ts`
+
+Le catalogue des sources (CC-225, lot 1 de l'épique CC-224), en deux groupes.
+
+**La contrainte unique**, contre la vraie base : un second `(owner, source, référence)` identique
+échoue à l'insertion ; le même triplet est permis sur deux comptes différents — c'est la décision
+« par compte » du cadrage, prouvée plutôt que lue dans le code.
+
+**La commande `coffre:sync-catalog`**, bout-en-bout avec `FakeImmichSessionClient` substitué dans
+le conteneur : aucun coffre sur l'installation ne fait rien ; chaque compte avec un coffre reçoit
+sa PROPRE copie des lignes découvertes ; une seconde synchronisation identique n'insère aucun
+doublon et ne perd aucune ligne ; un élément disparu d'un listing **réussi et complet** est marqué
+absent puis redevient présent s'il réapparaît ; **le test qui compte le plus du lot** — un listing
+**tronqué** ne marque rien absent, et une énumération qui **échoue** ne touche à rien (ni écriture,
+ni marquage), sur un catalogue déjà peuplé.
 
 ### `tests/functional/modules/coffre_curtain.spec.ts`
 

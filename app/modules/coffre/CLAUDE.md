@@ -4,7 +4,8 @@ Routes `/coffre/ouvrir` · `/coffre` · `/coffre/:section` · `/coffre/:id/secre
 `/coffre/media/:id/thumbnail` · `/coffre/nas/:id/stream` · `/coffre/immich/dossier` ·
 `/coffre/immich/dossier/:assetId/thumbnail` · pages Inertia
 `modules/coffre/{ouvrir, index, section}` · tables
-`coffre_vaults`, `coffre_entries`, `coffre_entry_media`, `coffre_entry_nas_file`. Lot 1 de l'épique
+`coffre_vaults`, `coffre_entries`, `coffre_entry_media`, `coffre_entry_nas_file`,
+`coffre_catalog_items`. Lot 1 de l'épique
 CC-177 (CC-178) : le **socle**, dont tous les lots suivants héritent — aucun ne redéfinit sa propre
 porte. Lot 2 (CC-179) : les **identifiants**, qui ajoutent une nature d'entrée et une route.
 ⚠️ **CC-186 (l'édition) et CC-180 (les médias Immich) portent tous deux le numéro « lot 3 » dans
@@ -17,7 +18,10 @@ le **dossier verrouillé d'Immich**, parcourable en vignettes depuis le coffre �
 verrouillé — session Immich » plus bas. La refonte d'écran vient ensuite, en deux tickets : CC-207
 (la saisie derrière une modale unique) puis CC-208 (l'accueil en cartes de sections, et une page
 par section) — voir « La saisie : une modale unique » et « L'écran en cartes de sections » plus
-bas.
+bas. Une **seconde épique, CC-224, démarre avec CC-225** (lot 1 : le socle du catalogue des
+sources) — voir « Le catalogue des sources » plus bas. Elle renverse le rapport entre entrées et
+sources : le coffre indexera ce que ses sources contiennent, les entrées devenant une couche de
+sens par-dessus, plutôt que la seule porte d'accès au contenu.
 
 ⚠️ **CC-181 a été amendé le 2026-08-06, en cours de lot** : le ticket ne portait au départ que les
 vidéos ; le propriétaire a élargi le périmètre aux photos avant la fin de l'implémentation, parce
@@ -63,7 +67,15 @@ shared/entry_sections.ts                 PUR · le regroupement de l'écran par 
 services/immich_session_state.ts         la session Immich en MÉMOIRE, TTL, coordination anti-course
                                          (CC-205)
 services/immich_session_client.ts        login, élévation PIN, listing du dossier verrouillé,
-                                         vignette (CC-205)
+                                         vignette (CC-205), PLUS le listing de catalogue (CC-225)
+models/coffre_catalog_item.ts            une ligne du catalogue des sources, PAR COMPTE, en clair
+                                         (CC-225)
+services/catalog_source.ts               PUR (types) · l'abstraction de source — énumérer, rendre
+                                         une vignette (CC-225)
+services/catalog_sync_service.ts         le diff transactionnel : découvre, met à jour, marque
+                                         absent (CC-225)
+services/immich_locked_catalog_source.ts implémente CatalogSource pour le dossier verrouillé,
+                                         délègue à immich_session_client.ts (CC-225)
 validators/coffre.ts                     ⚠️ des FABRIQUES, jamais des nœuds VineJS partagés
 ```
 
@@ -92,6 +104,11 @@ variables que `config/immich.ts` (CC-180), une seule instance Immich à déclare
 structurelle que `providers/veille_provider.ts` (voir le `CLAUDE.md` racine, point 7) — un
 provider est chargé par le framework au boot/shutdown, avant toute notion de module. Son seul rôle :
 fermer la session Immich élevée à l'arrêt du serveur, voir « Le dossier verrouillé » plus bas.
+
+⚠️ **Un onzième depuis CC-225 : `commands/coffre_sync_catalog.ts`**, à la racine pour la même
+raison structurelle que `commands/reset_account.ts` (voir le `CLAUDE.md` racine, point 7) — le
+noyau ace ne charge les commandes que depuis un seul dossier. Son rôle : synchroniser le catalogue
+des sources — voir « Le catalogue des sources » plus bas.
 
 ⚠️ **Deux dépendances de plus depuis CC-179, et aucune n'est propre au coffre** : la page importe
 `inertia/utils/clipboard.ts` (partagé avec `/reglages` et l'écran LLM de Leitner), et la promesse
@@ -947,7 +964,156 @@ reste `null` sur toute URL `/coffre/*`, tracé dans le code), donc les clés `co
 `.title` ajoutées pour satisfaire le plancher de `breadcrumb.spec.ts` (CC-110) ne devraient rien
 changer à l'écran — à confirmer, pas déduit.
 
-## Un coffre par compte
+## Le catalogue des sources — lot 1 (CC-225, épique CC-224)
+
+Le renversement porté par CC-224 : que le coffre indexe **déjà** tout ce que ses sources
+contiennent (le dossier verrouillé Immich, demain le NAS), plutôt que de n'exister que pour ce
+que quelqu'un y a rattaché à la main. Ce lot pose le socle — table, abstraction de source,
+synchronisation — et branche Immich comme première source réellement branchée, pour que
+l'abstraction soit prouvée par un usage.
+
+⚠️ **`coffre_catalog_items` est un jeu de données DIFFÉRENT de `coffre_entries`, et ce n'est pas
+une incohérence avec la doctrine du chiffrement au repos plus haut.** « Le TITRE est chiffré, pas
+seulement le contenu » reste vrai **des entrées** — `coffre_entries.title_cipher` ne bouge pas
+d'un octet dans ce lot. Le catalogue n'est pas ce que l'utilisateur a écrit, c'est ce que les
+sources contiennent déjà ; il est stocké **en clair**, décision de l'épique CC-224, pour que
+recherche/tri/pagination restent du SQL ordinaire sur un catalogue qui peut porter des milliers
+de lignes. Ne « corrige » jamais cette table en y ajoutant un `_cipher` en croyant réparer un
+oubli.
+
+⚠️ **Le catalogue n'autorise RIEN.** `NasRootsService.resolve` (lot NAS à venir) et la session
+élevée d'Immich restent les seuls juges au moment de servir un contenu, confinement revérifié à
+chaque accès. Une ligne de catalogue est un index, jamais un laissez-passer — exactement ce que
+`kind` est déjà pour `coffre_entry_nas_file` (en clair, mais sans droit d'accès).
+
+### Le catalogue est PAR COMPTE, malgré des sources installation-wide
+
+⚠️ **Décision du cadrage de CC-225, à ne pas « simplifier » vers un catalogue partagé.** Le compte
+Immich du dossier verrouillé et les racines NAS sont tous deux configurés dans le `.env`, donc
+partagés par toute l'installation — rien dans la source elle-même ne varie par compte Command
+Center. Le catalogue, lui, porte quand même `owner_id` (comme `coffre_entries`,
+`coffre_entry_media`, `coffre_entry_nas_file`) : chaque compte reçoit sa **propre copie** des
+lignes découvertes, dupliquée en base pour N comptes.
+
+- La contrainte d'unicité est donc `(owner_id, source, reference)`, un TRIPLET — pas le couple
+  `(source, reference)` qu'on écrirait pour un catalogue partagé.
+- ⚠️ **La duplication reste physique en base, jamais en trafic réseau.** `commands/
+  coffre_sync_catalog.ts` énumère chaque source **une seule fois**, puis applique ce résultat
+  unique à chaque compte qui possède un coffre (`CoffreVault.all()`) — sans quoi synchroniser N
+  comptes ferait N connexions à la même instance Immich pour un contenu strictement identique.
+- Si cette décision se rediscute un jour, le chemin de sortie est une migration qui déplace
+  `owner_id` en dehors de la contrainte d'unicité et une commande qui n'itère plus sur les
+  coffres — pas une réécriture de l'abstraction de source, qui n'a aucune opinion sur ce point.
+
+### L'abstraction de source — étroite par construction
+
+`services/catalog_source.ts`, **pur** (types seulement) : une source sait `enumerate()` et
+`thumbnailFor(reference)`, rien de plus. Elle ne connaît RIEN des règles de sécurité propres à
+chaque source — `NasRootsService` pour le NAS, la session élevée pour Immich — c'est à chaque
+implémentation de les porter, exactement comme le ticket le demandait dès ce lot.
+
+⚠️ **`enumerate()` est tout-ou-rien, et c'est la règle centrale du lot : une énumération qui
+échoue ne conclut RIEN.** Un NAS démonté ou une session Immich expirée rendraient un listing vide
+si l'échec était avalé quelque part ; une synchronisation qui prendrait ça pour « plus rien dans
+la source » viderait le catalogue d'un coup. `enumerate()` construit son résultat entièrement en
+mémoire et ne le rend qu'à la fin d'un parcours réussi — une erreur en cours de route fait
+disparaître ce qui avait déjà été collecté, jamais rendre un résultat partiel.
+
+⚠️ **`truncated: true` n'est PAS une erreur, mais interdit quand même tout marquage d'absence.**
+Une énumération tronquée a réussi, mais elle n'a pas VU tout le contenu réel de la source ; ce
+qu'elle n'a pas vu ne doit pas être pris pour disparu. `catalog_sync_service.ts` traite ces deux
+cas (échec, troncature) de façon distincte mais avec la même conséquence pour le marquage :
+aucun.
+
+### La synchronisation — `catalog_sync_service.ts`
+
+Un diff transactionnel **par compte** (`applyEnumeration(ownerId, sourceKey, enumeration)`) :
+insère le neuf, met à jour ce qui a changé (nature, nom, date, taille), et marque `missing_since`
+sur ce qui n'a pas été vu — uniquement si l'énumération a réussi **et** n'est pas tronquée. Un
+élément réapparu (revu après avoir été marqué absent) redevient présent : `missing_since` repasse
+à `null`, jamais une seconde ligne.
+
+⚠️ **Une transaction par compte, jamais une seule englobant tous les comptes.** Un compte doit
+ressortir de la synchronisation entièrement à jour ou entièrement inchangé. Un échec sur UN
+compte (par exemple une contrainte unique violée par une synchro concurrente lancée deux fois par
+erreur) fait échouer et annuler SA transaction, sans défaire ce qui a déjà été committé pour un
+autre — accepté comme mode d'échec sûr, ce lot n'ayant qu'une commande manuelle mono-opérateur,
+pas un déclenchement concurrent régulier.
+
+⚠️ **Le décompte de lignes marquées absentes vient d'une sélection préalable des identifiants,
+jamais du retour de `.update()`.** La forme exacte de ce que rend `.update()` sur un query
+builder Lucid dépend du driver et de la présence d'un `returning` ; sélectionner d'abord les
+`id` à marquer puis mettre à jour par lot lève toute ambiguïté.
+
+### La source Immich — `immich_locked_catalog_source.ts` + `immich_session_client.ts`
+
+`ImmichLockedCatalogSource` implémente `CatalogSource` pour `immich_locked`, en délégant
+ENTIÈREMENT à `ImmichSessionClient` (CC-205) — login, élévation PIN, retry unique sur expiration,
+tout ce hardening est réutilisé tel quel. Cette classe ne fait que traduire le vocabulaire
+d'Immich (`type`, `originalFileName`, `fileCreatedAt`, `exifInfo.fileSizeInByte`) vers
+`CatalogSourceItem`.
+
+⚠️ **`lockedAssetsForCatalog()` est une méthode NOUVELLE sur `ImmichSessionClient`, séparée de
+`lockedPhotos()`** (celle que le dossier verrouillé de CC-205 utilise pour l'écran de sélection).
+Même session/auth/reprise (`#withSession`), mais pagination et extraction de métadonnées
+distinctes : `lockedPhotos()` n'a jamais été modifiée, pour ne pas remanier un chemin de
+production déjà en place dans un fichier sensible (sécurité, session partagée).
+
+⚠️ **Champs de métadonnées manquants ou malformés → `null`/`'other'`, jamais une valeur devinée,
+jamais un crash qui ferait échouer tout le lot pour un seul asset.** Seul l'identifiant suit la
+règle « sauté, jamais deviné » déjà en place sur `lockedPhotos()`.
+
+⚠️ **Aucun champ hors de l'identifiant n'est vérifié contre une vraie instance Immich** — la
+limite déjà actée pour `visibility: locked` (CC-205, voir plus bas) s'étend telle quelle aux
+champs de métadonnées ajoutés ici (`type`, `originalFileName`, `fileCreatedAt`, `exifInfo`). Un
+passage réel est requis avant de faire confiance à ces valeurs en production, au même titre que
+le reste du listing du dossier verrouillé.
+
+### `MAX_PAGES` (affichage) contre `MAX_CATALOG_PAGES` (indexation) — deux plafonds, deux raisons
+
+⚠️ **Le plafond de l'écran de sélection (10 pages, 1000 photos, `truncated: true` au-delà) ne
+s'applique PAS à l'indexation, et hériter de lui aurait rendu le catalogue structurellement
+incapable de couvrir un gros dossier.** Un catalogue systématiquement tronqué ne pourrait jamais
+marquer une absence dessus (voir la règle ci-dessus) : sur un dossier de plusieurs milliers de
+photos, le catalogue resterait pour toujours incapable de détecter une suppression.
+
+`lockedAssetsForCatalog()` porte donc son propre plafond, `MAX_CATALOG_PAGES` (1000 pages, soit
+100 000 assets) — choisi délibérément bien plus généreux, et ce n'est PAS une borne réaliste pour
+un dossier verrouillé personnel : c'est un garde-fou anti-boucle-infinie, au cas où `nextPage`
+boucle sur lui-même par bug côté Immich, plusieurs ordres de grandeur au-dessus de ce qu'un
+dossier personnel peut raisonnablement porter.
+
+### La commande — `coffre:sync-catalog`, manuelle, pas de provider dans ce lot
+
+⚠️ **Décision du cadrage : commande ace manuelle seule, aucun provider planifié dans ce lot.** Le
+ticket ne rend un provider obligatoire que « si » la synchronisation tourne en tâche de fond — ce
+lot ne le fait pas. Une commande manuelle suffit à prouver l'abstraction par un usage réel, sans
+le coût d'un provider à garder par `isModuleEnabled('coffre')` (le piège mesuré en CC-137 :
+un provider sans garde tourne quel que soit `MODULES` et martèle une erreur SQL à chaque tick
+contre une table absente) pour un déclenchement automatique que personne n'a encore demandé. Si
+un futur lot ajoute une synchronisation planifiée, elle passera par un provider gardé de la même
+façon que `providers/coffre_provider.ts`.
+
+```bash
+node ace coffre:sync-catalog
+```
+
+Itère tous les `CoffreVault` existants ; pour chaque source enregistrée (aujourd'hui, seulement
+`immich_locked`), énumère une fois et applique le résultat à chaque compte. Une source en échec
+n'écrit rien pour aucun compte et n'empêche pas les autres sources de se synchroniser
+normalement.
+
+### Ce que ce lot ne fait pas
+
+- **Aucune route, aucun écran.** Le lot 3 de l'épique CC-224 portera la consultation et la
+  recherche. Les deux étages du mur (`can('coffre.view')` + `coffreOuvert()`) et le SQL paramétré
+  pour la recherche restent des règles de l'épique à appliquer **quand** ces routes existeront.
+- **Aucun rattachement d'entrée.** `coffre_catalog_items.entry_id` (nullable, FK
+  `coffre_entries`, `SET NULL`) est posé dès ce lot pour anticiper le lot 3, mais aucun code n'y
+  écrit encore.
+- **Aucune source NAS.** Le lot 2 de l'épique CC-224 la branchera sur la même abstraction.
+
+
 
 `coffre_vaults.user_id` est **unique**, les entrées portent `owner_id`, rien n'est partagé. Un
 coffre commun rendrait le contenu du propriétaire lisible par quiconque reçoit `coffre.view` et
@@ -1080,3 +1246,10 @@ Le détail par fichier est dans [TESTS.md](./TESTS.md) — à lire avant de **mo
   aperçus, le comportement sur petit écran, et ce que le fil d'Ariane affiche réellement (le code
   suggère qu'il n'affiche rien de plus pour ce module sans destination — voir « L'écran en cartes
   de sections » plus haut) restent un passage navigateur pour le propriétaire.
+- ⚠️ **Le catalogue des sources (CC-225) hérite de la limite ci-dessus, et l'aggrave sur les
+  champs qu'il ajoute.** Seule la pagination du dossier verrouillé a un usage déjà vérifié à
+  extrapoler (voir plus haut) ; les champs de métadonnées du catalogue (`type`, `originalFileName`,
+  `fileCreatedAt`, `exifInfo.fileSizeInByte`) n'ont AUCUN usage vérifié à extrapoler, dans ce dépôt
+  ou ailleurs — le parsing défensif (repli sur `null`/`'other'`) protège contre un crash, pas
+  contre des valeurs silencieusement fausses si la forme réelle diffère. `node ace
+  coffre:sync-catalog` n'a jamais été exécuté contre une vraie instance Immich.
