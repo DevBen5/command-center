@@ -271,6 +271,12 @@ un champ qui ne dépend QUE du type effectif (le mot de passe n'apparaît que su
 pas seulement sur l'absence du sélecteur, sans quoi un bug qui masquerait le sélecteur sans
 changer la valeur par défaut `'note'` passerait au vert.
 
+Depuis CC-218 : la bascule du collage manuel — `immichFolderAvailable` à vrai replie le champ
+derrière un dépliant fermé par défaut (absent du DOM tant qu'on n'a pas cliqué le dépliant) ;
+à faux, le champ reste visible sans aucun geste préalable et le dépliant n'existe pas du tout.
+Les deux cas sont recherchés par le `placeholder` de l'input pour ne pas se confondre avec un
+autre champ du formulaire.
+
 ⚠️ **Le rendu du panneau du dossier verrouillé et le CSS de la modale ne sont couverts par
 aucun test** — même limite que le reste du module, jsdom ne fait aucun layout. Voir
 `inertia/components/__tests__/app_modal.spec.ts` (hors index, `tests_index.spec.ts` ne balaie

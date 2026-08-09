@@ -231,6 +231,41 @@ describe('Coffre / EntryFormModal', () => {
     wrapper.unmount()
   })
 
+  // ⚠️ CC-218 : le geste rare (coller un UUID) est désormais replié derrière un dépliant fermé
+  // par défaut QUAND le dossier verrouillé est disponible — c'est le cœur du lot. On cherche
+  // l'input par son placeholder, pas juste « find('input') », pour ne pas confondre avec un
+  // autre champ du formulaire.
+  test('quand le dossier est disponible, le collage manuel est replié par défaut puis se révèle au clic', async () => {
+    const wrapper = monter({ entry: null, immichFolderAvailable: true })
+    const inputCollage = () => wrapper.find(`input[placeholder="${fr.index.mediaPlaceholder}"]`)
+
+    expect(inputCollage().exists()).toBe(false)
+
+    const depliant = wrapper.findAll('button').find((b) => b.text() === fr.index.mediaPasteOpen)!
+    await depliant.trigger('click')
+
+    expect(inputCollage().exists()).toBe(true)
+    expect(
+      wrapper.findAll('button').find((b) => b.text() === fr.index.mediaPasteClose)
+    ).toBeTruthy()
+
+    wrapper.unmount()
+  })
+
+  // ⚠️ CC-218 : la raison d'être du champ — sans dossier verrouillé disponible (installation qui
+  // n'a pas les quatre variables COFFRE_IMMICH_*), le collage reste le SEUL chemin vers un asset
+  // Immich, donc il ne doit JAMAIS être caché derrière un geste préalable.
+  test('sans dossier disponible, le collage manuel reste visible sans geste, aucun dépliant', () => {
+    const wrapper = monter({ entry: null, immichFolderAvailable: false })
+
+    expect(wrapper.find(`input[placeholder="${fr.index.mediaPlaceholder}"]`).exists()).toBe(true)
+    expect(
+      wrapper.findAll('button').find((b) => b.text() === fr.index.mediaPasteOpen)
+    ).toBeUndefined()
+
+    wrapper.unmount()
+  })
+
   // ⚠️ CC-215 : la SEULE porte par laquelle la borne ci-dessus pouvait encore fuir. Replier le
   // panneau ne démonte rien (contrairement à fermer la modale, montée en `v-if` depuis CC-207) et
   // `folderPhotos` reste délibérément en mémoire — sans remise à zéro du compteur, redéployer

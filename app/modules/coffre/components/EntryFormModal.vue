@@ -141,7 +141,7 @@ const newNasFileInput = ref('')
 const newNasFileError = ref(false)
 
 /**
- * Le parcours du dossier verrouillé Immich (CC-205) — le repli du collage manuel. Un seul
+ * Le parcours du dossier verrouillé Immich (CC-205) — le geste principal depuis CC-218. Un seul
  * panneau, chargé au premier besoin, jamais deux fois — contrairement à l'ancienne version
  * inline qui en portait un par formulaire.
  */
@@ -169,6 +169,16 @@ const visibleFolderPhotos = computed(() => folderPhotos.value?.slice(0, folderDi
 /** La cible qui reçoit un UUID collé ou sélectionné dans le dossier — `form.media` en création,
  * `editForm.media.add` en édition. */
 const mediaTarget = computed<string[]>(() => (isEdit ? editForm.media.add : form.media))
+
+/**
+ * Le collage manuel replié derrière un dépliant (CC-218) — uniquement quand le dossier verrouillé
+ * est disponible, auquel cas il devient le geste rare. `pasteOpen` seul n'a d'effet que dans ce
+ * cas : sans dossier, le collage reste le geste principal, déplié sans dépliant du tout — sinon la
+ * seule voie d'accès d'une installation sans dossier se retrouverait cachée derrière un bouton que
+ * rien n'explique.
+ */
+const pasteOpen = ref(false)
+const pasteVisible = computed(() => !props.immichFolderAvailable || pasteOpen.value)
 
 async function toggleFolder(): Promise<void> {
   folderOpen.value = !folderOpen.value
@@ -392,7 +402,9 @@ function submit(): void {
 
         <div>
           <label class="mb-[7px] block text-[12px] text-txt-2">{{ t('coffre.index.media') }}</label>
-          <p class="mb-2 text-[12px] text-txt-3">{{ t('coffre.index.mediaHint') }}</p>
+          <p class="mb-2 text-[12px] text-txt-3">
+            {{ immichFolderAvailable ? t('coffre.index.mediaHintFolder') : t('coffre.index.mediaHint') }}
+          </p>
 
           <ul v-if="isEdit && editingRemainingMedia.length > 0" class="mb-2 flex flex-wrap gap-2">
             <li
@@ -415,44 +427,11 @@ function submit(): void {
             </li>
           </ul>
 
-          <div class="flex gap-2">
-            <input
-              v-model="newMediaInput"
-              :placeholder="t('coffre.index.mediaPlaceholder')"
-              class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[13px] text-txt outline-none focus:border-aqua"
-              :class="newMediaError ? 'border-bad' : ''"
-              @keydown.enter.prevent="addMedia"
-            />
-            <button
-              type="button"
-              class="shrink-0 rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt hover:border-aqua"
-              @click="addMedia"
-            >
-              {{ t('coffre.index.mediaAddButton') }}
-            </button>
-          </div>
-          <p v-if="newMediaError" class="mt-1.5 text-[12.5px] text-bad">
-            {{ t('coffre.index.mediaInvalid') }}
-          </p>
-
-          <ul v-if="mediaTarget.length > 0" class="mt-2 flex flex-wrap gap-2">
-            <li
-              v-for="assetId in mediaTarget"
-              :key="assetId"
-              class="flex items-center gap-2 rounded-[7px] border border-line-2 px-2.5 py-1.5 text-[11px] text-txt-2"
-            >
-              <span class="font-mono">{{ assetId }}</span>
-              <span v-if="isEdit" class="text-txt-3">({{ t('coffre.index.mediaPending') }})</span>
-              <button type="button" class="text-txt-3 hover:text-bad" @click="removePendingMedia(assetId)">
-                {{ t('coffre.index.mediaRemove') }}
-              </button>
-            </li>
-          </ul>
-
+          <!-- Geste principal (CC-218) : parcourir le dossier verrouillé, quand il est disponible. -->
           <button
             v-if="immichFolderAvailable"
             type="button"
-            class="mt-2 rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt-2 hover:border-aqua"
+            class="rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt-2 hover:border-aqua"
             @click="toggleFolder"
           >
             {{ folderOpen ? t('coffre.index.folderClose') : t('coffre.index.folderBrowse') }}
@@ -495,6 +474,54 @@ function submit(): void {
               </button>
             </template>
           </div>
+
+          <!-- Le collage manuel (CC-180) : replié derrière ce dépliant quand le dossier est
+               disponible (geste rare) ; sinon `pasteVisible` reste vrai en permanence, c'est
+               alors le seul chemin vers un asset non verrouillé (voir CC-218). `mt-4`, pas
+               `mt-2` comme les autres écarts du bloc : le geste rare doit se détacher
+               visuellement du geste principal (Parcourir + son panneau), pas coller dessous. -->
+          <button
+            v-if="immichFolderAvailable"
+            type="button"
+            class="mt-4 text-[12px] text-txt-3 underline hover:text-txt-2"
+            @click="pasteOpen = !pasteOpen"
+          >
+            {{ pasteOpen ? t('coffre.index.mediaPasteClose') : t('coffre.index.mediaPasteOpen') }}
+          </button>
+
+          <div v-if="pasteVisible" class="mt-2 flex gap-2">
+            <input
+              v-model="newMediaInput"
+              :placeholder="t('coffre.index.mediaPlaceholder')"
+              class="w-full rounded-[7px] border border-line-2 bg-[rgba(255,255,255,.04)] px-3.5 py-[11px] text-[13px] text-txt outline-none focus:border-aqua"
+              :class="newMediaError ? 'border-bad' : ''"
+              @keydown.enter.prevent="addMedia"
+            />
+            <button
+              type="button"
+              class="shrink-0 rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt hover:border-aqua"
+              @click="addMedia"
+            >
+              {{ t('coffre.index.mediaAddButton') }}
+            </button>
+          </div>
+          <p v-if="pasteVisible && newMediaError" class="mt-1.5 text-[12.5px] text-bad">
+            {{ t('coffre.index.mediaInvalid') }}
+          </p>
+
+          <ul v-if="mediaTarget.length > 0" class="mt-2 flex flex-wrap gap-2">
+            <li
+              v-for="assetId in mediaTarget"
+              :key="assetId"
+              class="flex items-center gap-2 rounded-[7px] border border-line-2 px-2.5 py-1.5 text-[11px] text-txt-2"
+            >
+              <span class="font-mono">{{ assetId }}</span>
+              <span v-if="isEdit" class="text-txt-3">({{ t('coffre.index.mediaPending') }})</span>
+              <button type="button" class="text-txt-3 hover:text-bad" @click="removePendingMedia(assetId)">
+                {{ t('coffre.index.mediaRemove') }}
+              </button>
+            </li>
+          </ul>
         </div>
 
         <div>
