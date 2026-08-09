@@ -91,6 +91,72 @@ restauré dans `cc153_restore_test` puis comparé à `app`. Base jetable supprim
 comparaison ; `.env` jamais modifié pendant l'exercice (la cible passait par la variable
 d'environnement inline, voir ci-dessus).
 
+## Aller-retour chiffré — CC-223, prouvé le 2026-08-09
+
+CC-223 chiffre les dumps (asymétrique, `age-encryption`) avant qu'ils ne partent au miroir —
+et supprime le clair local une fois le chiffré vérifié. La vérification de troncature
+(`verifierDump`) ne porte alors plus sur un texte SQL lisible mais sur un fichier chiffré : la
+seule preuve qui compte reste la même qu'en 2026-08-03, étendue au chiffrement. Procédure
+rejouée avec une paire de clés **jetable**, générée pour l'occasion et détruite ensuite — jamais
+la clé réelle du propriétaire.
+
+```bash
+# 0. Paire de clés jetable (à remplacer par la vraie clé publique du propriétaire en usage réel).
+node -e "import('age-encryption').then(async (age) => {
+  const identity = await age.generateIdentity()
+  console.log('IDENTITY=' + identity)
+  console.log('RECIPIENT=' + await age.identityToRecipient(identity))
+})"
+
+# 1. Sauvegarde AVEC chiffrement — le clair est chiffré, vérifié, puis supprimé localement ;
+#    le miroir (s'il est configuré) ne reçoit que le `.sql.age`.
+BACKUP_ENCRYPTION_RECIPIENT=age1... npm run db:backup
+
+# 2. Preuve n°1 — l'octet brut du fichier chiffré ne contient AUCUN texte SQL reconnaissable.
+grep -a -c "CREATE TABLE" backups/command-center-<horodatage>.sql.age   # doit rendre 0
+
+# 3. Empreinte AVANT, sur app (jamais touchée par la suite).
+docker compose exec -T postgres psql -U root -d app -A -F',' \
+  < scripts/db-fingerprint.sql > /tmp/cc223-before.csv
+
+# 4. Base jetable, jamais app.
+docker compose exec postgres createdb -U root cc223_restore_test
+
+# 5. Restauration du dump CHIFFRÉ, clé privée passée en ligne — jamais dans un fichier.
+DB_DATABASE=cc223_restore_test BACKUP_DECRYPTION_KEY=AGE-SECRET-KEY-1... \
+  npm run db:restore -- backups/command-center-<horodatage>.sql.age
+
+# 6. Empreinte APRÈS, sur la base restaurée.
+docker compose exec -T postgres psql -U root -d cc223_restore_test -A -F',' \
+  < scripts/db-fingerprint.sql > /tmp/cc223-after.csv
+
+# 7. La preuve n°2 — un diff vide veut dire un contenu identique, table par table.
+diff /tmp/cc223-before.csv /tmp/cc223-after.csv && echo IDENTIQUE
+
+# 8. Preuve n°3 — refus AVANT toute écriture quand la clé privée manque (sur la base jetable,
+#    donc sans risque). Ne doit produire ni « Restauration de » ni « Base restaurée ».
+DB_DATABASE=cc223_restore_test npm run db:restore -- backups/command-center-<horodatage>.sql.age
+
+# 9. Nettoyage — dans tous les cas. Le dump chiffré produit à l'étape 1 doit aussi être détruit
+#    (local ET miroir) : la clé jetable est jetée ensuite, ce dump lui devient à jamais
+#    indéchiffrable — le garder occuperait une place de BACKUP_KEEP pour rien.
+docker compose exec postgres dropdb -U root cc223_restore_test
+rm -f /tmp/cc223-before.csv /tmp/cc223-after.csv
+```
+
+**Résultat** : le fichier chiffré (462 814 octets) ne contenait aucune occurrence de
+`CREATE TABLE`, `PostgreSQL database dump` ni `INSERT INTO` dans son octet brut. Restauration
+chiffrée réussie dans `cc223_restore_test` ; empreinte identique à `app` sur les 32 lignes
+comparées (tables + séquences). La tentative de restauration sans `BACKUP_DECRYPTION_KEY` a été
+refusée avant tout `psql` (message explicite, code de sortie 1).
+
+⚠️ **La garde « refuse sans clé privée » a en plus été vérifiée par mutation**, au niveau où
+elle est réellement décisive : `scripts/lib/dumps.js`, fonction `dechiffrerDump`. Le corps de la
+fonction a été temporairement remplacé par un retour direct (aucun appel à `age`), et
+`tests/unit/db_dumps.spec.ts` est passé de 31 tests verts à 5 rouges — preuve que ces tests
+ne passent pas sur un composant déjà dans l'état observé. Le fichier a été restauré à
+l'identique aussitôt après, confirmé par un nouveau passage à 31/31.
+
 ## La seconde chaîne — NAS, restée ouverte
 
 Le NAS ne sauvegarde pas avec `scripts/db-backup.js` (CC-74 l'écarte explicitement) : un cron

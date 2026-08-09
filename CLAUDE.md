@@ -107,23 +107,56 @@ comptent :
 - ⚠️ **Le dossier doit exister — il n'est jamais créé.** Un `mkdir -p` sur un support non monté
   fabriquerait un dossier sur le disque local : on croirait être protégé sans l'être, ce qui est
   pire que de ne rien copier.
-- ⚠️ **Les dumps partent en clair.** Décision assumée : la destination est un support de confiance.
+- ⚠️ **Les dumps partent en clair par défaut** — voir « Chiffrement des dumps » ci-dessous pour
+  les protéger avant qu'ils ne quittent le clair (CC-223). Sans ça, décision assumée : la
+  destination est un support de confiance.
 - La copie est écrite sous `.part` puis renommée, et **relue depuis le support** : comparer les
   tailles ne prouve que la longueur. C'est la copie qui compte — la seule qui survive à la perte du
   disque — donc c'est celle dont on relit les marqueurs, pas seulement celle qu'on a envoyée.
 - Seuls les dumps faits **après** avoir renseigné la variable partent au miroir. Ceux déjà dans
   `backups/` n'y montent pas tout seuls : une copie manuelle, une fois, au moment de l'activer.
 
+**Chiffrement des dumps — `BACKUP_ENCRYPTION_RECIPIENT`** (CC-223). ⚠️ Les trois protections
+ci-dessus répondent à la PERTE (une panne, chacune couvrant ce que les autres laissent passer) ;
+ceci répond à un axe différent, la CONFIDENTIALITÉ — un dump volé, sur ce disque ou sur le
+miroir, rend tout en clair, y compris les métadonnées déjà sensibles aujourd'hui (emails des
+comptes, `account_reset_events`, tout Leitner, toute la veille). Optionnel : renseigné, chaque
+dump vérifié est chiffré en **asymétrique** (`age`, via le paquet npm `age-encryption` —
+implémentation JS pure, aucun binaire externe à installer, ni sur ce poste ni dans l'image
+Docker) avant de partir où que ce soit — sans lui, `db:backup` continue de produire des dumps en
+clair comme avant CC-223.
+
+- ⚠️ **Mode asymétrique, jamais une passphrase.** La machine ne détient que la clé **publique**
+  (`age1...`) : elle peut chiffrer ses propres sauvegardes sans jamais pouvoir les relire. Une
+  passphrase rangée dans le `.env`, à côté des dumps, ne protégerait de rien — c'est exactement
+  l'erreur d'`APP_KEY` (CC-75) que ce choix évite de rejouer.
+- ⚠️ **La clé PRIVÉE (`AGE-SECRET-KEY-1...`) ne vit jamais sur cette machine, ni dans aucun
+  fichier.** Détenue par le propriétaire, hors du poste et hors du NAS. **Clé privée perdue =
+  sauvegardes perdues**, sans équivalent `auth:reset-account` possible — même doctrine que la
+  passphrase du coffre (CC-178) : un mécanisme de récupération serait une porte dérobée. Elle ne
+  se passe qu'en ligne, à l'invocation de `db:restore` (`BACKUP_DECRYPTION_KEY=AGE-SECRET-KEY-1...
+  npm run db:restore`, ou `docker compose exec -e BACKUP_DECRYPTION_KEY=... app node ace
+  db:restore`) — jamais une variable persistée : `start/env.ts` ne la déclare délibérément pas.
+- Le clair n'est supprimé qu'**après** relecture du chiffré (`verifierDumpChiffre` — en-tête
+  `age-encryption.org/v1`, taille non nulle) : même doctrine que le miroir, jamais de suppression
+  avant qu'un résultat en aval soit vérifié bon. Une clé publique mal configurée arrête la
+  sauvegarde plutôt que de mirrorer un clair qu'un chiffrement était censé protéger — le dump
+  local reste alors intact, en clair.
+- Un dump en clair déjà présent dans `backups/` (d'avant l'activation, ou produit sans la
+  variable) reste restaurable tel quel : `db:restore` reconnaît les deux formes (`.sql`,
+  `.sql.age`) et **aucun chiffrement rétroactif** n'est appliqué.
+
 **L'ordre des étapes de `db:backup` n'est pas décoratif** : dump → écriture close → vérification →
-miroir → purge. `BACKUP_KEEP` (défaut 10) ne garde que les N derniers dumps **locaux** ; le miroir
+chiffrement → relecture du chiffré → suppression du clair → miroir → purge (CC-223). `BACKUP_KEEP`
+(défaut 10) ne garde que les N derniers dumps **locaux**, les deux formes confondues ; le miroir
 n'est jamais purgé, c'est l'archive. La purge étant la seule opération destructive, elle vient en
 dernier : si la copie vers le miroir échoue, **rien n'est supprimé**. Sans ça, un NAS débranché
 ferait disparaître des dumps que l'archive n'a jamais reçus.
 
-La logique qui décide de tout ça vit dans `scripts/lib/dumps.js`, séparée des scripts pour une
-raison unique : elle est testable (`tests/unit/db_dumps.spec.ts`), les scripts non — ils dépendent
-d'un conteneur Postgres qui tourne. C'est le seul endroit du dépôt où une erreur de logique se paie
-en contenu perdu.
+La logique qui décide de tout ça — vérification, chiffrement/déchiffrement, purge — vit dans
+`scripts/lib/dumps.js`, séparée des scripts pour une raison unique : elle est testable
+(`tests/unit/db_dumps.spec.ts`), les scripts non — ils dépendent d'un conteneur Postgres qui
+tourne. C'est le seul endroit du dépôt où une erreur de logique se paie en contenu perdu.
 
 **Ces trois protections décrivent le poste de dev.** Depuis CC-140, `node ace db:backup` /
 `db:restore` portent la même logique (`scripts/lib/dumps.js`, inchangé) pour toute installation
