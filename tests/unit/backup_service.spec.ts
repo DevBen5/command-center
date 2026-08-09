@@ -319,4 +319,36 @@ test.group('BackupService / runBackup — chiffrement (CC-223)', (group) => {
     assert.equal(readdirSync(dossier).length, 4)
     assert.equal(readdirSync(miroir).length, 0)
   })
+
+  /*
+  | ⚠️ Une valeur qui ne contient QUE des espaces ne doit pas faire croire au chiffrement.
+  | `Env.schema.string.optional()` traduit `VAR=` en `undefined` — mesuré — mais PAS
+  | `VAR="   "`, qui arrive en `'   '` et devient `''` après `trim()`. Ce `''` est falsy, donc
+  | aucun chiffrement n'a lieu, tout en étant `!== undefined` : `status()` aurait annoncé le
+  | chiffrement CONFIGURÉ sur l'écran d'administration pendant que les dumps partaient en clair.
+  | Vérifié par mutation : rétablir `?? undefined` à la place de `|| undefined` dans le
+  | constructeur fait rougir l'assertion sur `encryptionConfigured`, et elle seule.
+  */
+  test('recipient fait uniquement d’espaces : ni chiffrement, ni écran qui l’annonce', async ({
+    assert,
+  }) => {
+    await backupSettings.update({ keep: 10, dailyEnabled: false })
+
+    const service = new BackupService({
+      directory: dossier,
+      mirrorDirectory: miroir,
+      runner: runnerValide(),
+      recipient: '   ',
+    })
+
+    assert.isFalse(
+      service.status().encryptionConfigured,
+      'l’écran annoncerait un chiffrement qui n’a pas lieu'
+    )
+
+    const resultat = await service.runBackup()
+
+    assert.isTrue(resultat.ok)
+    assert.isTrue(resultat.file?.endsWith('.sql'), `file inattendu : ${resultat.file}`)
+  })
 })

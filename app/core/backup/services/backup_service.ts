@@ -124,8 +124,15 @@ export class BackupService {
     this.#directory = options.directory ?? BACKUP_DIR
     this.#mirrorDirectory = options.mirrorDirectory ?? BACKUP_MIRROR_DIR
     this.#runner = options.runner ?? pgDumpRunner
-    this.#recipient =
-      options.recipient ?? env.get('BACKUP_ENCRYPTION_RECIPIENT')?.trim() ?? undefined
+    // ⚠️ `|| undefined`, PAS `?? undefined` : une chaîne vide n'est pas nullish, donc `??` la
+    // laisserait passer. `Env.schema.string.optional()` traduit bien `VAR=` en `undefined`, mais
+    // PAS `VAR="   "`, qui arrive ici en `'   '` puis devient `''` au `trim()`. Ce `''` est falsy
+    // — aucun chiffrement n'aurait lieu — tout en étant `!== undefined`, donc `status()` aurait
+    // annoncé le chiffrement CONFIGURÉ sur l'écran d'administration pendant que les dumps
+    // partent en clair. C'est la panne de `BACKUP_MIRROR_DIR` prise dans l'autre sens : croire
+    // qu'on est protégé sans l'être est pire que de savoir qu'on ne l'est pas.
+    const destinataire = (options.recipient ?? env.get('BACKUP_ENCRYPTION_RECIPIENT'))?.trim()
+    this.#recipient = destinataire || undefined
   }
 
   /** Les dumps du dossier de sauvegarde, du plus ancien au plus récent, avec taille et âge. */
