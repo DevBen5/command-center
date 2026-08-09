@@ -1,10 +1,14 @@
 import ImmichSessionClient, {
+  type ImmichLockedCatalogListing,
   type ImmichLockedFolder,
 } from '#modules/coffre/services/immich_session_client'
 import { ImmichUnavailableError, type ImmichThumbnail } from '#core/shared/services/immich_client'
 
 /** Ce que le dossier verrouillé rend : un contenu, ou une erreur à lever. */
 export type LockedFolderScript = ImmichLockedFolder | Error
+
+/** Ce que le listing de catalogue rend (CC-225) : un contenu, ou une erreur à lever. */
+export type LockedCatalogScript = ImmichLockedCatalogListing | Error
 
 /**
  * Le faux client de session Immich (CC-205) : **aucun test ne touche le réseau**, sur le patron de
@@ -21,7 +25,10 @@ export default class FakeImmichSessionClient extends ImmichSessionClient {
   /** Les identifiants dont la vignette a été demandée, dans l'ordre. */
   readonly thumbnailed: string[] = []
 
-  constructor(private folder: LockedFolderScript = { photos: [], truncated: false }) {
+  constructor(
+    private folder: LockedFolderScript = { photos: [], truncated: false },
+    private catalog: LockedCatalogScript = { assets: [], truncated: false }
+  ) {
     super()
   }
 
@@ -29,9 +36,19 @@ export default class FakeImmichSessionClient extends ImmichSessionClient {
     this.folder = folder
   }
 
+  /** Script du listing de catalogue (CC-225) — indépendant de `setFolder`, même en production. */
+  setCatalog(catalog: LockedCatalogScript): void {
+    this.catalog = catalog
+  }
+
   async lockedPhotos(): Promise<ImmichLockedFolder> {
     if (this.folder instanceof Error) throw this.folder
     return this.folder
+  }
+
+  async lockedAssetsForCatalog(): Promise<ImmichLockedCatalogListing> {
+    if (this.catalog instanceof Error) throw this.catalog
+    return this.catalog
   }
 
   async thumbnail(assetId: string): Promise<ImmichThumbnail> {
