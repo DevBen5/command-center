@@ -195,8 +195,14 @@ export default await Env.create(new URL('../', import.meta.url), {
   | n'est pas une incohérence : ces deux-là sont lues en `process.env` direct par le script du
   | poste de dev (`scripts/db-backup.js`, hors de l'app Adonis), le conteneur utilisant à leur
   | place des chemins FIXES (`config/backup.ts`). Cette variable-ci, en revanche, doit être lue
-  | à la fois par ce script ET par `BackupService` (`env.get(...)`, container/admin) : elle a
-  | donc besoin d'une entrée ici pour que `env.get` la connaisse côté Adonis.
+  | à la fois par ce script ET par l'app : elle a donc besoin d'une entrée ici pour que `env.get`
+  | la connaisse côté Adonis.
+  |
+  | ⚠️ **Le seul `env.get` de cette variable vit dans `config/backup.ts`** (CC-231), qui la
+  | neutralise sous `NODE_ENV=test` via `externalServicesIsolated` — `BackupService` lit la
+  | config, plus l'environnement. La lire à nouveau en direct rejouerait le défaut : `.env.test`
+  | ne la déclare pas, le chargeur fusionne par truthiness (CC-88), et la suite se remettrait à
+  | chiffrer avec la clé réelle du poste sans qu'aucun vert en CI ne le dise.
   |
   | ⚠️ La clé PRIVÉE (`AGE-SECRET-KEY-1...`) n'a AUCUNE variable ici, et ce n'est pas un
   | oubli : elle ne vit jamais sur cette machine. `db:restore` la lit directement dans
