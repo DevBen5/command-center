@@ -43,3 +43,13 @@ yarn-error.log
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
 .claude/youtrack-usage.log
+
+# Skill task-observer (2026-08-08) : son propre SKILL.md écrit son journal hors du
+# dépôt (~/.claude/projects/<id>/skill-observations/), jamais ici — cette ligne est
+# une sécurité de secours si ce chemin se résolvait un jour mal, pas une correction
+# d'un comportement observé.
+skill-observations/
+
+# Le skill task-observer lui-même : auto-installé localement, pas encore une décision
+# du dépôt — exception à la ligne 42 (les skills du projet sont normalement versionnés).
+.claude/skills/task-observer/
