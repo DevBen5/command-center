@@ -130,10 +130,16 @@ export function verifierDump(chemin) {
  * Le fichier chiffré ressemble-t-il à un dump age complet ?
  *
  * Volontairement plus frustre que `verifierDump` : sans la clé privée (qui n'est jamais
- * sur cette machine), impossible de vérifier le CONTENU. Ça attrape la troncature — le
- * même mode d'échec réel que `verifierDump` — pas la corruption fine d'un payload dont
- * l'en-tête est resté intact ; celle-là, seul `dechiffrerDump` la voit, au moment de la
- * restauration (`age` authentifie le texte chiffré, voir CC-223).
+ * sur cette machine), impossible de vérifier le CONTENU.
+ *
+ * ⚠️ **Ce qu'elle attrape exactement : le fichier vide, et le fichier qui n'est pas un age.
+ * PAS la troncature** — et c'est la différence de fond avec `verifierDump`, qu'il ne faut
+ * pas croire équivalente. Le clair se vérifie par un marqueur de FIN, donc une coupure au
+ * milieu se voit ; un fichier age n'a aucun marqueur de fin, et un fichier tronqué garde
+ * son en-tête intact — il passe donc ici. La troncature d'une COPIE reste couverte, mais
+ * par la comparaison de tailles qui précède le renommage, jamais par cette fonction. Le
+ * reste (payload corrompu, coupé) n'est vu que par `dechiffrerDump`, au moment de la
+ * restauration, `age` authentifiant le texte chiffré (CC-223).
  */
 export function verifierDumpChiffre(chemin) {
   let taille
