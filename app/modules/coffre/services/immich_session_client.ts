@@ -20,6 +20,68 @@ export interface ImmichLockedFolder {
   truncated: boolean
 }
 
+/** La nature d'un asset Immich, telle que le catalogue la range (CC-225). */
+export type ImmichAssetNature = 'photo' | 'video' | 'other'
+
+/**
+ * Un asset du dossier verrouillé avec ses métadonnées de catalogue (CC-225) — bien plus riche
+ * qu'`ImmichLockedPhoto`, qui ne sert que l'écran de sélection existant (CC-205).
+ *
+ * ⚠️ **Aucun champ hors `assetId` n'est vérifié contre une vraie instance Immich** — même limite
+ * que le reste du client (voir le `CLAUDE.md` du module). Le parsing est défensif : un champ
+ * absent ou malformé rend `null`, jamais une valeur devinée, jamais une exception qui ferait
+ * échouer tout le lot pour un seul asset.
+ */
+export interface ImmichLockedCatalogAsset {
+  assetId: string
+  nature: ImmichAssetNature
+  displayName: string | null
+  capturedAt: DateTime | null
+  sizeBytes: number | null
+}
+
+export interface ImmichLockedCatalogListing {
+  assets: ImmichLockedCatalogAsset[]
+  /** `true` si le dossier porte plus d'assets que `MAX_CATALOG_PAGES` n'en a ramené. */
+  truncated: boolean
+}
+
+/** `'IMAGE'`/`'VIDEO'` connus, tout le reste (absent, autre valeur) range en `'other'`. */
+function immichNatureFor(type: unknown): ImmichAssetNature {
+  if (type === 'IMAGE') return 'photo'
+  if (type === 'VIDEO') return 'video'
+  return 'other'
+}
+
+function immichDisplayNameFor(raw: Record<string, unknown>): string | null {
+  const name = raw.originalFileName
+  return typeof name === 'string' && name.length > 0 ? name : null
+}
+
+/** `fileCreatedAt`, à défaut `localDateTime`, à défaut `fileModifiedAt` — la première ISO valide. */
+function immichCapturedAtFor(raw: Record<string, unknown>): DateTime | null {
+  for (const field of ['fileCreatedAt', 'localDateTime', 'fileModifiedAt']) {
+    const candidate = raw[field]
+    if (typeof candidate !== 'string') continue
+
+    const parsed = DateTime.fromISO(candidate)
+    if (parsed.isValid) return parsed
+  }
+
+  return null
+}
+
+function immichSizeBytesFor(raw: Record<string, unknown>): number | null {
+  const exif = raw.exifInfo
+  if (typeof exif !== 'object' || exif === null) return null
+
+  const size = (exif as Record<string, unknown>).fileSizeInByte
+  const numeric =
+    typeof size === 'number' ? size : typeof size === 'string' ? Number(size) : Number.NaN
+
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : null
+}
+
 /** Photos par page de `POST /api/search/metadata`. */
 const PAGE_SIZE = 100
 
@@ -30,6 +92,19 @@ const PAGE_SIZE = 100
  * n'est pas un défaut, `truncated` le dit à l'écran plutôt que de lever.
  */
 const MAX_PAGES = 10
+
+/**
+ * ⚠️ **Plafond D'INDEXATION, distinct de `MAX_PAGES` ci-dessus — décision du ticket CC-225.**
+ * `MAX_PAGES` a été pensé pour une grille qu'un humain feuillette (10 pages, `truncated: true`
+ * au-delà) ; l'indexation du catalogue doit au contraire pouvoir couvrir un dossier ENTIER, sans
+ * quoi une énumération systématiquement tronquée empêcherait pour toujours le catalogue de
+ * marquer quoi que ce soit absent sur un gros dossier (`catalog_source.ts` : une énumération
+ * tronquée ne marque jamais rien absent). Cette valeur n'est donc PAS une borne réaliste pour un
+ * dossier verrouillé personnel — c'est un garde-fou anti-boucle-infinie, au cas où `nextPage`
+ * boucle sur lui-même par bug côté Immich, plusieurs ordres de grandeur au-dessus de ce qu'un
+ * dossier personnel peut raisonnablement porter.
+ */
+const MAX_CATALOG_PAGES = 1000
 
 const MAX_JSON_BYTES = 16 * 1024 * 1024
 const MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024
@@ -78,6 +153,16 @@ export default class ImmichSessionClient {
   /** Les photos du dossier verrouillé — `null` si le module n'est pas configuré. */
   async lockedPhotos(): Promise<ImmichLockedFolder> {
     return this.#withSession((token) => this.#fetchLockedPhotos(token))
+  }
+
+  /**
+   * Les assets du dossier verrouillé avec leurs métadonnées de catalogue (CC-225) — même
+   * session/auth/reprise que `lockedPhotos()` (`#withSession`), mais une pagination SÉPARÉE
+   * (`#fetchLockedAssetsForCatalog`, plafond `MAX_CATALOG_PAGES`) : ne touche pas au chemin
+   * existant de l'écran de sélection.
+   */
+  async lockedAssetsForCatalog(): Promise<ImmichLockedCatalogListing> {
+    return this.#withSession((token) => this.#fetchLockedAssetsForCatalog(token))
   }
 
   /** La vignette d'UN asset — l'appelant garantit qu'il est verrouillé ou que la clé d'API a échoué. */
@@ -251,6 +336,86 @@ export default class ImmichSessionClient {
     }
 
     return { photos, truncated }
+  }
+
+  /**
+   * Pagination SÉPARÉE de `#fetchLockedPhotos` — même endpoint, même forme de réponse, mais un
+   * plafond différent (`MAX_CATALOG_PAGES`) et une extraction de métadonnées bien plus riche.
+   * Dupliquée plutôt que factorisée avec `#fetchLockedPhotos` : les deux boucles ne partagent que
+   * la requête HTTP, pas le mapping ni le plafond, et ce fichier est sensible (sécurité, session
+   * partagée) — minimiser le remaniement du chemin existant réduit le risque de régression sur un
+   * comportement déjà en production, pour un gain de factorisation marginal sur une douzaine de
+   * lignes.
+   */
+  async #fetchLockedAssetsForCatalog(accessToken: string): Promise<ImmichLockedCatalogListing> {
+    const assets: ImmichLockedCatalogAsset[] = []
+    let page: number | null = 1
+    let truncated = false
+
+    for (let visited = 0; page !== null; visited++) {
+      if (visited >= MAX_CATALOG_PAGES) {
+        truncated = true
+        break
+      }
+
+      const response = await this.#request(
+        '/api/search/metadata',
+        'POST',
+        { visibility: 'locked', page, size: PAGE_SIZE },
+        accessToken
+      )
+
+      if (response.status === 401 || response.status === 403) {
+        await this.#drain(response)
+        throw new ImmichAuthExpiredError(
+          `Immich a refusé la session (${response.status}) en indexant le dossier verrouillé.`
+        )
+      }
+
+      const body = await this.#readJson(response, '/api/search/metadata')
+      const payload = body.assets
+      if (typeof payload !== 'object' || payload === null) {
+        throw new ImmichUnavailableError(
+          "La réponse d'Immich ne porte pas de bloc « assets » sur /api/search/metadata : " +
+            "l'API a probablement changé."
+        )
+      }
+
+      const { items, nextPage } = payload as { items?: unknown; nextPage?: unknown }
+      if (!Array.isArray(items)) {
+        throw new ImmichUnavailableError(
+          "La réponse d'Immich ne porte pas de liste « assets.items » sur /api/search/metadata."
+        )
+      }
+
+      for (const raw of items) {
+        if (typeof raw !== 'object' || raw === null) continue
+        const record = raw as Record<string, unknown>
+
+        // Même doctrine que #fetchLockedPhotos : un identifiant illisible est sauté, jamais
+        // deviné. Les autres champs, eux, retombent sur `null`/`'other'` plutôt que de faire
+        // échouer tout le lot pour un seul asset aux métadonnées incomplètes.
+        if (!isImmichAssetId(record.id)) continue
+
+        assets.push({
+          assetId: record.id,
+          nature: immichNatureFor(record.type),
+          displayName: immichDisplayNameFor(record),
+          capturedAt: immichCapturedAtFor(record),
+          sizeBytes: immichSizeBytesFor(record),
+        })
+      }
+
+      // ⚠️ Comme #fetchLockedPhotos : `nextPage` est rendu en CHAÎNE (`"2"`).
+      page = nextPage === null || nextPage === undefined ? null : Number(nextPage)
+      if (page !== null && !Number.isInteger(page)) {
+        throw new ImmichUnavailableError(
+          `Immich annonce une page suivante illisible (« ${String(nextPage)} ») sur /api/search/metadata.`
+        )
+      }
+    }
+
+    return { assets, truncated }
   }
 
   async #fetchThumbnail(accessToken: string, assetId: string): Promise<ImmichThumbnail> {

@@ -425,3 +425,176 @@ test.group('Coffre / le client de session Immich', () => {
     }
   })
 })
+
+/**
+ * `lockedAssetsForCatalog()` (CC-225) — même session/auth/reprise que `lockedPhotos()` ci-dessus
+ * (déjà prouvée), pagination et extraction de métadonnées SÉPARÉES.
+ *
+ * ⚠️ **Le plafond `MAX_CATALOG_PAGES` (1000) n'est pas testé directement** : le scripter
+ * demanderait de simuler un millier de pages pour un test qui ne prouverait rien de plus que « la
+ * boucle s'arrête » — déjà prouvé sur `#fetchLockedPhotos` (« suit la pagination en chaîne, et
+ * plafonne avec `truncated` » ci-dessus), qui partage la même mécanique de plafond.
+ */
+test.group('Coffre / le catalogue Immich (lockedAssetsForCatalog)', () => {
+  test('extrait nature, nom, date et taille quand Immich les rend', async ({ assert }) => {
+    const fetchStub = stubFetch((url, init) => {
+      const auth = routeSuccessfulAuth(url, init)
+      if (auth) return auth
+
+      return json({
+        assets: {
+          items: [
+            {
+              id: ASSET_ID,
+              type: 'IMAGE',
+              originalFileName: 'plage.jpg',
+              fileCreatedAt: '2026-06-01T10:00:00.000Z',
+              exifInfo: { fileSizeInByte: 2_048_000 },
+            },
+          ],
+          nextPage: null,
+        },
+      })
+    })
+
+    try {
+      const { assets, truncated } = await client().lockedAssetsForCatalog()
+
+      assert.isFalse(truncated)
+      assert.lengthOf(assets, 1)
+      assert.equal(assets[0].assetId, ASSET_ID)
+      assert.equal(assets[0].nature, 'photo')
+      assert.equal(assets[0].displayName, 'plage.jpg')
+      assert.equal(assets[0].capturedAt?.toMillis(), Date.parse('2026-06-01T10:00:00.000Z'))
+      assert.equal(assets[0].sizeBytes, 2_048_000)
+    } finally {
+      fetchStub.restore()
+    }
+  })
+
+  test('range une vidéo en "video", tout le reste en "other"', async ({ assert }) => {
+    const fetchStub = stubFetch((url, init) => {
+      const auth = routeSuccessfulAuth(url, init)
+      if (auth) return auth
+
+      return json({
+        assets: {
+          items: [
+            { id: ASSET_ID, type: 'VIDEO' },
+            { id: OTHER_ASSET_ID, type: 'AUDIO' },
+          ],
+          nextPage: null,
+        },
+      })
+    })
+
+    try {
+      const { assets } = await client().lockedAssetsForCatalog()
+
+      assert.equal(assets.find((a) => a.assetId === ASSET_ID)?.nature, 'video')
+      assert.equal(assets.find((a) => a.assetId === OTHER_ASSET_ID)?.nature, 'other')
+    } finally {
+      fetchStub.restore()
+    }
+  })
+
+  test('des métadonnées absentes ou malformées rendent null, jamais une valeur devinée', async ({
+    assert,
+  }) => {
+    const fetchStub = stubFetch((url, init) => {
+      const auth = routeSuccessfulAuth(url, init)
+      if (auth) return auth
+
+      return json({
+        assets: {
+          items: [
+            {
+              id: ASSET_ID,
+              // type absent, originalFileName absent, date illisible, taille non numérique.
+              fileCreatedAt: 'pas-une-date',
+              exifInfo: { fileSizeInByte: 'beaucoup' },
+            },
+          ],
+          nextPage: null,
+        },
+      })
+    })
+
+    try {
+      const { assets } = await client().lockedAssetsForCatalog()
+
+      assert.lengthOf(assets, 1)
+      assert.equal(assets[0].nature, 'other')
+      assert.isNull(assets[0].displayName)
+      assert.isNull(assets[0].capturedAt)
+      assert.isNull(assets[0].sizeBytes)
+    } finally {
+      fetchStub.restore()
+    }
+  })
+
+  test('un identifiant malformé est sauté, jamais deviné — même doctrine que lockedPhotos', async ({
+    assert,
+  }) => {
+    const fetchStub = stubFetch((url, init) => {
+      const auth = routeSuccessfulAuth(url, init)
+      if (auth) return auth
+
+      return json({
+        assets: { items: [{ id: ASSET_ID }, { id: 'pas-un-uuid' }], nextPage: null },
+      })
+    })
+
+    try {
+      const { assets } = await client().lockedAssetsForCatalog()
+
+      assert.lengthOf(assets, 1)
+      assert.equal(assets[0].assetId, ASSET_ID)
+    } finally {
+      fetchStub.restore()
+    }
+  })
+
+  test('assemble plusieurs pages, indépendamment de lockedPhotos', async ({ assert }) => {
+    const pages: Record<number, unknown> = {
+      1: { assets: { items: [{ id: ASSET_ID, type: 'IMAGE' }], nextPage: '2' } },
+      2: { assets: { items: [{ id: OTHER_ASSET_ID, type: 'VIDEO' }], nextPage: null } },
+    }
+
+    const fetchStub = stubFetch((url, init) => {
+      const auth = routeSuccessfulAuth(url, init)
+      if (auth) return auth
+
+      const body = JSON.parse(init.body as string)
+      return json(pages[body.page] ?? pages[2])
+    })
+
+    try {
+      const { assets, truncated } = await client().lockedAssetsForCatalog()
+
+      assert.isFalse(truncated)
+      assert.deepEqual(
+        assets.map((a) => a.assetId),
+        [ASSET_ID, OTHER_ASSET_ID]
+      )
+    } finally {
+      fetchStub.restore()
+    }
+  })
+
+  test('une session refusée en cours de listing lève, sans rendre de résultat partiel', async ({
+    assert,
+  }) => {
+    const fetchStub = stubFetch((url, init) => {
+      const auth = routeSuccessfulAuth(url, init)
+      if (auth) return auth
+      return new Response(null, { status: 401 })
+    })
+
+    try {
+      await assert.rejects(() => client().lockedAssetsForCatalog())
+    } finally {
+      fetchStub.restore()
+    }
+  })
+})

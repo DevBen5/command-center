@@ -1,0 +1,137 @@
+import { DateTime } from 'luxon'
+import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import CoffreCatalogItem from '#modules/coffre/models/coffre_catalog_item'
+import type { CatalogEnumeration, CatalogSourceKey } from '#modules/coffre/services/catalog_source'
+
+export interface CatalogSyncOutcome {
+  discovered: number
+  updated: number
+  markedAbsent: number
+  truncated: boolean
+}
+
+/**
+ * Le diff transactionnel du catalogue (CC-225) — découvre le neuf, met à jour ce qui a changé,
+ * marque absent ce qui a disparu. Reçoit une `CatalogEnumeration` déjà obtenue par l'appelant :
+ * ce service ne sait pas parler à une source, il ne fait qu'appliquer son résultat en base — voir
+ * `commands/coffre_sync_catalog.ts` pour l'orchestration (une énumération par source, appliquée à
+ * chaque compte).
+ */
+class CatalogSyncService {
+  /**
+   * ⚠️ **Une transaction PAR APPEL (donc par compte), jamais une seule englobant tous les
+   * comptes.** Un compte doit ressortir entièrement à jour ou entièrement inchangé — jamais à
+   * moitié, avec certaines lignes marquées absentes et d'autres non. Mais un échec sur UN compte
+   * (ex. contrainte unique violée par une synchro concurrente) ne doit pas défaire ce qui a déjà
+   * été committé pour un autre.
+   */
+  async applyEnumeration(
+    ownerId: number,
+    sourceKey: CatalogSourceKey,
+    enumeration: CatalogEnumeration
+  ): Promise<CatalogSyncOutcome> {
+    const now = DateTime.now()
+
+    return db.transaction(async (trx) => {
+      let discovered = 0
+      let updated = 0
+      const seenReferences: string[] = []
+
+      for (const item of enumeration.items) {
+        seenReferences.push(item.reference)
+
+        const existing = await CoffreCatalogItem.query({ client: trx })
+          .where('owner_id', ownerId)
+          .where('source', sourceKey)
+          .where('reference', item.reference)
+          .first()
+
+        if (existing === null) {
+          await CoffreCatalogItem.create(
+            {
+              ownerId,
+              source: sourceKey,
+              reference: item.reference,
+              nature: item.nature,
+              displayName: item.displayName,
+              capturedAt: item.capturedAt,
+              sizeBytes: item.sizeBytes,
+              discoveredAt: now,
+              lastSeenAt: now,
+              missingSince: null,
+            },
+            { client: trx }
+          )
+          discovered++
+        } else {
+          existing.nature = item.nature
+          existing.displayName = item.displayName
+          existing.capturedAt = item.capturedAt
+          existing.sizeBytes = item.sizeBytes
+          existing.lastSeenAt = now
+          // ⚠️ Réapparu : un élément qui avait été marqué absent puis revu redevient présent.
+          existing.missingSince = null
+          await existing.useTransaction(trx).save()
+          updated++
+        }
+      }
+
+      const markedAbsent = await this.#markAbsent(
+        trx,
+        ownerId,
+        sourceKey,
+        seenReferences,
+        enumeration.truncated,
+        now
+      )
+
+      return { discovered, updated, markedAbsent, truncated: enumeration.truncated }
+    })
+  }
+
+  /**
+   * ⚠️ **Ne marque RIEN si l'énumération est tronquée** — voir `catalog_source.ts` : ce que le
+   * plafond de pages n'a pas atteint ne doit pas être pris pour disparu. C'est distinct d'une
+   * énumération qui LÈVE : celle-là n'atteint même pas cette méthode, l'appelant ne reçoit jamais
+   * de `CatalogEnumeration` à appliquer.
+   *
+   * ⚠️ **Sélectionne d'abord les identifiants à marquer, puis met à jour par lot** — plutôt que de
+   * se fier au décompte de lignes rendu par `.update()` (dont la forme exacte dépend du driver) :
+   * le nombre rendu est celui des identifiants effectivement sélectionnés, sans ambiguïté.
+   */
+  async #markAbsent(
+    trx: TransactionClientContract,
+    ownerId: number,
+    sourceKey: CatalogSourceKey,
+    seenReferences: string[],
+    truncated: boolean,
+    now: DateTime
+  ): Promise<number> {
+    if (truncated) return 0
+
+    const query = CoffreCatalogItem.query({ client: trx })
+      .select(['id'])
+      .where('owner_id', ownerId)
+      .where('source', sourceKey)
+      .whereNull('missing_since')
+
+    if (seenReferences.length > 0) {
+      query.whereNotIn('reference', seenReferences)
+    }
+
+    const toMark = await query
+    if (toMark.length === 0) return 0
+
+    await CoffreCatalogItem.query({ client: trx })
+      .whereIn(
+        'id',
+        toMark.map((row) => row.id)
+      )
+      .update({ missing_since: now })
+
+    return toMark.length
+  }
+}
+
+export default new CatalogSyncService()
