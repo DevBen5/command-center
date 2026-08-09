@@ -479,11 +479,19 @@ function submit(): void {
                disponible (geste rare) ; sinon `pasteVisible` reste vrai en permanence, c'est
                alors le seul chemin vers un asset non verrouillé (voir CC-218). `mt-4`, pas
                `mt-2` comme les autres écarts du bloc : le geste rare doit se détacher
-               visuellement du geste principal (Parcourir + son panneau), pas coller dessous. -->
+               visuellement du geste principal (Parcourir + son panneau), pas coller dessous.
+
+               ⚠️ **`block` n'est pas décoratif, et son absence ne se voit qu'à l'écran.** Un
+               `<button>` est `inline-block` : dossier replié, le `<div>` du panneau n'est pas
+               monté et ce dépliant devient le frère inline immédiat de « Parcourir » — les deux
+               se posent sur la MÊME ligne, où une marge verticale ne produit rien. Le `mt-4`
+               au-dessus paraît alors correct dans le code tout en n'ayant aucun effet ; c'est
+               ce qui a été constaté au navigateur. Aucun test ne peut l'attraper (jsdom ne fait
+               pas de layout, voir le CLAUDE.md racine). -->
           <button
             v-if="immichFolderAvailable"
             type="button"
-            class="mt-4 text-[12px] text-txt-3 underline hover:text-txt-2"
+            class="mt-4 block w-fit text-[12px] text-txt-3 underline hover:text-txt-2"
             @click="pasteOpen = !pasteOpen"
           >
             {{ pasteOpen ? t('coffre.index.mediaPasteClose') : t('coffre.index.mediaPasteOpen') }}
