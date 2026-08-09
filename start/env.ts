@@ -184,6 +184,30 @@ export default await Env.create(new URL('../', import.meta.url), {
 
   /*
   |----------------------------------------------------------
+  | Chiffrement des dumps de sauvegarde (CC-223)
+  |----------------------------------------------------------
+  |
+  | ⚠️ La clé PUBLIQUE age (`age1...`) seulement — celle qui permet de chiffrer sans jamais
+  | pouvoir déchiffrer. Optionnelle : absente, `db:backup` continue de produire des dumps en
+  | clair, comme avant CC-223, et l'annonce à chaque exécution.
+  |
+  | ⚠️ **Ce nom est déclaré ici, contrairement à `BACKUP_MIRROR_DIR`/`BACKUP_KEEP`** — et ce
+  | n'est pas une incohérence : ces deux-là sont lues en `process.env` direct par le script du
+  | poste de dev (`scripts/db-backup.js`, hors de l'app Adonis), le conteneur utilisant à leur
+  | place des chemins FIXES (`config/backup.ts`). Cette variable-ci, en revanche, doit être lue
+  | à la fois par ce script ET par `BackupService` (`env.get(...)`, container/admin) : elle a
+  | donc besoin d'une entrée ici pour que `env.get` la connaisse côté Adonis.
+  |
+  | ⚠️ La clé PRIVÉE (`AGE-SECRET-KEY-1...`) n'a AUCUNE variable ici, et ce n'est pas un
+  | oubli : elle ne vit jamais sur cette machine. `db:restore` la lit directement dans
+  | `process.env.BACKUP_DECRYPTION_KEY`, passée en ligne à l'invocation — la déclarer dans ce
+  | schéma lui donnerait un statut de config persistable qu'elle ne doit jamais avoir, même
+  | doctrine que le rejet d'`ADMIN_PASSWORD` (CC-75, CC-138).
+  */
+  BACKUP_ENCRYPTION_RECIPIENT: Env.schema.string.optional(),
+
+  /*
+  |----------------------------------------------------------
   | Serveur LLM local (compatible OpenAI) — ingestion Leitner
   |----------------------------------------------------------
   |

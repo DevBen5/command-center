@@ -36,6 +36,7 @@ test.group('Core / administration de la sauvegarde', (group) => {
     assert.property(props, 'dailyEnabled')
     assert.property(props, 'directoryReady')
     assert.property(props, 'mirrorConfigured')
+    assert.property(props, 'encryptionConfigured')
     assert.property(props, 'dumps')
   })
 

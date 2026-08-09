@@ -17,6 +17,7 @@ const props = defineProps<{
   dailyEnabled: boolean
   directoryReady: boolean
   mirrorConfigured: boolean
+  encryptionConfigured: boolean
   dumps: Dump[]
   notice: string | null
   error: string | null
@@ -64,8 +65,14 @@ function formatSize(bytes: number): string {
       </Link>
       <h2 class="mt-2 text-lg font-bold tracking-tight">Sauvegarde</h2>
       <p class="mt-1 text-[13px] text-txt-3">
-        Les dumps partent en clair : le dossier monté et le miroir doivent être des supports de
-        confiance.
+        <template v-if="encryptionConfigured">
+          Les dumps sont chiffrés avant de quitter le clair (clé publique age) — la clé privée
+          n'est jamais sur cette machine.
+        </template>
+        <template v-else>
+          Les dumps partent en clair : le dossier monté et le miroir doivent être des supports de
+          confiance.
+        </template>
       </p>
     </div>
 
@@ -94,6 +101,12 @@ function formatSize(bytes: number): string {
           Miroir hors-disque
           <span :class="mirrorConfigured ? 'text-ok' : 'text-txt-3'">
             {{ mirrorConfigured ? '· monté' : '· non configuré' }}
+          </span>
+        </div>
+        <div class="text-[12.5px] text-txt-2">
+          Chiffrement
+          <span :class="encryptionConfigured ? 'text-ok' : 'text-txt-3'">
+            {{ encryptionConfigured ? '· activé' : '· non configuré' }}
           </span>
         </div>
       </div>
