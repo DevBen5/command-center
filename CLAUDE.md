@@ -155,6 +155,21 @@ clair comme avant CC-223.
 - Un dump en clair déjà présent dans `backups/` (d'avant l'activation, ou produit sans la
   variable) reste restaurable tel quel : `db:restore` reconnaît les deux formes (`.sql`,
   `.sql.age`) et **aucun chiffrement rétroactif** n'est appliqué.
+- ⚠️ **Côté application, cette variable se lit dans `config/backup.ts`, JAMAIS en `env.get(...)`
+  direct — et elle y est neutralisée sous `NODE_ENV=test`** (CC-231, `externalServicesIsolated`,
+  même geste que `config/coffre_nas.ts`). `BackupService` la lisait dans l'environnement : sur un
+  poste ayant réellement activé le chiffrement, `.env.test` ne déclarant pas ce nom, le `.env`
+  réel passait derrière par *truthiness* (CC-88) et la suite chiffrait avec la clé publique du
+  propriétaire — pendant que le seul test couvrant le comportement par défaut (« pas de clé ⇒
+  dump en clair », ce que reçoit toute installation tierce) rougissait en permanence, en exerçant
+  l'autre branche. **Ne « simplifie » donc pas en rétablissant `env.get` dans le service** : il
+  n'existe aucun `.env` sur un runner GitHub, la CI restera verte sur ce défaut — c'est ce qui l'a
+  laissé passer pendant tout CC-223, review et aller-retour de restauration compris. Le seul
+  chemin pour exercer le chiffrement en test est l'override `recipient` de `BackupOptions`, sur
+  le patron de `NasRootsService` substitué avec des racines de fixtures.
+- ⚠️ **`scripts/db-backup.js` et `scripts/db-restore.js`, eux, lisent `process.env` en direct, et
+  c'est correct** : ce sont des scripts hors de l'app Adonis, ils n'ont pas d'`env.get`, et ils ne
+  tournent jamais sous `NODE_ENV=test`. Ne les aligne pas « par symétrie ».
 
 **L'ordre des étapes de `db:backup` n'est pas décoratif** : dump → écriture close → vérification →
 chiffrement → relecture du chiffré → suppression du clair → miroir → purge (CC-223). `BACKUP_KEEP`
