@@ -130,6 +130,16 @@ clair comme avant CC-223.
   (`age1...`) : elle peut chiffrer ses propres sauvegardes sans jamais pouvoir les relire. Une
   passphrase rangée dans le `.env`, à côté des dumps, ne protégerait de rien — c'est exactement
   l'erreur d'`APP_KEY` (CC-75) que ce choix évite de rejouer.
+- ⚠️ **Et pas une clé SSH — la question s'est posée le 2026-08-09, elle est tranchée.** Trois
+  raisons, la première décisive : *(1)* **une clé privée SSH vit sur cette machine, c'est sa
+  raison d'être** (elle pousse sur GitHub) — chiffrer vers elle poserait la clé de déchiffrement
+  sur la machine même dont ce mécanisme défend la compromission, et la phrase « le serveur
+  chiffre sans jamais pouvoir relire » deviendrait fausse ; *(2)* le paquet `age-encryption`
+  **refuse** une clé SSH (`unrecognized recipient type`, mesuré en 0.3.0) — seul le binaire Go
+  `age` les accepte, donc l'adopter réintroduirait un binaire dans l'image et le build
+  multi-arch à prouver, ce que ce lot évite précisément ; *(3)* une clé SSH est une clé
+  d'**authentification**, qu'on fait tourner sans y penser — le jour de la rotation, toutes les
+  sauvegardes chiffrées avec l'ancienne deviennent illisibles, sans que rien ne le rappelle.
 - ⚠️ **La clé PRIVÉE (`AGE-SECRET-KEY-1...`) ne vit jamais sur cette machine, ni dans aucun
   fichier.** Détenue par le propriétaire, hors du poste et hors du NAS. **Clé privée perdue =
   sauvegardes perdues**, sans équivalent `auth:reset-account` possible — même doctrine que la
