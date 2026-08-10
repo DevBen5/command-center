@@ -1,4 +1,7 @@
 import { test } from '@japa/runner'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import app from '@adonisjs/core/services/app'
 import ace from '@adonisjs/core/services/ace'
 import testUtils from '@adonisjs/core/services/test_utils'
@@ -10,6 +13,7 @@ import ImmichSessionClient from '#modules/coffre/services/immich_session_client'
 import FakeImmichSessionClient, {
   type LockedCatalogScript,
 } from '#tests/fakes/fake_immich_session_client'
+import NasRootsService from '#modules/coffre/services/nas_roots_service'
 import CoffreSyncCatalog from '#commands/coffre_sync_catalog'
 
 /**
@@ -19,6 +23,12 @@ import CoffreSyncCatalog from '#commands/coffre_sync_catalog'
  * ⚠️ **Le test le plus important du lot** : une énumération qui échoue ne marque RIEN absent et
  * n'écrit RIEN — c'est la règle qui protège le catalogue d'un NAS démonté ou d'une session Immich
  * expirée pris pour « plus rien dans la source ».
+ *
+ * ⚠️ **Depuis CC-226, `NasRootsService` est AUSSI substitué** (racine de fixtures réelle mais
+ * vide), pour la raison inverse de `coffre_catalog_sync_nas.spec.ts` : la commande énumère
+ * maintenant deux sources, et sans ce faux la source « nas » — non configurée par défaut en
+ * test — échouerait à chaque appel et ferait sortir `assertSucceeded()` en erreur pour des
+ * raisons étrangères à ce que ce fichier prouve (le comportement générique et la source Immich).
  */
 async function catalogRowsFor(ownerId: number) {
   return CoffreCatalogItem.query().where('owner_id', ownerId).orderBy('reference', 'asc')
@@ -109,11 +119,21 @@ test.group('Coffre / le catalogue — contrainte unique', (group) => {
 test.group('Coffre / la commande coffre:sync-catalog', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
   group.each.teardown(() => app.container.restore(ImmichSessionClient))
+  group.each.teardown(() => app.container.restore(NasRootsService))
 
   group.each.setup(() => {
     // Sans ce mode, les messages de la commande partent à l'écran et rien ne permet de les lire.
     ace.ui.switchMode('raw')
     return () => ace.ui.switchMode('normal')
+  })
+
+  group.each.setup(async () => {
+    const dossier = await mkdtemp(join(tmpdir(), 'cc-nas-catalog-immich-only-'))
+    const racine = join(dossier, 'root')
+    await mkdir(racine, { recursive: true })
+    app.container.swap(NasRootsService, () => new NasRootsService([racine]))
+
+    return () => rm(dossier, { recursive: true, force: true })
   })
 
   test('aucun coffre sur l’installation : rien ne se passe, aucune erreur', async ({ assert }) => {

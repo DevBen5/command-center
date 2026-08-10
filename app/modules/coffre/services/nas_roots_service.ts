@@ -3,6 +3,16 @@ import { isAbsolute, resolve, sep } from 'node:path'
 import coffreNasConfig from '#config/coffre_nas'
 
 /**
+ * Le test de confinement, **extrait** pour être réutilisé par le parcours du catalogue NAS
+ * (CC-226) sans dupliquer la logique de sécurité de `resolve()` ci-dessous — même mécanisme,
+ * qu'on vérifie l'appartenance d'un chemin candidat (question fermée) ou celle d'un chemin
+ * découvert en parcourant (question ouverte).
+ */
+export function isWithinRoot(realCandidate: string, realRoot: string): boolean {
+  return realCandidate === realRoot || realCandidate.startsWith(realRoot + sep)
+}
+
+/**
  * Résout un chemin relatif contre les racines de médias NAS autorisées du coffre — le cœur de
  * CC-181. Ne connaît RIEN de la nature du fichier (photo, vidéo) : la sécurité de l'accès à un
  * chemin ne dépend pas de ce qu'il contient.
@@ -30,6 +40,15 @@ export default class NasRootsService {
   constructor(protected roots: string[] = coffreNasConfig.roots) {}
 
   /**
+   * Les racines telles que configurées — jamais résolues, jamais filtrées. Réservé au parcours du
+   * catalogue (CC-226), qui doit lui-même distinguer une racine absente d'une racine vide plutôt
+   * que de les voir déjà fondues par `resolve()`.
+   */
+  getRoots(): readonly string[] {
+    return this.roots
+  }
+
+  /**
    * Le chemin réel du fichier, ou `null` si aucune racine autorisée ne le contient réellement.
    *
    * ⚠️ **Jamais une exception** : un chemin hostile, une racine non montée ou un fichier disparu
@@ -47,7 +66,7 @@ export default class NasRootsService {
       const realCandidate = await realpath(candidate).catch(() => null)
       if (realCandidate === null) continue // fichier inexistant sous cette racine
 
-      if (realCandidate === realRoot || realCandidate.startsWith(realRoot + sep)) {
+      if (isWithinRoot(realCandidate, realRoot)) {
         return realCandidate
       }
     }

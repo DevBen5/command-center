@@ -18,10 +18,11 @@ le **dossier verrouillé d'Immich**, parcourable en vignettes depuis le coffre �
 verrouillé — session Immich » plus bas. La refonte d'écran vient ensuite, en deux tickets : CC-207
 (la saisie derrière une modale unique) puis CC-208 (l'accueil en cartes de sections, et une page
 par section) — voir « La saisie : une modale unique » et « L'écran en cartes de sections » plus
-bas. Une **seconde épique, CC-224, démarre avec CC-225** (lot 1 : le socle du catalogue des
-sources) — voir « Le catalogue des sources » plus bas. Elle renverse le rapport entre entrées et
-sources : le coffre indexera ce que ses sources contiennent, les entrées devenant une couche de
-sens par-dessus, plutôt que la seule porte d'accès au contenu.
+bas. Une **seconde épique, CC-224**, renverse le rapport entre entrées et sources : le coffre
+indexe ce que ses sources contiennent, les entrées devenant une couche de sens par-dessus, plutôt
+que la seule porte d'accès au contenu. Lot 1 (CC-225) : le socle — table, abstraction de source,
+synchronisation, dossier verrouillé Immich branché. Lot 2 (CC-226) : la source NAS, qui parcourt
+les racines déclarées — voir « Le catalogue des sources » plus bas pour les deux.
 
 ⚠️ **CC-181 a été amendé le 2026-08-06, en cours de lot** : le ticket ne portait au départ que les
 vidéos ; le propriétaire a élargi le périmètre aux photos avant la fin de l'implémentation, parce
@@ -76,6 +77,10 @@ services/catalog_sync_service.ts         le diff transactionnel : découvre, met
                                          absent (CC-225)
 services/immich_locked_catalog_source.ts implémente CatalogSource pour le dossier verrouillé,
                                          délègue à immich_session_client.ts (CC-225)
+services/nas_directory_walker.ts         PUR-ish (fs) · parcourt les racines NAS, symlinks/cycles
+                                         sûrs, racine absente LÈVE (CC-226)
+services/nas_catalog_source.ts           implémente CatalogSource pour le NAS, délègue au
+                                         parcours (CC-226)
 validators/coffre.ts                     ⚠️ des FABRIQUES, jamais des nœuds VineJS partagés
 ```
 
@@ -1111,7 +1116,134 @@ normalement.
 - **Aucun rattachement d'entrée.** `coffre_catalog_items.entry_id` (nullable, FK
   `coffre_entries`, `SET NULL`) est posé dès ce lot pour anticiper le lot 3, mais aucun code n'y
   écrit encore.
-- **Aucune source NAS.** Le lot 2 de l'épique CC-224 la branchera sur la même abstraction.
+- ~~Aucune source NAS~~ — comblé par CC-226, voir « Le catalogue des sources — lot 2 » ci-dessous.
+
+## Le catalogue des sources — lot 2 (CC-226)
+
+Branche le NAS sur l'abstraction du lot 1 (`CatalogSource`), sans y toucher : zéro changement de
+schéma (`'nas'` et `'other'` étaient déjà dans les `CHECK` de la migration CC-225), zéro
+changement dans `catalog_sync_service.ts` — la seule preuve qu'il fallait que l'abstraction du
+lot 1 tienne pour une seconde source structurellement différente (un système de fichiers, pas une
+API paginée).
+
+⚠️ **Le renversement du lot, à ne jamais confondre avec la garde d'accès existante.**
+`NasRootsService.resolve()` (CC-181) répond à une question FERMÉE — « ce chemin est-il dans une
+racine autorisée ? » — posée par le proxy de streaming au moment de servir un fichier. Le parcours
+du catalogue répond à la question OUVERTE — « que contient cette racine ? ». **Le parcours ne
+devient jamais l'autorité de l'accès** : `resolve()` reste le seul juge au moment de servir un
+fichier, confinement revérifié après `realpath`. Une ligne de catalogue est un index, jamais un
+laissez-passer — exactement la doctrine déjà écrite pour le lot 1.
+
+### Le parcours — `services/nas_directory_walker.ts`
+
+`walkNasRoots(roots, { maxItems? })`, appelé par `NasCatalogSource.enumerate()`
+(`services/nas_catalog_source.ts`) avec les racines lues depuis `NasRootsService.getRoots()` —
+substituable en test par le même mécanisme que le proxy de streaming
+(`app.container.swap(NasRootsService, …)`), jamais en lisant `COFFRE_NAS_ROOTS` directement.
+
+⚠️ **`isWithinRoot`, extrait de `nas_roots_service.ts` en fonction pure exportée, est réutilisé
+tel quel par le parcours.** La logique de confinement (comparer un `realpath()` candidat à la
+racine résolue) ne s'écrit qu'à un seul endroit, que la question posée soit fermée ou ouverte —
+dupliquer ce calcul aurait recréé exactement le risque que CC-181 a fermé une fois.
+
+Les quatre pièges du ticket, et comment chacun est tenu :
+
+1. **Liens symboliques.** Un lien qui sort de la racine (`realpath` en dehors) n'est jamais
+   indexé — même mécanisme que `resolve()`. Un lien vers un dossier légitime, LUI AUSSI dans la
+   racine, est suivi normalement : ce n'est pas un cycle, juste un alias, et il produit sa propre
+   ligne de catalogue (deux références distinctes pour le même contenu physique — voir la limite
+   « collision multi-racines » plus bas pour l'angle inverse).
+   ⚠️ **La `reference` stockée porte le nom du LIEN (pour rester re-résolvable via
+   `NasRootsService.resolve()`), mais la `nature` (photo/vidéo/other) se classe sur l'extension
+   du fichier RÉEL** — même doctrine que le streaming existant (`coffre_nas_controller.ts` classe
+   sur `realPath`, le résultat de `resolve()`, jamais sur le chemin demandé). Un lien nommé
+   `alias.txt` pointant vers `photo.jpg` reste indexé comme une photo. Bug trouvé et corrigé
+   pendant l'implémentation, avant tout commit — voir le test dédié dans
+   `coffre_nas_directory_walker.spec.ts`.
+2. **Cycles.** `visited`, un ensemble des chemins réels **sur le chemin de récursion courant**
+   (ajouté en entrant dans un dossier, retiré en en ressortant) — jamais un ensemble global, sinon
+   deux alias légitimes du même dossier physique seraient interdits à tort. ⚠️ **Il trace AUSSI
+   les dossiers ordinaires, pas seulement ceux rejoints par un lien** : un cycle peut se fermer
+   par un seul lien pointant vers un ANCÊTRE atteint sans aucun lien (`a/vers_a -> a`) — sans
+   cette trace-là, la vérification ne trouverait jamais cet ancêtre et le parcours boucle
+   indéfiniment. Un dossier ordinaire ne peut jamais être son propre ancêtre par construction du
+   filesystem, donc le tracer ne produit aucun faux positif. La racine elle-même est pré-insérée
+   dans `visited` : sans ça, un lien qui boucle directement sur la racine (`root/loop -> root`)
+   ne serait pas couvert par la garde initiale.
+3. **Racine absente ≠ racine vide.** `realpath(racine)` échoue → `walkNasRoots` LÈVE, avec le nom
+   de la racine en cause. `readdir` réussit et rend `[]` → 0 élément, pas une erreur. Si
+   PLUSIEURS racines sont configurées et qu'une seule est absente, TOUTE l'énumération `nas` lève
+   — il n'existe qu'une seule clé de source `nas` (pas une par racine), donc aucune granularité
+   plus fine n'est possible sans redessiner l'abstraction du lot 1.
+   ⚠️ **`roots.length === 0` lève aussi**, par parité avec Immich (`ImmichSessionClient` lève déjà
+   quand `COFFRE_IMMICH_*` est absent) — sans quoi une installation qui perdrait par erreur sa
+   variable `COFFRE_NAS_ROOTS` verrait la commande « réussir » en silence sur un catalogue NAS
+   jamais peuplé, indiscernable d'un NAS réellement vide.
+   ⚠️ **Une erreur `readdir` sur un SOUS-dossier n'est pas plus tolérée qu'une racine absente** —
+   seule une erreur `stat` sur un FICHIER individuel (disparu entre le listing et sa lecture) est
+   avalée, cas normal déjà documenté ailleurs dans le module. Un dossier illisible en cours de
+   route signifie qu'on ne sait pas ce qu'il contient : le traiter comme vide risquerait de faire
+   marquer absent tout ce qu'il porte réellement.
+4. **Volume.** `MAX_NAS_WALK_ITEMS` (200 000) — même doctrine que `MAX_CATALOG_PAGES` côté
+   Immich : un garde-fou anti-boucle-infinie, PAS une borne réaliste pour un NAS familial (qui
+   porte des dizaines de milliers de fichiers, pas des centaines de milliers). Au-delà,
+   `truncated: true` plutôt qu'un blocage. ⚠️ **Pas de reprise incrémentale ni de saut par
+   `mtime` de dossier dans ce lot** — chaque passage reparcourt tout. Aucun état persisté ne
+   permettrait de savoir ce qui a déjà été vu sans agrandir le schéma au-delà de ce lot ; à cette
+   échelle (dizaines de milliers de fichiers, commande manuelle), un parcours complet reste de
+   l'ordre de la seconde à la minute, pas un blocage. Limite connue, assumée, pas un oubli — voir
+   plus bas si elle devient un problème réel à l'usage.
+
+### La décision laissée ouverte par le ticket : `other`
+
+Un fichier hors de l'allow-list photo/vidéo (`nas_file_format.ts`) est indexé en `nature: 'other'`
+plutôt qu'ignoré. `'other'` existait déjà dans le type système du lot 1 (visiblement anticipé) et
+dans le `CHECK` de la migration CC-225. Cohérent avec la promesse de l'épique (« le coffre
+contient déjà tout ») : ignorer silencieusement un PDF ou une archive laisserait croire au futur
+écran de consultation (lot 3) qu'il n'existe rien à cet endroit du NAS, alors que quelque chose y
+est — juste rien que ce lot sache servir.
+
+### Une décision AU-DELÀ du ticket : les dossiers spéciaux Synology
+
+`SKIPPED_ENTRY_NAMES` (`@eaDir`, `#recycle`, `@tmp`) et tout nom commençant par `.` sont ignorés
+— jamais indexés, jamais parcourus. Synology (DSM, la cible de déploiement réelle du dépôt) crée
+automatiquement `@eaDir` (cache de vignettes) dans CHAQUE dossier d'un partage. Sans cette garde,
+le catalogue se remplirait de milliers d'entrées internes non pertinentes
+(`@eaDir/SYNOPHOTO_THUMB_XL.jpg`), à l'exact opposé de la promesse de l'épique. Ce n'est **pas**
+un des quatre pièges nommés par le ticket — décision prise pendant l'implémentation, à réévaluer
+si elle s'avère trop étroite ou trop large à l'usage réel.
+
+### `thumbnailFor()` — non pris en charge dans ce lot
+
+`NasCatalogSource.thumbnailFor()` lève systématiquement. Rien ne l'appelle dans ce lot (aucune
+route, aucun écran — hors périmètre jusqu'au lot 3). Il n'existe aucune génération de vignette
+pour les médias NAS (voir « La liste n'affiche aucun aperçu à plusieurs médias à la fois » plus
+bas) ; lire un fichier NAS entier en mémoire — potentiellement plusieurs Go pour une vidéo — sans
+plafond établi et sans appelant réel serait un piège latent. Le lot 3 décidera comment
+prévisualiser un média NAS, probablement en réutilisant le proxy de streaming existant plutôt que
+cette méthode.
+
+### Limite connue : collision de référence entre racines multiples
+
+⚠️ **Héritée telle quelle du modèle CC-181, non corrigée ici.** Le chemin stocké
+(`reference`) est relatif à SA racine, sans porter l'index de la racine elle-même — exactement
+comme `coffre_entry_nas_file.path_cipher` existant, qui a toujours cette même ambiguïté avec
+`NasRootsService.resolve()` (essaie les racines dans l'ordre, rend la première qui résout). Deux
+racines `COFFRE_NAS_ROOTS` distinctes portant chacune un fichier de même nom à leur racine
+respective produiraient donc le même `reference`.
+
+⚠️ **Et le symptôme ne serait PAS une erreur de contrainte unique — c'est ce qui le rend
+dangereux.** `CatalogSyncService.applyEnumeration` cherche la ligne `(owner_id, source,
+reference)` avant d'écrire, puis crée ou met à jour : le second fichier trouverait la ligne du
+premier et l'**écraserait silencieusement**. Aucun `insert` concurrent, donc aucune violation de
+contrainte, donc aucun message : un fichier disparaît simplement du catalogue, et la ligne
+survivante porte les métadonnées de l'autre. Ne compte donc pas sur la contrainte unique pour
+révéler ce cas le jour où une seconde racine est déclarée — elle ne se déclenchera pas.
+
+Corriger demanderait de changer le format de stockage
+existant pour les DEUX usages (catalogue et référence d'entrée) — hors périmètre de ce lot. Sans
+conséquence pratique tant qu'une installation ne déclare qu'UNE seule racine NAS, le cas le plus
+courant.
 
 
 
@@ -1253,3 +1385,12 @@ Le détail par fichier est dans [TESTS.md](./TESTS.md) — à lire avant de **mo
   ou ailleurs — le parsing défensif (repli sur `null`/`'other'`) protège contre un crash, pas
   contre des valeurs silencieusement fausses si la forme réelle diffère. `node ace
   coffre:sync-catalog` n'a jamais été exécuté contre une vraie instance Immich.
+- ⚠️ **La source NAS du catalogue (CC-226) n'a jamais été exercée contre un vrai NAS Synology.**
+  Le parcours est prouvé contre un vrai filesystem local (dossiers temporaires, vrais liens
+  symboliques), mais rien ici ne dit comment `readdir`/`realpath` se comportent réellement sur un
+  partage monté par SMB/NFS avec sa latence réseau propre — ni si `@eaDir`/`#recycle` sont
+  effectivement les seuls dossiers internes que DSM crée sur l'installation cible. Un premier
+  `node ace coffre:sync-catalog` en conditions réelles reste à faire avant de faire confiance au
+  volume/temps qu'il prendra. Le NAS n'a pas non plus de test de volumétrie réelle (dizaines de
+  milliers de fichiers) : seul le mécanisme de plafond (`truncated`) est prouvé, avec une petite
+  valeur injectée.

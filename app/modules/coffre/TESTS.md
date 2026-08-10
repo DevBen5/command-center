@@ -30,6 +30,9 @@ Le lot porte quatre affirmations, et elles ne se vérifient pas au même endroit
 | le listing de catalogue Immich extrait nature/nom/date/taille avec repli sur `null`/`'other'`, jamais une valeur devinée, plafond d'indexation séparé de l'affichage (CC-225) | `coffre_immich_session_client.spec.ts` (groupe « le catalogue Immich ») |
 | l'adaptateur Immich de l'abstraction `CatalogSource` traduit vers `CatalogSourceItem` sans rattraper une panne d'énumération (CC-225) | `coffre_catalog_source_immich.spec.ts` |
 | le couple (owner, source, référence) est unique en base, une énumération réussie mais TRONQUÉE ou en ÉCHEC ne marque rien absent, une seconde synchro identique n'insère aucun doublon, chaque compte reçoit sa propre copie (CC-225) | `coffre_catalog_sync.spec.ts` |
+| le parcours des racines NAS refuse un lien sortant, ne boucle jamais sur un cycle (y compris un lien pointant vers un dossier ordinaire déjà sur le chemin), distingue une racine absente (lève) d'une racine vide, ignore les dossiers spéciaux Synology, indexe une extension hors allow-list en `other`, préserve la casse, contre un vrai filesystem (CC-226) | `coffre_nas_directory_walker.spec.ts` |
+| l'adaptateur NAS de l'abstraction `CatalogSource` délègue au parcours sans rattraper une racine absente (CC-226) | `coffre_catalog_source_nas.spec.ts` |
+| la commande `coffre:sync-catalog` avec la source NAS réelle : découverte avec métadonnées exactes, racine absente → échec propre et catalogue INTACT, second passage sans doublon, fichier supprimé du disque marqué absent puis réapparu (CC-226) | `coffre_catalog_sync_nas.spec.ts` |
 
 ⚠️ **Le troisième est celui qu'un test rend faussement vert.** Relire ce qu'on vient d'écrire
 réussirait à l'identique sans le moindre chiffrement ; seul un `select` qui court-circuite le modèle
@@ -265,6 +268,38 @@ L'implémentation Immich de l'abstraction `CatalogSource` (CC-225), avec `FakeIm
 injecté directement (pas de `app.container.swap`, pas de DB) : `key` vaut `'immich_locked'`,
 `enumerate()` traduit les assets vers `CatalogSourceItem` et propage `truncated`, une panne du
 client remonte telle quelle (l'adaptateur ne l'avale jamais), `thumbnailFor()` délègue au client.
+
+### `tests/unit/coffre_nas_directory_walker.spec.ts`
+
+Le parcours récursif des racines NAS du catalogue (CC-226), contre un VRAI filesystem — même
+doctrine que `coffre_nas_roots.spec.ts` : dossiers et liens symboliques réels, aucun mock. Une
+racine vide rend 0 élément sans erreur ; une racine absente (ou aucune racine configurée) LÈVE,
+jamais une liste vide ; un fichier de premier niveau et un fichier en sous-dossier sont découverts
+avec leurs métadonnées réelles (taille, date de modification, chemin relatif) ; une extension hors
+allow-list photo/vidéo est indexée en `other` ; la casse du chemin est préservée. Trois cas de
+liens symboliques : un lien sortant de la racine n'est jamais indexé ; un lien vers un dossier
+légitime AUSSI dans la racine est suivi normalement (deux références distinctes, ce n'est pas un
+cycle) ; un cycle — y compris un lien pointant vers un ANCÊTRE atteint sans aucun lien — ne boucle
+pas indéfiniment. Un second passage sur un contenu inchangé rend exactement les mêmes références.
+Les dossiers spéciaux Synology (`@eaDir`, `#recycle`) et les dotfiles ne sont jamais indexés. Le
+plafond anti-boucle rend `truncated: true` sans lever.
+
+### `tests/unit/coffre_catalog_source_nas.spec.ts`
+
+L'implémentation NAS de l'abstraction `CatalogSource` (CC-226), avec une vraie racine de
+fixtures : `key` vaut `'nas'`, `enumerate()` délègue au parcours (déjà prouvé en détail dans le
+fichier précédent — ce test-ci ne re-prouve pas les pièges du parcours) et ne rattrape pas une
+racine absente, `thumbnailFor()` lève — non pris en charge pour le NAS dans ce lot.
+
+### `tests/functional/modules/coffre_catalog_sync_nas.spec.ts`
+
+La source NAS bout-en-bout (CC-226) : `NasRootsService` substitué par une vraie racine de
+fixtures, `ImmichSessionClient` substitué par un faux qui réussit toujours (catalogue vide) pour
+ne pas contaminer les assertions de succès avec l'échec attendu de la source Immich non
+configurée en test. Découverte réelle avec métadonnées exactes en base ; **le test le plus
+important du lot** — une racine devenue absente entre deux passages fait échouer la commande et
+laisse le catalogue INTACT ; un second passage identique n'insère aucun doublon ; un fichier
+réellement supprimé du disque est marqué absent puis redevient présent s'il réapparaît.
 
 ### `tests/functional/modules/coffre_catalog_sync.spec.ts`
 

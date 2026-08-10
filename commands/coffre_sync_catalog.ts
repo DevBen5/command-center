@@ -3,10 +3,11 @@ import type { CommandOptions } from '@adonisjs/core/types/ace'
 import CoffreVault from '#modules/coffre/models/coffre_vault'
 import catalogSync from '#modules/coffre/services/catalog_sync_service'
 import ImmichLockedCatalogSource from '#modules/coffre/services/immich_locked_catalog_source'
+import NasCatalogSource from '#modules/coffre/services/nas_catalog_source'
 import type { CatalogSource } from '#modules/coffre/services/catalog_source'
 
 /**
- * Synchronise le catalogue du coffre avec ses sources (CC-225, lot 1 de l'épique CC-224).
+ * Synchronise le catalogue du coffre avec ses sources (CC-225 puis CC-226, épique CC-224).
  *
  * ## Pourquoi une commande, et pas un provider planifié
  *
@@ -22,11 +23,12 @@ import type { CatalogSource } from '#modules/coffre/services/catalog_source'
  *
  * ## Ce qu'elle fait, dans l'ordre
  *
- * Pour chaque source enregistrée, ELLE énumère une seule fois (`source.enumerate()`), puis
- * applique ce résultat unique à chaque compte qui possède un coffre — les sources de ce lot sont
- * installation-wide (un seul compte Immich dans `.env`), donc une seconde requête réseau par
- * compte n'apporterait rien. La duplication du catalogue par compte, elle, reste en base
- * (décision du cadrage de CC-225) : chaque compte reçoit sa propre copie des lignes.
+ * Pour chaque source enregistrée (`immich_locked`, `nas`), ELLE énumère une seule fois
+ * (`source.enumerate()`), puis applique ce résultat unique à chaque compte qui possède un coffre
+ * — les deux sources sont installation-wide (un seul compte Immich, des racines NAS communes,
+ * toutes dans `.env`), donc une seconde requête/parcours par compte n'apporterait rien. La
+ * duplication du catalogue par compte, elle, reste en base (décision du cadrage de CC-225) :
+ * chaque compte reçoit sa propre copie des lignes.
  *
  * ⚠️ **Une source qui échoue à s'énumérer n'écrit RIEN pour AUCUN compte**, et n'empêche pas les
  * autres sources de se synchroniser normalement — les échecs sont isolés par source.
@@ -53,7 +55,10 @@ export default class CoffreSyncCatalog extends BaseCommand {
       return
     }
 
-    const sources: CatalogSource[] = [await this.app.container.make(ImmichLockedCatalogSource)]
+    const sources: CatalogSource[] = [
+      await this.app.container.make(ImmichLockedCatalogSource),
+      await this.app.container.make(NasCatalogSource),
+    ]
 
     for (const source of sources) {
       await this.#syncSource(source, vaults)
