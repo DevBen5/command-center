@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { DateTime } from 'luxon'
 import { isWithinRoot } from '#modules/coffre/services/nas_roots_service'
 import { nasFileKindFor } from '#modules/coffre/services/nas_file_format'
+import type { CoffreNasRoot } from '#config/coffre_nas'
 import type { CatalogEnumeration, CatalogSourceItem } from '#modules/coffre/services/catalog_source'
 
 /**
@@ -45,9 +46,13 @@ interface WalkState {
 /**
  * `natureSourcePath` classe la nature (photo/vidéo/other) — c'est le fichier RÉEL pour un lien
  * symbolique (voir l'appelant), le chemin lui-même sinon. `relativePath` (jamais résolu, jamais
- * normalisé) porte à la fois la référence stockée et le nom affiché.
+ * normalisé) porte le nom affiché ; la référence stockée porte EN PLUS l'identifiant de la racine
+ * (CC-233) — sans lui, deux racines portant chacune un fichier de même chemin relatif produiraient
+ * la même référence, et la seconde écraserait la première en base sans qu'aucune contrainte ne le
+ * signale (voir `catalog_sync_service.ts`).
  */
 function toCatalogItem(
+  rootName: string,
   relativePath: string,
   natureSourcePath: string,
   mtime: Date,
@@ -56,7 +61,7 @@ function toCatalogItem(
   const name = relativePath.split(/[\\/]/).pop() ?? relativePath
 
   return {
-    reference: relativePath,
+    reference: `${rootName}/${relativePath}`,
     nature: nasFileKindFor(natureSourcePath) ?? 'other',
     displayName: name,
     capturedAt: DateTime.fromJSDate(mtime),
@@ -85,6 +90,7 @@ function toCatalogItem(
  * — cohérent avec le contrat tout-ou-rien de `catalog_source.ts`.
  */
 async function walkDirectory(
+  rootName: string,
   absoluteDir: string,
   relativeDir: string,
   realRoot: string,
@@ -113,15 +119,15 @@ async function walkDirectory(
       if (stats.isDirectory()) {
         if (visited.has(real)) continue // cycle : ce dossier est déjà sur le chemin courant
         visited.add(real)
-        await walkDirectory(real, relativePath, realRoot, visited, state)
+        await walkDirectory(rootName, real, relativePath, realRoot, visited, state)
         visited.delete(real)
       } else if (stats.isFile()) {
         // ⚠️ `real`, PAS `absolutePath` : la nature (photo/vidéo/other) doit se classer sur
         // l'extension du fichier RÉEL, pas sur celle du nom du lien — même doctrine que le
         // streaming existant (`coffre_nas_controller.ts` classe sur `realPath`, le résultat de
         // `resolve()`). Un lien nommé `alias.txt` pointant vers `photo.jpg` reste une photo ;
-        // `relativePath` seul (le nom du lien) continue de porter la référence stockée.
-        pushItem(state, relativePath, real, stats)
+        // `relativePath` seul (le nom du lien) continue de porter le nom affiché.
+        pushItem(state, rootName, relativePath, real, stats)
       }
       continue
     }
@@ -129,7 +135,7 @@ async function walkDirectory(
     if (entry.isDirectory()) {
       if (visited.has(absolutePath)) continue // ne peut arriver que via un lien déjà traité plus haut
       visited.add(absolutePath)
-      await walkDirectory(absolutePath, relativePath, realRoot, visited, state)
+      await walkDirectory(rootName, absolutePath, relativePath, realRoot, visited, state)
       visited.delete(absolutePath)
       continue
     }
@@ -138,7 +144,7 @@ async function walkDirectory(
       const stats = await stat(absolutePath).catch(() => null)
       if (stats === null) continue // disparu entre le listing et la lecture : cas normal
 
-      pushItem(state, relativePath, absolutePath, stats)
+      pushItem(state, rootName, relativePath, absolutePath, stats)
     }
     // autre type (socket, fifo, périphérique) : ignoré silencieusement.
   }
@@ -146,6 +152,7 @@ async function walkDirectory(
 
 function pushItem(
   state: WalkState,
+  rootName: string,
   relativePath: string,
   natureSourcePath: string,
   stats: { mtime: Date; size: number }
@@ -155,7 +162,7 @@ function pushItem(
     return
   }
 
-  state.items.push(toCatalogItem(relativePath, natureSourcePath, stats.mtime, stats.size))
+  state.items.push(toCatalogItem(rootName, relativePath, natureSourcePath, stats.mtime, stats.size))
 }
 
 export interface NasWalkOptions {
@@ -169,7 +176,7 @@ export interface NasWalkOptions {
  * disparu.
  */
 export async function walkNasRoots(
-  roots: readonly string[],
+  roots: readonly CoffreNasRoot[],
   options: NasWalkOptions = {}
 ): Promise<CatalogEnumeration> {
   if (roots.length === 0) {
@@ -186,15 +193,16 @@ export async function walkNasRoots(
   }
 
   for (const root of roots) {
-    const realRoot = await realpath(root).catch(() => null)
+    const realRoot = await realpath(root.path).catch(() => null)
     if (realRoot === null) {
       throw new Error(
-        `La racine NAS « ${root} » n'a pas pu être résolue (non montée, ou chemin invalide) : ` +
-          "l'énumération du catalogue s'arrête pour ne marquer aucun élément absent à tort."
+        `La racine NAS « ${root.name} » (${root.path}) n'a pas pu être résolue (non montée, ou ` +
+          "chemin invalide) : l'énumération du catalogue s'arrête pour ne marquer aucun élément " +
+          'absent à tort.'
       )
     }
 
-    await walkDirectory(realRoot, '', realRoot, new Set([realRoot]), state)
+    await walkDirectory(root.name, realRoot, '', realRoot, new Set([realRoot]), state)
   }
 
   return { items: state.items, truncated: state.truncated }

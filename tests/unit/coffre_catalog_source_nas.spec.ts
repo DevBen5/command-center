@@ -25,31 +25,33 @@ test.group('Coffre / la source de catalogue NAS', (group) => {
   })
 
   test('key vaut "nas"', ({ assert }) => {
-    const source = new NasCatalogSource(new NasRootsService([racine]))
+    const source = new NasCatalogSource(new NasRootsService([{ name: 'root', path: racine }]))
     assert.equal(source.key, 'nas')
   })
 
   test('enumerate() délègue au parcours et rend les fichiers trouvés', async ({ assert }) => {
     await writeFile(join(racine, 'plage.jpg'), 'contenu')
 
-    const source = new NasCatalogSource(new NasRootsService([racine]))
+    const source = new NasCatalogSource(new NasRootsService([{ name: 'root', path: racine }]))
     const { items, truncated } = await source.enumerate()
 
     assert.isFalse(truncated)
     assert.lengthOf(items, 1)
-    assert.equal(items[0].reference, 'plage.jpg')
+    assert.equal(items[0].reference, 'root/plage.jpg')
   })
 
   test('enumerate() ne rattrape pas une racine absente : elle remonte telle quelle', async ({
     assert,
   }) => {
-    const source = new NasCatalogSource(new NasRootsService([join(dossier, 'jamais-monte')]))
+    const source = new NasCatalogSource(
+      new NasRootsService([{ name: 'root', path: join(dossier, 'jamais-monte') }])
+    )
 
     await assert.rejects(() => source.enumerate(), /n'a pas pu être résolue/)
   })
 
   test('thumbnailFor() lève — non pris en charge pour le NAS dans ce lot', async ({ assert }) => {
-    const source = new NasCatalogSource(new NasRootsService([racine]))
+    const source = new NasCatalogSource(new NasRootsService([{ name: 'root', path: racine }]))
 
     await assert.rejects(() => source.thumbnailFor('plage.jpg'), /pas prises en charge/)
   })

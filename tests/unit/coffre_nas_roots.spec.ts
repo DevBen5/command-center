@@ -38,7 +38,7 @@ test.group('Coffre / le résolveur de racines de médias NAS', (group) => {
   })
 
   test('un chemin légitime, dans la racine, se résout', async ({ assert }) => {
-    const roots = new NasRootsService([racine])
+    const roots = new NasRootsService([{ name: 'root', path: racine }])
 
     const resolu = await roots.resolve('films/exemple.mp4')
 
@@ -47,7 +47,7 @@ test.group('Coffre / le résolveur de racines de médias NAS', (group) => {
   })
 
   test('⚠️ une traversée (`../`) est refusée', async ({ assert }) => {
-    const roots = new NasRootsService([racine])
+    const roots = new NasRootsService([{ name: 'root', path: racine }])
 
     assert.isNull(await roots.resolve('../dehors/secret.mp4'))
   })
@@ -55,7 +55,7 @@ test.group('Coffre / le résolveur de racines de médias NAS', (group) => {
   test('⚠️ un lien symbolique posé DANS la racine et pointant DEHORS est refusé — le cas qui compte', async ({
     assert,
   }) => {
-    const roots = new NasRootsService([racine])
+    const roots = new NasRootsService([{ name: 'root', path: racine }])
 
     // Le chemin demandé PARAÎT légitime : il est bien sous la racine, une comparaison de
     // chaînes avant résolution le laisserait passer. Seul `realpath()` révèle sa vraie cible.
@@ -63,19 +63,22 @@ test.group('Coffre / le résolveur de racines de médias NAS', (group) => {
   })
 
   test('⚠️ un chemin absolu est refusé, jamais concaténé à la racine', async ({ assert }) => {
-    const roots = new NasRootsService([racine])
+    const roots = new NasRootsService([{ name: 'root', path: racine }])
 
     assert.isNull(await roots.resolve(join(dossier, 'dehors', 'secret.mp4')))
   })
 
   test('un fichier inexistant sous une racine valide rend null, sans lever', async ({ assert }) => {
-    const roots = new NasRootsService([racine])
+    const roots = new NasRootsService([{ name: 'root', path: racine }])
 
     assert.isNull(await roots.resolve('films/absent.mp4'))
   })
 
   test('une racine non montée est ignorée, la suivante est essayée', async ({ assert }) => {
-    const roots = new NasRootsService([join(dossier, 'jamais-monte'), racine])
+    const roots = new NasRootsService([
+      { name: 'absente', path: join(dossier, 'jamais-monte') },
+      { name: 'root', path: racine },
+    ])
 
     const resolu = await roots.resolve('films/exemple.mp4')
 

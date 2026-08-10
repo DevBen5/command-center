@@ -257,14 +257,19 @@ export default await Env.create(new URL('../', import.meta.url), {
   | l'environnement, jamais de la base ni d'un formulaire. Une racine persistée
   | depuis une requête HTTP serait une lecture arbitraire du disque, permanente.
   |
-  | Liste séparée par des virgules. Chaque valeur est le chemin tel que LE
+  | Liste séparée par des virgules, CHAQUE racine sous la forme « nom=chemin »
+  | (CC-233) — l'identifiant entre dans les références du catalogue, il évite
+  | que deux racines portant chacune un fichier de même chemin relatif ne
+  | s'écrasent en silence dans le catalogue. Le chemin est celui que LE
   | PROCESSUS le voit — un chemin réel du poste en dev, le chemin FIXE monté
   | dans le conteneur en production (voir docker-compose.install.yml, où seul
   | le côté HÔTE du montage se règle). Optionnelle : sans elle, la lecture de
   | médias NAS du coffre reste simplement inactive (toute référence rend 404).
   | Couvre photos ET vidéos — une seule garde de chemin pour les deux, la
-  | nature du fichier ne change rien à la sécurité de l'accès. Normalisation
-  | dans `config/coffre_nas.ts`.
+  | nature du fichier ne change rien à la sécurité de l'accès. Une racine sans
+  | identifiant, un identifiant vide, un identifiant portant un « / », ou deux
+  | racines de même identifiant font échouer le démarrage. Normalisation dans
+  | `config/coffre_nas.ts`.
   */
   COFFRE_NAS_ROOTS: Env.schema.string.optional(),
 

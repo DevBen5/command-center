@@ -37,7 +37,7 @@ test.group('Coffre / le proxy de streaming de médias NAS', (group) => {
     // l'allow-list le laisse passer. Voir le test du même nom plus bas.
     await mkdir(join(racine, 'pieges', 'album.jpg'), { recursive: true })
 
-    app.container.swap(NasRootsService, () => new NasRootsService([racine]))
+    app.container.swap(NasRootsService, () => new NasRootsService([{ name: 'root', path: racine }]))
 
     return async () => {
       app.container.restore(NasRootsService)

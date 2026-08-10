@@ -33,6 +33,7 @@ Le lot porte quatre affirmations, et elles ne se vérifient pas au même endroit
 | le parcours des racines NAS refuse un lien sortant, ne boucle jamais sur un cycle (y compris un lien pointant vers un dossier ordinaire déjà sur le chemin), distingue une racine absente (lève) d'une racine vide, ignore les dossiers spéciaux Synology, indexe une extension hors allow-list en `other`, préserve la casse, contre un vrai filesystem (CC-226) | `coffre_nas_directory_walker.spec.ts` |
 | l'adaptateur NAS de l'abstraction `CatalogSource` délègue au parcours sans rattraper une racine absente (CC-226) | `coffre_catalog_source_nas.spec.ts` |
 | la commande `coffre:sync-catalog` avec la source NAS réelle : découverte avec métadonnées exactes, racine absente → échec propre et catalogue INTACT, second passage sans doublon, fichier supprimé du disque marqué absent puis réapparu (CC-226) | `coffre_catalog_sync_nas.spec.ts` |
+| `COFFRE_NAS_ROOTS` exige un identifiant déclaré par racine (`nom=chemin`), échoue au démarrage sur une racine sans nom, un nom vide, un nom portant `/`, ou deux racines de même nom ; la référence de catalogue porte cet identifiant, deux racines partageant un fichier de même chemin relatif produisent deux lignes distinctes (CC-233) | `coffre_nas_config.spec.ts`, `coffre_nas_directory_walker.spec.ts`, `coffre_catalog_sync_nas.spec.ts` |
 
 ⚠️ **Le troisième est celui qu'un test rend faussement vert.** Relire ce qu'on vient d'écrire
 réussirait à l'identique sans le moindre chiffrement ; seul un `select` qui court-circuite le modèle
@@ -224,6 +225,15 @@ plusieurs racines dont une non montée (ignorée sans lever), et l'absence de to
 configurée. Ne teste rien de spécifique à une nature de fichier : le résolveur ne connaît que des
 chemins.
 
+### `tests/unit/coffre_nas_config.spec.ts`
+
+Le format `nom=chemin` de `COFFRE_NAS_ROOTS` (CC-233), **pur**. Une racine, plusieurs racines dans
+l'ordre déclaré, absente/vide → aucune racine, blancs retirés autour du nom et du chemin. Quatre
+gardes de démarrage : une racine sans `nom=` échoue avec un message qui nomme le remède, un
+identifiant vide échoue, un identifiant portant un `/` échoue (il entre dans une référence), deux
+racines de même identifiant échouent (il sert de clé). Un chemin contenant lui-même un `=` reste
+intact : seul le PREMIER `=` de l'entrée sépare le nom du chemin.
+
 ### `tests/unit/coffre_nas_file_format.spec.ts`
 
 L'allow-list de formats (CC-181), **pure**. `nasContentTypeFor`/`nasFileKindFor` sur une extension
@@ -284,6 +294,12 @@ pas indéfiniment. Un second passage sur un contenu inchangé rend exactement le
 Les dossiers spéciaux Synology (`@eaDir`, `#recycle`) et les dotfiles ne sont jamais indexés. Le
 plafond anti-boucle rend `truncated: true` sans lever.
 
+⚠️ **Depuis CC-233, `reference` porte l'identifiant de sa racine** (`<nom>/<chemin relatif>`), et
+le fichier le prouve deux fois : un test dédié sur une racine unique nommée, et **le test qui
+reproduit l'écrasement silencieux du ticket** — deux racines de fixtures portant chacune un fichier
+de même chemin relatif produisent deux références distinctes (`principale/photo.jpg`,
+`secondaire/photo.jpg`), jamais une seule.
+
 ### `tests/unit/coffre_catalog_source_nas.spec.ts`
 
 L'implémentation NAS de l'abstraction `CatalogSource` (CC-226), avec une vraie racine de
@@ -300,6 +316,14 @@ configurée en test. Découverte réelle avec métadonnées exactes en base ; **
 important du lot** — une racine devenue absente entre deux passages fait échouer la commande et
 laisse le catalogue INTACT ; un second passage identique n'insère aucun doublon ; un fichier
 réellement supprimé du disque est marqué absent puis redevient présent s'il réapparaît.
+
+⚠️ **Depuis CC-233, un test de plus reproduit l'écrasement silencieux CONTRE LA BASE** — le
+symptôme réel que le ticket corrige : deux racines de fixtures portant chacune un fichier de même
+chemin relatif, synchronisées, puis assertion que les DEUX lignes existent en base
+(`principale/photo.jpg`, `secondaire/photo.jpg`). Sans l'identifiant de racine dans la référence,
+`CatalogSyncService#applyEnumeration` trouverait la ligne du premier fichier en cherchant celle du
+second et la mettrait à jour à sa place — une seule ligne, sans qu'aucune contrainte ne s'y
+oppose ; c'est ce que ce test rougit sans le correctif.
 
 ### `tests/functional/modules/coffre_catalog_sync.spec.ts`
 

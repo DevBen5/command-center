@@ -686,7 +686,10 @@ trou. Trois règles, aucune optionnelle :
 
 1. **Les racines autorisées se déclarent dans `.env`** (`COFFRE_NAS_ROOTS`), jamais en base,
    jamais un formulaire — même raison qu'`IMMICH_BASE_URL` : un chemin persisté depuis une requête
-   HTTP serait une lecture arbitraire **permanente**.
+   HTTP serait une lecture arbitraire **permanente**. ⚠️ **Depuis CC-233, chaque racine porte un
+   identifiant déclaré** (`nom=chemin`, voir « Le catalogue des sources — lot 2 » plus bas) — mais
+   `resolve()` continue de l'ignorer : il essaie toujours les racines dans l'ordre, sur un chemin
+   relatif NU, exactement comme avant.
 2. **L'appartenance à une racine se vérifie APRÈS `realpath`** — voir
    `NasRootsService.resolve` (`services/nas_roots_service.ts`). Un lien symbolique posé DANS
    une racine autorisée et pointant DEHORS sort de la racine sans que le chemin demandé en ait
@@ -715,7 +718,8 @@ lot** : tout ce qui portait `video` dans son nom (`VideoRootsService`, `COFFRE_V
 Repris tel quel de `BACKUP_MIRROR_DIR`/`AGENTS_CONFIG_PATH` (voir le `CLAUDE.md` racine, « Les
 données »). `COFFRE_NAS_ROOTS` — lue par l'app, dans `config/coffre_nas.ts` — vaut un chemin
 réel du poste en dev (le serveur de dev tourne hors conteneur) et le chemin FIXE
-`/data/coffre-media` en conteneur ; seul le côté HÔTE du montage se règle, dans
+`/data/coffre-media` en conteneur (précédé de son identifiant depuis CC-233, ex.
+`photos=/data/coffre-media`) ; seul le côté HÔTE du montage se règle, dans
 `docker-compose.install.yml`, via `COFFRE_NAS_ROOTS_PATH_HOST` — jamais lue par l'app.
 
 ⚠️ **Le montage est en LECTURE SEULE (`:ro`)** — l'app ne fait que lire ces fichiers, jamais y
@@ -1151,8 +1155,9 @@ Les quatre pièges du ticket, et comment chacun est tenu :
 1. **Liens symboliques.** Un lien qui sort de la racine (`realpath` en dehors) n'est jamais
    indexé — même mécanisme que `resolve()`. Un lien vers un dossier légitime, LUI AUSSI dans la
    racine, est suivi normalement : ce n'est pas un cycle, juste un alias, et il produit sa propre
-   ligne de catalogue (deux références distinctes pour le même contenu physique — voir la limite
-   « collision multi-racines » plus bas pour l'angle inverse).
+   ligne de catalogue (deux références distinctes pour le même contenu physique — voir « Collision
+   de référence entre racines multiples » plus bas pour l'angle inverse : deux racines,
+   même chemin relatif).
    ⚠️ **La `reference` stockée porte le nom du LIEN (pour rester re-résolvable via
    `NasRootsService.resolve()`), mais la `nature` (photo/vidéo/other) se classe sur l'extension
    du fichier RÉEL** — même doctrine que le streaming existant (`coffre_nas_controller.ts` classe
@@ -1223,27 +1228,38 @@ plafond établi et sans appelant réel serait un piège latent. Le lot 3 décide
 prévisualiser un média NAS, probablement en réutilisant le proxy de streaming existant plutôt que
 cette méthode.
 
-### Limite connue : collision de référence entre racines multiples
+### Collision de référence entre racines multiples — corrigée pour le catalogue (CC-233), PAS pour `path_cipher`
 
-⚠️ **Héritée telle quelle du modèle CC-181, non corrigée ici.** Le chemin stocké
-(`reference`) est relatif à SA racine, sans porter l'index de la racine elle-même — exactement
-comme `coffre_entry_nas_file.path_cipher` existant, qui a toujours cette même ambiguïté avec
-`NasRootsService.resolve()` (essaie les racines dans l'ordre, rend la première qui résout). Deux
-racines `COFFRE_NAS_ROOTS` distinctes portant chacune un fichier de même nom à leur racine
-respective produiraient donc le même `reference`.
+⚠️ **Ce qui était vrai jusqu'à CC-233, pour la trace historique.** Le chemin stocké dans
+`reference` était relatif à SA racine, sans porter l'identité de la racine elle-même : deux
+racines `COFFRE_NAS_ROOTS` distinctes portant chacune un fichier de même chemin relatif
+produisaient le même `reference`. Le symptôme n'était PAS une erreur de contrainte unique — c'est
+ce qui rendait le défaut dangereux : `CatalogSyncService.applyEnumeration` cherche la ligne
+`(owner_id, source, reference)` avant d'écrire, puis crée ou met à jour, donc le second fichier
+trouvait la ligne du premier et l'**écrasait silencieusement**. Aucun `insert` concurrent, donc
+aucune violation de contrainte, donc aucun message.
 
-⚠️ **Et le symptôme ne serait PAS une erreur de contrainte unique — c'est ce qui le rend
-dangereux.** `CatalogSyncService.applyEnumeration` cherche la ligne `(owner_id, source,
-reference)` avant d'écrire, puis crée ou met à jour : le second fichier trouverait la ligne du
-premier et l'**écraserait silencieusement**. Aucun `insert` concurrent, donc aucune violation de
-contrainte, donc aucun message : un fichier disparaît simplement du catalogue, et la ligne
-survivante porte les métadonnées de l'autre. Ne compte donc pas sur la contrainte unique pour
-révéler ce cas le jour où une seconde racine est déclarée — elle ne se déclenchera pas.
+**CC-233 ferme ce cas pour le catalogue** : `COFFRE_NAS_ROOTS` exige désormais un identifiant
+déclaré par racine (`nom=chemin`), et `reference` porte cet identifiant
+(`<nom>/<chemin relatif>`, voir `nas_directory_walker.ts`). Deux racines de fichiers homonymes
+produisent maintenant deux références distinctes — prouvé par
+`tests/unit/coffre_nas_directory_walker.spec.ts` et, contre une vraie base, par
+`tests/functional/modules/coffre_catalog_sync_nas.spec.ts`.
 
-Corriger demanderait de changer le format de stockage
-existant pour les DEUX usages (catalogue et référence d'entrée) — hors périmètre de ce lot. Sans
-conséquence pratique tant qu'une installation ne déclare qu'UNE seule racine NAS, le cas le plus
-courant.
+⚠️ **Risque résiduel, DÉLIBÉRÉMENT hors du périmètre de CC-233 : `coffre_entry_nas_file.path_cipher`
+garde l'ancienne ambiguïté.** Une référence d'entrée (CC-181) reste un chemin relatif NU, chiffré,
+sans identité de racine — `NasRootsService.resolve()` continue d'essayer les racines dans l'ordre
+et de rendre la PREMIÈRE qui résout (voir « Les médias du NAS » plus haut, règle 1). Avec **2+
+racines déclarées**, si le même chemin relatif existe sous plusieurs racines, le proxy de
+streaming (`GET /coffre/nas/:id/stream`) d'un fichier ATTACHÉ À UNE ENTRÉE peut donc encore servir
+le MAUVAIS fichier — celui de la première racine qui contient un fichier à ce chemin, pas
+nécessairement celui que l'utilisateur a collé. Corriger ce point demanderait de faire porter
+l'identité de la racine à `path_cipher` lui-même, donc un chemin de conversion à l'ouverture du
+coffre (la seule occasion de déchiffrer puis rechiffrer avec la clé de session élevée) plutôt
+qu'une migration — voir le ticket CC-233, qui a tranché explicitement de ne PAS élargir son
+périmètre à ce point : le catalogue est une donnée dérivée (vider + resynchroniser sans perte),
+`path_cipher` ne l'est pas. **Sans conséquence pratique tant qu'une installation ne déclare qu'UNE
+seule racine NAS**, le cas le plus courant (vérifié le 2026-08-09).
 
 
 

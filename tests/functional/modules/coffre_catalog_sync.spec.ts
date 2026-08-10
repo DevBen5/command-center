@@ -131,7 +131,7 @@ test.group('Coffre / la commande coffre:sync-catalog', (group) => {
     const dossier = await mkdtemp(join(tmpdir(), 'cc-nas-catalog-immich-only-'))
     const racine = join(dossier, 'root')
     await mkdir(racine, { recursive: true })
-    app.container.swap(NasRootsService, () => new NasRootsService([racine]))
+    app.container.swap(NasRootsService, () => new NasRootsService([{ name: 'root', path: racine }]))
 
     return () => rm(dossier, { recursive: true, force: true })
   })
