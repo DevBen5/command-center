@@ -64,7 +64,10 @@ const SPECS_TRANSVERSES = [
   'tests/unit/db_dumps.spec.ts', // la logique de sauvegarde de `scripts/lib/`
   'tests/unit/db_seeders.spec.ts', // la liste des seeders déclarés
   'tests/unit/declared_capability_middleware.spec.ts', // le middleware, pas un module
-  'tests/unit/env_isolation.spec.ts', // Immich, YouTube ET le LLM de Leitner (CC-101)
+  // ⚠️ Six domaines depuis CC-232, pas trois : Immich, YouTube, le LLM (CC-101), coffre_immich,
+  // backup (CC-231) et coffre_nas (CC-232). La phrase se périme à chaque config isolée ajoutée,
+  // et RIEN ne l'attrape — ce fichier asserte la mention, jamais son exactitude.
+  'tests/unit/env_isolation.spec.ts', // aucune valeur du `.env` de la machine n'entre en test
   'tests/unit/modules_config.spec.ts', // MODULES, config/modules.ts (CC-137)
   'tests/unit/tests_index.spec.ts', // ce fichier
   'tests/unit/totp.spec.ts', // le second facteur du noyau (CC-114)
