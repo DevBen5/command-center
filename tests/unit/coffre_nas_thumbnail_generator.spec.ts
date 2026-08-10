@@ -137,10 +137,17 @@ async function synthesizeFormat(path: string, format: string): Promise<void> {
 
 async function identifyDimensions(bytes: Buffer): Promise<{ width: number; height: number }> {
   const { execFile } = await import('node:child_process')
+  // ⚠️ `magick identify …` (le sous-verbe IM7) et non `identify` seul : ce dernier n'existe pas
+  // comme binaire autonome sur l'installation Windows de ce poste. Mais PAS `magick identify` non
+  // plus — mesuré : sur le runner CI, `magick` est un lien vers le `convert` d'IM6 (voir
+  // `.github/workflows/gates.yml`), qui n'a aucune notion de sous-verbe et traiterait `identify`
+  // comme un nom de fichier d'entrée. `<coder>:- -format … info:` est la forme positionnelle,
+  // identique en IM6 (`convert`) et IM7 (`magick`) — la même syntaxe que le générateur utilise
+  // pour générer, vérifiée ici pour lire.
   const output = await new Promise<string>((resolve, reject) => {
     const child = execFile(
       'magick',
-      ['identify', '-format', '%wx%h', 'JPEG:-'],
+      ['JPEG:-', '-format', '%wx%h', 'info:'],
       { encoding: 'utf8' },
       (error, stdout) => (error ? reject(error) : resolve(stdout))
     )
