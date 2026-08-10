@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Policy ImageMagick durcie pour les vignettes du catalogue NAS du coffre (CC-228).
+
+  La policy PAR DÉFAUT d'Alpine est la policy « open » : aucune restriction de coder ni de
+  delegate. Mesuré (2026-08-10) : sous cette policy, un payload MVG (la famille de faille
+  ImageTragick, CVE-2016-3714) est refusé UNIQUEMENT si le code applicatif force le coder par
+  préfixe (`JPEG:chemin`, jamais un chemin nu) — voir `nas_thumbnail_generator.ts`. Cette policy est
+  la seconde ligne de défense : deny-all, puis allow-list explicite des cinq formats de
+  `PHOTO_CONTENT_TYPES` (`app/modules/coffre/services/nas_file_format.ts`), plus des plafonds de
+  ressources qui bornent le pire cas même si le code applicatif oubliait ses propres `-limit`.
+
+  ⚠️ Les patterns sont des lignes SÉPARÉES par format, jamais une liste `{A,B,C}` — mesuré : le
+  matcher de policy d'ImageMagick ne développe pas les accolades, une ligne combinée ne matche
+  RIEN et retombe silencieusement sur le deny-all.
+
+  ⚠️ `domain="delegate" rights="none"` est sûr ici parce qu'aucun des cinq formats n'en dépend :
+  `imagemagick-heic`/`imagemagick-jpeg`/`imagemagick-webp` sont des coders NATIFS (modules
+  compilés), pas des delegates shell comme `cwebp`/`dwebp` — mesuré, WEBP ne fonctionne PAS sans
+  le paquet `imagemagick-webp` même avec le delegate `cwebp` disponible, ce qui confirme que le
+  coder natif est bien celui utilisé, pas un appel externe.
+-->
+<policymap>
+  <policy domain="delegate" rights="none" pattern="*" />
+  <policy domain="coder" rights="none" pattern="*" />
+  <!-- JPEG : lecture ET écriture — c'est TOUJOURS le format de sortie de la vignette générée,
+       quel que soit le format source. Les quatre autres : lecture seule. -->
+  <policy domain="coder" rights="read|write" pattern="JPEG" />
+  <policy domain="coder" rights="read" pattern="PNG" />
+  <policy domain="coder" rights="read" pattern="GIF" />
+  <policy domain="coder" rights="read" pattern="WEBP" />
+  <policy domain="coder" rights="read" pattern="HEIC" />
+  <policy domain="resource" name="memory" value="128MiB" />
+  <policy domain="resource" name="map" value="128MiB" />
+  <policy domain="resource" name="width" value="40000" />
+  <policy domain="resource" name="height" value="40000" />
+  <policy domain="resource" name="area" value="64MP" />
+  <policy domain="resource" name="disk" value="256MiB" />
+  <policy domain="resource" name="thread" value="1" />
+  <policy domain="resource" name="time" value="10" />
+</policymap>

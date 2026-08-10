@@ -114,6 +114,24 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Le générateur de vignettes NAS du coffre (CC-228) invoque `execFile('magick', …)` —
+      # le nom qu'Alpine (l'image de production, `Dockerfile`) fournit sous IM7. Le paquet
+      # `imagemagick` d'Ubuntu 24.04 (le runner) n'installe que IM6, sans binaire `magick` du
+      # tout — seulement `convert`/`identify`. Sans ce lien, chaque test qui décode une image
+      # échouerait en CI avec `spawn magick ENOENT`, alors que la même commande tourne sur le
+      # poste de dev (IM7 via `winget`) et en production (IM7 via `apk`).
+      #
+      # ⚠️ **Un lien, pas un second code de génération.** La syntaxe positionnelle utilisée par
+      # `nas_thumbnail_generator.ts` (`FORMAT:chemin[0] -ops FORMAT:-`, sans sous-commande) est
+      # identique entre le mode legacy `convert` d'IM6 et le binaire `magick` d'IM7 — seul le
+      # NOM du binaire diffère. Faire suivre `magick` vers `convert` ici teste donc le même
+      # comportement applicatif, pas un chemin de code différent réservé à la CI.
+      - name: system deps (ImageMagick, coffre NAS thumbnails)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq imagemagick libheif-plugin-libde265
+          sudo ln -s "$(command -v convert)" /usr/local/bin/magick
+
       - uses: actions/setup-node@v5
         with:
           # Suit l'image de production (`Dockerfile` — node:22-alpine) : c'est la CI qui

@@ -111,6 +111,16 @@ ENV NODE_ENV=production \
 # au gré des mises à jour de l'image.
 RUN apk add --no-cache postgresql16-client
 
+# ImageMagick pour les vignettes serveur du catalogue NAS du coffre (CC-228). `sharp` a été écarté
+# après mesure réelle : ses binaires précompilés n'embarquent pas le codec HEVC (raisons de brevet),
+# donc ne lisent jamais un `.heic` réel. `imagemagick-heic`/`imagemagick-jpeg`/`imagemagick-webp`
+# sont des paquets séparés du coder de base (résolus par architecture par `apk`, même mécanisme que
+# `postgresql16-client` ci-dessus — aucun axe multi-arch nouveau). La policy copiée juste après
+# ferme la famille de faille ImageTragick (voir son en-tête) ; le code applicatif force en plus
+# toujours le coder par préfixe, jamais un chemin nu (`nas_thumbnail_generator.ts`).
+RUN apk add --no-cache imagemagick imagemagick-heic imagemagick-jpeg imagemagick-webp
+COPY docker/coffre-imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
+
 # Le résultat du build, puis SEULEMENT les dépendances de production (le build a
 # recopié package.json + package-lock.json à la racine de build/).
 COPY --from=build /app/build ./

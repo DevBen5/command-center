@@ -6,6 +6,7 @@ import type {
 } from '#modules/coffre/services/catalog_source'
 import NasRootsService from '#modules/coffre/services/nas_roots_service'
 import { walkNasRoots } from '#modules/coffre/services/nas_directory_walker'
+import { generateNasThumbnail } from '#modules/coffre/services/nas_thumbnail_generator'
 
 /**
  * Le NAS comme source du catalogue (CC-226, lot 2 de l'épique CC-224).
@@ -29,17 +30,34 @@ export default class NasCatalogSource implements CatalogSource {
   }
 
   /**
-   * ⚠️ **Non pris en charge dans ce lot, délibérément.** Il n'existe aucune génération de
-   * vignette pour les médias NAS (voir le `CLAUDE.md` du module, « La liste n'affiche aucun
-   * aperçu ») — et rien n'appelle encore cette méthode (aucune route dans ce lot). Lire le
-   * fichier NAS entier en mémoire sans plafond établi, pour un usage qui n'existe pas encore,
-   * serait un piège latent (un fichier NAS peut peser plusieurs Go). Le lot 3 décidera comment
-   * prévisualiser un média NAS — probablement en réutilisant le proxy de streaming existant.
+   * Génère la vignette d'un élément du catalogue NAS (CC-228) — **photos seulement**, une vidéo ne
+   * reçoit aucune image extraite (voir `nas_thumbnail_generator.ts`).
+   *
+   * ⚠️ **`reference` porte l'identifiant de sa racine depuis CC-233 (`<nom>/<chemin relatif>`) —
+   * SÉPARÉ puis résolu contre CETTE racine nommée (`resolveInRoot`), jamais via `resolve()`.**
+   * `resolve()` essaie les racines dans l'ordre sur un chemin relatif nu (comportement voulu pour
+   * `coffre_entry_nas_file.path_cipher`, qui ne porte pas d'identité de racine) : le réutiliser
+   * ici réintroduirait la collision que CC-233 a fermée pour le catalogue — un chemin relatif
+   * identique sous deux racines distinctes rendrait la vignette de la MAUVAISE racine.
    */
   async thumbnailFor(reference: string): Promise<CatalogThumbnail> {
-    throw new Error(
-      `Les vignettes de fichiers NAS ne sont pas prises en charge par le catalogue (« ${reference} ») : ` +
-        'aucune génération de vignette côté serveur pour cette source (voir CC-226).'
-    )
+    const separatorIndex = reference.indexOf('/')
+    if (separatorIndex === -1) {
+      throw new Error(
+        `Référence de catalogue NAS malformée (aucun identifiant de racine) : « ${reference} ».`
+      )
+    }
+
+    const rootName = reference.slice(0, separatorIndex)
+    const relativePath = reference.slice(separatorIndex + 1)
+
+    const realPath = await this.roots.resolveInRoot(rootName, relativePath)
+    if (realPath === null) {
+      throw new Error(
+        `La référence de catalogue NAS « ${reference} » ne résout sous aucune racine autorisée.`
+      )
+    }
+
+    return generateNasThumbnail(realPath)
   }
 }

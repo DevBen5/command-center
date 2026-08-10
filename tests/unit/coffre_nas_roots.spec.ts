@@ -90,4 +90,58 @@ test.group('Coffre / le résolveur de racines de médias NAS', (group) => {
 
     assert.isNull(await roots.resolve('films/exemple.mp4'))
   })
+
+  /**
+   * `resolveInRoot` (CC-228) — le pendant de `resolve()` pour une référence de catalogue, qui
+   * porte l'identité de sa racine depuis CC-233. ⚠️ **Le cas qui compte : jamais un essai sur les
+   * AUTRES racines**, contrairement à `resolve()` — sinon la collision que CC-233 a fermée pour le
+   * catalogue (deux racines, même chemin relatif) reviendrait pour les vignettes.
+   */
+  test('resolveInRoot() résout contre la racine nommée', async ({ assert }) => {
+    const roots = new NasRootsService([{ name: 'root', path: racine }])
+
+    const resolu = await roots.resolveInRoot('root', 'films/exemple.mp4')
+
+    assert.isNotNull(resolu)
+    assert.match(resolu ?? '', /exemple\.mp4$/)
+  })
+
+  test('⚠️ resolveInRoot() ne retombe JAMAIS sur une autre racine — même chemin relatif, racines distinctes', async ({
+    assert,
+  }) => {
+    const secondeRacine = join(dossier, 'seconde')
+    await mkdir(join(secondeRacine, 'films'), { recursive: true })
+    await writeFile(join(secondeRacine, 'films', 'exemple.mp4'), 'contenu-seconde-racine')
+
+    const roots = new NasRootsService([
+      { name: 'principale', path: racine },
+      { name: 'secondaire', path: secondeRacine },
+    ])
+
+    const viaLaPrincipale = await roots.resolveInRoot('principale', 'films/exemple.mp4')
+    const viaLaSecondaire = await roots.resolveInRoot('secondaire', 'films/exemple.mp4')
+
+    assert.isNotNull(viaLaPrincipale)
+    assert.isNotNull(viaLaSecondaire)
+    // Deux chemins réels DISTINCTS pour la même référence relative : la preuve que chaque appel
+    // reste confiné à SA racine, jamais à celle de l'autre (le bug que réutiliser `resolve()`
+    // aurait réintroduit — il aurait toujours rendu la PREMIÈRE des deux, quel que soit le nom
+    // demandé).
+    assert.notEqual(viaLaPrincipale, viaLaSecondaire)
+    assert.include(viaLaPrincipale ?? '', 'root')
+    assert.include(viaLaSecondaire ?? '', 'seconde')
+  })
+
+  test('resolveInRoot() sur un identifiant de racine inconnu rend null', async ({ assert }) => {
+    const roots = new NasRootsService([{ name: 'root', path: racine }])
+
+    assert.isNull(await roots.resolveInRoot('inconnue', 'films/exemple.mp4'))
+  })
+
+  test('resolveInRoot() refuse toujours une traversée et un chemin absolu', async ({ assert }) => {
+    const roots = new NasRootsService([{ name: 'root', path: racine }])
+
+    assert.isNull(await roots.resolveInRoot('root', '../dehors/secret.mp4'))
+    assert.isNull(await roots.resolveInRoot('root', join(dossier, 'dehors', 'secret.mp4')))
+  })
 })
