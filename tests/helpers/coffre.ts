@@ -111,6 +111,10 @@ export async function createNasFile(
  * Pose une ligne de catalogue directement, sans passer par `coffre:sync-catalog` (CC-228). La
  * référence est stockée EN CLAIR — c'est la doctrine de la table (voir son CLAUDE.md) — donc, à
  * la différence de `createMedia`/`createNasFile`, aucune clé n'est nécessaire ici.
+ *
+ * ⚠️ **Étendue par CC-227** (`displayName`/`capturedAt`/`sizeBytes`/`missingSince`) pour poser le
+ * décor des tests de pagination/tri/filtres de la grille — les quatre restent à `null` par défaut,
+ * comme avant, pour ne rien changer aux tests CC-228 existants.
  */
 export async function createCatalogItem(
   ownerId: number,
@@ -118,6 +122,10 @@ export async function createCatalogItem(
     source?: CatalogSourceKey
     reference?: string
     nature?: CatalogItemNature
+    displayName?: string | null
+    capturedAt?: DateTime | null
+    sizeBytes?: number | null
+    missingSince?: DateTime | null
   } = {}
 ): Promise<CoffreCatalogItem> {
   const now = DateTime.now()
@@ -127,11 +135,11 @@ export async function createCatalogItem(
     source: options.source ?? 'nas',
     reference: options.reference ?? 'root/photos/exemple.jpg',
     nature: options.nature ?? 'photo',
-    displayName: null,
-    capturedAt: null,
-    sizeBytes: null,
+    displayName: options.displayName ?? null,
+    capturedAt: options.capturedAt ?? null,
+    sizeBytes: options.sizeBytes ?? null,
     discoveredAt: now,
     lastSeenAt: now,
-    missingSince: null,
+    missingSince: options.missingSince ?? null,
   })
 }

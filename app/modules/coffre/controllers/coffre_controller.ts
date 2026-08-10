@@ -1,11 +1,18 @@
+import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
 import type { Session } from '@adonisjs/session'
 import ForbiddenException from '#core/shared/exceptions/forbidden_exception'
 import type User from '#core/auth/models/user'
 import coffreImmichConfig from '#config/coffre_immich'
 import vault from '#modules/coffre/services/vault_service'
+import CatalogLinkService, {
+  type CatalogPresence,
+} from '#modules/coffre/services/catalog_link_service'
 import { entryValidator, entryUpdateValidator } from '#modules/coffre/validators/coffre'
 import { groupEntriesByNature, sectionKeyFromSlug } from '#modules/coffre/shared/entry_sections'
+import type { CoffreEntryView } from '#modules/coffre/services/vault_service'
+
+const ABSENT_PRESENCE: CatalogPresence = { inCatalog: false, missingSince: null }
 
 /**
  * Le contenu du coffre (CC-178) — **toutes ces routes sont derrière l'élévation**
@@ -17,13 +24,19 @@ import { groupEntriesByNature, sectionKeyFromSlug } from '#modules/coffre/shared
  * ci-dessous ne devrait donc jamais partir : il couvre l'expiration survenue entre le middleware
  * et le contrôleur, et surtout la route qu'on écrirait un jour en oubliant le middleware.
  */
+@inject()
 export default class CoffreController {
+  constructor(private links: CatalogLinkService) {}
+
   async index({ inertia, auth, session }: HttpContext) {
     const user = auth.user!
     const key = this.#key(user, session)
 
+    const entries = await vault.entriesFor(user, key)
+    const presence = await this.links.catalogPresenceFor(user, key)
+
     return inertia.render('modules/coffre/index', {
-      entries: await vault.entriesFor(user, key),
+      entries: this.#withCatalogPresence(entries, presence),
       // ⚠️ Un booléen, jamais un secret : dit si le bouton « parcourir le dossier verrouillé »
       // (CC-205) a une chance de fonctionner, sans jamais dire pourquoi ni exposer un identifiant.
       immichFolderAvailable: coffreImmichConfig.enabled,
@@ -52,10 +65,11 @@ export default class CoffreController {
 
     const sections = groupEntriesByNature(await vault.entriesFor(user, key))
     const entries = sections.find((section) => section.key === sectionKey)?.entries ?? []
+    const presence = await this.links.catalogPresenceFor(user, key)
 
     return inertia.render('modules/coffre/section', {
       section: sectionKey,
-      entries,
+      entries: this.#withCatalogPresence(entries, presence),
       immichFolderAvailable: coffreImmichConfig.enabled,
     })
   }
@@ -157,6 +171,29 @@ export default class CoffreController {
     await vault.deleteEntry(user, Number(params.id))
 
     return response.redirect().back()
+  }
+
+  /**
+   * Entrée → catalogue (CC-227) : annote chaque chip média/fichier NAS déjà rendue par
+   * `pages/section.vue` avec sa présence dans le catalogue — calculée à la volée par
+   * `CatalogLinkService`, jamais écrite. Une pièce jointe absente de la map (catalogue jamais
+   * synchronisé pour cet élément) retombe sur « absent », pas sur une valeur manquante.
+   */
+  #withCatalogPresence(
+    entries: CoffreEntryView[],
+    presence: { nasFiles: Map<number, CatalogPresence>; media: Map<number, CatalogPresence> }
+  ) {
+    return entries.map((entry) => ({
+      ...entry,
+      media: entry.media.map((item) => ({
+        ...item,
+        ...(presence.media.get(item.id) ?? ABSENT_PRESENCE),
+      })),
+      nasFiles: entry.nasFiles.map((file) => ({
+        ...file,
+        ...(presence.nasFiles.get(file.id) ?? ABSENT_PRESENCE),
+      })),
+    }))
   }
 
   #key(user: User, session: Session): Buffer {

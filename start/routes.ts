@@ -54,6 +54,8 @@ const CoffreMediaController = () => import('#modules/coffre/controllers/coffre_m
 const CoffreNasController = () => import('#modules/coffre/controllers/coffre_nas_controller')
 const CoffreCatalogNasController = () =>
   import('#modules/coffre/controllers/coffre_catalog_nas_controller')
+const CoffreCatalogController = () =>
+  import('#modules/coffre/controllers/coffre_catalog_controller')
 const CoffreImmichFolderController = () =>
   import('#modules/coffre/controllers/coffre_immich_folder_controller')
 
@@ -618,6 +620,14 @@ router
             .use(middleware.can('coffre.view'))
           router
             .get('/immich/dossier/:assetId/thumbnail', [CoffreImmichFolderController, 'thumbnail'])
+            .use(middleware.can('coffre.view'))
+          // La grille du catalogue (CC-227) : la page-coquille et son endpoint JSON paginé.
+          // Aucune donnée de catalogue en prop Inertia — voir `CoffreCatalogController`.
+          router
+            .get('/catalog', [CoffreCatalogController, 'index'])
+            .use(middleware.can('coffre.view'))
+          router
+            .get('/catalog/items', [CoffreCatalogController, 'items'])
             .use(middleware.can('coffre.view'))
         })
         .prefix('/coffre')

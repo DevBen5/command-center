@@ -51,6 +51,9 @@ const ROUTES_MUREES = [
     methode: 'get' as const,
     url: '/coffre/immich/dossier/11111111-2222-4333-8444-555555555555/thumbnail',
   },
+  // La grille du catalogue (CC-227) : la page ET son endpoint de listing sont du contenu.
+  { methode: 'get' as const, url: '/coffre/catalog' },
+  { methode: 'get' as const, url: '/coffre/catalog/items' },
 ]
 
 test.group('Coffre / le mur', (group) => {
@@ -104,6 +107,9 @@ test.group('Coffre / le mur', (group) => {
     // ⚠️ CC-205 : même mesure — le contrôleur du dossier lève lui aussi sans clé de session.
     assert.include(nomsSur('/coffre/immich/dossier', 'GET'), 'coffreOuvert')
     assert.include(nomsSur('/coffre/immich/dossier/:assetId/thumbnail', 'GET'), 'coffreOuvert')
+    // ⚠️ CC-227 : même mesure — le contrôleur lève lui aussi sans clé de session.
+    assert.include(nomsSur('/coffre/catalog', 'GET'), 'coffreOuvert')
+    assert.include(nomsSur('/coffre/catalog/items', 'GET'), 'coffreOuvert')
 
     // ⚠️ Et la porte ne doit PAS le porter : sinon il faudrait avoir ouvert le coffre pour
     // atteindre l'écran qui l'ouvre. Sans cette moitié, poser le middleware partout passerait
