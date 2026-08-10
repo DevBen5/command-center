@@ -5,6 +5,7 @@ import youtubeConfig, { youtubeConfigFrom } from '#config/youtube'
 import llmConfig, { llmConfigFrom, LLM_DEFAULT_BASE_URL, LLM_DEFAULT_MODEL } from '#config/llm'
 import coffreImmichConfig, { coffreImmichConfigFrom } from '#config/coffre_immich'
 import backupEncryptionConfig, { backupEncryptionConfigFrom } from '#config/backup'
+import coffreNasConfig, { coffreNasConfigFrom } from '#config/coffre_nas'
 
 /**
  * CC-101 — « aucun test ne touche une vraie instance » devient une propriété du code.
@@ -18,13 +19,16 @@ import backupEncryptionConfig, { backupEncryptionConfigFrom } from '#config/back
  * locale de `externalServicesIsolated` et `normalize*`. Recomposer ici prouverait l'expression de ce
  * fichier ; retirer la garde d'un `config/*.ts` laisserait la spec verte.
  *
- * ⚠️ **`config/backup.ts` est entré ici en CC-231, et ce n'est PAS un client externe** — aucun
- * appel réseau, aucune instance à joindre. Ce que la fusion par truthiness menace, c'est
+ * ⚠️ **`config/backup.ts` (CC-231) et `config/coffre_nas.ts` (CC-232) sont entrés ici sans être
+ * des clients externes** — aucun appel réseau, aucune instance à joindre : l'un est une clé
+ * publique age, l'autre des chemins de disque. Ce que la fusion par truthiness menace, c'est
  * n'importe quelle variable lue hors d'un `config/*.ts` : `BackupService` lisait
  * `BACKUP_ENCRYPTION_RECIPIENT` en `env.get(...)` direct, et la suite chiffrait ses dumps avec la
- * clé publique réelle du propriétaire dès que le poste activait la fonctionnalité. Le titre du
- * groupe dit « clients externes » pour des raisons historiques (CC-101) ; la propriété réellement
- * tenue est « aucune valeur du `.env` de la machine n'entre dans la suite ».
+ * clé publique réelle du propriétaire dès que le poste activait la fonctionnalité — et sans la
+ * garde de `coffre_nas.ts`, un `.env` de poste de dev ferait lire aux tests un vrai dossier, à
+ * parcourir puis (CC-226) indexer. Le titre du groupe dit « clients externes » pour des raisons
+ * historiques (CC-101) ; la propriété réellement tenue est « aucune valeur du `.env` de la
+ * machine n'entre dans la suite ».
  */
 test.group('Isolation des clients externes pendant les tests', () => {
   /**
@@ -105,6 +109,20 @@ test.group('Isolation des clients externes pendant les tests', () => {
       recipient: 'age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3wzz0m',
     })
     assert.isUndefined(backup.recipient, 'les dumps de test seraient chiffrés avec la clé du poste')
+
+    /**
+     * ⚠️ **CC-232 — le second cas qui ne parle à personne sur le réseau.** Sans cette garde, la
+     * suite lirait un vrai dossier du poste : parcouru par `NasRootsService`, et depuis CC-226
+     * indexé dans le catalogue.
+     */
+    const coffreNas = coffreNasConfigFrom('test', {
+      roots: 'D:\\Medias\\command-center,D:\\Medias\\command-center-videos',
+    })
+    assert.deepEqual(
+      coffreNas.roots,
+      [],
+      'un vrai dossier du poste serait parcouru pendant npm test'
+    )
   })
 
   /**
@@ -148,6 +166,16 @@ test.group('Isolation des clients externes pendant les tests', () => {
       recipient: 'age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3wzz0m',
     })
     assert.equal(backup.recipient, 'age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3wzz0m')
+
+    // ⚠️ Même contre-test côté coffre_nas : une garde toujours coupée viderait aussi cette liste
+    // en production, et le module coffre perdrait ses racines sans qu'aucun test ne rougisse.
+    const coffreNas = coffreNasConfigFrom('production', {
+      roots: 'D:\\Medias\\command-center,D:\\Medias\\command-center-videos',
+    })
+    assert.deepEqual(coffreNas.roots, [
+      'D:\\Medias\\command-center',
+      'D:\\Medias\\command-center-videos',
+    ])
   })
 
   /**
@@ -163,5 +191,6 @@ test.group('Isolation des clients externes pendant les tests', () => {
     assert.isUndefined(llmConfig.apiKey)
     assert.isFalse(coffreImmichConfig.enabled)
     assert.isUndefined(backupEncryptionConfig.recipient)
+    assert.deepEqual(coffreNasConfig.roots, [])
   })
 })
