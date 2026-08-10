@@ -52,6 +52,8 @@ const CoffreDoorController = () => import('#modules/coffre/controllers/coffre_do
 const CoffreController = () => import('#modules/coffre/controllers/coffre_controller')
 const CoffreMediaController = () => import('#modules/coffre/controllers/coffre_media_controller')
 const CoffreNasController = () => import('#modules/coffre/controllers/coffre_nas_controller')
+const CoffreCatalogNasController = () =>
+  import('#modules/coffre/controllers/coffre_catalog_nas_controller')
 const CoffreImmichFolderController = () =>
   import('#modules/coffre/controllers/coffre_immich_folder_controller')
 
@@ -598,6 +600,13 @@ router
           // notre ligne `coffre_entry_nas_file`, jamais un chemin ni un id venu du client.
           router
             .get('/nas/:id/stream', [CoffreNasController, 'stream'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('coffre.view'))
+          // La vignette d'un élément du catalogue NAS (CC-228) : route SÉPARÉE du streaming
+          // ci-dessus — `:id` désigne notre ligne `coffre_catalog_items`, jamais
+          // `coffre_entry_nas_file`. Ne greffe jamais un paramètre de taille sur `/nas/:id/stream`.
+          router
+            .get('/catalog/nas/:id/thumbnail', [CoffreCatalogNasController, 'thumbnail'])
             .where('id', router.matchers.number())
             .use(middleware.can('coffre.view'))
           // Le dossier verrouillé d'Immich (CC-205) : second mode d'authentification (session +

@@ -5,6 +5,8 @@ import { LOGIN_STAMP_KEY } from '#core/auth/services/session_lifetime'
 import CoffreVault from '#modules/coffre/models/coffre_vault'
 import CoffreEntryMedia from '#modules/coffre/models/coffre_entry_media'
 import CoffreEntryNasFile from '#modules/coffre/models/coffre_entry_nas_file'
+import CoffreCatalogItem from '#modules/coffre/models/coffre_catalog_item'
+import type { CatalogItemNature, CatalogSourceKey } from '#modules/coffre/services/catalog_source'
 import { nasFileKindFor } from '#modules/coffre/services/nas_file_format'
 import keyring from '#modules/coffre/services/vault_keyring'
 import {
@@ -102,5 +104,34 @@ export async function createNasFile(
     ownerId,
     pathCipher: encrypt(path, key),
     kind: nasFileKindFor(path) ?? 'video',
+  })
+}
+
+/**
+ * Pose une ligne de catalogue directement, sans passer par `coffre:sync-catalog` (CC-228). La
+ * référence est stockée EN CLAIR — c'est la doctrine de la table (voir son CLAUDE.md) — donc, à
+ * la différence de `createMedia`/`createNasFile`, aucune clé n'est nécessaire ici.
+ */
+export async function createCatalogItem(
+  ownerId: number,
+  options: {
+    source?: CatalogSourceKey
+    reference?: string
+    nature?: CatalogItemNature
+  } = {}
+): Promise<CoffreCatalogItem> {
+  const now = DateTime.now()
+
+  return CoffreCatalogItem.create({
+    ownerId,
+    source: options.source ?? 'nas',
+    reference: options.reference ?? 'root/photos/exemple.jpg',
+    nature: options.nature ?? 'photo',
+    displayName: null,
+    capturedAt: null,
+    sizeBytes: null,
+    discoveredAt: now,
+    lastSeenAt: now,
+    missingSince: null,
   })
 }

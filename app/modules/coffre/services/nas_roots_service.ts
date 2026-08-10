@@ -79,4 +79,31 @@ export default class NasRootsService {
 
     return null
   }
+
+  /**
+   * Le chemin réel d'un fichier, résolu contre UNE racine NOMMÉE — jamais l'essai-dans-l'ordre de
+   * `resolve()` (CC-228). Une référence de catalogue porte l'identifiant de sa racine depuis
+   * CC-233 (`<nom>/<chemin relatif>`) : l'ignorer et retomber sur `resolve()` réintroduirait
+   * exactement la collision que CC-233 a fermée pour le catalogue — un chemin relatif identique
+   * sous deux racines distinctes rendrait le fichier de la MAUVAISE racine.
+   *
+   * ⚠️ **Même doctrine que `resolve()` : jamais une exception.** Racine inconnue, racine non
+   * montée, chemin hostile (absolu, traversée, lien sortant) rendent tous `null` — l'appelant les
+   * traite uniformément en « introuvable ».
+   */
+  async resolveInRoot(rootName: string, relativePath: string): Promise<string | null> {
+    if (isAbsolute(relativePath)) return null
+
+    const root = this.roots.find((candidate) => candidate.name === rootName)
+    if (root === undefined) return null
+
+    const realRoot = await realpath(root.path).catch(() => null)
+    if (realRoot === null) return null // racine mal montée ou absente
+
+    const candidate = resolve(realRoot, relativePath)
+    const realCandidate = await realpath(candidate).catch(() => null)
+    if (realCandidate === null) return null // fichier inexistant sous cette racine
+
+    return isWithinRoot(realCandidate, realRoot) ? realCandidate : null
+  }
 }

@@ -43,6 +43,8 @@ const ROUTES_MUREES = [
   { methode: 'get' as const, url: '/coffre/media/1/thumbnail' },
   // Le proxy de streaming de médias NAS (CC-181) : même raison, le média EST le contenu.
   { methode: 'get' as const, url: '/coffre/nas/1/stream' },
+  // La vignette d'un élément du catalogue NAS (CC-228) : même raison, route SÉPARÉE du streaming.
+  { methode: 'get' as const, url: '/coffre/catalog/nas/1/thumbnail' },
   // Le dossier verrouillé d'Immich (CC-205) : le listing comme la vignette sont du contenu.
   { methode: 'get' as const, url: '/coffre/immich/dossier' },
   {
@@ -97,6 +99,8 @@ test.group('Coffre / le mur', (group) => {
     assert.include(nomsSur('/coffre/media/:id/thumbnail', 'GET'), 'coffreOuvert')
     // ⚠️ CC-181 : même mesure — le contrôleur lève lui aussi sans clé de session.
     assert.include(nomsSur('/coffre/nas/:id/stream', 'GET'), 'coffreOuvert')
+    // ⚠️ CC-228 : même mesure — le contrôleur lève lui aussi sans clé de session.
+    assert.include(nomsSur('/coffre/catalog/nas/:id/thumbnail', 'GET'), 'coffreOuvert')
     // ⚠️ CC-205 : même mesure — le contrôleur du dossier lève lui aussi sans clé de session.
     assert.include(nomsSur('/coffre/immich/dossier', 'GET'), 'coffreOuvert')
     assert.include(nomsSur('/coffre/immich/dossier/:assetId/thumbnail', 'GET'), 'coffreOuvert')
