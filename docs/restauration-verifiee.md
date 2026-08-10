@@ -157,6 +157,39 @@ fonction a été temporairement remplacé par un retour direct (aucun appel à `
 ne passent pas sur un composant déjà dans l'état observé. Le fichier a été restauré à
 l'identique aussitôt après, confirmé par un nouveau passage à 31/31.
 
+## Avec la VRAIE clé du propriétaire — 2026-08-09
+
+Tout ce qui précède a été prouvé avec des paires de clés **jetables**, générées pour l'exercice.
+Ça prouve que le mécanisme fonctionne ; ça ne prouve **pas** que le propriétaire sait rouvrir ses
+propres sauvegardes — la clé publique du `.env` et la clé privée qu'il détient hors machine
+n'avaient jamais été confrontées.
+
+Procédure ci-dessus rejouée le **2026-08-09**, par le propriétaire, sur le poste de dev, avec sa
+clé privée réelle saisie en ligne (`read -s`, jamais écrite dans un fichier ni dans l'historique
+du shell). Dump testé : `command-center-2026-08-09_21h00.sql.age`, restauré dans une base jetable
+`verif_cle`, supprimée après comparaison. **Résultat : empreintes identiques.**
+
+⚠️ **Le dump doit être PRIS JUSTE AVANT, et c'est le piège qui a fait trébucher le premier essai.**
+Un dump plus ancien que la base produit une différence d'empreinte qui n'est **pas** un échec de la
+sauvegarde — c'est simplement une photo antérieure. Ce jour-là une migration (CC-225) avait ajouté
+une table dans la journée : restaurer un dump du matin aurait montré un écart parfaitement normal,
+qu'on aurait pu prendre pour une preuve ratée. L'étape 0 de la procédure existe pour ça.
+
+⚠️ **`NOTICE: schema "pg_temp" does not exist, skipping` à l'étape de l'empreinte est ATTENDU**, pas
+un incident : `scripts/db-fingerprint.sql` commence par un `DROP TABLE IF EXISTS pg_temp.fp`, et
+c'est ce préfixe `pg_temp.` qui empêche le `DROP` de viser une vraie table de `app`. Le NOTICE part
+sur la sortie d'erreur et n'entre jamais dans le CSV — vérifié le même jour, code de sortie 0,
+fichier de 33 lignes.
+
+Ce que cette exécution ajoute aux précédentes : **la clé privée détenue par le propriétaire
+correspond bien à la clé publique configurée**, et il en connaît la procédure d'usage. C'était le
+seul résidu que CC-223 laissait ouvert sur la chaîne du poste — une sauvegarde qu'on n'a jamais
+rechargée n'est pas une sauvegarde.
+
+Les dumps en clair antérieurs à l'activation du chiffrement ont été supprimés le même jour, **après**
+cette vérification et jamais avant : tant qu'elle n'avait pas réussi, ils étaient les seules
+sauvegardes lisibles restantes.
+
 ## La seconde chaîne — NAS, restée ouverte
 
 Le NAS ne sauvegarde pas avec `scripts/db-backup.js` (CC-74 l'écarte explicitement) : un cron
