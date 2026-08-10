@@ -34,6 +34,10 @@ Le lot porte quatre affirmations, et elles ne se vérifient pas au même endroit
 | l'adaptateur NAS de l'abstraction `CatalogSource` délègue au parcours sans rattraper une racine absente (CC-226) | `coffre_catalog_source_nas.spec.ts` |
 | la commande `coffre:sync-catalog` avec la source NAS réelle : découverte avec métadonnées exactes, racine absente → échec propre et catalogue INTACT, second passage sans doublon, fichier supprimé du disque marqué absent puis réapparu (CC-226) | `coffre_catalog_sync_nas.spec.ts` |
 | `COFFRE_NAS_ROOTS` exige un identifiant déclaré par racine (`nom=chemin`), échoue au démarrage sur une racine sans nom, un nom vide, un nom portant `/`, ou deux racines de même nom ; la référence de catalogue porte cet identifiant, deux racines partageant un fichier de même chemin relatif produisent deux lignes distinctes (CC-233) | `coffre_nas_config.spec.ts`, `coffre_nas_directory_walker.spec.ts`, `coffre_catalog_sync_nas.spec.ts` |
+| le générateur de vignettes NAS lit réellement les 5 formats photo (dont un HEIC RÉEL, jamais un fichier renommé — le codepath que `sharp` ne couvre pas), borne dimensions et octets de sortie, refuse une source trop volumineuse AVANT tout appel au binaire, refuse un fichier corrompu ou un dossier-piège sans exception non catchée (CC-228) | `coffre_nas_thumbnail_generator.spec.ts` |
+| `thumbnailFor()` du catalogue NAS résout TOUJOURS contre la racine nommée de la référence, jamais l'essai-dans-l'ordre — reproduit l'angle « vignette » de la collision CC-233 (CC-228) | `coffre_catalog_source_nas.spec.ts`, `coffre_nas_roots.spec.ts` (`resolveInRoot`) |
+| le cache de vignettes est chiffré par la clé du coffre (colonne brute illisible), un chiffré illisible est traité comme une absence (jamais un refus), une regénération REMPLACE la ligne (CC-228) | `coffre_catalog_thumbnail_cache.spec.ts` |
+| la route de vignette du catalogue NAS refuse sans élévation, sert une photo réelle ET un HEIC réel, ne régénère pas au second appel, absorbe un item inconnu/d'un autre compte/de source Immich/corrompu/introuvable en 404 uniforme (CC-228) | `coffre_catalog_nas_thumbnail.spec.ts`, plus `coffre_wall.spec.ts` pour le mur |
 
 ⚠️ **Le troisième est celui qu'un test rend faussement vert.** Relire ce qu'on vient d'écrire
 réussirait à l'identique sans le moindre chiffrement ; seul un `select` qui court-circuite le modèle
@@ -90,9 +94,9 @@ et la session révoquée qui est expulsée **en amont** (302 vers `/login`, pas 
 ⚠️ Le premier test **lit le routeur** pour asserter que `coffreOuvert` est branché. Il a été ajouté
 après mesure : sans lui, retirer le middleware de `start/routes.ts` laissait les dix autres verts,
 le `#key()` du contrôleur rendant le même 403. La route d'édition (CC-186), le proxy de vignette
-(CC-180), le proxy de streaming NAS (CC-181), les deux routes du dossier verrouillé (CC-205) et la
-page de section (CC-208) y entrent pour la même raison, mesurée à l'identique : les retirer du mur
-ne fait rougir QUE cette assertion-là.
+(CC-180), le proxy de streaming NAS (CC-181), les deux routes du dossier verrouillé (CC-205), la
+page de section (CC-208) et la vignette du catalogue NAS (CC-228) y entrent pour la même raison,
+mesurée à l'identique : les retirer du mur ne fait rougir QUE cette assertion-là.
 
 ### `tests/functional/modules/coffre_unlock.spec.ts`
 
@@ -225,6 +229,32 @@ plusieurs racines dont une non montée (ignorée sans lever), et l'absence de to
 configurée. Ne teste rien de spécifique à une nature de fichier : le résolveur ne connaît que des
 chemins.
 
+Depuis CC-228, un second groupe couvre `resolveInRoot()` : résout contre la racine nommée, **ne
+retombe JAMAIS sur une autre racine** (deux racines de fixtures portant chacune un fichier de même
+chemin relatif, chaque appel rend le chemin réel de SA racine, jamais celui de l'autre — l'angle
+« vignette » de la collision CC-233), identifiant de racine inconnu → `null`, traversée et chemin
+absolu toujours refusés.
+
+### `tests/unit/coffre_nas_thumbnail_generator.spec.ts`
+
+Le générateur de vignettes ImageMagick (CC-228), avec le **binaire réel** (`magick`), jamais
+mocké — même doctrine que ce fichier pour le filesystem. Un JPEG synthétisé plus grand que la
+borne est réellement redimensionné (dimensions relues via `magick identify` sur les octets
+rendus) ; un HEIC **réel** (fixture commitée `tests/fixtures/coffre_nas_thumbnail.heic`, encodé
+avec `libheif`+`x265`, jamais un fichier renommé) rend une vignette JPEG — le codepath précis que
+la mesure a écarté pour `sharp` ; PNG/WEBP/GIF réels rendent tous une vignette JPEG. Une extension
+hors de l'allow-list photo est rejetée SANS invoquer le binaire ; un contenu qui ne correspond pas
+à son extension (payload MVG déguisé `.jpg`, la famille ImageTragick) échoue proprement, jamais
+exécuté ; un fichier volontairement énorme (`MAX_NAS_THUMBNAIL_SOURCE_BYTES + 1`, garbage — pas une
+vraie image) est rejeté sur la SEULE taille, avant tout appel au binaire ; un dossier-piège
+(`album.jpg` est un dossier) et un fichier disparu rendent tous deux un refus, jamais une
+exception non catchée.
+
+⚠️ **Ces tests exigent `magick` sur le PATH** — installé localement via `winget` pour ce lot
+(2026-08-10), avec l'accord du propriétaire, pour que la génération réelle soit prouvée plutôt que
+skippée. Sans lui, seule l'image publiée reste la preuve — comme le reste du dépôt pour le build
+multi-arch.
+
 ### `tests/unit/coffre_nas_config.spec.ts`
 
 Le format `nom=chemin` de `COFFRE_NAS_ROOTS` (CC-233), **pur**. Une racine, plusieurs racines dans
@@ -302,10 +332,17 @@ de même chemin relatif produisent deux références distinctes (`principale/pho
 
 ### `tests/unit/coffre_catalog_source_nas.spec.ts`
 
-L'implémentation NAS de l'abstraction `CatalogSource` (CC-226), avec une vraie racine de
-fixtures : `key` vaut `'nas'`, `enumerate()` délègue au parcours (déjà prouvé en détail dans le
-fichier précédent — ce test-ci ne re-prouve pas les pièges du parcours) et ne rattrape pas une
-racine absente, `thumbnailFor()` lève — non pris en charge pour le NAS dans ce lot.
+L'implémentation NAS de l'abstraction `CatalogSource` (CC-226, `thumbnailFor` depuis CC-228), avec
+une vraie racine de fixtures : `key` vaut `'nas'`, `enumerate()` délègue au parcours (déjà prouvé
+en détail dans le fichier précédent — ce test-ci ne re-prouve pas les pièges du parcours) et ne
+rattrape pas une racine absente.
+
+`thumbnailFor()` : délègue via `resolveInRoot()` puis génère une vraie vignette (image réelle,
+binaire réel) ; rejette une référence sans identifiant de racine ; **ne retombe JAMAIS sur une
+autre racine** — deux racines de fixtures portant chacune un fichier `plage.jpg`, la référence
+`secondaire/plage.jpg` rend bien le contenu de la racine SECONDAIRE (l'angle « vignette » de la
+collision CC-233, complémentaire du test posé côté `coffre_nas_roots.spec.ts`) ; rejette une
+référence dont la racine ne résout pas.
 
 ### `tests/functional/modules/coffre_catalog_sync_nas.spec.ts`
 
@@ -340,6 +377,31 @@ doublon et ne perd aucune ligne ; un élément disparu d'un listing **réussi et
 absent puis redevient présent s'il réapparaît ; **le test qui compte le plus du lot** — un listing
 **tronqué** ne marque rien absent, et une énumération qui **échoue** ne touche à rien (ni écriture,
 ni marquage), sur un catalogue déjà peuplé.
+
+### `tests/functional/modules/coffre_catalog_thumbnail_cache.spec.ts`
+
+Le cache de vignettes du catalogue NAS (CC-228), contre une vraie base — même doctrine que
+`coffre_storage.spec.ts` : un aller-retour rend exactement les mêmes octets ; la **colonne brute**
+ne porte ni le clair ni le clair en base64 (assertion sur les octets, pas sur une intention) ; un
+chiffré illisible (mauvaise clé) est traité comme une ABSENCE, jamais un refus — la seule
+exception à la doctrine « illisible ≠ absent » du reste du module, parce que cette ligne est
+régénérable ; regénérer pour le même élément REMPLACE la ligne (une seule survit), jamais une
+seconde ; aucune ligne rend `null`, jamais une exception.
+
+### `tests/functional/modules/coffre_catalog_nas_thumbnail.spec.ts`
+
+La route `GET /coffre/catalog/nas/:id/thumbnail` (CC-228), avec `NasRootsService` substitué par
+une vraie racine de fixtures (même patron que `coffre_nas.spec.ts`). Une photo réelle rend une
+vignette JPEG avec le bon `content-type`, `cache-control: no-store`, `pragma: no-cache` ; un HEIC
+**réel** (la même fixture commitée que le générateur) rend aussi une vignette JPEG ; un second
+appel sert le cache SANS régénérer — prouvé par un `CatalogSource` factice substitué dans le
+conteneur qui compte ses appels (`callCount`), jamais par une inspection indirecte ; un élément
+inconnu, celui d'un autre compte, un élément de source `immich_locked` (hors périmètre de cette
+route), un fichier corrompu et une référence qui ne résout sous aucune racine rendent tous 404,
+jamais une 500.
+
+⚠️ **Le mur (l'élévation requise) se prouve dans `coffre_wall.spec.ts`, pas ici** — même
+répartition que les deux autres proxies du module.
 
 ### `tests/functional/modules/coffre_curtain.spec.ts`
 
@@ -425,6 +487,16 @@ doctrine que `createVault` : écrit `asset_id_cipher` directement avec la clé f
 
 `createNasFile` (CC-181) — même doctrine, écrit `path_cipher` directement ; `kind` se dérive du
 chemin par défaut, comme le fait réellement `VaultService.#attachNasFiles`.
+
+`createCatalogItem` (CC-228) — pose une ligne de `coffre_catalog_items` directement, sans passer
+par `coffre:sync-catalog`. ⚠️ **Aucune clé nécessaire**, contrairement aux trois fabriques
+précédentes : `reference` est stockée EN CLAIR (doctrine de la table, voir son CLAUDE.md), pas
+chiffrée.
+
+`tests/fixtures/coffre_nas_thumbnail.heic` (CC-228) — un HEIC **réel** (447 octets, encodé avec
+`libheif`+`libheif-plugin-x265` depuis un PNG synthétique), pas un fichier renommé : c'est le seul
+moyen de prouver le codepath HEVC que la mesure a écarté pour `sharp`, puisque le générer à la
+volée demanderait un encodeur HEIC absent de ce dépôt.
 
 `tests/fakes/fake_immich_session_client.ts` (CC-205) — sur le patron de `fake_immich_client.ts` :
 remplace la couche API (`lockedPhotos`, `thumbnail`) tout entière, jamais le transport ni la

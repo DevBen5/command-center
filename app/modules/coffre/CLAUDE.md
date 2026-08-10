@@ -1,11 +1,11 @@
 # Module Coffre — notes, URLs, identifiants, médias Immich et médias NAS chiffrés, invisibles, derrière deux portes
 
 Routes `/coffre/ouvrir` · `/coffre` · `/coffre/:section` · `/coffre/:id/secret` ·
-`/coffre/media/:id/thumbnail` · `/coffre/nas/:id/stream` · `/coffre/immich/dossier` ·
-`/coffre/immich/dossier/:assetId/thumbnail` · pages Inertia
+`/coffre/media/:id/thumbnail` · `/coffre/nas/:id/stream` · `/coffre/catalog/nas/:id/thumbnail` ·
+`/coffre/immich/dossier` · `/coffre/immich/dossier/:assetId/thumbnail` · pages Inertia
 `modules/coffre/{ouvrir, index, section}` · tables
 `coffre_vaults`, `coffre_entries`, `coffre_entry_media`, `coffre_entry_nas_file`,
-`coffre_catalog_items`. Lot 1 de l'épique
+`coffre_catalog_items`, `coffre_catalog_thumbnails`. Lot 1 de l'épique
 CC-177 (CC-178) : le **socle**, dont tous les lots suivants héritent — aucun ne redéfinit sa propre
 porte. Lot 2 (CC-179) : les **identifiants**, qui ajoutent une nature d'entrée et une route.
 ⚠️ **CC-186 (l'édition) et CC-180 (les médias Immich) portent tous deux le numéro « lot 3 » dans
@@ -59,7 +59,8 @@ models/coffre_entry_media.ts             une référence d'asset Immich, chiffr�
 models/coffre_entry_nas_file.ts          une référence de chemin de média NAS, chiffrée, PLUS son
                                          `kind` en clair (CC-181)
 services/nas_roots_service.ts            PUR-ish (fs) · résout un chemin contre les racines, APRÈS
-                                         realpath (CC-181)
+                                         realpath (CC-181) · résout aussi contre UNE racine NOMMÉE
+                                         (`resolveInRoot`, CC-228)
 services/nas_file_format.ts              PUR · allow-lists photo/vidéo, content-type, kind (CC-181)
 services/byte_range.ts                   PUR · parseur de l'en-tête `Range` (CC-181)
 shared/entry_sections.ts                 PUR · le regroupement de l'écran par nature (CC-204),
@@ -80,7 +81,16 @@ services/immich_locked_catalog_source.ts implémente CatalogSource pour le dossi
 services/nas_directory_walker.ts         PUR-ish (fs) · parcourt les racines NAS, symlinks/cycles
                                          sûrs, racine absente LÈVE (CC-226)
 services/nas_catalog_source.ts           implémente CatalogSource pour le NAS, délègue au
-                                         parcours (CC-226)
+                                         parcours ET, depuis CC-228, à la génération de vignette
+services/nas_thumbnail_generator.ts      PUR-ish (fs + binaire externe) · ImageMagick via
+                                         execFile, bornes taille/dimensions, allow-list photo
+                                         forcée par coder (CC-228)
+services/catalog_thumbnail_cache.ts      le cache de vignettes CHIFFRÉ par la clé du coffre,
+                                         get/put par élément de catalogue (CC-228)
+controllers/coffre_catalog_nas_controller.ts  le proxy de vignette du catalogue NAS (CC-228) —
+                                         AVEC élévation
+models/coffre_catalog_thumbnail.ts       une vignette de catalogue mise en cache, chiffrée,
+                                         PAR élément (CC-228)
 validators/coffre.ts                     ⚠️ des FABRIQUES, jamais des nœuds VineJS partagés
 ```
 
@@ -114,6 +124,10 @@ fermer la session Immich élevée à l'arrêt du serveur, voir « Le dossier ver
 raison structurelle que `commands/reset_account.ts` (voir le `CLAUDE.md` racine, point 7) — le
 noyau ace ne charge les commandes que depuis un seul dossier. Son rôle : synchroniser le catalogue
 des sources — voir « Le catalogue des sources » plus bas.
+
+⚠️ **Un douzième depuis CC-228 : `docker/coffre-imagemagick-policy.xml`**, copiée par le
+`Dockerfile` racine vers `/etc/ImageMagick-7/policy.xml` — hors du module par construction, comme
+tout ce qui touche à l'image de production (voir « Les vignettes du catalogue NAS » plus bas).
 
 ⚠️ **Deux dépendances de plus depuis CC-179, et aucune n'est propre au coffre** : la page importe
 `inertia/utils/clipboard.ts` (partagé avec `/reglages` et l'écran LLM de Leitner), et la promesse
@@ -1218,15 +1232,12 @@ le catalogue se remplirait de milliers d'entrées internes non pertinentes
 un des quatre pièges nommés par le ticket — décision prise pendant l'implémentation, à réévaluer
 si elle s'avère trop étroite ou trop large à l'usage réel.
 
-### `thumbnailFor()` — non pris en charge dans ce lot
+### `thumbnailFor()` — comblé par CC-228, voir « Les vignettes du catalogue NAS » plus bas
 
-`NasCatalogSource.thumbnailFor()` lève systématiquement. Rien ne l'appelle dans ce lot (aucune
-route, aucun écran — hors périmètre jusqu'au lot 3). Il n'existe aucune génération de vignette
-pour les médias NAS (voir « La liste n'affiche aucun aperçu à plusieurs médias à la fois » plus
-bas) ; lire un fichier NAS entier en mémoire — potentiellement plusieurs Go pour une vidéo — sans
-plafond établi et sans appelant réel serait un piège latent. Le lot 3 décidera comment
-prévisualiser un média NAS, probablement en réutilisant le proxy de streaming existant plutôt que
-cette méthode.
+`NasCatalogSource.thumbnailFor()` levait systématiquement jusqu'à CC-228 (lot 3, qui suit) : aucune
+route ne l'appelait, et lire un fichier NAS entier en mémoire sans plafond établi aurait été un
+piège latent. CC-228 pose le plafond ET l'appelant (la grille du catalogue, CC-227) dans le même
+lot — voir plus bas pour l'implémentation complète.
 
 ### Collision de référence entre racines multiples — corrigée pour le catalogue (CC-233), PAS pour `path_cipher`
 
@@ -1261,7 +1272,150 @@ périmètre à ce point : le catalogue est une donnée dérivée (vider + resync
 `path_cipher` ne l'est pas. **Sans conséquence pratique tant qu'une installation ne déclare qu'UNE
 seule racine NAS**, le cas le plus courant (vérifié le 2026-08-09).
 
+## Les vignettes du catalogue NAS — lot 3 (CC-228)
 
+Comble le trou que CC-226 avait laissé délibérément ouvert (`NasCatalogSource.thumbnailFor()`
+levait) et débloque CC-227 (la grille du catalogue) : sans vignette, une page de la grille
+téléchargerait des dizaines de fichiers complets — 10 à 20 Mo pièce pour une photo d'appareil
+moderne, chiffre déjà cité par CC-181.
+
+⚠️ **Périmètre : PHOTOS SEULEMENT, décision du ticket.** Une vidéo du catalogue ne reçoit aucune
+image extraite — l'écran affiche une pastille de nature à la place. `ffmpeg` serait un second
+binaire ET un second axe multi-arch à prouver ; hors périmètre, à re-ticketer si le besoin se
+confirme à l'usage.
+
+### La dépendance : mesurée, pas devinée
+
+⚠️ **`sharp` a été écarté par une mesure réelle contre `node:22-alpine`, pas par principe.** Ses
+binaires précompilés (variante musl) n'embarquent PAS le codec HEVC — raisons de brevet — donc ne
+lisent JAMAIS un `.heic` réel : `heif: Support for this compression format has not been built in`,
+vérifié contre un fichier encodé avec `libheif`+`libheif-plugin-x265` (donc un vrai HEIC, pas un
+JPEG renommé). C'est le format qui compte : CC-229 existe parce que ces fichiers sont invisibles
+hors Safari, et une grille qui rend un carré gris sur une partie de la bibliothèque rate sa cible.
+
+`apk add imagemagick imagemagick-heic imagemagick-jpeg imagemagick-webp` lit les cinq formats de
+`PHOTO_CONTENT_TYPES` (`nas_file_format.ts`), mesuré sur `node:22-alpine` **amd64 réel** et **arm64
+sous QEMU** (packages résolus et binaire exécuté avec succès sous émulation — pas une preuve sur
+matériel réel, voir la limite plus bas). Décision : `apk`, pas `sharp` — même mécanisme de
+résolution par architecture que `postgresql16-client` dans le `Dockerfile`, aucun axe multi-arch
+nouveau. PNG et GIF fonctionnent avec le paquet `imagemagick` de base ; JPEG, HEIC et WEBP
+demandent chacun leur paquet séparé (coders natifs, pas des delegates shell).
+
+### La policy.xml — le risque trouvé EN mesurant, pas dans le ticket
+
+⚠️ **La policy ImageMagick par défaut d'Alpine est la policy « open » : aucune restriction de
+coder ni de delegate.** Sans rien de plus, la famille de faille ImageTragick (CVE-2016-3714 —
+MVG/MSL déguisés en `.jpg`, exécutant des commandes ou lisant le disque via un coder inattendu)
+n'est PAS fermée. Deux gardes, mesurées ENSEMBLE, aucune suffisante seule :
+
+1. **Le coder est TOUJOURS forcé par préfixe** (`JPEG:chemin`, jamais un chemin nu) dans
+   `nas_thumbnail_generator.ts` — sans ce préfixe, un fichier dont le contenu ne correspond pas à
+   son extension pourrait être sniffé vers un coder dangereux. Mesuré : un payload MVG renommé
+   `.jpg` et forcé en lecture `JPEG:` échoue proprement (« insufficient image data »), jamais
+   exécuté.
+2. **`docker/coffre-imagemagick-policy.xml`**, copiée par le `Dockerfile` vers
+   `/etc/ImageMagick-7/policy.xml` : deny-all sur `coder`/`delegate`, puis allow-list explicite
+   des cinq formats (lecture) et JPEG (écriture — la vignette générée est TOUJOURS une JPEG, quel
+   que soit le format source), plus des plafonds de ressources (mémoire, temps, dimensions) qui
+   bornent le pire cas même si le code applicatif oubliait ses propres `-limit`.
+
+⚠️ **Les patterns de la policy sont des lignes séparées par format, jamais `{JPEG,PNG,...}`** —
+mesuré : le matcher de policy d'ImageMagick ne développe pas les accolades ; une ligne combinée ne
+matche RIEN et retombe silencieusement sur le deny-all (tous les formats refusés, y compris JPEG).
+
+### `resolveInRoot` — pourquoi `resolve()` ne pouvait pas être réutilisé tel quel
+
+⚠️ **Le piège le plus facile à rater du lot, signalé avant l'implémentation.** Une référence de
+catalogue porte l'identifiant de sa racine depuis CC-233 (`<nom>/<chemin relatif>`), mais
+`NasRootsService.resolve()` continue de l'IGNORER — il essaie toujours les racines dans l'ordre
+sur un chemin relatif nu (comportement voulu pour `coffre_entry_nas_file.path_cipher`, qui ne
+porte pas d'identité de racine, voir « Collision de référence entre racines multiples » plus
+haut). Réutiliser `resolve()` pour `thumbnailFor()` aurait réintroduit, pour les vignettes, EXACTEMENT
+la collision que CC-233 a fermée pour le catalogue : avec 2+ racines déclarées et un chemin relatif
+identique sous plusieurs d'entre elles, la vignette de la MAUVAISE racine aurait pu être servie.
+
+`NasRootsService.resolveInRoot(rootName, relativePath)` résout contre LA racine nommée
+exclusivement — même mécanisme de confinement que `resolve()` (`realpath` puis `isWithinRoot`),
+jamais un essai sur les autres racines. `NasCatalogSource.thumbnailFor(reference)` sépare le nom du
+chemin AVANT tout appel à `NasRootsService`, sur le premier `/` de la référence.
+
+### Le cache — chiffré, en base, à la demande
+
+Les deux voies envisagées par le ticket (« cache disque en clair » ou « rien ») ont chacune un
+coût inacceptable : la première crée un TROISIÈME gisement de données en clair à côté de `pgdata/`
+et `backups/` (voir le `CLAUDE.md` racine, « Les données ») ; la seconde paie le CPU d'ImageMagick
+à chaque défilement de la grille, sur un Celeron J3455 (la cible de déploiement réelle). **Décision :
+`coffre_catalog_thumbnails`, une ligne par élément de catalogue, chiffrée par la clé du coffre
+(`vault_crypto.ts`, la MÊME clé que le reste du coffre — pas `APP_KEY`), alimentée à la demande —
+jamais au moment de `coffre:sync-catalog`.**
+
+⚠️ **`cache-control: no-store` sur la réponse HTTP reste INCHANGÉ.** C'est un cache SERVEUR ; ne le
+confonds pas avec l'avertissement du ticket sur le cache navigateur, qui portait sur un axe
+différent. Un média mis en cache par le navigateur resterait lisible sur son disque après un
+verrouillage du coffre — cette table-ci vit côté serveur, chiffrée, couverte par `db:backup` donc
+par le chiffrement de CC-223.
+
+⚠️ **`vault_crypto.ts` chiffre des chaînes, pas des octets** — les octets de la vignette sont donc
+encodés en base64 avant chiffrement (`catalog_thumbnail_cache.ts`). Ne « corrige » pas cette
+indirection en changeant la signature d'`encrypt`/`decrypt` : ça toucherait tous les autres
+appelants du module pour un gain marginal sur des vignettes bornées à 512 Ko.
+
+⚠️ **Un chiffré illisible en cache est traité comme une ABSENCE, jamais comme un refus — la seule
+exception à la doctrine « illisible ≠ absent » du reste du module.** La différence : cette ligne
+est une donnée DÉRIVÉE, toujours régénérable depuis le fichier NAS source, contrairement à un
+secret d'entrée qui n'existe nulle part ailleurs. L'appelant régénère simplement.
+
+⚠️ **Course bénigne acceptée, pas fermée par une transaction.** Deux requêtes concurrentes pour le
+même élément non encore en cache régénèrent toutes deux (coût CPU doublé une fois, jamais une
+boucle) ; la seconde écriture heurte la contrainte unique sur `catalog_item_id`, capturée et
+ignorée — chaque réponse HTTP reste correcte, les octets ayant déjà été générés avant l'écriture.
+Même doctrine que `VaultService.createVault` : l'unicité vient de la base, pas d'un contrôle
+applicatif.
+
+⚠️ **Aucune invalidation si le fichier NAS change SANS changer de chemin — limite connue, pas un
+oubli.** Le ticket demande la génération à la demande, jamais au moment du sync ; il ne demande pas
+de sous-système de purge. Une vignette déjà en cache survit donc à un remplacement du fichier
+source jusqu'à... jamais, dans ce lot. Sans conséquence pour un usage personnel typique (un fichier
+NAS renommé plutôt que remplacé en place), mais à revisiter si l'usage réel montre le contraire.
+
+⚠️ **Croissance attendue, plafond posé.** Une vignette pèse en pratique 20 à 80 Ko (JPEG 512×512,
+`-strip`), plafonnée à `MAX_NAS_THUMBNAIL_BYTES` = 512 Ko (`nas_thumbnail_generator.ts`) — un
+filet, pas une cible. La table ne grossit QUE pour les éléments réellement consultés (alimentation
+à la demande) : sur un catalogue de plusieurs milliers d'éléments dont seule une fraction est
+ouverte dans la grille, la croissance réelle reste largement sous le pire cas théorique
+(nombre d'éléments total × 512 Ko). Pas de purge dans ce lot — `missing_since` du catalogue
+(voir plus haut) n'entraîne aucune suppression de vignette ; `ON DELETE CASCADE` sur
+`catalog_item_id` couvre le seul cas qui compte (l'élément de catalogue lui-même disparaît).
+
+### La route — séparée du streaming existant
+
+`GET /coffre/catalog/nas/:id/thumbnail` (`coffre_catalog_nas_controller.ts`) — **`:id` désigne
+notre ligne `coffre_catalog_items`, scopée `owner_id` ET `source = 'nas'`, jamais
+`coffre_entry_nas_file`.** Route séparée de `/coffre/nas/:id/stream` (CC-181) — décision du ticket,
+pas un détail : le proxy de streaming porte la garde de chemin ET la sécurité d'accès au disque
+pour un fichier ATTACHÉ (id chiffré) ; celui-ci sert un élément du CATALOGUE (id en clair, voir
+son CLAUDE.md — « le catalogue est en clair »). Deux jeux de données différents.
+
+⚠️ **Un item `immich_locked` rend 404 sur cette route.** Sa vignette existe déjà par un autre
+mécanisme (`ImmichLockedCatalogSource.thumbnailFor`, délègue à la session Immich, CC-205) — hors
+périmètre de CC-228, qui ne comble que le trou NAS.
+
+Même mur que les deux autres proxies : `middleware.can('coffre.view')` + `middleware.coffreOuvert()`
+sur la route, **plus** `vault.keyFor()` en contrôleur (second mécanisme indépendant, sur le patron
+de `CoffreImmichFolderController`) — dans `ROUTES_MUREES` de `coffre_wall.spec.ts` **et** dans
+l'assertion qui lit le routeur.
+
+### Ce que ce poste ne peut PAS prouver
+
+⚠️ **arm64 en usage réel, pas seulement le build.** Les packages `apk` se résolvent et le binaire
+s'exécute sous QEMU (mesuré) — un signal fort, mais pas une preuve sur matériel arm64 réel : QEMU
+émule le jeu d'instructions, pas les particularités d'un SoC réel. Livré au propriétaire en
+procédure exécutable (voir la synthèse du ticket), jamais affirmé comme prouvé.
+
+⚠️ **Une vraie photo HEIC d'iPhone**, avec ses profils de couleur et métadonnées EXIF réels — le
+fixture de test (`tests/fixtures/coffre_nas_thumbnail.heic`) est un carré de couleur unie encodé
+minimal, qui prouve le codepath HEVC réel mais pas la variété des fichiers qu'un vrai appareil
+produit.
 
 `coffre_vaults.user_id` est **unique**, les entrées portent `owner_id`, rien n'est partagé. Un
 coffre commun rendrait le contenu du propriétaire lisible par quiconque reçoit `coffre.view` et

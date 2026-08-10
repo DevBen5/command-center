@@ -734,6 +734,12 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
   formulaire**. Ne l'expose jamais dans une UI d'édition : ce serait une RCE.
 - **Docker : `execFile` + whitelist regex sur le nom de conteneur** (`SystemStatsService`).
   Jamais `exec()` avec interpolation de chaîne.
+- **ImageMagick (vignettes NAS du coffre, CC-228) : `execFile` en tableau, coder TOUJOURS forcé
+  par préfixe** (`JPEG:chemin`, jamais un chemin nu) **et policy.xml durcie**
+  (`docker/coffre-imagemagick-policy.xml`, deny-all puis allow-list des 5 formats photo). La
+  policy par défaut d'Alpine est « open » — sans les deux gardes ensemble, la famille de faille
+  ImageTragick (MVG/MSL déguisés en image) reste ouverte. Voir le `CLAUDE.md` du coffre pour la
+  mesure complète.
 - **Masquer un bouton n'est pas un droit.** Une route est un contrat public : `POST /revision/cards`
   répond que le bouton soit affiché ou non, et un `curl` muni d'un cookie de session valide n'a que
   faire du rendu Vue. Le middleware de capacité ferme ; le masquage dans l'UI évite seulement de
