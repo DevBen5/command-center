@@ -344,10 +344,28 @@ derrière un dépliant fermé par défaut (absent du DOM tant qu'on n'a pas cliq
 Les deux cas sont recherchés par le `placeholder` de l'input pour ne pas se confondre avec un
 autre champ du formulaire.
 
+Depuis CC-221 : deux tests de plus, sur les deux dépliants (dossier verrouillé, collage manuel) —
+`aria-expanded` suit l'état RÉEL sur le geste (déplier PUIS replier, pas seulement l'état de
+montage), `aria-controls` ne référence l'id du panneau QUE lorsqu'il est monté, jamais un id
+inexistant côté replié. Les deux mutation-vérifiés : figer `aria-expanded` en dur fait rougir
+chacun des deux tests, et lui seul.
+
 ⚠️ **Le rendu du panneau du dossier verrouillé et le CSS de la modale ne sont couverts par
 aucun test** — même limite que le reste du module, jsdom ne fait aucun layout. Voir
 `inertia/components/__tests__/app_modal.spec.ts` (hors index, `tests_index.spec.ts` ne balaie
 pas `inertia/**`) pour le chassis partagé (Échap, clic-extérieur) qu'`AppModal.vue` fournit.
+
+### `app/modules/coffre/pages/__tests__/section.spec.ts`
+
+Vitest — le premier test de composant de cette page (CC-221). Prouve uniquement l'accordéon
+d'une entrée : `aria-expanded` suit l'état réel sur le geste (déplier PUIS replier),
+`aria-controls` référence l'id du panneau (`coffre-entry-panel-<id>`) seulement quand il est
+monté. Mutation-vérifié : figer `aria-expanded` en dur fait rougir ce test, et lui seul.
+
+⚠️ **Ne couvre RIEN d'autre de cette page** — la révélation/copie de mot de passe, la
+suppression, l'édition, l'aperçu média restent un passage navigateur pour le propriétaire, comme
+avant ce lot (voir la limite déjà notée plus bas, « Aucun navigateur n'a affiché la grille de
+cartes ni les pages de section »).
 
 ## Hors du module, mais amendés par CC-179
 

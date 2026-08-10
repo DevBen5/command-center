@@ -432,12 +432,14 @@ function submit(): void {
             v-if="immichFolderAvailable"
             type="button"
             class="rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt-2 hover:border-aqua"
+            :aria-expanded="folderOpen ? 'true' : 'false'"
+            :aria-controls="folderOpen ? 'coffre-folder-panel' : undefined"
             @click="toggleFolder"
           >
             {{ folderOpen ? t('coffre.index.folderClose') : t('coffre.index.folderBrowse') }}
           </button>
 
-          <div v-if="folderOpen" class="mt-2 rounded-[8px] border border-line-2 p-3">
+          <div v-if="folderOpen" id="coffre-folder-panel" class="mt-2 rounded-[8px] border border-line-2 p-3">
             <p v-if="folderLoading" class="text-[12px] text-txt-3">{{ t('coffre.index.folderLoading') }}</p>
             <p v-else-if="folderError" class="text-[12px] text-bad">{{ t('coffre.index.folderError') }}</p>
             <p v-else-if="folderPhotos?.length === 0" class="text-[12px] text-txt-3">
@@ -492,12 +494,14 @@ function submit(): void {
             v-if="immichFolderAvailable"
             type="button"
             class="mt-4 block w-fit text-[12px] text-txt-3 underline hover:text-txt-2"
+            :aria-expanded="pasteOpen ? 'true' : 'false'"
+            :aria-controls="pasteOpen ? 'coffre-paste-panel' : undefined"
             @click="pasteOpen = !pasteOpen"
           >
             {{ pasteOpen ? t('coffre.index.mediaPasteClose') : t('coffre.index.mediaPasteOpen') }}
           </button>
 
-          <div v-if="pasteVisible" class="mt-2 flex gap-2">
+          <div v-if="pasteVisible" id="coffre-paste-panel" class="mt-2 flex gap-2">
             <input
               v-model="newMediaInput"
               :placeholder="t('coffre.index.mediaPlaceholder')"

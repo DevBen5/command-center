@@ -231,6 +231,42 @@ describe('Coffre / EntryFormModal', () => {
     wrapper.unmount()
   })
 
+  // ⚠️ CC-221 : même exigence que pour le collage manuel — `aria-expanded` sur le geste réel
+  // (ouvrir PUIS refermer), `aria-controls` absent tant que le panneau n'est pas monté.
+  test('le bouton du dossier verrouillé annonce aria-expanded/aria-controls sur le geste réel', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ available: true, truncated: false, photos: [] }),
+      })
+    )
+
+    const wrapper = monter({ entry: null, immichFolderAvailable: true })
+    const bouton = () =>
+      wrapper
+        .findAll('button')
+        .find((b) => b.text() === fr.index.folderBrowse || b.text() === fr.index.folderClose)!
+
+    expect(bouton().attributes('aria-expanded')).toBe('false')
+    expect(bouton().attributes('aria-controls')).toBeUndefined()
+
+    await bouton().trigger('click')
+    await flushPromises()
+
+    expect(bouton().attributes('aria-expanded')).toBe('true')
+    const panelId = bouton().attributes('aria-controls')!
+    expect(panelId).toBeTruthy()
+    expect(wrapper.find(`#${panelId}`).exists()).toBe(true)
+
+    await bouton().trigger('click')
+
+    expect(bouton().attributes('aria-expanded')).toBe('false')
+    expect(bouton().attributes('aria-controls')).toBeUndefined()
+
+    wrapper.unmount()
+  })
+
   // ⚠️ CC-218 : le geste rare (coller un UUID) est désormais replié derrière un dépliant fermé
   // par défaut QUAND le dossier verrouillé est disponible — c'est le cœur du lot. On cherche
   // l'input par son placeholder, pas juste « find('input') », pour ne pas confondre avec un
@@ -248,6 +284,36 @@ describe('Coffre / EntryFormModal', () => {
     expect(
       wrapper.findAll('button').find((b) => b.text() === fr.index.mediaPasteClose)
     ).toBeTruthy()
+
+    wrapper.unmount()
+  })
+
+  // ⚠️ CC-221 : `aria-expanded` doit suivre l'état RÉEL du dépliant, jamais être posé en dur —
+  // vérifié sur le geste (déplier PUIS replier), pas seulement l'état de montage, sans quoi un
+  // composant qui partirait déjà dans l'état observé rendrait le test décoratif (piège nommé par
+  // le CLAUDE.md racine, exemple TaxonomyCombobox). `aria-controls` ne référence l'id du panneau
+  // QUE quand celui-ci est monté — jamais un id inexistant.
+  test('le collage manuel annonce aria-expanded/aria-controls sur le geste réel', async () => {
+    const wrapper = monter({ entry: null, immichFolderAvailable: true })
+    const bouton = () =>
+      wrapper
+        .findAll('button')
+        .find((b) => b.text() === fr.index.mediaPasteOpen || b.text() === fr.index.mediaPasteClose)!
+
+    expect(bouton().attributes('aria-expanded')).toBe('false')
+    expect(bouton().attributes('aria-controls')).toBeUndefined()
+
+    await bouton().trigger('click')
+
+    expect(bouton().attributes('aria-expanded')).toBe('true')
+    const panelId = bouton().attributes('aria-controls')!
+    expect(panelId).toBeTruthy()
+    expect(wrapper.find(`#${panelId}`).exists()).toBe(true)
+
+    await bouton().trigger('click')
+
+    expect(bouton().attributes('aria-expanded')).toBe('false')
+    expect(bouton().attributes('aria-controls')).toBeUndefined()
 
     wrapper.unmount()
   })
