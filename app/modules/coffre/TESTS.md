@@ -38,6 +38,8 @@ Le lot porte quatre affirmations, et elles ne se vérifient pas au même endroit
 | `thumbnailFor()` du catalogue NAS résout TOUJOURS contre la racine nommée de la référence, jamais l'essai-dans-l'ordre — reproduit l'angle « vignette » de la collision CC-233 (CC-228) | `coffre_catalog_source_nas.spec.ts`, `coffre_nas_roots.spec.ts` (`resolveInRoot`) |
 | le cache de vignettes est chiffré par la clé du coffre (colonne brute illisible), un chiffré illisible est traité comme une absence (jamais un refus), une regénération REMPLACE la ligne (CC-228) | `coffre_catalog_thumbnail_cache.spec.ts` |
 | la route de vignette du catalogue NAS refuse sans élévation, sert une photo réelle ET un HEIC réel, ne régénère pas au second appel, absorbe un item inconnu/d'un autre compte/de source Immich/corrompu/introuvable en 404 uniforme (CC-228) | `coffre_catalog_nas_thumbnail.spec.ts`, plus `coffre_wall.spec.ts` pour le mur |
+| la grille du catalogue pagine (30/page, borne à la dernière page réelle), filtre (source, nature, période — exclut aussi les dates NULL), trie (`NULLS LAST` dans les deux sens), cherche par `ILIKE` paramétré (jokers `%`/`_` échappés, saisie hostile sans effet, longueur plafonnée), masque `missing_since` par défaut, choisit la vignette PAR SOURCE, refuse des paramètres invalides (400), throttle au-delà du seuil (429), et ne rend AUCUNE donnée en prop Inertia (CC-227) | `coffre_catalog_browse.spec.ts`, plus `coffre_wall.spec.ts` pour le mur |
+| le lien catalogue ↔ entrée se calcule À LA VOLÉE dans les deux sens (jamais un `entry_id` écrit), catalogue → entrée porte le titre déchiffré, entrée → catalogue annote présence ET absence sur les chips déjà rendues (CC-227) | `coffre_catalog_link.spec.ts` |
 
 ⚠️ **Le troisième est celui qu'un test rend faussement vert.** Relire ce qu'on vient d'écrire
 réussirait à l'identique sans le moindre chiffrement ; seul un `select` qui court-circuite le modèle
@@ -403,6 +405,33 @@ jamais une 500.
 ⚠️ **Le mur (l'élévation requise) se prouve dans `coffre_wall.spec.ts`, pas ici** — même
 répartition que les deux autres proxies du module.
 
+### `tests/functional/modules/coffre_catalog_browse.spec.ts`
+
+`GET /coffre/catalog/items` (CC-227), contre une vraie base — pagination bornée à 30/page et à la
+dernière page réelle ; filtres source/nature/période (une période exclut aussi les dates `NULL`) ;
+tri `NULLS LAST` dans les deux sens (`sort=displayName`) ; recherche : correspondance normale,
+recherche littérale sur `%` et `_` (**ne matche PAS tout le catalogue**, la garantie centrale de ce
+fichier), saisie hostile (guillemets, point-virgule, apostrophe, antislash) sans effet, chaîne trop
+longue refusée (400) ; `missing_since` exclu par défaut, inclus avec `includeMissing=true` ;
+vignette choisie PAR SOURCE (`nas`+`photo` seulement, `immich_locked` toute nature, sinon `null`) ;
+paramètres invalides refusés (400) ; la page-coquille `GET /coffre/catalog` ne porte AUCUNE donnée
+de catalogue en prop Inertia ; le throttle rend 429 au-delà du seuil par défaut (61 requêtes
+réelles, comme `login_throttle.spec.ts`, pas de service substitué).
+
+⚠️ **Le mur se prouve dans `coffre_wall.spec.ts`, pas ici.**
+
+### `tests/functional/modules/coffre_catalog_link.spec.ts`
+
+Le lien catalogue ↔ entrée (CC-227), **calculé à la volée** — `entry_id` n'est écrit par aucun
+test de ce fichier, la preuve étant en creux : aucune colonne n'est lue, seulement un déchiffrement
+et une comparaison de chaînes. `NasRootsService` est substitué par une racine nommée SANS accès
+disque (le matching ne résout jamais un chemin réel, seule `getRoots()` — une liste statique — est
+consultée). Catalogue → entrée : un élément NAS ou Immich rattaché porte le titre déchiffré de son
+entrée (`CoffreEntry.titleCipher` réellement chiffré avec `encrypt()`, pas un `'x'` de complaisance
+— sans quoi le déchiffrement échouerait et l'entrée serait invisible de la map) ; un élément non
+rattaché rend `null`. Entrée → catalogue : les chips `nasFiles` déjà rendues par `pages/section.vue`
+portent `inCatalog`/`missingSince`, dans les deux états (présent avec une date d'absence, absent).
+
 ### `tests/functional/modules/coffre_curtain.spec.ts`
 
 Le rideau : le plancher qui vérifie que le module est bien activé (sinon rien ne prouve rien),
@@ -453,6 +482,29 @@ suppression, l'édition, l'aperçu média restent un passage navigateur pour le 
 avant ce lot (voir la limite déjà notée plus bas, « Aucun navigateur n'a affiché la grille de
 cartes ni les pages de section »).
 
+### `app/modules/coffre/pages/__tests__/catalog.spec.ts`
+
+Vitest — la grille du catalogue (CC-227) porte de la vraie logique, donc un test de composant : au
+montage, un seul appel à `/coffre/catalog/items` en page 1 ; la recherche est DÉBOUNCÉE (`vi.
+useFakeTimers`, rien avant 300 ms, un seul appel après, page remise à 1) ; « page suivante » avance
+la pagination ; un 429 affiche le message de throttle plutôt qu'une grille vide silencieuse ; une
+vignette en échec de chargement (`@error` sur l'`<img>`) retombe sur la pastille de nature — le
+mécanisme qui couvre à la fois `nas`+`video`/`other` (aucune tentative) ET un HEIC/fichier corrompu
+malgré une tentative (échec réel), d'un seul geste.
+
+⚠️ **`global.fetch` est substitué** (`vi.stubGlobal`), jamais un vrai appel réseau — jsdom n'en
+ferait de toute façon aucun. Ne couvre ni le rendu réel de la grille, ni le défilement, ni une
+vraie vignette NAS/Immich — passage navigateur du propriétaire, voir plus bas.
+
+### `app/modules/coffre/shared/__tests__/catalog_query.spec.ts`
+
+Vitest — la construction PURE de la query string (`buildCatalogQueryString`) et le changement de
+filtre (`applyFilterChange`, CC-227) : les filtres par défaut ne posent que `page`/`sort`/`order` ;
+chaque filtre posé apparaît ; une recherche vide ou faite d'espaces ne pose PAS `q` ; `q` part
+découpé de ses espaces de tête et de fin ; changer un filtre ordinaire revient à la page 1, changer
+la page elle-même ne la réinitialise PAS — sans cette exception, « page suivante » resterait sur
+place.
+
 ## Hors du module, mais amendés par CC-179
 
 - `tests/functional/core/validation_flash.spec.ts` — **une validation ratée ne rejoue pas le corps
@@ -488,10 +540,12 @@ doctrine que `createVault` : écrit `asset_id_cipher` directement avec la clé f
 `createNasFile` (CC-181) — même doctrine, écrit `path_cipher` directement ; `kind` se dérive du
 chemin par défaut, comme le fait réellement `VaultService.#attachNasFiles`.
 
-`createCatalogItem` (CC-228) — pose une ligne de `coffre_catalog_items` directement, sans passer
-par `coffre:sync-catalog`. ⚠️ **Aucune clé nécessaire**, contrairement aux trois fabriques
+`createCatalogItem` (CC-228, étendue par CC-227 avec `displayName`/`capturedAt`/`sizeBytes`/
+`missingSince`) — pose une ligne de `coffre_catalog_items` directement, sans passer par
+`coffre:sync-catalog`. ⚠️ **Aucune clé nécessaire**, contrairement aux trois fabriques
 précédentes : `reference` est stockée EN CLAIR (doctrine de la table, voir son CLAUDE.md), pas
-chiffrée.
+chiffrée. Les quatre champs ajoutés restent `null` par défaut — aucun test CC-228 existant n'a
+changé de comportement.
 
 `tests/fixtures/coffre_nas_thumbnail.heic` (CC-228) — un HEIC **réel** (447 octets, encodé avec
 `libheif`+`libheif-plugin-x265` depuis un PNG synthétique), pas un fichier renommé : c'est le seul

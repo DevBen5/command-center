@@ -2,8 +2,9 @@
 
 Routes `/coffre/ouvrir` · `/coffre` · `/coffre/:section` · `/coffre/:id/secret` ·
 `/coffre/media/:id/thumbnail` · `/coffre/nas/:id/stream` · `/coffre/catalog/nas/:id/thumbnail` ·
-`/coffre/immich/dossier` · `/coffre/immich/dossier/:assetId/thumbnail` · pages Inertia
-`modules/coffre/{ouvrir, index, section}` · tables
+`/coffre/immich/dossier` · `/coffre/immich/dossier/:assetId/thumbnail` · `/coffre/catalog` ·
+`/coffre/catalog/items` · pages Inertia
+`modules/coffre/{ouvrir, index, section, catalog}` · tables
 `coffre_vaults`, `coffre_entries`, `coffre_entry_media`, `coffre_entry_nas_file`,
 `coffre_catalog_items`, `coffre_catalog_thumbnails`. Lot 1 de l'épique
 CC-177 (CC-178) : le **socle**, dont tous les lots suivants héritent — aucun ne redéfinit sa propre
@@ -22,7 +23,9 @@ bas. Une **seconde épique, CC-224**, renverse le rapport entre entrées et sour
 indexe ce que ses sources contiennent, les entrées devenant une couche de sens par-dessus, plutôt
 que la seule porte d'accès au contenu. Lot 1 (CC-225) : le socle — table, abstraction de source,
 synchronisation, dossier verrouillé Immich branché. Lot 2 (CC-226) : la source NAS, qui parcourt
-les racines déclarées — voir « Le catalogue des sources » plus bas pour les deux.
+les racines déclarées — voir « Le catalogue des sources » plus bas pour les deux. Lot 3 (CC-228) :
+les vignettes du catalogue NAS, qui débloquent le lot 3 « visible » de l'épique — CC-227 : l'écran
+de consultation et de recherche, voir « La grille du catalogue » plus bas.
 
 ⚠️ **CC-181 a été amendé le 2026-08-06, en cours de lot** : le ticket ne portait au départ que les
 vidéos ; le propriétaire a élargi le périmètre aux photos avant la fin de l'implémentation, parce
@@ -91,6 +94,17 @@ controllers/coffre_catalog_nas_controller.ts  le proxy de vignette du catalogue 
                                          AVEC élévation
 models/coffre_catalog_thumbnail.ts       une vignette de catalogue mise en cache, chiffrée,
                                          PAR élément (CC-228)
+services/catalog_item_query.ts           PUR-ish (Lucid, pas d'ordre) · la requête filtrée de la
+                                         grille — pagination/filtres/recherche, JAMAIS le tri
+                                         (CC-227, sur le patron de veille_item_query.ts)
+services/catalog_link_service.ts         le lien catalogue ↔ entrée, À LA VOLÉE dans les deux
+                                         sens, `entry_id` JAMAIS écrit (CC-227)
+services/catalog_browse_throttle_service.ts  le throttle DÉDIÉ de la grille, séparé de
+                                         `reauth_<userId>` de la porte (CC-227)
+controllers/coffre_catalog_controller.ts la grille : page-coquille + listing JSON paginé, AVEC
+                                         élévation, AUCUNE donnée en prop Inertia (CC-227)
+shared/catalog_query.ts                  PUR · la query string côté client + le changement de
+                                         filtre (`applyFilterChange`, CC-227)
 validators/coffre.ts                     ⚠️ des FABRIQUES, jamais des nœuds VineJS partagés
 ```
 
@@ -1431,6 +1445,133 @@ contrôleur ne sert qu'à rendre un message propre ; c'est l'index unique qui tr
 ⚠️ **FK en `CASCADE`, contrairement au contenu de Leitner qui survit en `SET NULL`.** Une entrée
 orpheline serait un chiffré que plus personne au monde ne peut déchiffrer : la garder ne
 conserverait pas des données, seulement des octets.
+
+## La grille du catalogue — lot 3 « visible » (CC-227, épique CC-224)
+
+Absorbe CC-219. Consultation et recherche du catalogue — le lot qui donne sa raison d'être aux deux
+premiers : pagination serveur, filtres (source, nature, période), tri (date, **nom** — une première
+pour ce module, possible parce que le catalogue est en clair, contrairement aux entrées), recherche
+par nom. `GET /coffre/catalog` (page-coquille) et `GET /coffre/catalog/items` (JSON paginé),
+`controllers/coffre_catalog_controller.ts`.
+
+⚠️ **`index` ne rend AUCUNE donnée de catalogue en prop Inertia — c'est la raison d'être de la
+route JSON séparée.** Les props de page vivent dans `history.state`, donc sur le disque du
+navigateur (CC-179) : un inventaire du catalogue y resterait après verrouillage du coffre. La page
+va chercher ses résultats par `fetch`, exactement comme `GET /coffre/:id/secret` et
+`GET /coffre/immich/dossier`.
+
+### La vignette, choisie PAR SOURCE — aucune route nouvelle
+
+Ce lot ne crée AUCUN proxy de vignette de plus : il réutilise ce que CC-228 et CC-205 ont déjà
+posé, et c'est délibéré — dupliquer la génération/le cache aurait recréé exactement le risque que
+ces deux lots ont fermé.
+
+- `source: 'nas'` **et** `nature: 'photo'` → `/coffre/catalog/nas/:id/thumbnail` (CC-228, `:id` =
+  la ligne de catalogue).
+- `source: 'immich_locked'` (toute nature) → `/coffre/immich/dossier/:assetId/thumbnail` (CC-205),
+  avec `reference` comme `:assetId`. ⚠️ **`reference` est donc exposée au client pour ces
+  éléments-là, et ce n'est PAS une régression de « aucun secret ne redescend » (CC-180).** Cette
+  doctrine porte sur les médias déjà ATTACHÉS à une entrée. La grille du catalogue est, comme
+  `GET /coffre/immich/dossier`, une phase de PARCOURS : l'utilisateur a déjà cette information en
+  parcourant Immich lui-même. Même frontière de confiance, même conclusion, voir « L'UUID en
+  sélection n'est pas l'UUID en liste » plus haut.
+- `nas` + `video`/`other` → `null`, jamais de tentative : périmètre CC-228, photos seulement.
+  Pastille de nature à l'écran, jamais un trou silencieux.
+- `thumbnailUrl` est calculé **côté serveur** (`CoffreCatalogController#thumbnailUrlFor`), pas
+  déduit côté client : un seul endroit décide « quelle route pour quelle source », et une grille
+  qui devinerait elle-même afficherait des trous sur toute une source en cas d'erreur de logique.
+
+### Le lien catalogue ↔ entrée — calculé À LA VOLÉE, `entry_id` reste NULL
+
+⚠️ **Décision de cadrage de CE ticket, à ne pas « corriger » en croyant réparer un oubli.**
+`coffre_catalog_items.entry_id` existe depuis CC-225, posé « pour anticiper le lot 3 » — mais ce
+lot ne l'exploite PAS. `catalog_sync_service.ts` ne le touche toujours pas. Le lien est recalculé à
+chaque requête par `catalog_link_service.ts`, en déchiffrant les pièces jointes existantes
+(`coffre_entry_nas_file`, `coffre_entry_media`) et en comparant à la `reference` en clair du
+catalogue — jamais persisté.
+
+- ⚠️ **Pourquoi pas un backfill de `entry_id` :** un chemin d'écriture de plus (au sync, à
+  l'affichage, ou les deux) touchant un service déjà livré et stable (CC-225/226), pour un ticket
+  qui ne demande que consultation et recherche. Le calcul à la volée est borné par le nombre de
+  PIÈCES JOINTES du compte (dizaines, pas milliers) — voir plus bas — donc son coût ne grandit pas
+  avec le catalogue. Si un besoin futur exige la persistance (recherche croisée, jointure SQL
+  directe), c'est un ticket séparé, pas un correctif de celui-ci.
+- **Catalogue → entrée** (`CatalogLinkService.linkedEntriesFor`) : chaque ligne de la page affichée
+  reçoit `linkedEntry: {id, type, title} | null`. Le titre vient d'un déchiffrement réel — une
+  entrée dont le titre ne se déchiffre pas est EXCLUE de la map (jamais un titre à moitié vide).
+- **Entrée → catalogue** (`CatalogLinkService.catalogPresenceFor`) : les chips `media`/`nasFiles`
+  déjà rendues par `pages/section.vue` reçoivent `inCatalog`/`missingSince` — fusionnées dans
+  `CoffreController#index`/`#section`, **jamais dans `VaultService.entriesFor`**, pour ne pas
+  toucher une méthode déjà lourdement doctrinée (`COLONNES_DE_LISTE`, CC-179/180/181). Un lien
+  simple (pas profond) renvoie vers `/coffre/catalog` : la grille n'a aucun mécanisme de
+  surlignage/défilement vers un élément précis, l'utilisateur y cherche par nom.
+- ⚠️ **Aucune requête ciblée ne charge le catalogue en entier.** `catalogPresenceFor` part des
+  pièces jointes (petit nombre), construit les références candidates, puis interroge le catalogue
+  par `whereIn('reference', candidats)` — jamais un `where('owner_id', …)` nu qui ramènerait des
+  milliers de lignes pour annoter une poignée de chips. Sans cette borne, `/coffre` et
+  `/coffre/:section` régresseraient en performance à mesure que le catalogue grossit, alors que
+  rien sur ces deux pages ne dépend de sa taille.
+
+⚠️ **L'ambiguïté multi-racines NAS est HÉRITÉE, pas nouvelle.** `coffre_entry_nas_file.path_cipher`
+reste un chemin relatif NU, sans identité de racine (CC-233 a fermé ce cas pour le catalogue, PAS
+pour ce champ — voir « Collision de référence entre racines multiples » plus haut). Le matching
+essaie donc chaque racine déclarée comme préfixe candidat (`<nom>/<chemin>`), « premier essai qui
+compte » — même sémantique que `NasRootsService.resolve()`. Correct à une seule racine déclarée (le
+cas courant, déjà noté sans conséquence pratique ailleurs) ; best-effort à plusieurs.
+
+### La recherche — `whereRaw` paramétré, jokers échappés
+
+`services/catalog_item_query.ts` (`catalogItemsQuery`, sur le patron de `veille_item_query.ts` —
+`filteredItems`) : `display_name ILIKE ? ESCAPE '\'`, jamais de concaténation. ⚠️ **`%`/`_`/`\` sont
+échappés dans le terme AVANT d'entrer dans le motif** — sans ça, chercher le caractère littéral `%`
+matcherait tout le catalogue par accident (pas une brèche d'autorisation, déjà scopé au compte —
+mais un vrai bug de recherche, et le genre qui ne se voit qu'à l'usage). Longueur plafonnée à 200
+caractères côté contrôleur, un garde-fou, pas une borne produit.
+
+⚠️ **Pas de `search_vector`, décision assumée, pas une impasse.** Le ticket demandait de mesurer
+avant d'introduire une colonne générée + index GIN (l'engagement d'installation que ça représente).
+`ILIKE` suffit à la volumétrie d'un catalogue personnel ; à réévaluer avec des chiffres réels si un
+jour ça ne suffit plus — voir aussi la doctrine `search_vector` de la veille pour ce que ça
+coûterait (colonne générée, jamais écrite par l'app, jamais dans le modèle, **avec** son index GIN).
+
+### Le tri — `NULLS LAST`, jamais dans `catalogItemsQuery`
+
+⚠️ **L'ordre est appliqué par le contrôleur, APRÈS `catalogItemsQuery`, jamais dans la fonction
+elle-même — mesuré côté veille (CC-108), pas supposé ici.** Un `count(*)` sur une requête ordonnée
+par une colonne ni agrégée ni groupée fait échouer Postgres. `catalog_item_query.ts` porte la
+doctrine en commentaire ; ne fusionne jamais l'ordre dans le filtre en croyant simplifier — `.
+paginate()` reste le seul appelant qui voit l'ordre, jamais un `.count()` isolé.
+
+`sort` (`capturedAt`|`displayName`) et `order` (`asc`|`desc`) sont validés contre un ALLOW-LIST
+STRICT dans `CoffreCatalogController#parseListingParams`, **avant** d'atteindre `orderByRaw` — la
+seule chose qui rend l'interpolation du nom de colonne sûre. Ne retire jamais cette validation en
+croyant qu'un enum TypeScript suffit : le contrôleur reçoit une chaîne brute de `request.input()`,
+pas une valeur déjà typée.
+
+### Le throttle — dédié, jamais celui de la porte
+
+`services/catalog_browse_throttle_service.ts` — clé `catalog_browse_<userId>`, 60 requêtes/minute
+par défaut. ⚠️ **Jamais `ReauthThrottleService` réutilisé tel quel** (`reauth_<userId>`) : ce
+dernier compte les échecs d'une preuve fraîche AVANT la porte ; le partager ferait consommer le
+budget d'essais d'ouverture du coffre par la simple pagination/recherche de la grille — un usage
+normal de l'écran finirait par bloquer sa propre porte. Chaque requête à `/coffre/catalog/items`
+compte, qu'elle rende des résultats ou non (contrairement à `ReauthThrottleService`, qui ne compte
+que les échecs) : il n'y a rien à « échouer » sur une lecture, seul le débit compte.
+
+### `missing_since` — masqué par défaut, jamais silencieux quand affiché
+
+Décision du ticket, écrite ici comme demandé : `includeMissing` (défaut `false`) exclut les
+éléments marqués absents. Coché, ils réapparaissent grisés (`opacity-55` sur la carte) avec la date
+d'absence — jamais traités comme un élément présent ordinaire.
+
+### Ce que ce lot NE prouve PAS, et ce que ce poste ne peut pas prouver
+
+Voir `TESTS.md` pour le détail par fichier. Non couvert par construction, à vérifier au navigateur
+avant tout usage réel : l'allure de la grille à différentes largeurs, la fluidité du défilement
+sous `cache-control: no-store` (chaque vignette est un aller-retour serveur non caché, décision
+assumée du ticket, pas rediscutée ici), le rendu réel d'une photo NAS et d'un `.heic` d'iPhone à
+travers la vignette CC-228, les vignettes du dossier verrouillé Immich, les badges de présence sur
+`pages/section.vue`, le thème clair/sombre. Ce poste n'a aucun outil de pilotage de navigateur.
 
 ## Passphrase perdue = contenu perdu
 
