@@ -303,6 +303,8 @@ function natureLabel(type: CoffreEntryType): string {
           <button
             type="button"
             class="flex-1 text-left text-[14px] text-txt hover:text-aqua"
+            :aria-expanded="opened === entry.id ? 'true' : 'false'"
+            :aria-controls="opened === entry.id ? `coffre-entry-panel-${entry.id}` : undefined"
             @click="toggle(entry.id)"
           >
             <span class="mr-2 text-[11px] tracking-[.12em] text-txt-3 uppercase">
@@ -328,7 +330,7 @@ function natureLabel(type: CoffreEntryType): string {
           </button>
         </div>
 
-        <template v-if="opened === entry.id">
+        <div v-if="opened === entry.id" :id="`coffre-entry-panel-${entry.id}`">
           <ul v-if="entry.media.length > 0" class="mt-3 flex flex-wrap gap-2">
             <li
               v-for="media in entry.media"
@@ -425,7 +427,7 @@ function natureLabel(type: CoffreEntryType): string {
             class="mt-3 overflow-x-auto rounded-[8px] bg-panel-2 p-4 font-mono text-[12.5px] whitespace-pre-wrap text-txt-2"
             >{{ entry.content }}</pre
           >
-        </template>
+        </div>
       </article>
     </section>
 
