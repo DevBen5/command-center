@@ -1230,8 +1230,17 @@ cette méthode.
 comme `coffre_entry_nas_file.path_cipher` existant, qui a toujours cette même ambiguïté avec
 `NasRootsService.resolve()` (essaie les racines dans l'ordre, rend la première qui résout). Deux
 racines `COFFRE_NAS_ROOTS` distinctes portant chacune un fichier de même nom à leur racine
-respective produiraient donc le même `reference` et entreraient en collision sur la contrainte
-unique `(owner_id, source, reference)`. Corriger demanderait de changer le format de stockage
+respective produiraient donc le même `reference`.
+
+⚠️ **Et le symptôme ne serait PAS une erreur de contrainte unique — c'est ce qui le rend
+dangereux.** `CatalogSyncService.applyEnumeration` cherche la ligne `(owner_id, source,
+reference)` avant d'écrire, puis crée ou met à jour : le second fichier trouverait la ligne du
+premier et l'**écraserait silencieusement**. Aucun `insert` concurrent, donc aucune violation de
+contrainte, donc aucun message : un fichier disparaît simplement du catalogue, et la ligne
+survivante porte les métadonnées de l'autre. Ne compte donc pas sur la contrainte unique pour
+révéler ce cas le jour où une seconde racine est déclarée — elle ne se déclenchera pas.
+
+Corriger demanderait de changer le format de stockage
 existant pour les DEUX usages (catalogue et référence d'entrée) — hors périmètre de ce lot. Sans
 conséquence pratique tant qu'une installation ne déclare qu'UNE seule racine NAS, le cas le plus
 courant.
