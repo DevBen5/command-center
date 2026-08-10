@@ -116,7 +116,7 @@ test.group('Isolation des clients externes pendant les tests', () => {
      * indexé dans le catalogue.
      */
     const coffreNas = coffreNasConfigFrom('test', {
-      roots: 'D:\\Medias\\command-center,D:\\Medias\\command-center-videos',
+      roots: 'photos=D:\\Medias\\command-center,videos=D:\\Medias\\command-center-videos',
     })
     assert.deepEqual(
       coffreNas.roots,
@@ -170,11 +170,11 @@ test.group('Isolation des clients externes pendant les tests', () => {
     // ⚠️ Même contre-test côté coffre_nas : une garde toujours coupée viderait aussi cette liste
     // en production, et le module coffre perdrait ses racines sans qu'aucun test ne rougisse.
     const coffreNas = coffreNasConfigFrom('production', {
-      roots: 'D:\\Medias\\command-center,D:\\Medias\\command-center-videos',
+      roots: 'photos=D:\\Medias\\command-center,videos=D:\\Medias\\command-center-videos',
     })
     assert.deepEqual(coffreNas.roots, [
-      'D:\\Medias\\command-center',
-      'D:\\Medias\\command-center-videos',
+      { name: 'photos', path: 'D:\\Medias\\command-center' },
+      { name: 'videos', path: 'D:\\Medias\\command-center-videos' },
     ])
   })
 

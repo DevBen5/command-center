@@ -1,6 +1,6 @@
 import { realpath } from 'node:fs/promises'
 import { isAbsolute, resolve, sep } from 'node:path'
-import coffreNasConfig from '#config/coffre_nas'
+import coffreNasConfig, { type CoffreNasRoot } from '#config/coffre_nas'
 
 /**
  * Le test de confinement, **extrait** pour être réutilisé par le parcours du catalogue NAS
@@ -35,16 +35,22 @@ export function isWithinRoot(realCandidate: string, realRoot: string): boolean {
  * l'environnement, substituable en test avec des racines de fixtures explicites — les racines par
  * défaut sont VIDES en environnement de test (`config/coffre_nas.ts`), donc aucun test ne peut
  * accidentellement toucher un vrai dossier du poste.
+ *
+ * ⚠️ **Chaque racine porte un `name` depuis CC-233**, mais `resolve()` ne s'en sert JAMAIS — il
+ * continue de résoudre un chemin relatif NU, essayé contre chaque racine dans l'ordre, exactement
+ * comme avant. C'est le comportement attendu par `coffre_entry_nas_file.path_cipher` (CC-181), qui
+ * reste hors du périmètre de ce lot (voir le `CLAUDE.md` du module, « Limite résiduelle »). Seul le
+ * parcours du catalogue (`nas_directory_walker.ts`) lit `name` pour construire ses références.
  */
 export default class NasRootsService {
-  constructor(protected roots: string[] = coffreNasConfig.roots) {}
+  constructor(protected roots: CoffreNasRoot[] = coffreNasConfig.roots) {}
 
   /**
    * Les racines telles que configurées — jamais résolues, jamais filtrées. Réservé au parcours du
    * catalogue (CC-226), qui doit lui-même distinguer une racine absente d'une racine vide plutôt
    * que de les voir déjà fondues par `resolve()`.
    */
-  getRoots(): readonly string[] {
+  getRoots(): readonly CoffreNasRoot[] {
     return this.roots
   }
 
@@ -59,7 +65,7 @@ export default class NasRootsService {
     if (isAbsolute(relativePath)) return null
 
     for (const root of this.roots) {
-      const realRoot = await realpath(root).catch(() => null)
+      const realRoot = await realpath(root.path).catch(() => null)
       if (realRoot === null) continue // racine mal montée ou absente : ignorée, pas une erreur
 
       const candidate = resolve(realRoot, relativePath)

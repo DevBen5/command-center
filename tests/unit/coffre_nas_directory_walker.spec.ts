@@ -22,7 +22,7 @@ test.group('Coffre / le parcours du catalogue NAS', (group) => {
   })
 
   test('une racine vide rend 0 élément, ce n’est pas une erreur', async ({ assert }) => {
-    const { items, truncated } = await walkNasRoots([racine])
+    const { items, truncated } = await walkNasRoots([{ name: 'root', path: racine }])
 
     assert.deepEqual(items, [])
     assert.isFalse(truncated)
@@ -31,7 +31,10 @@ test.group('Coffre / le parcours du catalogue NAS', (group) => {
   test('une racine ABSENTE lève, elle ne rend pas une liste vide', async ({ assert }) => {
     const absente = join(dossier, 'jamais-monte')
 
-    await assert.rejects(() => walkNasRoots([absente]), /n'a pas pu être résolue/)
+    await assert.rejects(
+      () => walkNasRoots([{ name: 'root', path: absente }]),
+      /n'a pas pu être résolue/
+    )
   })
 
   test('aucune racine configurée : lève, jamais une liste vide silencieuse', async ({ assert }) => {
@@ -41,14 +44,25 @@ test.group('Coffre / le parcours du catalogue NAS', (group) => {
   test('un fichier de premier niveau est découvert, avec ses métadonnées', async ({ assert }) => {
     await writeFile(join(racine, 'plage.jpg'), 'x'.repeat(2048))
 
-    const { items } = await walkNasRoots([racine])
+    const { items } = await walkNasRoots([{ name: 'root', path: racine }])
 
     assert.lengthOf(items, 1)
-    assert.equal(items[0].reference, 'plage.jpg')
+    assert.equal(items[0].reference, 'root/plage.jpg')
     assert.equal(items[0].displayName, 'plage.jpg')
     assert.equal(items[0].nature, 'photo')
     assert.equal(items[0].sizeBytes, 2048)
     assert.isNotNull(items[0].capturedAt)
+  })
+
+  test('⚠️ la référence porte l’identifiant de sa racine — le cœur du ticket', async ({
+    assert,
+  }) => {
+    await writeFile(join(racine, 'plage.jpg'), 'contenu')
+
+    const { items } = await walkNasRoots([{ name: 'nas-principal', path: racine }])
+
+    assert.lengthOf(items, 1)
+    assert.equal(items[0].reference, 'nas-principal/plage.jpg')
   })
 
   test('les sous-dossiers sont parcourus récursivement, le chemin relatif les porte', async ({
@@ -57,17 +71,17 @@ test.group('Coffre / le parcours du catalogue NAS', (group) => {
     await mkdir(join(racine, 'vacances', '2026'), { recursive: true })
     await writeFile(join(racine, 'vacances', '2026', 'plage.mp4'), 'contenu')
 
-    const { items } = await walkNasRoots([racine])
+    const { items } = await walkNasRoots([{ name: 'root', path: racine }])
 
     assert.lengthOf(items, 1)
-    assert.match(items[0].reference, /vacances.2026.plage\.mp4$/)
+    assert.match(items[0].reference, /^root.vacances.2026.plage\.mp4$/)
     assert.equal(items[0].nature, 'video')
   })
 
   test('une extension hors allow-list photo/vidéo est indexée en `other`', async ({ assert }) => {
     await writeFile(join(racine, 'notice.pdf'), 'contenu')
 
-    const { items } = await walkNasRoots([racine])
+    const { items } = await walkNasRoots([{ name: 'root', path: racine }])
 
     assert.lengthOf(items, 1)
     assert.equal(items[0].nature, 'other')
@@ -77,7 +91,7 @@ test.group('Coffre / le parcours du catalogue NAS', (group) => {
     await mkdir(join(racine, 'Vacances'), { recursive: true })
     await writeFile(join(racine, 'Vacances', 'Plage.JPG'), 'contenu')
 
-    const { items } = await walkNasRoots([racine])
+    const { items } = await walkNasRoots([{ name: 'root', path: racine }])
 
     assert.lengthOf(items, 1)
     assert.match(items[0].reference, /Vacances.Plage\.JPG$/)
@@ -91,7 +105,7 @@ test.group('Coffre / le parcours du catalogue NAS', (group) => {
     await writeFile(join(dehors, 'secret.jpg'), 'contenu-hors-racine')
     await symlink(join(dehors, 'secret.jpg'), join(racine, 'echappe.jpg'), 'file')
 
-    const { items } = await walkNasRoots([racine])
+    const { items } = await walkNasRoots([{ name: 'root', path: racine }])
 
     assert.deepEqual(items, [])
   })
@@ -103,9 +117,9 @@ test.group('Coffre / le parcours du catalogue NAS', (group) => {
     // Le lien porte une extension hors allow-list ; sa CIBLE, elle, est une photo légitime.
     await symlink(join(racine, 'photo.jpg'), join(racine, 'alias.txt'), 'file')
 
-    const { items } = await walkNasRoots([racine])
+    const { items } = await walkNasRoots([{ name: 'root', path: racine }])
 
-    const alias = items.find((item) => item.reference === 'alias.txt')
+    const alias = items.find((item) => item.reference === 'root/alias.txt')
     assert.isDefined(alias, 'le lien est bien indexé, sous SON propre nom')
     assert.equal(
       alias?.nature,
@@ -121,7 +135,7 @@ test.group('Coffre / le parcours du catalogue NAS', (group) => {
     await writeFile(join(racine, 'vraidossier', 'photo.jpg'), 'contenu')
     await symlink(join(racine, 'vraidossier'), join(racine, 'alias'), 'dir')
 
-    const { items } = await walkNasRoots([racine])
+    const { items } = await walkNasRoots([{ name: 'root', path: racine }])
 
     const references = items.map((item) => item.reference).sort()
     assert.lengthOf(references, 2, 'le dossier réel ET son alias sont chacun indexés')
@@ -133,7 +147,7 @@ test.group('Coffre / le parcours du catalogue NAS', (group) => {
     // root/boucle -> root : un lien qui pointe directement sur la racine.
     await symlink(racine, join(racine, 'boucle'), 'dir')
 
-    const { items } = await walkNasRoots([racine])
+    const { items } = await walkNasRoots([{ name: 'root', path: racine }])
 
     assert.deepEqual(items, [])
   })
@@ -144,7 +158,7 @@ test.group('Coffre / le parcours du catalogue NAS', (group) => {
     await mkdir(join(racine, 'a'), { recursive: true })
     await symlink(join(racine, 'a'), join(racine, 'a', 'vers_a'), 'dir')
 
-    const { items } = await walkNasRoots([racine])
+    const { items } = await walkNasRoots([{ name: 'root', path: racine }])
 
     assert.deepEqual(items, [])
   })
@@ -156,8 +170,8 @@ test.group('Coffre / le parcours du catalogue NAS', (group) => {
     await writeFile(join(racine, 'vacances', 'plage.jpg'), 'contenu')
     await writeFile(join(racine, 'notice.pdf'), 'contenu')
 
-    const first = await walkNasRoots([racine])
-    const second = await walkNasRoots([racine])
+    const first = await walkNasRoots([{ name: 'root', path: racine }])
+    const second = await walkNasRoots([{ name: 'root', path: racine }])
 
     assert.deepEqual(
       first.items.map((item) => item.reference).sort(),
@@ -172,7 +186,7 @@ test.group('Coffre / le parcours du catalogue NAS', (group) => {
     await writeFile(join(racine, '#recycle', 'supprime.jpg'), 'poubelle')
     await writeFile(join(racine, '.DS_Store'), 'macos')
 
-    const { items } = await walkNasRoots([racine])
+    const { items } = await walkNasRoots([{ name: 'root', path: racine }])
 
     assert.deepEqual(items, [])
   })
@@ -182,9 +196,34 @@ test.group('Coffre / le parcours du catalogue NAS', (group) => {
     await writeFile(join(racine, 'deux.jpg'), 'x')
     await writeFile(join(racine, 'trois.jpg'), 'x')
 
-    const { items, truncated } = await walkNasRoots([racine], { maxItems: 2 })
+    const { items, truncated } = await walkNasRoots([{ name: 'root', path: racine }], {
+      maxItems: 2,
+    })
 
     assert.lengthOf(items, 2)
     assert.isTrue(truncated)
+  })
+
+  test('⚠️ deux racines portant chacune un fichier de même chemin relatif produisent deux références DISTINCTES — l’écrasement silencieux que ce ticket corrige', async ({
+    assert,
+  }) => {
+    const dossier2 = await mkdtemp(join(tmpdir(), 'cc-nas-walk-'))
+    const racine2 = join(dossier2, 'root')
+    await mkdir(racine2, { recursive: true })
+
+    try {
+      await writeFile(join(racine, 'photo.jpg'), 'depuis-la-premiere-racine')
+      await writeFile(join(racine2, 'photo.jpg'), 'depuis-la-seconde-racine')
+
+      const { items } = await walkNasRoots([
+        { name: 'principale', path: racine },
+        { name: 'secondaire', path: racine2 },
+      ])
+
+      const references = items.map((item) => item.reference).sort()
+      assert.deepEqual(references, ['principale/photo.jpg', 'secondaire/photo.jpg'])
+    } finally {
+      await rm(dossier2, { recursive: true, force: true })
+    }
   })
 })

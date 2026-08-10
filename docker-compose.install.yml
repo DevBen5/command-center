@@ -102,9 +102,9 @@ services:
 
       # Media files (photos and videos) the vault's NAS-playback feature (CC-181) is allowed to
       # read directly from disk. Read-only: the app only ever reads these files, never writes to
-      # them. Only takes effect once COFFRE_NAS_ROOTS=/data/coffre-media is set in .env AND the
-      # coffre module is enabled in MODULES — both are undocumented here on purpose (see
-      # app/modules/coffre/CLAUDE.md).
+      # them. Only takes effect once COFFRE_NAS_ROOTS=<name>=/data/coffre-media is set in .env
+      # (CC-233: each root needs a declared name, see .env.example) AND the coffre module is
+      # enabled in MODULES — both are undocumented here on purpose (see app/modules/coffre/CLAUDE.md).
       #
       # ⚠️ No default value on purpose, same reason as the backup mirror above: a bind mount whose
       # source does not exist would create an empty directory there instead, and the feature would
