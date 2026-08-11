@@ -2094,6 +2094,12 @@ fichier et se déplace dedans.
 
 ### Ce que ce lot ne prouve PAS — à ne jamais écrire comme fait
 
+- ✅ **Ce qui A ÉTÉ prouvé contre le vrai binaire, dans l'image construite** (2026-08-12, hors
+  suite de tests) : `ffprobe` rend exactement la forme que le parseur attend — dont le
+  `format_name` composite `mov,mp4,m4a,3gp,3g2,mj2` sur un `.mov`, le piège que le code traite —
+  et les arguments de `ffmpegArgsFor(..., 'transcode', 'software', null)`, passés tels quels à un
+  vrai HEVC dans un `.mov`, rendent bien du `h264`+`aac`. C'est le chemin LOGICIEL. Le chemin
+  VAAPI, lui, reste non prouvé : aucun `/dev/dri` n'est passé au conteneur sur ce poste.
 - ⚠️ **Aucun test de ce dépôt ne prouve qu'un vrai `ffmpeg` produit un flux lisible.** Ni `ffmpeg` ni
   `ffprobe` n'existent sur le poste de développement (mesuré : aucun binaire sur le `PATH`,
   seulement des bibliothèques `libav*` et des copies confinées dans des runtimes Flatpak) ni sur les

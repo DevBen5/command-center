@@ -137,6 +137,12 @@ COPY docker/coffre-imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
 # ⚠️ **Le paquet apporte ffmpeg ET ffprobe** — les deux sont nécessaires : la sonde décide s'il faut
 # transcoder, et c'est elle qui garantit qu'un MP4/H.264 déjà lisible n'est PAS transcodé.
 #
+# ⚠️ **Contrepartie MESURÉE, pas estimée : l'image passe de 604 Mo à 758 Mo (+154 Mo, +25 %).**
+# Les binaires eux-mêmes pèsent moins de 1 Mo ; tout le reste est la centaine de bibliothèques de
+# codecs qu'`apk` tire avec (`OK: 135.5 MiB in 123 packages`). Mesure faite en construisant deux
+# fois le MÊME Dockerfile, avec et sans cette ligne, sur ce poste. C'est le prix d'un `docker pull`
+# et d'un disque de NAS, pas d'une exécution — à connaître avant de proposer un troisième binaire.
+#
 # ⚠️ **Sans `/dev/dri` passé au conteneur, le transcodage tombe en repli LOGICIEL** — le code le
 # détecte et le JOURNALISE au premier usage (`video_transcoder.ts`), parce que sinon la panne de
 # performance qui en résulte sur un Celeron est invisible et cherchée au mauvais endroit. Voir
