@@ -110,7 +110,18 @@
     "loading": "Chargement…",
     "searchPlaceholder": "Rechercher dans tout le NAS…",
     "searchHint": "La recherche porte sur le catalogue synchronisé, pas sur le disque en direct.",
-    "backToBrowse": "← Retour à la navigation"
+    "backToBrowse": "← Retour à la navigation",
+    "uploadButton": "Envoyer un fichier",
+    "uploading": "Envoi…",
+    "rename": "Renommer",
+    "renamePrompt": "Nouveau nom du fichier",
+    "move": "Déplacer",
+    "movePrompt": "Dossier de destination (chemin relatif à la racine)",
+    "delete": "Supprimer",
+    "deleteConfirm": "Supprimer ce fichier du NAS ? La suppression est définitive et sans corbeille.",
+    "nameInvalid": "Ce nom de fichier n'est pas valide.",
+    "nameTaken": "Ce nom est déjà pris à cet endroit.",
+    "writeError": "L'opération a échoué."
   },
   "immich": {
     "crumb": "Immich verrouillé",

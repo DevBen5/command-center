@@ -1,6 +1,7 @@
 import vine from '@vinejs/vine'
 import { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH } from '#core/auth/constants/password_rules'
 import { NAS_EXTENSIONS } from '#modules/coffre/services/nas_file_format'
+import { MAX_NAS_UPLOAD_BYTES } from '#modules/coffre/services/nas_upload_limits'
 
 /**
  * Les références de médias Immich (CC-180). Un UUID générique, pas `.uuid()` de VineJS : c'est la
@@ -161,5 +162,60 @@ export const entryUpdateValidator = vine.compile(
         remove: vine.array(vine.number().positive()).maxLength(NAS_FILE_MAX).optional(),
       })
       .optional(),
+  })
+)
+
+/**
+ * L'écriture sur le NAS (CC-240). `root`/`path`/`targetPath` traversent `resolveInRoot` — c'est
+ * LUI la vraie garde de confinement (traversée, chemin absolu, lien sortant). Ces bornes de
+ * longueur ne sont qu'un premier filet contre un abus manifeste, même doctrine que `NAS_PATH`
+ * ci-dessus vis-à-vis de `NasRootsService.resolve`.
+ *
+ * ⚠️ **`newName`/le nom de fichier envoyé ne passent PAS par ces champs** — ils sont validés à
+ * part par `isValidNasFileName` (`services/nas_filename.ts`), jamais par une regex ici : un nom de
+ * fichier n'a aucune raison de porter une extension de l'allow-list media (`NAS_PATH`), ce n'est
+ * pas une pièce jointe, c'est un gestionnaire de fichiers généraliste.
+ */
+const nasRootName = () => vine.string().trim().minLength(1).maxLength(100)
+/**
+ * ⚠️ **`.optional()`, délibérément** : `''` désigne la RACINE d'un dossier (le contrat déjà tenu
+ * par `nas_folder_browser.ts`), mais `config/bodyparser.ts` convertit toute chaîne vide en `null`
+ * (`convertEmptyStringsToNull`) AVANT que ce validateur ne la voie. Sans `.optional()`, un client
+ * qui veut viser la racine ('') se verrait refuser sa requête (champ requis manquant) au lieu
+ * d'atteindre le service — `payload.path ?? ''` au point d'appel restaure le sens voulu.
+ */
+const nasFolderPath = () => vine.string().trim().maxLength(4000).optional()
+const nasEntryPath = () => vine.string().trim().minLength(1).maxLength(4000)
+const nasFileName = () => vine.string().trim().minLength(1).maxLength(255)
+
+export const nasUploadValidator = vine.compile(
+  vine.object({
+    root: nasRootName(),
+    path: nasFolderPath(),
+    file: vine.file({ size: MAX_NAS_UPLOAD_BYTES }),
+  })
+)
+
+export const nasRenameValidator = vine.compile(
+  vine.object({
+    root: nasRootName(),
+    path: nasEntryPath(),
+    newName: nasFileName(),
+  })
+)
+
+export const nasMoveValidator = vine.compile(
+  vine.object({
+    root: nasRootName(),
+    path: nasEntryPath(),
+    targetRoot: nasRootName(),
+    targetPath: nasFolderPath(),
+  })
+)
+
+export const nasDeleteValidator = vine.compile(
+  vine.object({
+    root: nasRootName(),
+    path: nasEntryPath(),
   })
 )

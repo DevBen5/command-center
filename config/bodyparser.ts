@@ -1,4 +1,5 @@
 import { defineConfig } from '@adonisjs/core/bodyparser'
+import { MAX_NAS_UPLOAD_BYTES } from '#modules/coffre/services/nas_upload_limits'
 
 const bodyParserConfig = defineConfig({
   /**
@@ -46,8 +47,13 @@ const bodyParserConfig = defineConfig({
     /**
      * Maximum limit of data to parse including all files
      * and fields
+     *
+     * ⚠️ Relevé pour l'envoi de fichiers NAS du coffre (CC-240, `MAX_NAS_UPLOAD_BYTES`) — vidéos
+     * personnelles comprises. C'est le plafond GLOBAL de la requête ; les routes existantes
+     * (`backupImportValidator` 20mb, `documentExtractValidator` 15mb côté Leitner) gardent leur
+     * propre garde `vine.file({ size })`, plus stricte, qui reste la vraie limite par route.
      */
-    limit: '20mb',
+    limit: MAX_NAS_UPLOAD_BYTES,
     types: ['multipart/form-data'],
   },
 })

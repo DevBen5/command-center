@@ -4,6 +4,7 @@ Routes `/coffre/ouvrir` · `/coffre` · `/coffre/:section` · `/coffre/:id/secre
 `/coffre/media/:id/thumbnail` · `/coffre/nas/:id/stream` · `/coffre/catalog/nas/:id/thumbnail` ·
 `/coffre/immich/dossier` · `/coffre/immich/dossier/:assetId/thumbnail` · `/coffre/catalog` ·
 `/coffre/catalog/items` · `/coffre/nas` · `/coffre/nas/browse` · `/coffre/nas/thumbnail` ·
+`/coffre/nas/upload` · `/coffre/nas/rename` · `/coffre/nas/move` · `/coffre/nas/file` ·
 `/coffre/immich` · pages Inertia
 `modules/coffre/{ouvrir, index, section, catalog, nas, immich}` · tables
 `coffre_vaults`, `coffre_entries`, `coffre_entry_media`, `coffre_entry_nas_file`,
@@ -15,7 +16,10 @@ leur ticket** — CC-180 a été planifié avant CC-186 dans l'épique, mais CC-
 premier. Ce fichier ne tranche pas laquelle des deux est *la* troisième : il cite chaque décision
 par son numéro de ticket, pas par un rang. Lot 4 (CC-181) : la **lecture NAS**, photos ET vidéos —
 voir « Les médias du NAS » plus bas. Lot 5 (CC-182, non livré au moment d'écrire ceci) portera les
-fichiers téléversés — un gisement de données distinct, que CC-181 ne recouvre pas. Lot 6 (CC-205) :
+fichiers téléversés — un gisement de données distinct, que CC-181 ne recouvre pas.
+⚠️ **Correction du 2026-08-11 : ce n'est finalement pas CC-182 qui l'a livré, mais CC-240**, second
+lot du recadrage de l'épique CC-224 — voir « L'écriture sur le NAS » plus bas. Phrase laissée en
+l'état pour la trace historique du plan tel qu'écrit à l'époque. Lot 6 (CC-205) :
 le **dossier verrouillé d'Immich**, parcourable en vignettes depuis le coffre — voir « Le dossier
 verrouillé — session Immich » plus bas. La refonte d'écran vient ensuite, en deux tickets : CC-207
 (la saisie derrière une modale unique) puis CC-208 (l'accueil en cartes de sections, et une page
@@ -29,7 +33,10 @@ les vignettes du catalogue NAS, qui débloquent le lot 3 « visible » de l'épi
 de consultation et de recherche, voir « La grille du catalogue » plus bas. Lot 4 « visible » de la
 seconde épique (CC-239) : le renversement d'ACCUEIL — deux cartes de source (NAS, Immich verrouillé)
 remplacent les quatre cartes par nature d'entrée ; Notes/Liens/Identifiants/Photos descendent au
-second niveau — voir « L'accueil en deux cartes de source » plus bas.
+second niveau — voir « L'accueil en deux cartes de source » plus bas. Lot 5 de la seconde épique
+(CC-240) : l'ÉCRITURE sur le NAS — envoyer, renommer, déplacer, supprimer un fichier depuis le
+dossier ouvert, jusque-là une navigation en LECTURE seule (CC-239) — voir « L'écriture sur le NAS »
+plus bas.
 
 ⚠️ **CC-181 a été amendé le 2026-08-06, en cours de lot** : le ticket ne portait au départ que les
 vidéos ; le propriétaire a élargi le périmètre aux photos avant la fin de l'implémentation, parce
@@ -119,6 +126,21 @@ controllers/coffre_immich_catalog_controller.ts  la carte Immich verrouillé : p
                                          réutilise `/coffre/catalog/items` côté client (CC-239)
 shared/nas_browse_query.ts               PUR · la requête de navigation, le fil d'Ariane
                                          (`nasBreadcrumbFor`), l'URL de vignette (CC-239)
+services/nas_filename.ts                 PUR · valide un nom de fichier qui n'existe PAS ENCORE —
+                                         séparateur, `..`, octet nul, vide, noms réservés Windows
+                                         (CC-240)
+services/nas_upload_limits.ts            PUR · `MAX_NAS_UPLOAD_BYTES`, source unique relue par
+                                         `config/bodyparser.ts` ET le validateur (CC-240)
+services/nas_write_service.ts            PUR-ish (fs) · envoyer/renommer/déplacer/supprimer,
+                                         dossier parent résolu par `resolveInRoot`, écriture
+                                         atomique-exclusive (`link()`, jamais `rename()` nu)
+                                         (CC-240)
+services/nas_write_throttle_service.ts   throttle DÉDIÉ de l'écriture, 30/min, séparé de
+                                         `nas_browse_<userId>` (CC-240)
+controllers/coffre_nas_write_controller.ts  4 actions d'écriture NAS — AVEC élévation, `coffre.write`
+                                         (CC-240)
+shared/csrf.ts                           PUR · jeton CSRF client, copie locale au module — un
+                                         module n'importe pas chez un voisin (CC-240)
 components/CatalogGrid.vue               la grille à plat extraite de `pages/catalog.vue`, source
                                          VERROUILLÉE en prop — consommée par `pages/immich.vue` et
                                          `pages/nas.vue` en mode recherche (CC-239)
@@ -169,6 +191,12 @@ dont le remède vit ailleurs — parce que le défaut y vivait aussi.
 ⚠️ **Une troisième depuis CC-207 : `inertia/components/AppModal.vue`**, le chassis de modale
 partagé (overlay, clic-extérieur, Échap) — créé **par ce lot**, pas hérité. Voir « La saisie : une
 modale unique » plus bas pour la raison de son existence et l'arbitrage qui l'a tranchée.
+
+⚠️ **Une quatrième depuis CC-240 : `inertia/components/PromptModal.vue`**, créée **par ce lot**
+pour renommer/déplacer un fichier NAS — même patron que `ConfirmModal.vue` (une promesse résolue
+au clic ou en annulation), mais qui rend une **chaîne** plutôt qu'un booléen. Chassis, donc dans
+`inertia/components/`, jamais dans un module — voir « Une seule modale dans tout le dépôt » du
+`CLAUDE.md` racine.
 
 ## La saisie : une modale unique, sur un chassis partagé (CC-207)
 
@@ -1695,6 +1723,194 @@ pour le propriétaire : l'allure des deux cartes, le rendu réel des vignettes N
 travers la nouvelle route sans cache, la lisibilité du fil d'Ariane, le thème clair/sombre, la
 bascule visuelle entre navigation et recherche sur `pages/nas.vue`.
 
+## L'écriture sur le NAS — lot 5 (CC-240, épique CC-224)
+
+**Le lot le plus dangereux de l'épique.** Jusqu'ici, tout ce que le module fait avec un chemin de
+fichier NAS est de la LECTURE — servir un flux (CC-181), générer une vignette (CC-228, CC-239),
+lister un dossier (CC-239). Ce lot ajoute quatre opérations d'ÉCRITURE depuis la navigation par
+dossier de CC-239 : envoyer, renommer, déplacer, supprimer un fichier.
+
+### Le point dur : `resolveInRoot` ne valide qu'un chemin qui EXISTE
+
+⚠️ **`NasRootsService.resolve()`/`resolveInRoot()` font un `realpath()`, qui échoue sur un chemin
+inexistant — c'est leur nature même, pas un oubli.** Écrire demande de valider une destination qui
+n'existe PAS ENCORE : la cible d'un envoi, la cible d'un renommage. Aucune des gardes de lecture
+existantes ne peut donc être appliquée telle quelle. La règle tenue par `services/nas_write_service.ts` :
+
+1. le **dossier PARENT** (qui, lui, existe) se résout par `resolveInRoot`, la garde déjà éprouvée
+   et prouvée contre un vrai filesystem (`coffre_nas_roots.spec.ts`) — jamais une seconde garde de
+   confinement écrite pour l'occasion ;
+2. le **nom de fichier** est une entrée utilisateur, validée par `isValidNasFileName`
+   (`services/nas_filename.ts`, **pure**) AVANT d'approcher le disque : ni séparateur (`/` ni `\`),
+   ni `..`, ni octet nul, ni nom vide, ni nom réservé Windows (`CON`, `PRN`, `AUX`, `NUL`,
+   `COM1`-`9`, `LPT1`-`9`, insensible à la casse, extension comprise — `CON.txt` est aussi réservé
+   que `CON`). ⚠️ **Réservé Windows n'est pas une précaution théorique sur ce dépôt** : le serveur
+   de dev tourne HORS conteneur, directement sur Windows (voir « Le patron Docker » plus haut) ;
+3. `path.join(dossierRéel, nom)` **ne peut pas sortir de `dossierRéel`** dès lors que `nom` est
+   garanti sans séparateur — c'est une propriété de `path.join`, pas une hypothèse à vérifier ;
+4. après écriture, une **re-vérification** (`realpath` + `isWithinRoot`, réutilisés depuis
+   `nas_roots_service.ts`, jamais réinventés) confirme que le chemin écrit tombe bien sous la
+   racine — défense en profondeur contre un dossier remplacé par un lien symbolique ENTRE la
+   résolution du parent et l'écriture (TOCTOU), même doctrine que le miroir de sauvegarde qui relit
+   depuis le support plutôt que de croire ce qu'il a envoyé.
+
+⚠️ **Ce dernier point n'a PAS de test de course déterministe** — la fenêtre qu'il ferme est un
+scénario multi-processus impossible à provoquer de façon fiable dans un test synchrone. Sa
+garantie réelle vient de la CONSTRUCTION (dossier déjà confiné, nom sans séparateur), pas de ce
+test-là ; il reste écrit parce que le ticket l'exige explicitement et que son coût est nul.
+
+### Une seule primitive atomique-exclusive, réutilisée trois fois
+
+⚠️ **`fs.link()` (lien physique) suivi d'`fs.unlink()`, JAMAIS `fs.rename()` nu.** `rename()`
+écraserait silencieusement une cible existante ; `link()` échoue `EEXIST` si la cible existe déjà
+et n'y touche JAMAIS. C'est le même mécanisme qui tient les trois exigences du ticket à la fois :
+
+- **un envoi vers un nom déjà pris ne détruit rien** — `link()` échoue avant d'avoir rien changé ;
+- **un envoi interrompu ne laisse pas de fichier partiel visible sous le nom final** — le contenu
+  est d'abord copié (`copyFile`) sous un nom TEMPORAIRE (`.uploading-<hex>-<nom>`) dans le dossier
+  de destination ; `link()` ne rend le nom final visible qu'une fois la copie terminée, et le
+  temporaire est nettoyé sur tout échec (`try`/`catch` autour de chaque étape) ;
+- **renommer/déplacer, c'est la même opération** — `relocate()` (interne au service) fait
+  `link(source, destination)` puis `unlink(source)` ; un échec de ce DERNIER `unlink` (rarissime)
+  est avalé plutôt que remonté : la destination est déjà correcte, une copie résiduelle à l'ancien
+  emplacement est un moindre mal qu'une perte — même doctrine que le reste du module (« en cas de
+  doute, ne détruis rien »).
+
+### Le déplacement entre racines est REFUSÉ, jamais simulé
+
+⚠️ **Un déplacement entre deux racines autorisées différentes rend `cross-root` (422), sans
+tenter de copier-puis-supprimer.** `link()` ne fonctionne qu'entre deux chemins du MÊME système de
+fichiers ; une copie interrompue entre deux racines laisserait deux fichiers, ou zéro — c'est
+exactement le mode d'échec que le ticket interdit. La comparaison `rootName !== targetRootName` se
+fait AVANT toute résolution de chemin, en tête de `moveNasFile`.
+
+### Fichiers et dossiers, jamais l'inverse
+
+⚠️ **Les quatre opérations ne portent que sur des FICHIERS — jamais un dossier.** Le ticket ne
+parle que de « fichier » aux quatre verbes ; gérer des dossiers (créer, renommer, déplacer,
+supprimer un dossier entier) est hors périmètre de ce lot. `renameNasFile`/`moveNasFile`/
+`deleteNasFile` vérifient `stat().isFile()` sur la source et rendent `not-found` sur un dossier —
+uniforme avec le reste de la doctrine du module (jamais un oracle sur « c'est un dossier » plutôt
+que « introuvable »).
+
+### La suppression : réelle, sans corbeille — décision arbitrée le 2026-08-11, ne la rouvre pas
+
+⚠️ **Le propriétaire a tranché en connaissance de cause, les faits sous les yeux, et cette
+décision ne se rouvre pas sans fait nouveau.** Trois faits lui ont été posés avant qu'il ne
+tranche :
+
+1. la corbeille Synology (`#recycle`) ne se remplit que sur une suppression faite par SMB ou File
+   Station — un conteneur qui fait un `unlink()` sur son montage efface DÉFINITIVEMENT, la
+   corbeille DSM ne rattrape rien de ce que ce module écrit ;
+2. le partage NAS concerné n'est NI sauvegardé NI snapshoté (vérifié auprès du propriétaire le
+   2026-08-11) ;
+3. une corbeille APPLICATIVE (déplacer sous un dossier caché de la racine, purge par commande) a
+   été proposée et ÉCARTÉE — elle ajouterait un état à synchroniser avec la navigation en direct
+   de CC-239 (un fichier « supprimé » resterait visible ou non selon qu'on le cherche dans la
+   corbeille), pour un filet que le propriétaire a choisi de ne pas vouloir.
+
+**Conséquence : `DELETE /coffre/nas/file` appelle `unlink()` directement, aucun état intermédiaire.**
+La confirmation à l'écran (`ConfirmModal`, `danger: true`) est le SEUL geste qui protège d'un clic
+accidentel — pas un filet technique derrière. N'ajoute pas de corbeille « pour plus de sûreté » en
+croyant réparer un oubli : c'est exactement l'inverse de ce qui a été demandé, et il faudrait
+reposer la question au propriétaire avant d'y toucher.
+
+### Le plafond d'un envoi — vérifié AVANT d'écrire quoi que ce soit sur le disque NAS
+
+`MAX_NAS_UPLOAD_BYTES` (`services/nas_upload_limits.ts`) : **2 GiB, un chiffre choisi
+arbitrairement, pas mesuré** — les vidéos personnelles (quelques minutes en 4K) dépassent
+largement les « 10 à 20 Mo » cités pour une photo par CC-181/CC-228. Relu par DEUX endroits :
+
+- `config/bodyparser.ts` — le plafond GLOBAL de la requête (`multipart.limit`), relevé pour ce
+  lot depuis `20mb`. ⚠️ **Les routes existantes (`backupImportValidator` 20mb,
+  `documentExtractValidator` 15mb, côté Leitner) gardent leur PROPRE `vine.file({ size })`, plus
+  stricte** — relever le plafond global ne les relâche PAS, il ne fait que reculer la borne au-delà
+  de laquelle l'erreur viendrait du parseur plutôt que du validateur (même doctrine que le
+  commentaire déjà posé sur `documentExtractValidator`) ;
+- `validators/coffre.ts` (`nasUploadValidator`, `vine.file({ size: MAX_NAS_UPLOAD_BYTES })`) — la
+  VRAIE garde par route.
+
+⚠️ **Le plafond se vérifie avant tout accès au disque NAS, pas avant tout accès disque tout
+court.** Le bodyparser d'AdonisJS (`autoProcess: true`) écrit déjà le corps multipart dans SON
+propre dossier temporaire avant que la route ne s'exécute — c'est le comportement standard du
+framework, déjà celui de `backupImportValidator`/`documentExtractValidator`, pas quelque chose que
+ce lot pourrait éviter sans réécrire le parseur à la main. Ce que ce lot garantit : le fichier
+n'atteint jamais le NAS avant que `nasUploadValidator` n'ait validé sa taille.
+
+### Le throttle — dédié, plus serré que la lecture
+
+`services/nas_write_throttle_service.ts` réutilise la CLASSE de `catalog_browse_throttle_service.ts`
+(même patron que `nas_browse_throttle_service.ts`), clé `nas_write_<userId>`, **30 requêtes/minute** —
+délibérément plus bas que `nas_browse`/`catalog_browse` (60/min) : ces routes sont destructrices
+(renommer, déplacer, supprimer), un budget plus serré est voulu. ⚠️ **Pas explicitement demandé par
+le ticket** — ajouté par cohérence avec le reste du module, où chaque écran neuf pose son propre
+throttle plutôt que de partager celui d'un voisin.
+
+### Les routes — quatre, toutes murées, `coffre.write`
+
+```
+POST   /coffre/nas/upload   multipart (root, path, file)
+PUT    /coffre/nas/rename   JSON (root, path, newName)
+PUT    /coffre/nas/move     JSON (root, path, targetRoot, targetPath)
+DELETE /coffre/nas/file     query string (root, path)
+```
+
+⚠️ **`coffre.write`, jamais `coffre.view`** — consulter n'est pas écrire, même doctrine que
+`store`/`update`/`destroy` de `CoffreController`. Dans `ROUTES_MUREES` de `coffre_wall.spec.ts`
+**et** dans l'assertion qui lit le routeur — même mesure que les onze routes murées précédentes :
+`vault.keyFor()` en contrôleur (`CoffreNasWriteController#key`) rend le même 403 sans élévation,
+donc retirer `coffreOuvert()` du groupe de routes ne fait rougir QUE cette assertion-là.
+
+⚠️ **`targetRoot` existe dans le corps de `move` MÊME si l'écran ne propose jamais de le faire
+varier** (`pages/nas.vue` envoie toujours `root.value` comme `targetRoot`) : le refus `cross-root`
+doit être une garde SERVEUR, pas une simple absence de bouton côté client — même doctrine que
+partout ailleurs dans ce fichier (« masquer un bouton n'est pas un droit »).
+
+### `PromptModal.vue` — le pendant texte de `ConfirmModal.vue`
+
+Renommer et déplacer demandent tous deux « saisir une valeur, confirmer ou annuler » — le même
+besoin que `ConfirmModal.ask()` (`ConfirmModal.vue`, CC-206) sert déjà pour une confirmation
+booléenne. `PromptModal.vue` en est le pendant : même patron (promesse résolue au clic ou à
+l'annulation, `AppModal` en chassis), mais résout une **chaîne ou `null`** plutôt qu'un booléen.
+Deux consommateurs dès ce lot (renommer, déplacer) : ce n'est pas une abstraction prématurée.
+
+### Ce que le propriétaire doit faire — le montage Docker est `:ro`
+
+⚠️ **`docker-compose.install.yml` monte le NAS en LECTURE SEULE.** Toutes les routes de ce lot
+échouent en production tant que le montage n'est pas passé en lecture-écriture — alors qu'elles
+fonctionnent sur le poste de dev, où le serveur tourne HORS conteneur et écrit directement sur le
+disque. C'est un geste MANUEL du propriétaire, à faire consciemment :
+
+1. Ouvrir `docker-compose.install.yml`, chercher le bloc commenté « Media files … NAS-playback » ;
+2. Changer `:ro` en `:rw` sur la ligne `- '${COFFRE_NAS_ROOTS_PATH_HOST}:/data/coffre-media:rw'`
+   (déjà fait dans le gabarit livré par ce lot — le geste réel du propriétaire est de
+   **décommenter** la ligne, comme avant, avec `COFFRE_NAS_ROOTS_PATH_HOST` renseigné dans `.env`) ;
+3. Relancer le conteneur (`docker compose up -d --force-recreate app`) ;
+4. Preuve que ça marche : depuis l'écran `/coffre/nas`, envoyer un petit fichier de test dans un
+   dossier, vérifier qu'il apparaît sur le partage NAS lui-même (hors de l'application).
+
+⚠️ **Ce qu'il perd en l'activant, dit noir sur blanc : aujourd'hui, même un bug de ce module ne
+peut RIEN écrire sur le NAS — c'est le seul garde-fou STRUCTUREL qui existe, et ce lot le retire.**
+Une fois `:rw` actif, la seule protection restante est applicative (les gardes décrites plus haut).
+Ce n'est pas une raison de ne pas l'activer — juste un arbitrage à faire les yeux ouverts, pas une
+case à cocher par réflexe.
+
+### Ce que ce poste ne peut PAS prouver
+
+⚠️ **L'écriture à travers un vrai montage Docker `:rw`, sur un vrai partage SMB.** Toute la garde
+de confinement (`isValidNasFileName`, `resolveInRoot`, `link()`/`unlink()`, la re-vérification
+post-écriture) est prouvée contre un vrai filesystem LOCAL (`tests/unit/coffre_nas_write_service.spec.ts`,
+mêmes fixtures temporaires que `coffre_nas_roots.spec.ts`) — jamais contre un partage réseau monté
+par Docker, dont la latence et la sémantique de `link()`/`rename()` peuvent différer d'un
+filesystem local. Un premier envoi réel, en conditions réelles, reste à faire par le propriétaire
+avant de faire confiance à ce lot en production — jamais affirmé comme prouvé ici.
+
+⚠️ **Aucun navigateur n'a affiché les boutons d'envoi/renommer/déplacer/supprimer**, même limite
+que le reste du module. Sont prouvés par test : la garde de confinement (mutation-vérifiée), le
+câblage HTTP (capacité, throttle, traduction des refus). Restent un passage navigateur pour le
+propriétaire : l'apparence des boutons par fichier, le comportement de `PromptModal`/`ConfirmModal`
+sur cet écran précis, et un envoi réel depuis un téléphone (le cas d'usage cité par le ticket).
+
 ## Passphrase perdue = contenu perdu
 
 Elle n'est stockée **nulle part** — ni en clair, ni hachée. Il n'existe donc, et il n'existera, ni
@@ -1764,10 +1980,9 @@ Le détail par fichier est dans [TESTS.md](./TESTS.md) — à lire avant de **mo
 - **Rien ne prouve qu'une vraie application d'authentification produise le code attendu** — même
   limite que CC-114, et elle mord davantage ici : sans TOTP, le coffre est inatteignable.
 - ~~Le lot 2 ne porte ni médias, ni fichiers~~ — les médias sont comblés par CC-180, les médias NAS
-  (photos et vidéos) référencés par CC-181, voir les sections respectives plus haut. **Le
-  TÉLÉVERSEMENT reste hors périmètre** : aucun lot livré ne prévoit d'upload, seulement des
-  références vers Immich ou vers un chemin déjà présent sur le NAS — CC-182 (lot 5, non livré) le
-  portera.
+  (photos et vidéos) référencés par CC-181, voir les sections respectives plus haut.
+- ~~Le TÉLÉVERSEMENT reste hors périmètre~~ — comblé par CC-240, voir « L'écriture sur le NAS »
+  plus bas : envoyer, renommer, déplacer, supprimer un fichier du NAS depuis le coffre.
 - ~~Une entrée ne s'ÉDITE pas~~ — comblé par CC-186, voir « L'édition » plus bas.
 - **Aucun navigateur n'a affiché une vraie vignette Immich dans le coffre** (CC-180) : ce poste n'a
   aucun outil de pilotage de navigateur. Le proxy est prouvé par test (contenu, en-têtes, mur), pas
@@ -1835,3 +2050,10 @@ Le détail par fichier est dans [TESTS.md](./TESTS.md) — à lire avant de **mo
   donc régénérée à chaque affichage), la lisibilité du fil d'Ariane et la bascule visuelle entre
   navigation et recherche sur `pages/nas.vue` restent un passage navigateur pour le propriétaire.
   Voir « L'accueil en deux cartes de source » plus haut pour le détail des décisions du lot.
+- ⚠️ **L'écriture NAS (CC-240) hérite de la même limite, en pire** : la garde de confinement
+  (`nas_write_service.ts`) est prouvée contre un vrai filesystem LOCAL, jamais contre un vrai
+  montage Docker `:rw` sur un vrai partage SMB — ce montage est `:ro` par défaut (voir « Ce que le
+  propriétaire doit faire » plus haut), donc RIEN de ce lot n'a jamais écrit un octet sur le NAS
+  réel du propriétaire. Aucun navigateur n'a affiché les boutons d'envoi/renommer/déplacer/
+  supprimer. La re-vérification post-écriture (TOCTOU) n'a, en plus, aucun test de course
+  déterministe possible — sa garantie vient de la construction, pas d'un test qui la fait rougir.

@@ -54,6 +54,8 @@ const CoffreMediaController = () => import('#modules/coffre/controllers/coffre_m
 const CoffreNasController = () => import('#modules/coffre/controllers/coffre_nas_controller')
 const CoffreNasBrowseController = () =>
   import('#modules/coffre/controllers/coffre_nas_browse_controller')
+const CoffreNasWriteController = () =>
+  import('#modules/coffre/controllers/coffre_nas_write_controller')
 const CoffreImmichCatalogController = () =>
   import('#modules/coffre/controllers/coffre_immich_catalog_controller')
 const CoffreCatalogNasController = () =>
@@ -645,6 +647,21 @@ router
           router
             .get('/nas/thumbnail', [CoffreNasBrowseController, 'thumbnail'])
             .use(middleware.can('coffre.view'))
+          // L'écriture sur le NAS (CC-240) : envoyer, renommer, déplacer, supprimer. `coffre.write`
+          // — jamais `coffre.view` — et confinées au même mécanisme que la navigation
+          // (`NasRootsService.resolveInRoot`), jamais un second résolveur.
+          router
+            .post('/nas/upload', [CoffreNasWriteController, 'upload'])
+            .use(middleware.can('coffre.write'))
+          router
+            .put('/nas/rename', [CoffreNasWriteController, 'rename'])
+            .use(middleware.can('coffre.write'))
+          router
+            .put('/nas/move', [CoffreNasWriteController, 'move'])
+            .use(middleware.can('coffre.write'))
+          router
+            .delete('/nas/file', [CoffreNasWriteController, 'destroy'])
+            .use(middleware.can('coffre.write'))
           // La grille du dossier verrouillé Immich, à plat (CC-239) : page-coquille seule —
           // réutilise `/catalog/items?source=immich_locked` ci-dessus, côté client.
           router
