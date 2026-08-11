@@ -99,6 +99,14 @@ class CatalogSyncService {
    * ⚠️ **Sélectionne d'abord les identifiants à marquer, puis met à jour par lot** — plutôt que de
    * se fier au décompte de lignes rendu par `.update()` (dont la forme exacte dépend du driver) :
    * le nombre rendu est celui des identifiants effectivement sélectionnés, sans ambiguïté.
+   *
+   * ⚠️ **`<> all(?::text[])`/`= any(?::int[])`, jamais `whereNotIn`/`whereIn` (CC-243).** Chacun
+   * de ces deux passe UNE liaison SQL par élément de son tableau ; le protocole étendu de
+   * PostgreSQL plafonne le nombre de paramètres d'une requête à 65 535 (compteur 16 bits). Au-delà,
+   * le compteur DÉBORDE en silence — le driver ne lève pas « trop de paramètres », il envoie un
+   * nombre tronqué et Postgres répond par un message de bind absurde, sans rapport avec la cause
+   * réelle. Un tableau lié comme UN SEUL paramètre (casté) n'a pas cette limite : `reference` est
+   * `NOT NULL`, donc `<> ALL` est ici équivalent à `NOT IN` sans le piège du `NULL`.
    */
   async #markAbsent(
     trx: TransactionClientContract,
@@ -117,17 +125,14 @@ class CatalogSyncService {
       .whereNull('missing_since')
 
     if (seenReferences.length > 0) {
-      query.whereNotIn('reference', seenReferences)
+      query.whereRaw('reference <> all(?::text[])', [seenReferences])
     }
 
     const toMark = await query
     if (toMark.length === 0) return 0
 
     await CoffreCatalogItem.query({ client: trx })
-      .whereIn(
-        'id',
-        toMark.map((row) => row.id)
-      )
+      .whereRaw('id = any(?::int[])', [toMark.map((row) => row.id)])
       .update({ missing_since: now })
 
     return toMark.length
