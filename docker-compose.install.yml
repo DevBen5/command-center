@@ -100,16 +100,22 @@ services:
       # uncomment.
       # - '${AGENTS_CONFIG_PATH_HOST}:/data/agents.json'
 
-      # Media files (photos and videos) the vault's NAS-playback feature (CC-181) is allowed to
-      # read directly from disk. Read-only: the app only ever reads these files, never writes to
-      # them. Only takes effect once COFFRE_NAS_ROOTS=<name>=/data/coffre-media is set in .env
-      # (CC-233: each root needs a declared name, see .env.example) AND the coffre module is
-      # enabled in MODULES — both are undocumented here on purpose (see app/modules/coffre/CLAUDE.md).
+      # Media files (photos and videos) the vault's NAS-playback feature (CC-181) reads directly
+      # from disk, and — since CC-240 — writes to as well (upload, rename, move, delete a file
+      # from the vault's folder browser). Only takes effect once
+      # COFFRE_NAS_ROOTS=<name>=/data/coffre-media is set in .env (CC-233: each root needs a
+      # declared name, see .env.example) AND the coffre module is enabled in MODULES — both are
+      # undocumented here on purpose (see app/modules/coffre/CLAUDE.md).
       #
       # ⚠️ No default value on purpose, same reason as the backup mirror above: a bind mount whose
       # source does not exist would create an empty directory there instead, and the feature would
       # look configured while serving nothing.
-      # - '${COFFRE_NAS_ROOTS_PATH_HOST}:/data/coffre-media:ro'
+      #
+      # ⚠️ Mounted read-write (`:rw`) since CC-240 — before that, `:ro` was the only structural
+      # guard stopping a bug in this module from writing anything to the NAS at all. Read
+      # app/modules/coffre/CLAUDE.md, "L'écriture sur le NAS", before uncommenting: it names what
+      # this trade-off actually costs, and how to prove the write path works once enabled.
+      # - '${COFFRE_NAS_ROOTS_PATH_HOST}:/data/coffre-media:rw'
 
       # Docker socket — required by the Services module, and ⚠️ EQUIVALENT TO ROOT
       # ON THIS MACHINE, compounded by the fact that agents execute shell commands

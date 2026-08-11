@@ -61,6 +61,12 @@ const ROUTES_MUREES = [
   { methode: 'get' as const, url: '/coffre/nas/thumbnail' },
   // La grille Immich verrouillé à plat (CC-239) : page-coquille seule, réutilise le catalogue.
   { methode: 'get' as const, url: '/coffre/immich' },
+  // L'écriture sur le NAS (CC-240) : envoyer, renommer, déplacer, supprimer — du contenu du
+  // coffre modifié, même raison que les autres routes murées.
+  { methode: 'post' as const, url: '/coffre/nas/upload' },
+  { methode: 'put' as const, url: '/coffre/nas/rename' },
+  { methode: 'put' as const, url: '/coffre/nas/move' },
+  { methode: 'delete' as const, url: '/coffre/nas/file' },
 ]
 
 test.group('Coffre / le mur', (group) => {
@@ -122,6 +128,11 @@ test.group('Coffre / le mur', (group) => {
     assert.include(nomsSur('/coffre/nas/browse', 'GET'), 'coffreOuvert')
     assert.include(nomsSur('/coffre/nas/thumbnail', 'GET'), 'coffreOuvert')
     assert.include(nomsSur('/coffre/immich', 'GET'), 'coffreOuvert')
+    // ⚠️ CC-240 : même mesure — le contrôleur d'écriture lève lui aussi sans clé de session.
+    assert.include(nomsSur('/coffre/nas/upload', 'POST'), 'coffreOuvert')
+    assert.include(nomsSur('/coffre/nas/rename', 'PUT'), 'coffreOuvert')
+    assert.include(nomsSur('/coffre/nas/move', 'PUT'), 'coffreOuvert')
+    assert.include(nomsSur('/coffre/nas/file', 'DELETE'), 'coffreOuvert')
 
     // ⚠️ Et la porte ne doit PAS le porter : sinon il faudrait avoir ouvert le coffre pour
     // atteindre l'écran qui l'ouvre. Sans cette moitié, poser le middleware partout passerait
