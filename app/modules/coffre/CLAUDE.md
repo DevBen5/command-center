@@ -3,8 +3,9 @@
 Routes `/coffre/ouvrir` · `/coffre` · `/coffre/:section` · `/coffre/:id/secret` ·
 `/coffre/media/:id/thumbnail` · `/coffre/nas/:id/stream` · `/coffre/catalog/nas/:id/thumbnail` ·
 `/coffre/immich/dossier` · `/coffre/immich/dossier/:assetId/thumbnail` · `/coffre/catalog` ·
-`/coffre/catalog/items` · pages Inertia
-`modules/coffre/{ouvrir, index, section, catalog}` · tables
+`/coffre/catalog/items` · `/coffre/nas` · `/coffre/nas/browse` · `/coffre/nas/thumbnail` ·
+`/coffre/immich` · pages Inertia
+`modules/coffre/{ouvrir, index, section, catalog, nas, immich}` · tables
 `coffre_vaults`, `coffre_entries`, `coffre_entry_media`, `coffre_entry_nas_file`,
 `coffre_catalog_items`, `coffre_catalog_thumbnails`. Lot 1 de l'épique
 CC-177 (CC-178) : le **socle**, dont tous les lots suivants héritent — aucun ne redéfinit sa propre
@@ -25,7 +26,10 @@ que la seule porte d'accès au contenu. Lot 1 (CC-225) : le socle — table, abs
 synchronisation, dossier verrouillé Immich branché. Lot 2 (CC-226) : la source NAS, qui parcourt
 les racines déclarées — voir « Le catalogue des sources » plus bas pour les deux. Lot 3 (CC-228) :
 les vignettes du catalogue NAS, qui débloquent le lot 3 « visible » de l'épique — CC-227 : l'écran
-de consultation et de recherche, voir « La grille du catalogue » plus bas.
+de consultation et de recherche, voir « La grille du catalogue » plus bas. Lot 4 « visible » de la
+seconde épique (CC-239) : le renversement d'ACCUEIL — deux cartes de source (NAS, Immich verrouillé)
+remplacent les quatre cartes par nature d'entrée ; Notes/Liens/Identifiants/Photos descendent au
+second niveau — voir « L'accueil en deux cartes de source » plus bas.
 
 ⚠️ **CC-181 a été amendé le 2026-08-06, en cours de lot** : le ticket ne portait au départ que les
 vidéos ; le propriétaire a élargi le périmètre aux photos avant la fin de l'implémentation, parce
@@ -105,6 +109,19 @@ controllers/coffre_catalog_controller.ts la grille : page-coquille + listing JSO
                                          élévation, AUCUNE donnée en prop Inertia (CC-227)
 shared/catalog_query.ts                  PUR · la query string côté client + le changement de
                                          filtre (`applyFilterChange`, CC-227)
+services/nas_folder_browser.ts           PUR-ish (fs) · la navigation par dossier — un seul niveau,
+                                         lu EN DIRECT, jamais `coffre_catalog_items` (CC-239)
+services/nas_browse_throttle_service.ts  throttle DÉDIÉ de la navigation, séparé de
+                                         `catalog_browse_<userId>` (CC-239)
+controllers/coffre_nas_browse_controller.ts  la navigation NAS : page, listing live, vignette à la
+                                         demande SANS cache — AVEC élévation (CC-239)
+controllers/coffre_immich_catalog_controller.ts  la carte Immich verrouillé : page-coquille SEULE,
+                                         réutilise `/coffre/catalog/items` côté client (CC-239)
+shared/nas_browse_query.ts               PUR · la requête de navigation, le fil d'Ariane
+                                         (`nasBreadcrumbFor`), l'URL de vignette (CC-239)
+components/CatalogGrid.vue               la grille à plat extraite de `pages/catalog.vue`, source
+                                         VERROUILLÉE en prop — consommée par `pages/immich.vue` et
+                                         `pages/nas.vue` en mode recherche (CC-239)
 validators/coffre.ts                     ⚠️ des FABRIQUES, jamais des nœuds VineJS partagés
 ```
 
@@ -1573,6 +1590,111 @@ assumée du ticket, pas rediscutée ici), le rendu réel d'une photo NAS et d'un
 travers la vignette CC-228, les vignettes du dossier verrouillé Immich, les badges de présence sur
 `pages/section.vue`, le thème clair/sombre. Ce poste n'a aucun outil de pilotage de navigateur.
 
+## L'accueil en deux cartes de source — lot 4 « visible » (CC-239, épique CC-224)
+
+Le renversement complet promis par l'épique : jusqu'ici une entrée du coffre était le sujet, un
+fichier une pièce jointe. C'est l'inverse maintenant — le fichier de la source est le sujet,
+l'entrée devient une annotation optionnelle. L'accueil (`pages/index.vue`) ne porte donc plus
+quatre cartes par nature d'entrée (CC-208), mais **deux cartes de source** : `NAS` (navigation par
+dossier) et `Immich verrouillé` (grille à plat). Notes/Liens/Identifiants/Photos **restent**, en
+rangée compacte sous les deux cartes — rien n'est supprimé du modèle de données ni de
+`shared/entry_sections.ts` (`sectionCardsFor`, inchangée), seule la hiérarchie d'affichage bascule.
+
+⚠️ **`pages/catalog.vue` et `GET /coffre/catalog` restent INTACTS, décision explicite du ticket.**
+Ce lot ne les fusionne pas avec les deux nouvelles cartes : ils demeurent un écran de recherche
+avancée multi-sources (sélecteur de source visible, les deux à la fois), atteignable depuis
+`pages/section.vue` (« Voir le catalogue ») mais plus depuis l'accueil. `CatalogGrid.vue`
+(ci-dessous) est un composant **neuf**, pas une extraction rétroactive de `catalog.vue` — les
+dupliquer évite tout risque de régression sur un écran déjà stable et testé, pour un gain de DRY
+jugé marginal face à ce que les deux écrans ont de vraiment différent (source verrouillée vs
+sélecteur visible).
+
+⚠️ **La section « Photos » (entrées porteuses de médias attachés) n'est PLUS une carte de
+l'accueil, mais elle reste pleinement atteignable** — `/coffre/photos` et `pages/section.vue`
+n'ont pas changé d'un octet. Elle rejoint Notes/Liens/Identifiants dans la rangée second niveau. Ne
+la confonds pas avec les deux cartes de SOURCE : celles-ci montrent ce que le NAS/Immich contiennent
+réellement, celle-là montre les entrées où quelqu'un a collé un UUID ou un chemin à la main.
+
+### La carte NAS : navigation par dossier, lue sur le disque en direct
+
+⚠️ **Décision explicite du propriétaire, structurante pour tout ce lot** : ouvrir un dossier lit le
+disque À L'INSTANT (`readdir`), jamais `coffre_catalog_items`. Un fichier envoyé, déplacé ou
+renommé depuis le coffre (lots suivants, écriture) doit apparaître immédiatement, sans attendre une
+resynchronisation. `services/nas_folder_browser.ts` porte cette lecture — le renversement de
+`nas_directory_walker.ts` (CC-226) : celui-ci répond à « que contient TOUTE une racine ? »
+(récursif, pour l'indexation du catalogue), celui-là à « que contient CE dossier, maintenant ? »
+(un seul niveau, jamais persisté).
+
+⚠️ **Réutilise `NasRootsService.resolveInRoot`/`isWithinRoot`, n'écrit AUCUNE seconde garde de
+confinement.** Le confinement (traversée, chemin absolu, lien symbolique posé DANS une racine et
+pointant DEHORS) est déjà fermé ailleurs dans le module ; `browseNasFolder` ne fait qu'appliquer le
+même mécanisme à une question différente — et un lien qui sort de la racine n'apparaît même pas
+dans le listing (pas seulement refusé si on tente d'y entrer), même doctrine que le parcours du
+catalogue.
+
+⚠️ **Le catalogue en base ne sert plus qu'à la recherche globale et aux filtres tous dossiers
+confondus** — aucune lecture disque ne peut faire ça sur un NAS familial à chaque frappe.
+Conséquence assumée et **écrite à l'écran** (`coffre.nas.searchHint`) : un résultat de recherche est
+à jour à la dernière synchronisation (`node ace coffre:sync-catalog`), pas à la seconde, contrairement
+à la navigation par dossier elle-même.
+
+### Deux routes séparées de tout ce qui existait — jamais un `id` de ligne en base
+
+`GET /coffre/nas/browse` prend `root`+`path` en query string (`root` absent = lister les racines
+déclarées) ; `GET /coffre/nas/thumbnail` prend les mêmes deux paramètres pour une vignette générée
+à la demande. **Ni l'un ni l'autre n'indexe par un `id`** — décision imposée par le besoin même du
+lot : un fichier tout juste découvert en naviguant n'a pas de ligne en base (ni `coffre_entry_nas_file`,
+ni `coffre_catalog_items`), donc les deux routes existantes indexées par `id` (`/coffre/nas/:id/stream`
+CC-181, `/coffre/catalog/nas/:id/thumbnail` CC-228) ne pouvaient pas les servir.
+
+⚠️ **Segments à 1 et 2 niveaux, délibérément distincts de `/coffre/nas/:id/stream` (3 niveaux,
+`:id` numérique)** — `/coffre/nas`, `/coffre/nas/browse`, `/coffre/nas/thumbnail` : aucune forme de
+route ne coïncide, donc aucune ambiguïté de routeur à vérifier.
+
+⚠️ **Pas de cache de vignette, contrairement à CC-228 — limite connue, assumée.** Le cache existant
+(`catalog_thumbnail_cache.ts`) est indexé par `catalog_item_id`, une clé qui n'existe pas pour un
+fichier hors catalogue. Chaque affichage régénère donc la vignette (coût CPU accepté, borné par les
+mêmes plafonds qu'ailleurs — `nas_thumbnail_generator.ts`, réutilisé tel quel). Un cache à froisser
+plus tard demanderait une clé stable (ex. `root:path`), hors périmètre de ce lot.
+
+### Le throttle — dédié, comme celui du catalogue, jamais le même compteur
+
+`services/nas_browse_throttle_service.ts` réutilise la CLASSE de `catalog_browse_throttle_service.ts`
+(généralisée d'un préfixe de clé constant à un préfixe PARAMÉTRÉ, rétro-compatible) avec sa propre
+clé (`nas_browse_<userId>`, 60/min). ⚠️ **Jamais le même throttle que la grille du catalogue** : les
+deux écrans sont des usages normaux distincts, et un compteur partagé ferait consommer le budget de
+l'un par l'autre — prouvé par un test croisé (`coffre_nas_browse.spec.ts`).
+
+### La carte Immich verrouillé : zéro changement backend
+
+La grille à plat (photos ET vidéos, filtrable, cherchable) **réutilise `/coffre/catalog/items`
+telle quelle** (CC-227), source figée à `immich_locked` côté client — la nature `video` y est déjà
+extraite depuis CC-225 (`lockedAssetsForCatalog`, `immichNatureFor`), aucune route neuve n'était
+donc nécessaire côté serveur. `controllers/coffre_immich_catalog_controller.ts` ne porte qu'une
+page-coquille.
+
+### `CatalogGrid.vue` — un composant neuf, pas une extraction de `catalog.vue`
+
+Consommé par `pages/immich.vue` (toujours) et `pages/nas.vue` (en mode recherche, quand la
+navigation par dossier ne suffit plus). Prend `lockedSource` en prop (jamais de sélecteur) et
+`initialQuery` en option — cette dernière part **sans débounce** au montage, pour qu'une recherche
+déjà tapée dans le champ de `pages/nas.vue` avant la bascule ne semble pas ignorée.
+
+⚠️ **`pages/nas.vue` bascule en mode recherche dès que son propre champ devient non vide**
+(`searching = searchInput.trim().length > 0`), et affiche alors `CatalogGrid` À LA PLACE de la
+navigation par dossier — pas les deux superposés. Le champ de recherche de `CatalogGrid`, une fois
+affiché, est un DEUXIÈME champ (pré-rempli via `initialQuery`), pas le même élément DOM que celui de
+`pages/nas.vue` : accepté pour ce lot plutôt qu'une synchronisation bidirectionnelle entre les deux,
+qui aurait ajouté un état partagé pour un gain d'ergonomie marginal.
+
+⚠️ **Aucun navigateur n'a affiché ni la navigation par dossier ni la grille Immich (CC-239)** — même
+limite que le reste du module, ce poste n'a aucun outil de pilotage. Sont prouvés par test :
+la confinement de la navigation (fonction pure + bout-en-bout), le débounce et la pagination de
+`CatalogGrid`, le calcul des compteurs de la rangée second niveau. Restent un passage navigateur
+pour le propriétaire : l'allure des deux cartes, le rendu réel des vignettes NAS/HEIC/Immich à
+travers la nouvelle route sans cache, la lisibilité du fil d'Ariane, le thème clair/sombre, la
+bascule visuelle entre navigation et recherche sur `pages/nas.vue`.
+
 ## Passphrase perdue = contenu perdu
 
 Elle n'est stockée **nulle part** — ni en clair, ni hachée. Il n'existe donc, et il n'existera, ni
@@ -1705,3 +1827,11 @@ Le détail par fichier est dans [TESTS.md](./TESTS.md) — à lire avant de **mo
   volume/temps qu'il prendra. Le NAS n'a pas non plus de test de volumétrie réelle (dizaines de
   milliers de fichiers) : seul le mécanisme de plafond (`truncated`) est prouvé, avec une petite
   valeur injectée.
+- ⚠️ **La navigation par dossier NAS et la carte Immich verrouillé (CC-239) héritent de la même
+  limite qu'`GET /coffre/immich/dossier` (CC-205) — le parcours et le confinement (`browseNasFolder`)
+  sont prouvés contre un vrai filesystem local, jamais contre un vrai partage SMB monté par Docker.**
+  Aucun navigateur n'a affiché ni la grille de dossier ni ses vignettes : l'allure des deux cartes de
+  l'accueil, le rendu réel d'une photo/HEIC/vidéo à travers `/coffre/nas/thumbnail` (sans cache,
+  donc régénérée à chaque affichage), la lisibilité du fil d'Ariane et la bascule visuelle entre
+  navigation et recherche sur `pages/nas.vue` restent un passage navigateur pour le propriétaire.
+  Voir « L'accueil en deux cartes de source » plus haut pour le détail des décisions du lot.

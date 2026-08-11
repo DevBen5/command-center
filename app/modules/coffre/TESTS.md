@@ -40,6 +40,7 @@ Le lot porte quatre affirmations, et elles ne se vérifient pas au même endroit
 | la route de vignette du catalogue NAS refuse sans élévation, sert une photo réelle ET un HEIC réel, ne régénère pas au second appel, absorbe un item inconnu/d'un autre compte/de source Immich/corrompu/introuvable en 404 uniforme (CC-228) | `coffre_catalog_nas_thumbnail.spec.ts`, plus `coffre_wall.spec.ts` pour le mur |
 | la grille du catalogue pagine (30/page, borne à la dernière page réelle), filtre (source, nature, période — exclut aussi les dates NULL), trie (`NULLS LAST` dans les deux sens), cherche par `ILIKE` paramétré (jokers `%`/`_` échappés, saisie hostile sans effet, longueur plafonnée), masque `missing_since` par défaut, choisit la vignette PAR SOURCE, refuse des paramètres invalides (400), throttle au-delà du seuil (429), et ne rend AUCUNE donnée en prop Inertia (CC-227) | `coffre_catalog_browse.spec.ts`, plus `coffre_wall.spec.ts` pour le mur |
 | le lien catalogue ↔ entrée se calcule À LA VOLÉE dans les deux sens (jamais un `entry_id` écrit), catalogue → entrée porte le titre déchiffré, entrée → catalogue annote présence ET absence sur les chips déjà rendues (CC-227) | `coffre_catalog_link.spec.ts` |
+| la navigation par dossier NAS lit le disque EN DIRECT — jamais `coffre_catalog_items` — refuse une traversée/un chemin absolu/une racine inconnue/un chemin-fichier par un 404 uniforme, un lien symbolique sortant n'apparaît jamais dans le listing, un dossier ajouté sur le disque apparaît sans resynchronisation, un fichier absent du catalogue apparaît quand même, throttle DÉDIÉ (`nas_browse_<userId>`, jamais celui du catalogue), la vignette sert une photo réelle ET un HEIC réel sans cache (CC-239) | `coffre_nas_folder_browser.spec.ts` (pur), `coffre_nas_browse.spec.ts` (bout-en-bout), plus `coffre_wall.spec.ts` pour le mur |
 
 ⚠️ **Le troisième est celui qu'un test rend faussement vert.** Relire ce qu'on vient d'écrire
 réussirait à l'identique sans le moindre chiffrement ; seul un `select` qui court-circuite le modèle
@@ -432,6 +433,36 @@ entrée (`CoffreEntry.titleCipher` réellement chiffré avec `encrypt()`, pas un
 rattaché rend `null`. Entrée → catalogue : les chips `nasFiles` déjà rendues par `pages/section.vue`
 portent `inCatalog`/`missingSince`, dans les deux états (présent avec une date d'absence, absent).
 
+### `tests/unit/coffre_nas_folder_browser.spec.ts`
+
+La navigation par dossier NAS (CC-239), **pur-ish** : fs réel, aucune requête HTTP ni base — même
+doctrine que `coffre_nas_roots.spec.ts`/`coffre_nas_directory_walker.spec.ts`. Un dossier temporaire
+par test, dont un vrai lien symbolique légitime (cible dans la racine, listé et classé sur la cible
+réelle) et un vrai lien symbolique posé DANS la racine et pointant DEHORS (jamais listé). Couvre :
+la liste des racines déclarées sans toucher au disque ; un dossier légitime rend ses entrées,
+dossiers d'abord puis ordre alphabétique ; un sous-dossier se navigue, `path` porte le chemin
+relatif accumulé ; les dossiers spéciaux Synology et les dotfiles ne sont jamais listés ; une
+traversée, un chemin absolu, un identifiant de racine inconnu, un chemin qui désigne un FICHIER
+plutôt qu'un dossier et une racine non montée rendent tous `null`, jamais une exception ; un
+dossier créé APRÈS le premier appel apparaît au second, sans resynchronisation — la preuve que la
+lecture est directe.
+
+### `tests/functional/modules/coffre_nas_browse.spec.ts`
+
+`GET /coffre/nas/browse` et `GET /coffre/nas/thumbnail` (CC-239), avec `NasRootsService` substitué
+par une vraie racine de fixtures — même patron que `coffre_nas.spec.ts`. Le mur se prouve dans
+`coffre_wall.spec.ts`, pas ici. Couvre bout-en-bout : la page-coquille ; la liste des racines sans
+`root` ; le contenu d'un dossier avec `root` ; la navigation dans un sous-dossier ; une traversée,
+un chemin absolu, un lien symbolique sortant (jamais listé, et son chemin propre rend 404 à l'appel
+direct) et un identifiant de racine inconnu, tous en 404 uniforme ; **un dossier ajouté sur le
+disque en cours de test apparaît sans resynchronisation** ; **un fichier qu'aucune ligne de
+`coffre_catalog_items` ne référence apparaît quand même** — le test ne crée délibérément aucune
+ligne de catalogue, la preuve que la route ne lit jamais la table ; le throttle DÉDIÉ répond 429 au
+bout de 61 requêtes réelles **sans affecter** le throttle du catalogue (compteurs à préfixes
+distincts, prouvé par un appel croisé) ; la vignette sert une photo réelle ET un HEIC réel
+(fixture partagée avec CC-228), sans cache — un second appel régénère bien, contrairement à la
+vignette du catalogue ; un chemin corrompu, introuvable ou hostile rend 404, jamais une 500.
+
 ### `tests/functional/modules/coffre_curtain.spec.ts`
 
 Le rideau : le plancher qui vérifie que le module est bien activé (sinon rien ne prouve rien),
@@ -482,6 +513,48 @@ suppression, l'édition, l'aperçu média restent un passage navigateur pour le 
 avant ce lot (voir la limite déjà notée plus bas, « Aucun navigateur n'a affiché la grille de
 cartes ni les pages de section »).
 
+### `app/modules/coffre/components/__tests__/catalog_grid.spec.ts`
+
+Vitest — la grille à plat extraite de `pages/catalog.vue` (CC-239), source VERROUILLÉE en prop
+(`lockedSource`), jamais un sélecteur : au montage, interroge `/coffre/catalog/items` avec la
+source verrouillée, exactement DEUX `<select>` (nature, tri) contre trois côté `catalog.vue` ;
+`initialQuery` part SANS débounce dès le montage (une recherche déjà tapée avant la bascule depuis
+`pages/nas.vue`) ; la recherche tapée ensuite reste débouncée (300 ms) ; la pagination avance en
+conservant la source verrouillée ; un 429 affiche le message de throttle ; une vignette en échec de
+chargement retombe sur la pastille de nature — même geste que `catalog.spec.ts`, dont ce fichier
+reprend la logique sans la dupliquer dans `pages/catalog.vue`, INTACTE et non touchée par ce lot.
+
+### `app/modules/coffre/pages/__tests__/immich.spec.ts`
+
+Vitest — la carte « Immich verrouillé » (CC-239) : un en-tête + `CatalogGrid` verrouillée sur
+`immich_locked`, la logique de grille étant déjà prouvée par `catalog_grid.spec.ts`. Prouve
+seulement ce qui est propre à la page : le titre affiché, le lien retour vers l'accueil, et que la
+source transmise à la grille est bien `immich_locked` — jamais un sélecteur laissé au choix.
+
+### `app/modules/coffre/pages/__tests__/nas.spec.ts`
+
+Vitest — la navigation par dossier NAS (CC-239) porte de la vraie logique (racines → dossier →
+recherche), donc un test de composant sur le GESTE réel : au montage, liste les racines déclarées ;
+cliquer une racine ouvre son contenu (dossiers et fichiers) ; cliquer un SOUS-DOSSIER navigue
+dedans, cliquer un FICHIER, lui, ne déclenche AUCUN appel de plus (`entry.kind !== 'dir'`,
+mutation-vérifié : retirer ce garde fait rougir ce test précis) ; le fil d'Ariane remonte au niveau
+cliqué, avec le chemin ACCUMULÉ (pas seulement le nom du segment) ; taper une recherche bascule vers
+`CatalogGrid`, verrouillée sur `source: 'nas'` — la navigation par dossier disparaît de l'écran
+pendant la recherche ; « retour à la navigation » vide la recherche et réaffiche le dossier courant.
+
+⚠️ **`global.fetch` est substitué** (`vi.stubGlobal`), jamais un vrai appel réseau. Ne couvre ni le
+rendu réel de la grille de vignettes NAS, ni le défilement — passage navigateur du propriétaire.
+
+### `app/modules/coffre/pages/__tests__/index.spec.ts`
+
+Vitest — l'accueil du coffre (CC-239, premier test de composant de cette page). Prouve : exactement
+DEUX cartes de source (`/coffre/nas`, `/coffre/immich`), jamais quatre cartes par nature ; les
+quatre liens de la rangée second niveau (Notes/Liens/Identifiants/Photos) restent TOUS atteignables,
+même sur une base sans aucune entrée ; leurs compteurs reflètent RÉELLEMENT les entrées passées en
+prop plutôt qu'un chiffre figé — y compris le cas qui prouve que le calcul passe par
+`sectionCardsFor` (donc `groupEntriesByNature`) et non un comptage naïf par `type` : une entrée
+`type: 'note'` porteuse d'un média compte dans « Photos », jamais dans « Notes ».
+
 ### `app/modules/coffre/pages/__tests__/catalog.spec.ts`
 
 Vitest — la grille du catalogue (CC-227) porte de la vraie logique, donc un test de composant : au
@@ -504,6 +577,15 @@ chaque filtre posé apparaît ; une recherche vide ou faite d'espaces ne pose PA
 découpé de ses espaces de tête et de fin ; changer un filtre ordinaire revient à la page 1, changer
 la page elle-même ne la réinitialise PAS — sans cette exception, « page suivante » resterait sur
 place.
+
+### `app/modules/coffre/shared/__tests__/nas_browse_query.spec.ts`
+
+Vitest — la construction PURE de la requête de navigation et du fil d'Ariane (CC-239) :
+`buildNasBrowseQueryString` (sans racine, requête vide — le contrôleur liste les racines déclarées ;
+avec une racine, `root` ET `path` posés, y compris un chemin vide) ; `nasThumbnailUrl` (l'URL
+construite, jamais ailleurs) ; `nasBreadcrumbFor` (un seul segment à la racine, un niveau, plusieurs niveaux — chaque segment porte
+le chemin ACCUMULÉ jusqu'à lui, pas son seul nom, sans quoi remonter au milieu du fil renverrait au
+mauvais dossier).
 
 ## Hors du module, mais amendés par CC-179
 

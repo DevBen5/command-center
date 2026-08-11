@@ -52,6 +52,10 @@ const CoffreDoorController = () => import('#modules/coffre/controllers/coffre_do
 const CoffreController = () => import('#modules/coffre/controllers/coffre_controller')
 const CoffreMediaController = () => import('#modules/coffre/controllers/coffre_media_controller')
 const CoffreNasController = () => import('#modules/coffre/controllers/coffre_nas_controller')
+const CoffreNasBrowseController = () =>
+  import('#modules/coffre/controllers/coffre_nas_browse_controller')
+const CoffreImmichCatalogController = () =>
+  import('#modules/coffre/controllers/coffre_immich_catalog_controller')
 const CoffreCatalogNasController = () =>
   import('#modules/coffre/controllers/coffre_catalog_nas_controller')
 const CoffreCatalogController = () =>
@@ -628,6 +632,23 @@ router
             .use(middleware.can('coffre.view'))
           router
             .get('/catalog/items', [CoffreCatalogController, 'items'])
+            .use(middleware.can('coffre.view'))
+          // La navigation par dossier NAS (CC-239) : lecture directe du disque, jamais du
+          // catalogue — un fichier ajouté doit apparaître sans resynchronisation. Réutilise
+          // `NasRootsService.resolveInRoot`, la même garde de confinement que le reste du module.
+          // ⚠️ Segments à 1 et 2 niveaux, délibérément distincts de `/coffre/nas/:id/stream`
+          // (3 niveaux, `:id` numérique) : aucune ambiguïté de forme entre les deux groupes.
+          router.get('/nas', [CoffreNasBrowseController, 'page']).use(middleware.can('coffre.view'))
+          router
+            .get('/nas/browse', [CoffreNasBrowseController, 'browse'])
+            .use(middleware.can('coffre.view'))
+          router
+            .get('/nas/thumbnail', [CoffreNasBrowseController, 'thumbnail'])
+            .use(middleware.can('coffre.view'))
+          // La grille du dossier verrouillé Immich, à plat (CC-239) : page-coquille seule —
+          // réutilise `/catalog/items?source=immich_locked` ci-dessus, côté client.
+          router
+            .get('/immich', [CoffreImmichCatalogController, 'index'])
             .use(middleware.can('coffre.view'))
         })
         .prefix('/coffre')

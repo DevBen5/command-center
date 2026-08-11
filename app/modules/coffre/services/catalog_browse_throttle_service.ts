@@ -15,12 +15,22 @@ export interface CatalogBrowseThrottleLimits {
  * il n'y a rien à échouer sur une lecture. Chaque requête compte, qu'elle rende des résultats ou
  * non — c'est ce qui borne un usage automatisé de la route pour énumérer le catalogue à l'aveugle,
  * sans gêner l'usage normal de l'écran (pagination, filtres, recherche au fil de la frappe).
+ *
+ * ⚠️ **`keyPrefix` généralisé depuis CC-239** : la navigation par dossier NAS (`nas_browse`) a le
+ * même besoin (throttle dédié, jamais celui de la porte) sans rien partager avec CETTE route — un
+ * préfixe commun ferait consommer le même budget par deux écrans différents. Le défaut reste
+ * `'catalog_browse'`, rétro-compatible avec l'instance existante ci-dessous.
  */
 export class CatalogBrowseThrottleService {
   #limits: CatalogBrowseThrottleLimits
+  #keyPrefix: string
 
-  constructor(limits: CatalogBrowseThrottleLimits = { requests: 60, duration: '1 min' }) {
+  constructor(
+    limits: CatalogBrowseThrottleLimits = { requests: 60, duration: '1 min' },
+    keyPrefix = 'catalog_browse'
+  ) {
     this.#limits = limits
+    this.#keyPrefix = keyPrefix
   }
 
   /** `limiter.use` met en cache par options : récupérer l'instance à chaque appel est gratuit. */
@@ -29,7 +39,7 @@ export class CatalogBrowseThrottleService {
   }
 
   #key(userId: number): string {
-    return `catalog_browse_${userId}`
+    return `${this.#keyPrefix}_${userId}`
   }
 
   /**

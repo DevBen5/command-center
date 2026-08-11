@@ -54,6 +54,13 @@ const ROUTES_MUREES = [
   // La grille du catalogue (CC-227) : la page ET son endpoint de listing sont du contenu.
   { methode: 'get' as const, url: '/coffre/catalog' },
   { methode: 'get' as const, url: '/coffre/catalog/items' },
+  // La navigation par dossier NAS (CC-239) : la page, le listing live et la vignette sont du
+  // contenu du coffre, même raison que les proxies existants.
+  { methode: 'get' as const, url: '/coffre/nas' },
+  { methode: 'get' as const, url: '/coffre/nas/browse' },
+  { methode: 'get' as const, url: '/coffre/nas/thumbnail' },
+  // La grille Immich verrouillé à plat (CC-239) : page-coquille seule, réutilise le catalogue.
+  { methode: 'get' as const, url: '/coffre/immich' },
 ]
 
 test.group('Coffre / le mur', (group) => {
@@ -110,6 +117,11 @@ test.group('Coffre / le mur', (group) => {
     // ⚠️ CC-227 : même mesure — le contrôleur lève lui aussi sans clé de session.
     assert.include(nomsSur('/coffre/catalog', 'GET'), 'coffreOuvert')
     assert.include(nomsSur('/coffre/catalog/items', 'GET'), 'coffreOuvert')
+    // ⚠️ CC-239 : même mesure — le contrôleur lève lui aussi sans clé de session.
+    assert.include(nomsSur('/coffre/nas', 'GET'), 'coffreOuvert')
+    assert.include(nomsSur('/coffre/nas/browse', 'GET'), 'coffreOuvert')
+    assert.include(nomsSur('/coffre/nas/thumbnail', 'GET'), 'coffreOuvert')
+    assert.include(nomsSur('/coffre/immich', 'GET'), 'coffreOuvert')
 
     // ⚠️ Et la porte ne doit PAS le porter : sinon il faudrait avoir ouvert le coffre pour
     // atteindre l'écran qui l'ouvre. Sans cette moitié, poser le middleware partout passerait

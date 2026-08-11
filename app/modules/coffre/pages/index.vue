@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { Head, Link, router } from '@inertiajs/vue3'
 import { useI18n } from 'vue-i18n'
-import { KeyRound, Link2, NotebookText, Image as ImageIcon } from 'lucide-vue-next'
+import { HardDrive, KeyRound, Link2, Lock, NotebookText, Image as ImageIcon } from 'lucide-vue-next'
 import AppLayout from '~/layouts/AppLayout.vue'
 import {
   sectionCardsFor,
@@ -15,14 +15,21 @@ import EntryFormModal from '../components/EntryFormModal.vue'
 defineOptions({ layout: AppLayout })
 
 /**
- * L'accueil du coffre (CC-208) — une carte par section, façon `app/core/dashboard/pages/home.vue`
- * (grille de deux colonnes, en-tête cliquable, aperçu des derniers éléments). La liste complète
- * avec accordéon, secret, édition et suppression a déménagé dans `pages/section.vue` — cette page
- * ne fait plus que résumer et aiguiller.
+ * L'accueil du coffre (CC-239) — le renversement de l'épique CC-224 : le coffre est d'abord un
+ * accès aux SOURCES (Immich verrouillé, NAS), pas un carnet d'entrées. Deux grandes cartes de
+ * source remplacent les quatre cartes par nature d'entrée de CC-208 ; Notes/Liens/Identifiants —
+ * et « Photos », les entrées porteuses de pièces jointes manuelles — descendent en second niveau,
+ * une rangée compacte sous les deux cartes. Ils RESTENT tous les quatre atteignables, rien n'est
+ * supprimé du modèle de données ni de `entry_sections.ts` : c'est la hiérarchie d'affichage qui
+ * bascule, pas le contenu.
  *
- * ⚠️ **Ce fichier reçoit `entries` en entier, comme avant CC-208** : les compteurs et aperçus se
- * calculent ici, côté client, sur ce que le serveur envoie déjà déchiffré. Pas de requête de plus
- * pour les cartes — voir `CoffreController#index`, inchangé par ce lot.
+ * ⚠️ **`pages/catalog.vue` n'est PAS fusionnée ici, décision du ticket** : elle reste un écran de
+ * recherche avancée multi-sources séparé, atteignable depuis `pages/section.vue` (« Voir le
+ * catalogue »), pas depuis cet accueil.
+ *
+ * ⚠️ **Ce fichier reçoit `entries` en entier, comme depuis CC-208** : les compteurs de la rangée
+ * second niveau se calculent ici, côté client, sur ce que le serveur envoie déjà déchiffré. Pas de
+ * requête de plus — voir `CoffreController#index`, inchangé par ce lot.
  */
 interface CoffreCardEntry {
   id: number
@@ -36,15 +43,11 @@ const props = defineProps<{ entries: CoffreCardEntry[]; immichFolderAvailable: b
 
 const { t } = useI18n()
 
-/** Combien d'entrées récentes une carte montre en aperçu, avant qu'il faille ouvrir la section. */
-const PREVIEW_COUNT = 3
-
 /**
- * Les quatre cartes, TOUJOURS les quatre — même une section sans entrée (CC-208, un renversement
- * assumé de CC-204 : voir `sectionCardsFor` pour la raison). `groupEntriesByNature` ne change pas
- * de contrat, c'est cet appel qui complète.
+ * Les quatre cartes de second niveau, TOUJOURS les quatre (CC-208, inchangé) — seule la mise en
+ * forme change : une rangée compacte plutôt qu'une grille de deux colonnes.
  */
-const cards = computed(() => sectionCardsFor(props.entries))
+const secondaryCards = computed(() => sectionCardsFor(props.entries))
 
 const ICONS: Record<CoffreSectionKey, unknown> = {
   note: NotebookText,
@@ -101,42 +104,55 @@ function lock(): void {
       </div>
     </header>
 
-    <div class="grid grid-cols-2 gap-5">
-      <div
-        v-for="card in cards"
-        :key="card.key"
-        class="overflow-hidden rounded-[14px] border border-line bg-panel"
+    <!-- Les deux cartes de source (CC-239) — le cœur du nouvel accueil. -->
+    <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
+      <Link
+        href="/coffre/nas"
+        class="grid gap-3 rounded-[14px] border border-line bg-panel p-6 transition hover:border-aqua"
       >
-        <Link
-          :href="sectionHref(card.key)"
-          class="flex items-center gap-3 border-b border-line px-[18px] py-4 transition hover:bg-panel-2"
+        <div
+          class="grid h-[42px] w-[42px] place-items-center rounded-lg border border-line-2 bg-accent-soft text-accent"
         >
-          <div
-            class="grid h-[30px] w-[30px] place-items-center rounded-lg border border-line-2 bg-accent-soft text-accent"
-          >
-            <component :is="ICONS[card.key]" :size="16" :stroke-width="1.5" aria-hidden="true" />
-          </div>
-          <h3 class="text-[15px] font-semibold">{{ sectionLabel(card.key) }}</h3>
-          <span class="ml-auto font-mono text-[11.5px] text-txt-2">{{ card.entries.length }}</span>
-        </Link>
-        <div class="px-[18px] py-2">
-          <Link
-            v-for="entry in card.entries.slice(0, PREVIEW_COUNT)"
-            :key="entry.id"
-            :href="sectionHref(card.key)"
-            class="flex items-center gap-3.5 border-b border-line py-3.5 last:border-0"
-          >
-            <span class="min-h-[34px] w-[3px] shrink-0 self-stretch rounded-[3px] bg-line-2"></span>
-            <div class="flex-1 text-[13.5px] font-semibold">
-              {{ entry.title || t('coffre.index.unreadable') }}
-            </div>
-          </Link>
-          <div v-if="card.entries.length === 0" class="py-3.5 text-[12.5px] text-txt-2">
-            {{ t('coffre.index.cardEmpty') }}
-          </div>
+          <HardDrive :size="20" :stroke-width="1.5" aria-hidden="true" />
         </div>
-      </div>
+        <h2 class="text-[17px] font-bold">{{ t('coffre.index.sourceNasTitle') }}</h2>
+        <p class="text-[12.5px] text-txt-2">{{ t('coffre.index.sourceNasLead') }}</p>
+        <span class="text-[12.5px] font-semibold text-aqua">{{ t('coffre.index.browseSource') }} →</span>
+      </Link>
+
+      <Link
+        href="/coffre/immich"
+        class="grid gap-3 rounded-[14px] border border-line bg-panel p-6 transition hover:border-aqua"
+      >
+        <div
+          class="grid h-[42px] w-[42px] place-items-center rounded-lg border border-line-2 bg-accent-soft text-accent"
+        >
+          <Lock :size="20" :stroke-width="1.5" aria-hidden="true" />
+        </div>
+        <h2 class="text-[17px] font-bold">{{ t('coffre.index.sourceImmichTitle') }}</h2>
+        <p class="text-[12.5px] text-txt-2">{{ t('coffre.index.sourceImmichLead') }}</p>
+        <span class="text-[12.5px] font-semibold text-aqua">{{ t('coffre.index.browseSource') }} →</span>
+      </Link>
     </div>
+
+    <!-- Notes, Liens, Identifiants, Photos (pièces jointes manuelles) — second niveau (CC-239). -->
+    <section class="grid gap-2">
+      <h3 class="text-[11px] tracking-[.12em] text-txt-3 uppercase">
+        {{ t('coffre.index.secondaryNavTitle') }}
+      </h3>
+      <div class="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        <Link
+          v-for="card in secondaryCards"
+          :key="card.key"
+          :href="sectionHref(card.key)"
+          class="flex items-center gap-2.5 rounded-[10px] border border-line bg-panel px-3.5 py-3 transition hover:border-aqua"
+        >
+          <component :is="ICONS[card.key]" :size="15" :stroke-width="1.5" aria-hidden="true" />
+          <span class="text-[12.5px] font-semibold">{{ sectionLabel(card.key) }}</span>
+          <span class="ml-auto font-mono text-[11px] text-txt-3">{{ card.entries.length }}</span>
+        </Link>
+      </div>
+    </section>
 
     <EntryFormModal
       v-if="modalOpen"

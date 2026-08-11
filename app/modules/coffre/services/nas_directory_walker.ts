@@ -28,11 +28,15 @@ export const MAX_NAS_WALK_ITEMS = 200_000
  * d'un partage, et `#recycle`/`@tmp` à la racine des partages. Sans cette garde, le catalogue se
  * remplirait de milliers d'entrées internes non pertinentes (`@eaDir/SYNOPHOTO_THUMB_XL.jpg`),
  * à l'exact opposé de la promesse de l'épique (« le coffre contient déjà tout ce qui compte »).
+ *
+ * ⚠️ **Exportée depuis CC-239** : réutilisée telle quelle par `nas_folder_browser.ts` (navigation
+ * par dossier, question « que contient CE dossier » — un seul niveau) pour ne pas dupliquer cette
+ * liste sur un second filtre qui pourrait diverger.
  */
-const SKIPPED_ENTRY_NAMES = new Set(['@eaDir', '#recycle', '@tmp'])
+export const SKIPPED_ENTRY_NAMES = new Set(['@eaDir', '#recycle', '@tmp'])
 
 /** Dotfiles/dotdirs (`.DS_Store`, `.@__thumb`…) et les dossiers spéciaux Synology ci-dessus. */
-function shouldSkipEntry(name: string): boolean {
+export function shouldSkipEntry(name: string): boolean {
   if (name.startsWith('.')) return true
   return SKIPPED_ENTRY_NAMES.has(name)
 }
