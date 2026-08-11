@@ -17,6 +17,7 @@ et pourquoi vivent dans le projet **CC** de YouTrack ; les règles du code viven
 | Node | 22 | Suit `node:22-alpine` du `Dockerfile` |
 | Docker + Compose | récent | Postgres 16, et Adminer sous profil `tools` |
 | Git | — | — |
+| `gh` (CLI GitHub) | — | Lire et merger les PR ; absent des installations par défaut |
 | **ImageMagick 7** | 7.x | Les tests de vignettes NAS du coffre invoquent `magick` |
 
 ### ⚠️ Le piège ImageMagick, et il mord sur toute distribution Debian/Ubuntu
@@ -28,15 +29,18 @@ l'image de production fonctionne.
 Sans `magick` sur le `PATH`, une douzaine de tests échouent en `spawn magick ENOENT`, et le message
 n'accuse ni la distribution ni le paquet.
 
-Deux issues :
+Deux issues, et **la première est la seule qui vaille sur une machine neuve** :
 
 - installer ImageMagick 7 par le moyen de la distribution (AppImage officielle, dépôt tiers, ou
   compilation) ;
-- ou reproduire le contournement **déjà mesuré** par la CI :
-  `.github/workflows/gates.yml` fait suivre `magick` vers `convert` par un lien symbolique. Il est
-  légitime parce que la syntaxe **positionnelle** utilisée par le générateur (`FORMAT:chemin[0]
-  -ops FORMAT:-`, sans sous-verbe) est identique entre les deux versions — lire le commentaire de
-  ce fichier avant de le recopier, il porte la raison et la limite.
+- ou reproduire le contournement **déjà mesuré** par la CI : `.github/workflows/gates.yml` fait
+  suivre `magick` vers `convert` par un lien symbolique. Il est légitime parce que la syntaxe
+  **positionnelle** utilisée par le générateur (`FORMAT:chemin[0] -ops FORMAT:-`, sans sous-verbe)
+  est identique entre les deux versions — lire le commentaire de ce fichier avant de le recopier,
+  il porte la raison et la limite.
+  ⚠️ **Mais il suppose qu'IM 6 est DÉJÀ installé.** Sur une machine neuve où rien ne l'est, il n'y
+  a pas non plus de `convert` : le lien n'aurait rien vers quoi pointer. Constaté sur un portable
+  Linux neuf le 2026-08-11.
 
 ⚠️ **Un `PATH` périmé ressemble à une absence d'installation.** Après avoir installé ImageMagick,
 ouvrir un terminal **neuf** : un shell démarré avant l'installation ne le verra pas, et on conclut
@@ -140,7 +144,29 @@ empêche la perte.
 
 ---
 
-## 5. Les gates
+## 5. Reprendre le travail depuis une autre machine — ce qui ne voyage pas
+
+Cloner le dépôt ne suffit pas : l'assistant utilisé pour travailler dessus garde son contexte
+**hors** du dépôt, et rien ne le transporte.
+
+⚠️ **La clé de projet d'un dossier de mémoire dérive du CHEMIN, pas du nom du dépôt.** Le même
+projet s'appelle `c--DevBen5-command-center` sur une machine Windows et
+`-home-<utilisateur>-Dev-command-center` sur un poste Linux. Copier le dossier tel quel le range
+donc **au mauvais endroit**, où plus rien ne le lit — et l'assistant repart de zéro sans que rien
+ne le signale. Il faut le renommer avec la clé de la machine d'arrivée. Constaté le 2026-08-11.
+
+⚠️ **La configuration globale (`~/.claude/`) ne voyage pas non plus** : instructions globales,
+skills et commandes n'y sont pas sur une machine neuve. Les skills **du dépôt** (`.claude/skills/`)
+sont versionnés et arrivent avec le clone ; ceux qui vivent hors du dépôt, non — et un skill absent
+n'échoue pas, il **n'existe pas**.
+
+⚠️ **Vérifier tout de suite si une modification non commitée traîne dans `.claude/skills/`** avant
+de changer de machine : ces fichiers sont dans le dépôt, mais tant qu'ils ne sont pas dans
+l'historique, ils ne suivent pas.
+
+---
+
+## 6. Les gates
 
 ```bash
 npm run lint
@@ -160,7 +186,7 @@ toute PR qui la vise.
 
 ---
 
-## 6. Regarder la base
+## 7. Regarder la base
 
 ```bash
 docker compose exec postgres psql -U root -d app
@@ -174,7 +200,7 @@ la base est `app`, pas `app_test`, que `npm test` vide à chaque exécution.
 
 ---
 
-## 7. Où vit la doc durable
+## 8. Où vit la doc durable
 
 Ce document ne recopie rien de ce qui suit — il y renvoie.
 
