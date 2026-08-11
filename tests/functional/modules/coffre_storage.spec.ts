@@ -363,9 +363,15 @@ test.group('Coffre / les médias', (group) => {
     }
 
     assert.lengthOf(props.entries[0].media, 1)
-    // ⚠️ Une seule clé, `id` — jamais `assetId`, ni le chiffré. Un `deepEqual` sur les clés,
-    // pas seulement `notProperty(..., 'assetId')`, qui laisserait passer un nom différent.
-    assert.deepEqual(Object.keys(props.entries[0].media[0]), ['id'])
+    // ⚠️ `id`, `inCatalog`, `missingSince` — jamais `assetId`, ni le chiffré. Un `deepEqual` sur
+    // les clés, pas seulement `notProperty(..., 'assetId')`, qui laisserait passer un nom
+    // différent. `inCatalog`/`missingSince` sont posées à la volée par `CatalogLinkService`
+    // (CC-227) — ce ne sont pas des secrets, l'assertion `notInclude` ci-dessous le confirme.
+    assert.deepEqual(Object.keys(props.entries[0].media[0]).sort(), [
+      'id',
+      'inCatalog',
+      'missingSince',
+    ])
 
     // Et une recherche brute dans TOUTE la réponse JSON, au cas où l'UUID fuirait ailleurs
     // qu'à l'endroit attendu.
@@ -567,7 +573,14 @@ test.group('Coffre / les médias NAS', (group) => {
     }
 
     assert.lengthOf(props.entries[0].nasFiles, 1)
-    assert.deepEqual(Object.keys(props.entries[0].nasFiles[0]).sort(), ['id', 'kind'])
+    // ⚠️ `inCatalog`/`missingSince` posées à la volée par `CatalogLinkService` (CC-227) — ce ne
+    // sont pas des secrets, l'assertion `notInclude` ci-dessous le confirme.
+    assert.deepEqual(Object.keys(props.entries[0].nasFiles[0]).sort(), [
+      'id',
+      'inCatalog',
+      'kind',
+      'missingSince',
+    ])
     assert.equal(props.entries[0].nasFiles[0].kind, 'video')
     assert.notInclude(JSON.stringify(props), VIDEO_A)
   })

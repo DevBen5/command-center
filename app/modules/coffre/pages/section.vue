@@ -32,10 +32,14 @@ interface CoffreEntry {
   title: string
   content: string
   createdAt: string | null
-  /** ⚠️ Seul l'`id` de la ligne voyage jusqu'ici, jamais l'UUID Immich (CC-180). */
-  media: { id: number }[]
+  /**
+   * ⚠️ Seul l'`id` de la ligne voyage jusqu'ici, jamais l'UUID Immich (CC-180). `inCatalog` et
+   * `missingSince` sont calculés à la volée par `CatalogLinkService` (CC-227) — jamais un
+   * `entry_id` écrit en base.
+   */
+  media: { id: number; inCatalog?: boolean; missingSince?: string | null }[]
   /** ⚠️ Seuls l'`id` et le `kind` voyagent jusqu'ici, jamais le chemin sur le disque (CC-181). */
-  nasFiles: { id: number; kind: 'video' | 'photo' }[]
+  nasFiles: { id: number; kind: 'video' | 'photo'; inCatalog?: boolean; missingSince?: string | null }[]
 }
 
 const props = defineProps<{
@@ -259,6 +263,16 @@ function natureLabel(type: CoffreEntryType): string {
 
   return t('coffre.index.typeNote')
 }
+
+/**
+ * Combien des pièces jointes d'une entrée se retrouvent dans le catalogue (CC-227) — un compte,
+ * pas un lien profond : la grille n'a pas de mécanisme pour cibler un élément précis, on y renvoie
+ * l'utilisateur pour qu'il cherche par nom.
+ */
+function catalogSummary(entry: CoffreEntry): { present: number; total: number } {
+  const attachments = [...entry.media, ...entry.nasFiles]
+  return { present: attachments.filter((item) => item.inCatalog === true).length, total: attachments.length }
+}
 </script>
 
 <template>
@@ -368,6 +382,18 @@ function natureLabel(type: CoffreEntryType): string {
               />
             </li>
           </ul>
+
+          <!-- Entrée → catalogue (CC-227) : présence calculée à la volée, jamais un `entry_id`
+               écrit en base — voir `CatalogLinkService.catalogPresenceFor`. -->
+          <p
+            v-if="entry.media.length + entry.nasFiles.length > 0"
+            class="mt-2 text-[11px] text-txt-3"
+          >
+            {{ t('coffre.index.catalogPresenceSummary', catalogSummary(entry)) }}
+            <Link href="/coffre/catalog" class="ml-1 text-aqua hover:underline">
+              {{ t('coffre.index.catalogViewLink') }}
+            </Link>
+          </p>
 
           <div v-if="entry.type === 'credential'" class="mt-3 grid gap-3">
             <div class="rounded-[8px] bg-panel-2 p-4">
