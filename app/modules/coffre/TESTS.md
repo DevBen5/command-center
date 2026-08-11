@@ -41,6 +41,8 @@ Le lot porte quatre affirmations, et elles ne se vérifient pas au même endroit
 | la grille du catalogue pagine (30/page, borne à la dernière page réelle), filtre (source, nature, période — exclut aussi les dates NULL), trie (`NULLS LAST` dans les deux sens), cherche par `ILIKE` paramétré (jokers `%`/`_` échappés, saisie hostile sans effet, longueur plafonnée), masque `missing_since` par défaut, choisit la vignette PAR SOURCE, refuse des paramètres invalides (400), throttle au-delà du seuil (429), et ne rend AUCUNE donnée en prop Inertia (CC-227) | `coffre_catalog_browse.spec.ts`, plus `coffre_wall.spec.ts` pour le mur |
 | le lien catalogue ↔ entrée se calcule À LA VOLÉE dans les deux sens (jamais un `entry_id` écrit), catalogue → entrée porte le titre déchiffré, entrée → catalogue annote présence ET absence sur les chips déjà rendues (CC-227) | `coffre_catalog_link.spec.ts` |
 | la navigation par dossier NAS lit le disque EN DIRECT — jamais `coffre_catalog_items` — refuse une traversée/un chemin absolu/une racine inconnue/un chemin-fichier par un 404 uniforme, un lien symbolique sortant n'apparaît jamais dans le listing, un dossier ajouté sur le disque apparaît sans resynchronisation, un fichier absent du catalogue apparaît quand même, throttle DÉDIÉ (`nas_browse_<userId>`, jamais celui du catalogue), la vignette sert une photo réelle ET un HEIC réel sans cache (CC-239) | `coffre_nas_folder_browser.spec.ts` (pur), `coffre_nas_browse.spec.ts` (bout-en-bout), plus `coffre_wall.spec.ts` pour le mur |
+| un nom de fichier hostile (séparateur, `..`, octet nul, vide, nom réservé Windows) est refusé AVANT tout accès disque ; envoyer/renommer/déplacer refusent d'écraser un nom déjà pris ; un envoi interrompu ne laisse aucun résidu ; un déplacement entre deux racines est refusé, jamais simulé ; les quatre opérations refusent une traversée/un chemin absolu/un lien sortant/un dossier, contre un vrai filesystem (CC-240) | `coffre_nas_filename.spec.ts` (pur), `coffre_nas_write_service.spec.ts` (vrai filesystem) |
+| les quatre routes d'écriture NAS exigent `coffre.write` (pas `coffre.view`) et l'élévation, throttlent séparément de la lecture, traduisent chaque refus en code HTTP explicite (422/409/404/429) (CC-240) | `coffre_nas_write.spec.ts`, plus `coffre_wall.spec.ts` pour le mur |
 
 ⚠️ **Le troisième est celui qu'un test rend faussement vert.** Relire ce qu'on vient d'écrire
 réussirait à l'identique sans le moindre chiffrement ; seul un `select` qui court-circuite le modèle
@@ -462,6 +464,54 @@ bout de 61 requêtes réelles **sans affecter** le throttle du catalogue (compte
 distincts, prouvé par un appel croisé) ; la vignette sert une photo réelle ET un HEIC réel
 (fixture partagée avec CC-228), sans cache — un second appel régénère bien, contrairement à la
 vignette du catalogue ; un chemin corrompu, introuvable ou hostile rend 404, jamais une 500.
+
+### `tests/unit/coffre_nas_filename.spec.ts`
+
+La validation de nom de fichier pour l'écriture NAS (CC-240), **pure** — le point dur du ticket :
+contrairement à `NasRootsService`, ce nom n'existe pas encore et ne peut pas être vérifié par
+`realpath`, cette fonction est toute la garde avant d'approcher le disque. Nom vide, séparateur `/`
+et `\`, traversée `..` (isolée et noyée dans un nom par ailleurs valide), octet nul, noms réservés
+Windows (casse et extension comprises, plus le cas qui NE l'est pas — `CONTRAT.pdf`), longueur
+maximale.
+
+### `tests/unit/coffre_nas_write_service.spec.ts`
+
+L'écriture NAS (CC-240), contre un VRAI filesystem — même doctrine que `coffre_nas_roots.spec.ts` :
+un dossier temporaire par test, dont un vrai lien symbolique posé DANS la racine et pointant
+DEHORS. Couvre les quatre opérations :
+
+- **Envoi** : contenu écrit correctement ; aucun fichier `.uploading-*` résiduel après un envoi
+  réussi ; nom invalide refusé AVANT tout accès disque (dossier inchangé) ; dossier de destination
+  inexistant refusé ; un dossier remplacé par un lien sortant est refusé sans jamais y écrire ; un
+  nom déjà pris (par un DOSSIER, la collision la plus dure à manquer) ne détruit rien et ne laisse
+  aucun résidu temporaire ; un second envoi du même nom refuse et préserve le contenu du premier ;
+  une source introuvable ne laisse aucun résidu.
+- **Renommer** : déplace le contenu sous le nouveau nom ; un nom déjà pris ne détruit pas le
+  fichier existant (les deux contenus relus et intacts) ; une entrée introuvable, un DOSSIER (hors
+  périmètre de ce lot), une traversée dans le chemin source, et un nouveau nom invalide (fichier
+  source laissé en place) sont tous refusés.
+- **Déplacer** : change de dossier en gardant le nom ; **un déplacement ENTRE DEUX RACINES est
+  refusé, jamais simulé** — le fichier ne bouge ni dans un sens ni dans l'autre, la seconde racine
+  reste vide ; un dossier de destination inexistant et un nom déjà pris (contenu des deux fichiers
+  vérifié intact) sont refusés.
+- **Supprimer** : efface réellement le fichier ; une entrée introuvable, un DOSSIER, une traversée
+  et un chemin qui passe par un lien symbolique sortant sont tous refusés — le fichier hors racine
+  reste intact dans chaque cas.
+
+### `tests/functional/modules/coffre_nas_write.spec.ts`
+
+Le câblage HTTP de l'écriture NAS (CC-240) — `POST /coffre/nas/upload`, `PUT /coffre/nas/rename`,
+`PUT /coffre/nas/move`, `DELETE /coffre/nas/file`. Le mur (élévation requise) se prouve dans
+`coffre_wall.spec.ts`, la garde de confinement en détail dans `coffre_nas_write_service.spec.ts` —
+ce fichier prouve : `coffre.write` requis (`coffre.view` seul refuse) ; un envoi légitime écrit
+réellement sur disque ; un nom invalide rend 422 ; un envoi vers un nom pris rend 409 sans toucher
+au fichier existant ; renommer et déplacer répondent 200 et déplacent réellement le contenu ; **un
+déplacement entre deux racines rend 422 (`cross-root`)**, le fichier reste en place ; supprimer
+répond 200 ; une traversée à la suppression rend 404, jamais une 500 ; le throttle DÉDIÉ
+(`nas_write_<userId>`, 30/min) répond 429 au-delà du seuil.
+
+⚠️ **`NasRootsService` substitué par une vraie racine de fixtures**, même patron que
+`coffre_nas_browse.spec.ts` — la configuration par défaut est vide en test.
 
 ### `tests/functional/modules/coffre_curtain.spec.ts`
 
