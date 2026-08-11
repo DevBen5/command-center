@@ -84,12 +84,6 @@ function lock(): void {
     <header class="flex items-start justify-between gap-4">
       <p class="max-w-[560px] text-[13px] text-txt-2">{{ t('coffre.index.lead') }}</p>
       <div class="flex shrink-0 gap-2">
-        <Link
-          href="/coffre/catalog"
-          class="rounded-[7px] border border-line-2 px-4 py-2.5 text-[13px] text-txt hover:border-aqua"
-        >
-          {{ t('coffre.index.catalogLink') }}
-        </Link>
         <button
           type="button"
           class="rounded-[7px] border border-accent bg-accent px-4 py-2.5 text-[13px] font-semibold text-bg hover:opacity-90"
