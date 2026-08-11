@@ -15,6 +15,8 @@ import FakeImmichSessionClient, {
 } from '#tests/fakes/fake_immich_session_client'
 import NasRootsService from '#modules/coffre/services/nas_roots_service'
 import CoffreSyncCatalog from '#commands/coffre_sync_catalog'
+import catalogSync from '#modules/coffre/services/catalog_sync_service'
+import type { CatalogSourceItem } from '#modules/coffre/services/catalog_source'
 
 /**
  * Le catalogue des sources (CC-225, lot 1 de l'épique CC-224) : la contrainte d'unicité en base,
@@ -310,4 +312,97 @@ test.group('Coffre / la commande coffre:sync-catalog', (group) => {
     assert.lengthOf(after, before.length, 'aucune ligne perdue ni ajoutée')
     assert.isNull(after[0].missingSince, 'aucun marquage sur une énumération qui a échoué')
   })
+
+  /**
+   * ⚠️ **Point d'attention du ticket CC-243, déjà correct — ce test le PROUVE plutôt que de le
+   * laisser implicite.** L'échec d'`applyEnumeration` pour UN compte (ici une violation de
+   * contrainte `CHECK` sur `nature`, plutôt que le débordement de paramètres — n'importe quelle
+   * erreur applicative suffit à exercer ce chemin) est déjà catché par `#syncSource`
+   * (`commands/coffre_sync_catalog.ts`), qui pose `this.exitCode = 1`. Rien à corriger ici ; ce
+   * test fige le comportement pour qu'une régression future rougisse.
+   */
+  test("l'échec d'application pour UN compte fait sortir la commande en erreur, pas en code 0", async ({
+    assert,
+  }) => {
+    const user = await createUserWith([])
+    await createVault(user)
+
+    const command = await runSync({
+      assets: [
+        {
+          assetId: '11111111-2222-4333-8444-555555555555',
+          nature: 'nature-invalide' as never,
+          displayName: null,
+          capturedAt: null,
+          sizeBytes: null,
+        },
+      ],
+      truncated: false,
+    })
+
+    command.assertFailed()
+    assert.equal(command.exitCode, 1)
+    assert.lengthOf(await catalogRowsFor(user.id), 0, 'rien écrit pour le compte en échec')
+  })
+})
+
+test.group('Coffre / le catalogue — au-delà du plafond de paramètres SQL (CC-243)', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+
+  /**
+   * ⚠️ **Le cœur du lot CC-243.** Le protocole étendu de PostgreSQL plafonne le nombre de
+   * paramètres liés d'une requête à 65 535 (compteur 16 bits) — au-delà, il déborde en SILENCE
+   * plutôt que de refuser proprement. `#markAbsent` liait une référence par paramètre
+   * (`whereNotIn`) : ce test dépasse volontairement le seuil (65 600 références, la requête porte
+   * en plus `owner_id`/`source`) contre une VRAIE base, pour prouver que la synchronisation ne
+   * s'effondre plus à cette échelle — le volume réel constaté sur le NAS du propriétaire (~126 000
+   * fichiers).
+   *
+   * Une référence PRÉEXISTANTE, absente du nouveau listing, est glissée dans le lot : elle doit
+   * ressortir marquée absente malgré la taille du tableau exclu — la preuve que le remplacement de
+   * `whereNotIn`/`whereIn` par `<> all(?::text[])`/`= any(?::int[])` reste sémantiquement
+   * équivalent, pas seulement qu'il ne plante plus.
+   */
+  test('une énumération de plus de 65 535 références ne fait plus déborder le protocole, et marque toujours correctement ce qui a disparu', async ({
+    assert,
+  }) => {
+    const user = await createUserWith([])
+    const now = DateTime.now()
+
+    const stale = await CoffreCatalogItem.create({
+      ownerId: user.id,
+      source: 'nas',
+      reference: 'racine/disparu.jpg',
+      nature: 'photo',
+      displayName: null,
+      capturedAt: null,
+      sizeBytes: null,
+      discoveredAt: now,
+      lastSeenAt: now,
+      missingSince: null,
+    })
+
+    const REFERENCE_COUNT = 65_600 // > 65 535 - 2 (owner_id, source) : franchit le seuil.
+    const items: CatalogSourceItem[] = Array.from({ length: REFERENCE_COUNT }, (_, i) => ({
+      reference: `racine/fichier-${i}.jpg`,
+      nature: 'photo',
+      displayName: null,
+      capturedAt: null,
+      sizeBytes: null,
+    }))
+
+    const outcome = await catalogSync.applyEnumeration(user.id, 'nas', {
+      items,
+      truncated: false,
+    })
+
+    assert.equal(outcome.discovered, REFERENCE_COUNT)
+    assert.equal(outcome.markedAbsent, 1, 'seule la référence préexistante et non revue')
+
+    await stale.refresh()
+    assert.isNotNull(stale.missingSince, 'marquée absente malgré un tableau exclu géant')
+
+    const total = await CoffreCatalogItem.query().where('owner_id', user.id).count('* as total')
+    assert.equal(Number(total[0].$extras.total), REFERENCE_COUNT + 1)
+  }).timeout(0)
 })
