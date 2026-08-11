@@ -33,6 +33,21 @@ export function nasThumbnailUrl(root: string, path: string): string {
 }
 
 /**
+ * L'URL de lecture d'un fichier parcouru (CC-241) — jamais construite ailleurs.
+ *
+ * ⚠️ **`URLSearchParams`, jamais une interpolation.** Un nom de fichier NAS contient couramment des
+ * espaces, des `&` et des `#` : collés tels quels dans une query string, ils la coupent, et le
+ * serveur reçoit un `path` tronqué — donc un 404 sur un fichier qui existe, dont la cause serait
+ * cherchée dans la garde de confinement. C'est la même raison qui a fait écrire `nasThumbnailUrl`
+ * ainsi ; ce lot ne réinvente pas la construction, il la duplique volontairement à l'identique
+ * pour ne pas paramétrer une fonction sur son point d'accès.
+ */
+export function nasStreamUrl(root: string, path: string): string {
+  const params = new URLSearchParams({ root, path })
+  return `/coffre/nas/stream?${params.toString()}`
+}
+
+/**
  * Le fil d'Ariane de la navigation — la racine, puis un segment par niveau de `path`.
  *
  * ⚠️ **`path` est déjà séparé par `/`**, jamais par le séparateur de l'OS — c'est le contrat que le

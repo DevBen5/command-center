@@ -45,11 +45,18 @@ const ROUTES_MUREES = [
   { methode: 'get' as const, url: '/coffre/nas/1/stream' },
   // La vignette d'un élément du catalogue NAS (CC-228) : même raison, route SÉPARÉE du streaming.
   { methode: 'get' as const, url: '/coffre/catalog/nas/1/thumbnail' },
+  // La lecture d'un élément du catalogue NAS (CC-241) : une vidéo EST le contenu du coffre.
+  { methode: 'get' as const, url: '/coffre/catalog/nas/1/stream' },
   // Le dossier verrouillé d'Immich (CC-205) : le listing comme la vignette sont du contenu.
   { methode: 'get' as const, url: '/coffre/immich/dossier' },
   {
     methode: 'get' as const,
     url: '/coffre/immich/dossier/11111111-2222-4333-8444-555555555555/thumbnail',
+  },
+  // La lecture d'une vidéo du dossier verrouillé (CC-241) : même raison que sa vignette.
+  {
+    methode: 'get' as const,
+    url: '/coffre/immich/dossier/11111111-2222-4333-8444-555555555555/video',
   },
   // La grille du catalogue (CC-227) : la page ET son endpoint de listing sont du contenu.
   { methode: 'get' as const, url: '/coffre/catalog' },
@@ -59,6 +66,8 @@ const ROUTES_MUREES = [
   { methode: 'get' as const, url: '/coffre/nas' },
   { methode: 'get' as const, url: '/coffre/nas/browse' },
   { methode: 'get' as const, url: '/coffre/nas/thumbnail' },
+  // La lecture d'un fichier parcouru (CC-241) : le fichier EST le contenu du coffre.
+  { methode: 'get' as const, url: '/coffre/nas/stream' },
   // La grille Immich verrouillé à plat (CC-239) : page-coquille seule, réutilise le catalogue.
   { methode: 'get' as const, url: '/coffre/immich' },
   // L'écriture sur le NAS (CC-240) : envoyer, renommer, déplacer, supprimer — du contenu du
@@ -128,6 +137,11 @@ test.group('Coffre / le mur', (group) => {
     assert.include(nomsSur('/coffre/nas/browse', 'GET'), 'coffreOuvert')
     assert.include(nomsSur('/coffre/nas/thumbnail', 'GET'), 'coffreOuvert')
     assert.include(nomsSur('/coffre/immich', 'GET'), 'coffreOuvert')
+    // ⚠️ CC-241 : même mesure que toutes les précédentes — les trois contrôleurs lèvent eux aussi
+    // sans clé de session, donc seule cette assertion-ci rougit si une route sort du groupe muré.
+    assert.include(nomsSur('/coffre/nas/stream', 'GET'), 'coffreOuvert')
+    assert.include(nomsSur('/coffre/catalog/nas/:id/stream', 'GET'), 'coffreOuvert')
+    assert.include(nomsSur('/coffre/immich/dossier/:assetId/video', 'GET'), 'coffreOuvert')
     // ⚠️ CC-240 : même mesure — le contrôleur d'écriture lève lui aussi sans clé de session.
     assert.include(nomsSur('/coffre/nas/upload', 'POST'), 'coffreOuvert')
     assert.include(nomsSur('/coffre/nas/rename', 'PUT'), 'coffreOuvert')

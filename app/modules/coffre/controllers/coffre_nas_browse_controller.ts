@@ -7,6 +7,8 @@ import NasRootsService from '#modules/coffre/services/nas_roots_service'
 import { browseNasFolder, browseNasRoots } from '#modules/coffre/services/nas_folder_browser'
 import { generateNasThumbnail } from '#modules/coffre/services/nas_thumbnail_generator'
 import nasBrowseThrottle from '#modules/coffre/services/nas_browse_throttle_service'
+import VideoTranscoder from '#modules/coffre/services/video_transcoder'
+import { serveNasMedia } from '#modules/coffre/services/nas_media_response'
 
 /**
  * La navigation par dossier NAS (CC-239) — l'accueil du coffre bascule d'entrées-avec-pièces-jointes
@@ -31,7 +33,10 @@ import nasBrowseThrottle from '#modules/coffre/services/nas_browse_throttle_serv
  */
 @inject()
 export default class CoffreNasBrowseController {
-  constructor(private roots: NasRootsService) {}
+  constructor(
+    private roots: NasRootsService,
+    private transcoder: VideoTranscoder
+  ) {}
 
   async page({ inertia }: HttpContext) {
     return inertia.render('modules/coffre/nas')
@@ -104,6 +109,55 @@ export default class CoffreNasBrowseController {
         "La vignette d'un fichier NAS parcouru n'a pas pu être générée."
       )
       return response.notFound({ error: 'Vignette indisponible.' })
+    }
+  }
+
+  /**
+   * La lecture d'un fichier PARCOURU (CC-241) — le trou que le ticket nomme en premier : les
+   * fichiers de source non rattachés à une entrée n'avaient aucune route de lecture, alors que
+   * c'est précisément ce que la carte NAS affiche depuis CC-239.
+   *
+   * ⚠️ **`root`+`path` en clair, comme `/coffre/nas/thumbnail`, et confinés par la MÊME garde**
+   * (`resolveInRoot`) — jamais une seconde implémentation. Un fichier qu'on vient de découvrir en
+   * naviguant n'a pas de ligne en base : l'indexer par un `id` comme les deux autres proxies
+   * n'aurait tout simplement pas eu de sens.
+   *
+   * ⚠️ **Pas de throttle ici, contrairement à `browse` et délibérément.** Un lecteur vidéo
+   * redemande un segment à chaque déplacement du curseur (conséquence directe de `no-store`) :
+   * compter ces requêtes dans le budget de la navigation ferait s'auto-verrouiller une lecture
+   * normale. Ce qui borne réellement le coût ici est la borne de transcodages simultanés
+   * (`video_transcode_slots.ts`), qui vise la ressource réellement rare — le CPU, pas la requête.
+   */
+  async stream(ctx: HttpContext) {
+    const { auth, request, response, session } = ctx
+    const user = auth.user!
+    if (vault.keyFor(user, session) === null) {
+      throw new ForbiddenException('Le coffre est verrouillé.')
+    }
+
+    const rootName = request.input('root')
+    const relativePath = request.input('path')
+    if (typeof rootName !== 'string' || typeof relativePath !== 'string') {
+      return response.notFound({ error: 'Média introuvable.' })
+    }
+
+    const realPath = await this.roots.resolveInRoot(rootName, relativePath)
+    if (realPath === null) {
+      // ⚠️ Ne dit jamais POURQUOI (racine inconnue, non montée, chemin hostile) — même doctrine
+      // que les autres points d'accès du module.
+      logger.warn({ rootName }, "Le fichier parcouru n'a pas pu être résolu sous sa racine.")
+      return response.notFound({ error: 'Média introuvable.' })
+    }
+
+    const echec = await serveNasMedia(ctx, {
+      realPath,
+      transcoder: this.transcoder,
+      contexte: { rootName },
+    })
+
+    if (echec !== null) {
+      logger.warn({ rootName, echec }, "Le fichier parcouru n'a pas pu être servi.")
+      return response.notFound({ error: 'Média introuvable.' })
     }
   }
 }

@@ -6,6 +6,8 @@ import vault from '#modules/coffre/services/vault_service'
 import CoffreCatalogItem from '#modules/coffre/models/coffre_catalog_item'
 import NasCatalogSource from '#modules/coffre/services/nas_catalog_source'
 import catalogThumbnailCache from '#modules/coffre/services/catalog_thumbnail_cache'
+import VideoTranscoder from '#modules/coffre/services/video_transcoder'
+import { serveNasMedia } from '#modules/coffre/services/nas_media_response'
 
 /**
  * Le proxy de vignette du catalogue NAS (CC-228) — comble le trou que CC-226 avait laissé
@@ -29,7 +31,10 @@ import catalogThumbnailCache from '#modules/coffre/services/catalog_thumbnail_ca
  */
 @inject()
 export default class CoffreCatalogNasController {
-  constructor(private nasCatalogSource: NasCatalogSource) {}
+  constructor(
+    private nasCatalogSource: NasCatalogSource,
+    private transcoder: VideoTranscoder
+  ) {}
 
   async thumbnail({ auth, params, response, session }: HttpContext) {
     const user = auth.user!
@@ -73,6 +78,56 @@ export default class CoffreCatalogNasController {
         "La vignette d'un élément du catalogue NAS n'a pas pu être générée."
       )
       return response.notFound({ error: 'Vignette indisponible.' })
+    }
+  }
+
+  /**
+   * La lecture d'un élément du catalogue NAS (CC-241) — le pendant streaming de la vignette
+   * ci-dessus, pour la grille de recherche. Sans lui, trouver une vidéo par la recherche puis
+   * cliquer dessus ne faisait rien : le catalogue est le seul chemin vers un fichier qu'on ne sait
+   * pas où trouver en naviguant.
+   *
+   * ⚠️ **Même scope que la vignette — `owner_id` ET `source = 'nas'`.** Un item `immich_locked`
+   * rend 404 ici : sa lecture passe par `/coffre/immich/dossier/:assetId/video`, un tout autre
+   * mécanisme d'authentification.
+   *
+   * ⚠️ **Aucun cache, contrairement à la vignette.** `coffre_catalog_thumbnails` stocke des
+   * vignettes bornées à 512 Ko ; y ranger des vidéos ferait grossir la base de gigaoctets chiffrés
+   * pour un gain nul — le fichier source est déjà sur le disque, à côté.
+   */
+  async stream(ctx: HttpContext) {
+    const { auth, params, response, session } = ctx
+    const user = auth.user!
+    if (vault.keyFor(user, session) === null) {
+      throw new ForbiddenException('Le coffre est verrouillé.')
+    }
+
+    const itemId = Number(params.id)
+    const item = await CoffreCatalogItem.query()
+      .where('id', itemId)
+      .where('owner_id', user.id)
+      .where('source', 'nas')
+      .first()
+
+    if (item === null) {
+      return response.notFound({ error: 'Média introuvable.' })
+    }
+
+    const realPath = await this.nasCatalogSource.resolveReference(item.reference).catch(() => null)
+    if (realPath === null) {
+      logger.warn({ itemId: item.id }, "L'élément du catalogue NAS ne résout sous aucune racine.")
+      return response.notFound({ error: 'Média introuvable.' })
+    }
+
+    const echec = await serveNasMedia(ctx, {
+      realPath,
+      transcoder: this.transcoder,
+      contexte: { itemId: item.id },
+    })
+
+    if (echec !== null) {
+      logger.warn({ itemId: item.id, echec }, "L'élément du catalogue NAS n'a pas pu être servi.")
+      return response.notFound({ error: 'Média introuvable.' })
     }
   }
 }

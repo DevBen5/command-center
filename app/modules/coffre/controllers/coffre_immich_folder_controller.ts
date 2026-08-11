@@ -80,6 +80,58 @@ export default class CoffreImmichFolderController {
     }
   }
 
+  /**
+   * La lecture d'une vidéo du dossier verrouillé (CC-241) — le second trou nommé par le ticket :
+   * le client de session ne savait que lister et faire des vignettes.
+   *
+   * ⚠️ **Aucun ffmpeg ici, et c'est délibéré** : Immich transcode déjà (`/api/assets/:id/video/
+   * playback`). Faire lire un flux HTTP distant à notre ffmpeg aurait mis le jeton de session dans
+   * l'`argv` d'un processus, lisible par `ps` — voir `ImmichSessionClient.videoPlayback`.
+   *
+   * ⚠️ **`Range` est relayé dans les DEUX sens, tel quel.** Immich seul connaît la taille du flux
+   * qu'il sert ; recalculer un `content-range` de notre côté rendrait un segment faux.
+   *
+   * ⚠️ **La requête distante est coupée à la déconnexion du client** — même raison que le `SIGKILL`
+   * sur ffmpeg : sans ça, fermer l'onglet laisse le serveur aspirer la vidéo jusqu'au bout.
+   */
+  async video({ auth, params, request, response, session }: HttpContext) {
+    this.#requireElevation(auth.user!, session)
+
+    response.header('cache-control', 'no-store')
+    response.header('pragma', 'no-cache')
+
+    if (!isImmichAssetId(params.assetId)) {
+      return response.notFound({ error: 'Média introuvable.' })
+    }
+
+    try {
+      const flux = await this.immichSession.videoPlayback(
+        params.assetId,
+        request.header('range') ?? null
+      )
+
+      response.response.on('close', () => flux.abort())
+
+      response.status(flux.status)
+      response.header('content-type', flux.contentType)
+      response.header('accept-ranges', 'bytes')
+      if (flux.contentLength !== null) response.header('content-length', flux.contentLength)
+      if (flux.contentRange !== null) response.header('content-range', flux.contentRange)
+
+      return response.stream(flux.body, () => {
+        flux.abort()
+        return ['', 500]
+      })
+    } catch (error) {
+      // ⚠️ 404 uniforme, comme la vignette — jamais un oracle sur la cause côté client.
+      logger.warn(
+        { assetId: params.assetId, error: error instanceof Error ? error.message : String(error) },
+        "La vidéo du dossier verrouillé n'a pas pu être récupérée."
+      )
+      return response.notFound({ error: 'Média introuvable.' })
+    }
+  }
+
   #requireElevation(user: User, session: Session): void {
     if (vault.keyFor(user, session) === null) {
       throw new ForbiddenException('Le coffre est verrouillé.')

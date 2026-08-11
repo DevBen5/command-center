@@ -513,11 +513,76 @@ répond 200 ; une traversée à la suppression rend 404, jamais une 500 ; le thr
 ⚠️ **`NasRootsService` substitué par une vraie racine de fixtures**, même patron que
 `coffre_nas_browse.spec.ts` — la configuration par défaut est vide en test.
 
+### `tests/unit/coffre_video_playback.spec.ts`
+
+La **décision** de lecture vidéo (CC-241), pure et sans binaire : quel plan pour quelle sonde, et
+quels arguments pour quel plan. Prouve — un MP4/H.264 part **sans transcodage** (l'exigence
+explicite du ticket) ; le `format_name` **composite** de ffprobe (`mov,mp4,m4a,3gp,3g2,mj2`) est
+reconnu comme MP4, sans quoi toute la bibliothèque serait partie en ré-empaquetage en silence ; du
+HEVC est transcodé quel que soit son conteneur ; des codecs lisibles dans un `.mkv`/`.avi` sont
+**ré-empaquetés** (`-c copy`), pas ré-encodés ; un codec audio hors liste impose le ré-encodage ;
+une vidéo **sans piste audio** reste lisible telle quelle ; une sonde impossible retombe sur les
+octets bruts, jamais sur un transcodage. Côté arguments — le chemin occupe **une case entière** du
+tableau (vérifié sur un nom portant `;`, `$(…)` et des espaces), il est précédé de `-i` (un nom
+commençant par `-` ne peut pas devenir un drapeau), le plan matériel cite `h264_vaapi` et le
+périphérique, le plan `vaapi` **sans** périphérique retombe sur `libx264`, et demander des
+arguments pour `passthrough` **lève**.
+
+⚠️ **Ne prouve PAS qu'un vrai `ffmpeg` accepte ces arguments** — voir « ce que la suite ne peut pas
+prouver » en tête de ce fichier.
+
+### `tests/unit/coffre_video_transcoder.spec.ts`
+
+Les deux gardes d'**exécution** (CC-241). `ffmpeg` est remplacé par un **vrai processus** bon marché
+via le point de substitution `spawnFfmpeg` — pas par un objet simulé : tout le reste de
+`VideoTranscoder.start` (borne, lancement, signal) s'exécute réellement.
+
+Prouve — la borne refuse au-delà de `MAX_TRANSCODAGES_SIMULTANES` et le relâchement rouvre ; **un
+double relâchement ne rend pas le compteur négatif** (sans quoi la borne cesserait d'exister) ;
+`start` rend `null` une fois la borne atteinte ; **`kill()` tue réellement le processus** (vérifié
+par `process.kill(pid, 0)` jusqu'à disparition) et rend son créneau ; `kill()` est idempotent ; et
+— groupe séparé — **la fermeture de la réponse HTTP déclenche ce `kill()`**, ce qui est le *câblage*
+et non la mort elle-même : les deux moitiés sont nécessaires, un `kill()` parfait que personne
+n'appelle laisse exactement le problème du ticket.
+
+⚠️ **Le câblage est prouvé sur un contexte HTTP minimal**, pas sur une vraie connexion coupée : le
+client Japa attend la réponse complète et n'offre aucun moyen de la couper en cours.
+
+### `tests/functional/modules/coffre_nas_video.spec.ts`
+
+Le câblage HTTP de la lecture vidéo (CC-241) — `GET /coffre/nas/stream` (fichier parcouru) et
+`GET /coffre/catalog/nas/:id/stream` (élément de catalogue). Même patron de substitution que le
+fichier ci-dessus (`runFfprobe`/`spawnFfmpeg`), plus `NasRootsService` sur une racine de fixtures.
+
+Prouve — un MP4/H.264 compatible est servi **sans qu'aucun processus soit lancé** (on assert le
+nombre de lancements, pas seulement le corps : un transcodage qui rendrait par hasard les mêmes
+octets passerait sinon) ; un `Range` rend **le segment demandé** (contenu comparé, pas seulement la
+longueur) ; un `Range` hors bornes rend 416 avec la taille réelle ; du HEVC **est** transcodé et la
+réponse annonce `accept-ranges: none` ; une sonde en échec retombe sur les octets bruts ; une
+**photo n'est jamais sondée** ; au-delà de la borne la réponse est un **503 avec `retry-after`**,
+jamais une attente ; le créneau est rendu, donc trois lectures successives passent ; un chemin
+hostile, une racine inconnue, un **dossier** portant une extension autorisée et une extension hors
+allow-list rendent tous 404. Côté catalogue — un élément NAS du compte est lu avec `Range`, un
+élément `immich_locked` rend 404 (autre mécanisme d'authentification), l'élément d'un autre compte
+rend 404.
+
 ### `tests/functional/modules/coffre_curtain.spec.ts`
 
 Le rideau : le plancher qui vérifie que le module est bien activé (sinon rien ne prouve rien),
 l'absence de toute destination `/coffre`, la prop partagée `destinations` vue depuis une page du
 coffre ouvert, et le rappel que les **capacités**, elles, sont bien au registre.
+
+### `app/modules/coffre/components/__tests__/video_player_modal.spec.ts`
+
+Vitest — le lecteur vidéo (CC-241). Deux comportements portent de la logique : un `<video>` échoue
+en **silence**, donc `@error` est le seul signal du navigateur et l'écran doit le dire ; et
+l'avertissement « flux converti, curseur limité » est **observé** (`duration` non finie sur un MP4
+fragmenté), jamais reçu en prop — le client ne peut pas savoir à l'avance si le serveur
+transcodera. Ce dernier est testé **dans les deux sens** (durée finie → caché, `Infinity` →
+affiché) : monter puis assertir l'absence ne prouverait rien, l'avertissement partant déjà caché.
+
+⚠️ **jsdom ne décode aucune vidéo** : ce fichier prouve la réaction du composant à des événements,
+jamais qu'une image s'affiche.
 
 ### `app/modules/coffre/components/__tests__/entry_form_modal.spec.ts`
 
