@@ -88,10 +88,34 @@
     "nasFileAddButton": "Ajouter",
     "nasFileInvalid": "Ce n'est pas un chemin de média valide (formats acceptés : mp4, webm, mov, mkv, avi, jpg, jpeg, png, webp, gif, heic).",
     "nasFileRemove": "Retirer",
-    "nasFilePending": "sera ajouté à l'enregistrement"
+    "nasFilePending": "sera ajouté à l'enregistrement",
+    "sourceNasTitle": "NAS",
+    "sourceNasLead": "Parcourez les dossiers du NAS, en direct.",
+    "sourceImmichTitle": "Immich verrouillé",
+    "sourceImmichLead": "Photos et vidéos du dossier verrouillé, à plat.",
+    "browseSource": "Parcourir",
+    "secondaryNavTitle": "Aussi dans le coffre"
   },
   "section": {
     "title": "Coffre"
+  },
+  "nas": {
+    "crumb": "NAS",
+    "title": "NAS",
+    "lead": "Parcourez les dossiers du NAS, lus en direct sur le disque. Un résultat de recherche, lui, est à jour à la dernière synchronisation du catalogue — pas à la seconde.",
+    "rootsEmpty": "Aucune racine NAS n'est configurée.",
+    "folderEmpty": "Ce dossier est vide.",
+    "folderError": "Ce dossier n'a pas pu être ouvert.",
+    "throttled": "Trop de requêtes. Réessayez dans un instant.",
+    "loading": "Chargement…",
+    "searchPlaceholder": "Rechercher dans tout le NAS…",
+    "searchHint": "La recherche porte sur le catalogue synchronisé, pas sur le disque en direct.",
+    "backToBrowse": "← Retour à la navigation"
+  },
+  "immich": {
+    "crumb": "Immich verrouillé",
+    "title": "Immich verrouillé",
+    "lead": "Les photos et vidéos du dossier verrouillé Immich — à jour à la dernière synchronisation du catalogue, pas à la seconde."
   },
   "catalog": {
     "crumb": "Catalogue",
