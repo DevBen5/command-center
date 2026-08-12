@@ -1,6 +1,5 @@
 import { realpath, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { DateTime } from 'luxon'
 import { isWithinRoot } from '#modules/coffre/services/nas_roots_service'
 import { nasFileKindFor } from '#modules/coffre/services/nas_file_format'
 import type { CoffreNasRoot } from '#config/coffre_nas'
@@ -54,6 +53,11 @@ interface WalkState {
  * (CC-233) — sans lui, deux racines portant chacune un fichier de même chemin relatif produiraient
  * la même référence, et la seconde écraserait la première en base sans qu'aucune contrainte ne le
  * signale (voir `catalog_sync_service.ts`).
+ *
+ * ⚠️ **`mtime.getTime()`, jamais `stats.mtimeMs` (CC-244).** Les deux paraissent interchangeables :
+ * ils ne le sont pas. `mtimeMs` porte des fractions de milliseconde que `Date` tronque — donc que
+ * le `DateTime.fromJSDate(mtime)` d'avant ce lot n'a jamais vues. Le prendre décalerait les
+ * valeurs écrites en base pour tout le catalogue existant, sans qu'aucun test ne le dise.
  */
 function toCatalogItem(
   rootName: string,
@@ -68,7 +72,7 @@ function toCatalogItem(
     reference: `${rootName}/${relativePath}`,
     nature: nasFileKindFor(natureSourcePath) ?? 'other',
     displayName: name,
-    capturedAt: DateTime.fromJSDate(mtime),
+    capturedAt: mtime.getTime(),
     sizeBytes: size,
   }
 }

@@ -1,5 +1,3 @@
-import type { DateTime } from 'luxon'
-
 /**
  * L'abstraction de source du catalogue (CC-225, lot 1 de l'épique CC-224) — étroite par
  * construction : énumérer, et donner de quoi rendre une vignette. Elle ne connaît RIEN des règles
@@ -28,7 +26,28 @@ export interface CatalogSourceItem {
   reference: string
   nature: CatalogItemNature
   displayName: string | null
-  capturedAt: DateTime | null
+  /**
+   * ⚠️ **Un epoch en millisecondes, JAMAIS un `DateTime` Luxon ni un `Date` (CC-244).** Une
+   * énumération est tout-ou-rien (voir ci-dessus) : ses éléments s'accumulent TOUS en mémoire
+   * avant la moindre écriture, donc chaque octet par élément est multiplié par le contenu entier
+   * de la source. Mesuré le 2026-08-12 sur les **126 023 fichiers du NAS réel**, à travers son
+   * partage SMB : **942 o/élément** avec un `DateTime` (113,2 Mo), **277 o/élément** avec un epoch
+   * (33,3 Mo) — Luxon pesait à lui seul 80 Mo sur 113, pour porter une date qui ne sert qu'une
+   * fois, à l'écriture Lucid. Une énumération SYNTHÉTIQUE aux chemins plus longs (le pire cas
+   * retenu pour dimensionner `MAX_NAS_WALK_ITEMS`) donne 1 018 / 465 / 369 o par élément selon
+   * qu'on porte un `DateTime`, un `Date` ou un epoch.
+   *
+   * ⚠️ **La conversion vit dans `catalog_sync_service.ts`, et NULLE PART ailleurs** : c'est le
+   * seul consommateur de ce champ. Ne « simplifie » pas en refabriquant un `DateTime` dans une
+   * source — ce serait rétablir exactement le coût que ce champ existe pour éviter.
+   *
+   * ⚠️ **`0` est une valeur LÉGITIME (1ᵉʳ janvier 1970), et elle est *falsy*.** Tout test de ce
+   * champ s'écrit `=== null`, jamais une vérité au sens JavaScript : un `mtime` cassé à l'epoch 0
+   * — ce qu'un NAS produit sans prévenir — deviendrait sinon `captured_at NULL` en base, sans
+   * erreur, sans test rouge. Un `DateTime | null` ne pouvait pas produire ce mode d'échec, un
+   * objet étant toujours *truthy* ; cette représentation, si.
+   */
+  capturedAt: number | null
   sizeBytes: number | null
 }
 

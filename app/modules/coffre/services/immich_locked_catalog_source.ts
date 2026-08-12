@@ -9,12 +9,26 @@ import ImmichSessionClient, {
   type ImmichLockedCatalogAsset,
 } from '#modules/coffre/services/immich_session_client'
 
+/**
+ * ⚠️ **`capturedAt` traverse ici, et c'est le seul endroit du chemin Immich qui change (CC-244).**
+ * `CatalogSourceItem.capturedAt` porte désormais un epoch, pour une raison qui appartient au
+ * parcours NAS (une énumération tout-ou-rien de 126 023 éléments, où Luxon pesait 80 Mo sur 113) —
+ * mais le contrat est PARTAGÉ, donc cette source le suit. C'est le prix de l'abstraction de
+ * CC-225, assumé par le ticket, pas un dégât collatéral.
+ *
+ * ⚠️ **`ImmichLockedCatalogAsset` garde son `DateTime`, et `immich_session_client.ts` n'a pas
+ * bougé d'une ligne** : c'est un fichier sensible (session partagée, élévation PIN, reprise sur
+ * expiration) qu'on ne remanie pas pour une conversion qui tient sur une expression. Le pic
+ * mémoire du chemin Immich ne s'en trouve pas aggravé : ce `map` copiait déjà la *référence* du
+ * `DateTime`, il copie désormais un nombre, et les `DateTime` restent tenus par le tableau
+ * `assets` exactement comme avant.
+ */
 function toCatalogItem(asset: ImmichLockedCatalogAsset): CatalogSourceItem {
   return {
     reference: asset.assetId,
     nature: asset.nature,
     displayName: asset.displayName,
-    capturedAt: asset.capturedAt,
+    capturedAt: asset.capturedAt?.toMillis() ?? null,
     sizeBytes: asset.sizeBytes,
   }
 }

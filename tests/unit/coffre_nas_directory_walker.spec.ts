@@ -1,5 +1,5 @@
 import { test } from '@japa/runner'
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { walkNasRoots } from '#modules/coffre/services/nas_directory_walker'
@@ -42,7 +42,8 @@ test.group('Coffre / le parcours du catalogue NAS', (group) => {
   })
 
   test('un fichier de premier niveau est découvert, avec ses métadonnées', async ({ assert }) => {
-    await writeFile(join(racine, 'plage.jpg'), 'x'.repeat(2048))
+    const chemin = join(racine, 'plage.jpg')
+    await writeFile(chemin, 'x'.repeat(2048))
 
     const { items } = await walkNasRoots([{ name: 'root', path: racine }])
 
@@ -51,7 +52,29 @@ test.group('Coffre / le parcours du catalogue NAS', (group) => {
     assert.equal(items[0].displayName, 'plage.jpg')
     assert.equal(items[0].nature, 'photo')
     assert.equal(items[0].sizeBytes, 2048)
-    assert.isNotNull(items[0].capturedAt)
+
+    // ⚠️ La date est comparée à la `mtime` RÉELLE du fichier, pas seulement constatée non nulle
+    // (CC-244) : « non nul » resterait vert si la représentation dérivait de quelques heures, ou
+    // passait des millisecondes aux secondes. C'est la valeur exacte qui compte, puisque c'est
+    // elle qui part en base.
+    const { mtime } = await stat(chemin)
+    assert.equal(items[0].capturedAt, mtime.getTime())
+  })
+
+  test('⚠️ une `mtime` à l’epoch 0 rend `capturedAt: 0`, jamais `null`', async ({ assert }) => {
+    // Un NAS produit sans prévenir des dates de modification cassées ; `0` est un epoch
+    // parfaitement légitime (1ᵉʳ janvier 1970) et il est *falsy*. Le contrat précédent
+    // (`DateTime | null`) ne pouvait pas confondre les deux — un objet est toujours *truthy* —,
+    // celui-ci le peut : voir `capturedAtFor` dans `catalog_sync_service.ts`, et le test qui
+    // prouve la même chose CONTRE LA BASE dans `coffre_catalog_sync_nas.spec.ts`.
+    const chemin = join(racine, 'sans-date.jpg')
+    await writeFile(chemin, 'contenu')
+    await utimes(chemin, new Date(0), new Date(0))
+
+    const { items } = await walkNasRoots([{ name: 'root', path: racine }])
+
+    assert.lengthOf(items, 1)
+    assert.strictEqual(items[0].capturedAt, 0)
   })
 
   test('⚠️ la référence porte l’identifiant de sa racine — le cœur du ticket', async ({

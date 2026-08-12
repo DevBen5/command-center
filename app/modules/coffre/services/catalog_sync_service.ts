@@ -4,6 +4,20 @@ import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import CoffreCatalogItem from '#modules/coffre/models/coffre_catalog_item'
 import type { CatalogEnumeration, CatalogSourceKey } from '#modules/coffre/services/catalog_source'
 
+/**
+ * L'UNIQUE point de conversion de `CatalogSourceItem.capturedAt` (CC-244) — les sources portent un
+ * epoch, la base porte un `DateTime`, et la traduction n'a lieu qu'ici, au moment de l'écriture.
+ *
+ * ⚠️ **`=== null`, jamais `item.capturedAt ? … : null`.** `0` est un epoch parfaitement légitime
+ * (1ᵉʳ janvier 1970) et il est *falsy* : un `mtime` cassé à l'epoch 0 — ce qu'un NAS produit sans
+ * prévenir — deviendrait `captured_at NULL` en base, sans erreur et sans test rouge. Le type
+ * précédent (`DateTime | null`) ne pouvait pas produire ce mode d'échec, un objet étant toujours
+ * *truthy* ; celui-ci, si. C'est la seule ligne de ce lot qui casse en silence.
+ */
+function capturedAtFor(epochMs: number | null): DateTime | null {
+  return epochMs === null ? null : DateTime.fromMillis(epochMs)
+}
+
 export interface CatalogSyncOutcome {
   discovered: number
   updated: number
@@ -55,7 +69,7 @@ class CatalogSyncService {
               reference: item.reference,
               nature: item.nature,
               displayName: item.displayName,
-              capturedAt: item.capturedAt,
+              capturedAt: capturedAtFor(item.capturedAt),
               sizeBytes: item.sizeBytes,
               discoveredAt: now,
               lastSeenAt: now,
@@ -67,7 +81,7 @@ class CatalogSyncService {
         } else {
           existing.nature = item.nature
           existing.displayName = item.displayName
-          existing.capturedAt = item.capturedAt
+          existing.capturedAt = capturedAtFor(item.capturedAt)
           existing.sizeBytes = item.sizeBytes
           existing.lastSeenAt = now
           // ⚠️ Réapparu : un élément qui avait été marqué absent puis revu redevient présent.
