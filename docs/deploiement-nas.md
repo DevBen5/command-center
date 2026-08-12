@@ -187,9 +187,9 @@ toujours mais ne fait plus rien (aucun seeder enregistré).
 
 ## 4 bis. Le jour où vous ne pouvez plus entrer
 
-`node ace auth:reset-account <email>` repose un mot de passe sur un compte **et** désarme son
-second facteur — secret TOTP, codes de secours, anti-rejeu (CC-129). C'est la seule issue quand
-le téléphone *et* les codes de secours sont perdus sur une installation à un seul
+`node ace auth:reset-account <email>` repose un mot de passe sur un compte **et** désarme sa
+double authentification — secret TOTP, codes de secours, anti-rejeu (CC-129). C'est la seule issue
+quand le téléphone *et* les codes de secours sont perdus sur une installation à un seul
 administrateur : la sortie prévue par CC-114 est « un **autre** administrateur », qui n'existe
 pas dans ce cas.
 
@@ -319,7 +319,7 @@ ce nom pendant la durée du `max-age`, même si la règle est supprimée. C'est 
 c'est un aller simple : il faut vider l'état HSTS du navigateur pour revenir en arrière.
 
 **Profil de contrôle d'accès : Non configuré** — l'application a son propre login, son
-throttle (CC-78) et son second facteur optionnel (CC-114). Un profil DSM (filtrage par IP)
+throttle (CC-78) et sa double authentification optionnelle (CC-114). Un profil DSM (filtrage par IP)
 n'aurait de sens que devant une application qui n'authentifie pas elle-même.
 
 **Pas d'en-têtes WebSocket ici.** Le bouton « Créer → WebSocket » de l'onglet En-tête
