@@ -34,6 +34,7 @@ Le lot porte quatre affirmations, et elles ne se vérifient pas au même endroit
 | l'adaptateur NAS de l'abstraction `CatalogSource` délègue au parcours sans rattraper une racine absente (CC-226) | `coffre_catalog_source_nas.spec.ts` |
 | la commande `coffre:sync-catalog` avec la source NAS réelle : découverte avec métadonnées exactes, racine absente → échec propre et catalogue INTACT, second passage sans doublon, fichier supprimé du disque marqué absent puis réapparu (CC-226) | `coffre_catalog_sync_nas.spec.ts` |
 | `COFFRE_NAS_ROOTS` exige un identifiant déclaré par racine (`nom=chemin`), échoue au démarrage sur une racine sans nom, un nom vide, un nom portant `/`, ou deux racines de même nom ; la référence de catalogue porte cet identifiant, deux racines partageant un fichier de même chemin relatif produisent deux lignes distinctes (CC-233) | `coffre_nas_config.spec.ts`, `coffre_nas_directory_walker.spec.ts`, `coffre_catalog_sync_nas.spec.ts` |
+| `CatalogSourceItem.capturedAt` porte un EPOCH : le parcours rend exactement la `mtime` réelle du fichier, l'epoch 0 reste une date et n'est jamais confondu avec `null`, l'adaptateur Immich convertit à la frontière ; au franchissement du plafond, `truncated` reste vrai et AUCUN élément n'est marqué absent (CC-244) | `coffre_nas_directory_walker.spec.ts`, `coffre_catalog_source_immich.spec.ts`, `coffre_catalog_sync_nas.spec.ts` |
 | le générateur de vignettes NAS lit réellement les 5 formats photo (dont un HEIC RÉEL, jamais un fichier renommé — le codepath que `sharp` ne couvre pas), borne dimensions et octets de sortie, refuse une source trop volumineuse AVANT tout appel au binaire, refuse un fichier corrompu ou un dossier-piège sans exception non catchée (CC-228) | `coffre_nas_thumbnail_generator.spec.ts` |
 | `thumbnailFor()` du catalogue NAS résout TOUJOURS contre la racine nommée de la référence, jamais l'essai-dans-l'ordre — reproduit l'angle « vignette » de la collision CC-233 (CC-228) | `coffre_catalog_source_nas.spec.ts`, `coffre_nas_roots.spec.ts` (`resolveInRoot`) |
 | le cache de vignettes est chiffré par la clé du coffre (colonne brute illisible), un chiffré illisible est traité comme une absence (jamais un refus), une regénération REMPLACE la ligne (CC-228) | `coffre_catalog_thumbnail_cache.spec.ts` |
@@ -335,6 +336,15 @@ reproduit l'écrasement silencieux du ticket** — deux racines de fixtures port
 de même chemin relatif produisent deux références distinctes (`principale/photo.jpg`,
 `secondaire/photo.jpg`), jamais une seule.
 
+⚠️ **Depuis CC-244, `capturedAt` est un EPOCH et deux tests le tiennent.** Le premier compare la
+valeur rendue à la `mtime` RÉELLE du fichier (`stat(...).mtime.getTime()`), là où l'assertion
+d'avant se contentait de `isNotNull` : « une date est là » resterait vert si la représentation
+dérivait de quelques heures ou passait des millisecondes aux secondes — mesuré, une valeur décalée
+d'une demi-milliseconde fait bien rougir ce test-ci. Le second pose une `mtime` à **l'epoch 0**
+(`utimes(chemin, new Date(0), new Date(0))`) et exige `capturedAt === 0` : `0` est *falsy*, donc
+c'est le seul mode d'échec silencieux que cette représentation a créé — le pendant en base est
+dans `coffre_catalog_sync_nas.spec.ts`.
+
 ### `tests/unit/coffre_catalog_source_nas.spec.ts`
 
 L'implémentation NAS de l'abstraction `CatalogSource` (CC-226, `thumbnailFor` depuis CC-228), avec
@@ -366,6 +376,19 @@ chemin relatif, synchronisées, puis assertion que les DEUX lignes existent en b
 `CatalogSyncService#applyEnumeration` trouverait la ligne du premier fichier en cherchant celle du
 second et la mettrait à jour à sa place — une seule ligne, sans qu'aucune contrainte ne s'y
 oppose ; c'est ce que ce test rougit sans le correctif.
+
+⚠️ **Depuis CC-244, deux tests de plus, et le second referme un trou de couverture.** Le premier
+pose une `mtime` à l'epoch 0 et vérifie **en base** que `captured_at` porte bien 1970 plutôt que
+`NULL` — le pendant du test unitaire du parcours, mais sur le chemin d'écriture, là où
+`capturedAtFor` peut confondre « pas de date » et « date valant zéro ». Le second relie deux
+gardes qui n'étaient prouvées que **séparément** : le plafond (`coffre_nas_directory_walker.spec.ts`,
+sans base) et le non-marquage sur `truncated` (`coffre_catalog_sync.spec.ts`, sur un drapeau posé
+à la main, source **Immich**). Il fait franchir le plafond au **vrai** parcours NAS
+(`walkNasRoots(..., { maxItems: 1 })` sur une racine à deux fichiers), applique le résultat à une
+base qui porte déjà les deux lignes, et exige `markedAbsent: 0` et aucune `missing_since` posée.
+Sans ce lien, relever le plafond aurait pu casser la chaîne sans qu'aucune des deux moitiés ne
+rougisse. Le test d'écriture des métadonnées, lui, compare désormais l'INSTANT écrit en base à la
+`mtime` réelle du fichier, ce qui fait rougir un `fromSeconds` mis à la place d'un `fromMillis`.
 
 ### `tests/functional/modules/coffre_catalog_sync.spec.ts`
 

@@ -1284,15 +1284,64 @@ Les quatre pièges du ticket, et comment chacun est tenu :
    avalée, cas normal déjà documenté ailleurs dans le module. Un dossier illisible en cours de
    route signifie qu'on ne sait pas ce qu'il contient : le traiter comme vide risquerait de faire
    marquer absent tout ce qu'il porte réellement.
-4. **Volume.** `MAX_NAS_WALK_ITEMS` (200 000) — même doctrine que `MAX_CATALOG_PAGES` côté
-   Immich : un garde-fou anti-boucle-infinie, PAS une borne réaliste pour un NAS familial (qui
-   porte des dizaines de milliers de fichiers, pas des centaines de milliers). Au-delà,
-   `truncated: true` plutôt qu'un blocage. ⚠️ **Pas de reprise incrémentale ni de saut par
-   `mtime` de dossier dans ce lot** — chaque passage reparcourt tout. Aucun état persisté ne
-   permettrait de savoir ce qui a déjà été vu sans agrandir le schéma au-delà de ce lot ; à cette
-   échelle (dizaines de milliers de fichiers, commande manuelle), un parcours complet reste de
-   l'ordre de la seconde à la minute, pas un blocage. Limite connue, assumée, pas un oubli — voir
-   plus bas si elle devient un problème réel à l'usage.
+4. **Volume.** `MAX_NAS_WALK_ITEMS` — même doctrine que `MAX_CATALOG_PAGES` côté Immich : un
+   garde-fou anti-boucle-infinie, PAS une borne de fonctionnement. Au-delà, `truncated: true`
+   plutôt qu'un blocage. ⚠️ **Pas de reprise incrémentale ni de saut par `mtime` de dossier** —
+   chaque passage reparcourt tout. Aucun état persisté ne permettrait de savoir ce qui a déjà été
+   vu sans agrandir le schéma ; limite connue, assumée, pas un oubli.
+
+   ⚠️ **Deux phrases de ce paragraphe ont été DÉMENTIES par la mesure, et c'est CC-244 qui les a
+   corrigées — voir « Ce que le parcours coûte » plus bas.** Elles disaient « des dizaines de
+   milliers de fichiers, pas des centaines de milliers » et « un parcours complet reste de l'ordre
+   de la seconde à la minute ». Le vrai NAS porte **126 023 fichiers** et le parcours prend
+   **108 à 128 s** sur le partage SMB réel. La valeur du plafond ne se recopie donc plus ici : elle
+   vit dans `nas_directory_walker.ts`, **avec l'arithmétique qui la fonde**, pour qu'un futur
+   lecteur la recalcule au lieu de la deviner.
+
+### Ce que le parcours coûte, mesuré contre un VRAI partage SMB (CC-244)
+
+⚠️ **Premier lot du coffre à avoir exercé quoi que ce soit contre un vrai partage réseau** — tout
+le reste de ce fichier dit « prouvé contre un filesystem local, jamais contre un partage SMB », et
+c'est resté vrai jusqu'au 2026-08-12. Ce jour-là, le partage `//nas-ben.local/…` a été monté en
+cifs **lecture seule** sur `/mnt/nas-a-trier` et déclaré comme seconde racine de `COFFRE_NAS_ROOTS`.
+Ce qui suit vient de `walkNasRoots` exécuté dessus, pas d'une extrapolation :
+
+| | Avant CC-244 | Après CC-244 |
+|---|---|---|
+| Éléments | 126 023 | 126 023 |
+| Mémoire retenue | **113,2 Mo** (942 o/élt) | **33,3 Mo** (277 o/élt) |
+| Pic RSS du process | 289 Mo | 207 Mo |
+| Durée | 108,5 s | 127,8 s |
+
+⚠️ **La durée n'est pas une régression** : le parcours est dominé par la latence SMB (`readdir` +
+un `stat` par fichier), et deux exécutions du MÊME code varient d'autant. Ce lot ne touche à aucun
+appel système ; il ne change que ce qu'on garde en mémoire de chaque réponse.
+
+⚠️ **`enumerate()` est tout-ou-rien : tout le parcours est en mémoire avant la moindre écriture**
+(voir `catalog_source.ts`). C'est ce qui rend le coût PAR ÉLÉMENT décisif — il est multiplié par le
+contenu entier de la source. Luxon pesait à lui seul **80 Mo sur les 113** du tableau ci-dessus,
+pour porter une date qui ne sert qu'une fois, à l'écriture Lucid ; `CatalogSourceItem.capturedAt`
+porte donc un **epoch**, et la conversion vit dans `catalog_sync_service.ts`, nulle part ailleurs.
+
+⚠️ **Ne confonds pas les deux jeux de mesures.** Le tableau ci-dessus vient du **NAS réel** (942
+puis 277 o/élément). Une énumération **synthétique** de même volume mais aux chemins plus longs
+donne 1 018 / 465 / 369 o par élément selon qu'elle porte un `DateTime`, un `Date` ou un epoch :
+c'est ce pire cas — pas le réel — qui dimensionne `MAX_NAS_WALK_ITEMS`, pour que le plafond tienne
+aussi sur une arborescence plus profonde que celle mesurée.
+
+⚠️ **Le seul mode d'échec silencieux que cette représentation a créé : `0` est *falsy*.** Un
+`mtime` cassé à l'epoch 0 — ce qu'un NAS produit sans prévenir — deviendrait `captured_at NULL`
+sous un `item.capturedAt ? … : null`, sans erreur ni test rouge. Un `DateTime | null` ne pouvait
+pas confondre les deux, un objet étant toujours *truthy*. D'où le `=== null` explicite et deux
+tests dédiés, un sur le parcours, un contre la base.
+
+⚠️ **Ce que ce partage-là ne prouve toujours pas.** Aucun `@eaDir`, `#recycle` ni `@tmp` n'y a été
+trouvé jusqu'à quatre niveaux de profondeur — ce qui ne dit **pas** que DSM n'en crée jamais : ce
+partage précis n'a probablement aucune indexation Synology Photos active. `SKIPPED_ENTRY_NAMES`
+reste donc une précaution non confirmée sur cette installation, pas une garde vérifiée. Et rien
+ici ne dit ce que devient le parcours si le partage se coupe **pendant** son exécution : le
+contrat tout-ou-rien fait remonter l'erreur `readdir`, mais ce chemin-là n'a pas été provoqué en
+vrai.
 
 ### La décision laissée ouverte par le ticket : `other`
 
@@ -2285,15 +2334,16 @@ Le détail par fichier est dans [TESTS.md](./TESTS.md) — à lire avant de **mo
   ou ailleurs — le parsing défensif (repli sur `null`/`'other'`) protège contre un crash, pas
   contre des valeurs silencieusement fausses si la forme réelle diffère. `node ace
   coffre:sync-catalog` n'a jamais été exécuté contre une vraie instance Immich.
-- ⚠️ **La source NAS du catalogue (CC-226) n'a jamais été exercée contre un vrai NAS Synology.**
-  Le parcours est prouvé contre un vrai filesystem local (dossiers temporaires, vrais liens
-  symboliques), mais rien ici ne dit comment `readdir`/`realpath` se comportent réellement sur un
-  partage monté par SMB/NFS avec sa latence réseau propre — ni si `@eaDir`/`#recycle` sont
-  effectivement les seuls dossiers internes que DSM crée sur l'installation cible. Un premier
-  `node ace coffre:sync-catalog` en conditions réelles reste à faire avant de faire confiance au
-  volume/temps qu'il prendra. Le NAS n'a pas non plus de test de volumétrie réelle (dizaines de
-  milliers de fichiers) : seul le mécanisme de plafond (`truncated`) est prouvé, avec une petite
-  valeur injectée.
+- ⚠️ **La source NAS du catalogue (CC-226) — cette limite a été LEVÉE EN PARTIE par CC-244, ne la
+  recopie plus telle quelle.** Elle disait « n'a jamais été exercée contre un vrai NAS Synology ».
+  Depuis le 2026-08-12, le parcours **a** tourné sur un vrai partage SMB monté en lecture seule
+  (126 023 fichiers, 108 à 128 s, mémoire mesurée), et `node ace coffre:sync-catalog` a réellement
+  écrit un sous-arbre de 10 701 fichiers en base — voir « Ce que le parcours coûte » plus haut. Ce
+  qui **reste** vrai : rien ne dit ce que devient le parcours si le partage se coupe en cours
+  d'exécution ; et `@eaDir`/`#recycle`/`@tmp` sont restés introuvables jusqu'à quatre niveaux de
+  profondeur sur ce partage, ce qui ne confirme pas qu'ils soient les seuls dossiers internes que
+  DSM crée ailleurs. La volumétrie, elle, n'est plus une inconnue : c'est elle qui a fondé le
+  plafond de `nas_directory_walker.ts`.
 - ⚠️ **La navigation par dossier NAS et la carte Immich verrouillé (CC-239) héritent de la même
   limite qu'`GET /coffre/immich/dossier` (CC-205) — le parcours et le confinement (`browseNasFolder`)
   sont prouvés contre un vrai filesystem local, jamais contre un vrai partage SMB monté par Docker.**
