@@ -156,5 +156,12 @@
     "previousPage": "Page précédente",
     "nextPage": "Page suivante",
     "pageOf": "Page {page} / {total}"
+  },
+  "video": {
+    "play": "Lire la vidéo",
+    "close": "Fermer",
+    "download": "Télécharger le fichier d’origine",
+    "playbackError": "Cette vidéo n’a pas pu être lue. Le téléchargement, lui, reste possible.",
+    "transcodedHint": "Vidéo convertie à la volée pour votre navigateur : le déplacement du curseur est limité à ce qui est déjà chargé."
   }
 }

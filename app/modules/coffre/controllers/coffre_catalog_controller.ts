@@ -133,6 +133,27 @@ export default class CoffreCatalogController {
     return `/coffre/immich/dossier/${encodeURIComponent(item.reference)}/thumbnail`
   }
 
+  /**
+   * L'URL de lecture d'une ligne (CC-241) — **construite ici, exactement comme la vignette**, et
+   * pas côté client.
+   *
+   * ⚠️ **C'est ce qui évite d'exposer `reference` dans la charge utile.** Le client a besoin de
+   * savoir *où lire*, pas *ce que la ligne référence* : lui envoyer `reference` pour qu'il fabrique
+   * l'URL lui-même sortirait l'UUID Immich et le chemin NAS de leur seul usage légitime. La
+   * vignette avait déjà tranché dans ce sens ; ce lot ne rouvre pas la question.
+   *
+   * - `nas` + `video` → le proxy de catalogue (`:id` de notre ligne, jamais le chemin).
+   * - `immich_locked` + `video` → le relais du flux transcodé par Immich lui-même.
+   * - toute autre nature → `null` : il n'y a rien à lire dans un lecteur vidéo.
+   */
+  #videoUrlFor(item: CoffreCatalogItem): string | null {
+    if (item.nature !== 'video') return null
+
+    return item.source === 'nas'
+      ? `/coffre/catalog/nas/${item.id}/stream`
+      : `/coffre/immich/dossier/${encodeURIComponent(item.reference)}/video`
+  }
+
   #serialize(
     item: CoffreCatalogItem,
     linkedEntries: Awaited<ReturnType<CatalogLinkService['linkedEntriesFor']>>
@@ -148,6 +169,7 @@ export default class CoffreCatalogController {
       sizeBytes: item.sizeBytes,
       missingSince: item.missingSince?.toISO() ?? null,
       thumbnailUrl: this.#thumbnailUrlFor(item),
+      videoUrl: this.#videoUrlFor(item),
       linkedEntry:
         linked === null ? null : { id: linked.entryId, type: linked.type, title: linked.title },
     }

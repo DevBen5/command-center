@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Film, FileQuestion, ImageIcon } from 'lucide-vue-next'
+import { Film, FileQuestion, ImageIcon, Play } from 'lucide-vue-next'
+import VideoPlayerModal from './VideoPlayerModal.vue'
 import {
   applyFilterChange,
   buildCatalogQueryString,
@@ -31,6 +32,12 @@ interface CatalogItemView {
   sizeBytes: number | null
   missingSince: string | null
   thumbnailUrl: string | null
+  /**
+   * L'URL de lecture (CC-241), `null` pour tout ce qui n'est pas une vidéo. ⚠️ **Construite par le
+   * SERVEUR**, comme `thumbnailUrl` : la fabriquer ici exigerait `reference` dans la charge utile,
+   * donc l'UUID Immich et le chemin NAS en clair côté client.
+   */
+  videoUrl: string | null
   linkedEntry: { id: number; type: string; title: string } | null
 }
 
@@ -65,6 +72,13 @@ const loading = ref(false)
 const throttled = ref(false)
 const errorMessage = ref<string | null>(null)
 const brokenThumbnails = ref<Set<number>>(new Set())
+const videoLue = ref<{ url: string; title: string } | null>(null)
+
+/** ⚠️ Une ligne dont `videoUrl` est `null` n'est pas cliquable — jamais un lecteur sur du vide. */
+function playItem(item: CatalogItemView): void {
+  if (item.videoUrl === null) return
+  videoLue.value = { url: item.videoUrl, title: item.displayName ?? t('coffre.catalog.unnamed') }
+}
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 // ⚠️ Un jeton par requête : une réponse en retard (recherche tapée vite) ne doit jamais écraser un
@@ -161,7 +175,14 @@ onUnmounted(() => {
       <select
         class="rounded-[7px] border border-line-2 bg-panel-2 px-3 py-2 text-[13px] text-txt"
         :value="filters.nature ?? ''"
-        @change="updateFilters({ nature: ($event.target as HTMLSelectElement).value === '' ? null : (($event.target as HTMLSelectElement).value as CatalogItemNature) })"
+        @change="
+          updateFilters({
+            nature:
+              ($event.target as HTMLSelectElement).value === ''
+                ? null
+                : (($event.target as HTMLSelectElement).value as CatalogItemNature),
+          })
+        "
       >
         <option value="">{{ t('coffre.catalog.allNatures') }}</option>
         <option value="photo">{{ t('coffre.catalog.naturePhoto') }}</option>
@@ -174,8 +195,12 @@ onUnmounted(() => {
         :value="`${filters.sort}:${filters.order}`"
         @change="
           updateFilters({
-            sort: (($event.target as HTMLSelectElement).value.split(':')[0] as CatalogFilters['sort']),
-            order: (($event.target as HTMLSelectElement).value.split(':')[1] as CatalogFilters['order']),
+            sort: ($event.target as HTMLSelectElement).value.split(
+              ':'
+            )[0] as CatalogFilters['sort'],
+            order: ($event.target as HTMLSelectElement).value.split(
+              ':'
+            )[1] as CatalogFilters['order'],
           })
         "
       >
@@ -195,10 +220,16 @@ onUnmounted(() => {
       </label>
     </section>
 
-    <p v-if="throttled" class="rounded-[10px] border border-warn/40 bg-panel-2 p-4 text-[13px] text-warn">
+    <p
+      v-if="throttled"
+      class="rounded-[10px] border border-warn/40 bg-panel-2 p-4 text-[13px] text-warn"
+    >
       {{ t('coffre.catalog.throttled') }}
     </p>
-    <p v-else-if="errorMessage" class="rounded-[10px] border border-bad/40 bg-panel-2 p-4 text-[13px] text-bad">
+    <p
+      v-else-if="errorMessage"
+      class="rounded-[10px] border border-bad/40 bg-panel-2 p-4 text-[13px] text-bad"
+    >
       {{ errorMessage }}
     </p>
 
@@ -216,7 +247,26 @@ onUnmounted(() => {
         class="overflow-hidden rounded-[12px] border border-line bg-panel"
         :class="{ 'opacity-55': item.missingSince !== null }"
       >
-        <div class="grid aspect-square place-items-center bg-panel-2">
+        <component
+          :is="item.videoUrl === null ? 'div' : 'button'"
+          :type="item.videoUrl === null ? undefined : 'button'"
+          class="relative grid aspect-square w-full place-items-center bg-panel-2"
+          :class="{ 'cursor-pointer hover:opacity-80': item.videoUrl !== null }"
+          :aria-label="item.videoUrl === null ? undefined : t('coffre.video.play')"
+          @click="playItem(item)"
+        >
+          <!-- ⚠️ L'incrustation ne se superpose QU'À une vignette réelle. Sur une carte sans
+               vignette (une vidéo NAS : CC-228 ne génère de vignette que pour les photos), c'est la
+               pastille de nature ci-dessous qui porte l'icône `Play` — sans cette distinction, deux
+               icônes se chevaucheraient exactement au même endroit. -->
+          <span
+            v-if="
+              item.videoUrl !== null && item.thumbnailUrl !== null && !brokenThumbnails.has(item.id)
+            "
+            class="absolute inset-0 grid place-items-center text-txt"
+          >
+            <Play :size="34" :stroke-width="1.5" aria-hidden="true" />
+          </span>
           <img
             v-if="item.thumbnailUrl !== null && !brokenThumbnails.has(item.id)"
             :src="item.thumbnailUrl"
@@ -226,7 +276,12 @@ onUnmounted(() => {
             @error="onThumbnailError(item.id)"
           />
           <div v-else class="grid place-items-center gap-1 text-txt-3">
-            <Film v-if="item.nature === 'video'" :size="28" :stroke-width="1.5" aria-hidden="true" />
+            <Film
+              v-if="item.nature === 'video'"
+              :size="28"
+              :stroke-width="1.5"
+              aria-hidden="true"
+            />
             <FileQuestion
               v-else-if="item.nature === 'other'"
               :size="28"
@@ -234,9 +289,11 @@ onUnmounted(() => {
               aria-hidden="true"
             />
             <ImageIcon v-else :size="28" :stroke-width="1.5" aria-hidden="true" />
-            <span class="text-[10.5px] uppercase tracking-[.08em]">{{ natureLabel(item.nature) }}</span>
+            <span class="text-[10.5px] uppercase tracking-[.08em]">{{
+              natureLabel(item.nature)
+            }}</span>
           </div>
-        </div>
+        </component>
 
         <div class="grid gap-1 p-2.5">
           <p class="truncate text-[12.5px] font-semibold text-txt" :title="item.displayName ?? ''">
@@ -252,12 +309,25 @@ onUnmounted(() => {
         </div>
       </article>
 
-      <p v-if="!loading && items.length === 0" class="col-span-full py-8 text-center text-[13px] text-txt-3">
+      <p
+        v-if="!loading && items.length === 0"
+        class="col-span-full py-8 text-center text-[13px] text-txt-3"
+      >
         {{ t('coffre.catalog.empty') }}
       </p>
     </section>
 
-    <footer v-if="!throttled && !errorMessage && totalPages > 1" class="flex items-center justify-center gap-3">
+    <VideoPlayerModal
+      v-if="videoLue !== null"
+      :url="videoLue.url"
+      :title="videoLue.title"
+      @close="videoLue = null"
+    />
+
+    <footer
+      v-if="!throttled && !errorMessage && totalPages > 1"
+      class="flex items-center justify-center gap-3"
+    >
       <button
         type="button"
         class="rounded-[7px] border border-line-2 px-3.5 py-2 text-[12.5px] text-txt hover:border-aqua disabled:cursor-not-allowed disabled:opacity-50"

@@ -617,6 +617,13 @@ router
             .get('/catalog/nas/:id/thumbnail', [CoffreCatalogNasController, 'thumbnail'])
             .where('id', router.matchers.number())
             .use(middleware.can('coffre.view'))
+          // La lecture d'un élément du catalogue NAS (CC-241) : le pendant streaming de la
+          // vignette ci-dessus, pour la grille de recherche — sans lui, trouver une vidéo par la
+          // recherche puis cliquer dessus ne faisait rien.
+          router
+            .get('/catalog/nas/:id/stream', [CoffreCatalogNasController, 'stream'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('coffre.view'))
           // Le dossier verrouillé d'Immich (CC-205) : second mode d'authentification (session +
           // PIN) pour un contenu qu'une clé d'API ne peut pas voir. `:assetId` est un UUID Immich
           // brut, validé en contrôleur (`isImmichAssetId`) — voir son fichier pour pourquoi ce
@@ -626,6 +633,12 @@ router
             .use(middleware.can('coffre.view'))
           router
             .get('/immich/dossier/:assetId/thumbnail', [CoffreImmichFolderController, 'thumbnail'])
+            .use(middleware.can('coffre.view'))
+          // La lecture d'une vidéo du dossier verrouillé (CC-241) : relais du flux transcodé par
+          // Immich lui-même (`/video/playback`), `Range` transmis dans les deux sens. Aucun ffmpeg
+          // — le nôtre est réservé aux fichiers LOCAUX, voir le contrôleur.
+          router
+            .get('/immich/dossier/:assetId/video', [CoffreImmichFolderController, 'video'])
             .use(middleware.can('coffre.view'))
           // La grille du catalogue (CC-227) : la page-coquille et son endpoint JSON paginé.
           // Aucune donnée de catalogue en prop Inertia — voir `CoffreCatalogController`.
@@ -646,6 +659,12 @@ router
             .use(middleware.can('coffre.view'))
           router
             .get('/nas/thumbnail', [CoffreNasBrowseController, 'thumbnail'])
+            .use(middleware.can('coffre.view'))
+          // La lecture d'un fichier PARCOURU (CC-241) : `root`+`path` en clair, confinés par la
+          // même `resolveInRoot` que la vignette ci-dessus. ⚠️ Deux niveaux, donc distincte de
+          // `/coffre/nas/:id/stream` (trois niveaux, `:id` numérique) — aucune ambiguïté de forme.
+          router
+            .get('/nas/stream', [CoffreNasBrowseController, 'stream'])
             .use(middleware.can('coffre.view'))
           // L'écriture sur le NAS (CC-240) : envoyer, renommer, déplacer, supprimer. `coffre.write`
           // — jamais `coffre.view` — et confinées au même mécanisme que la navigation

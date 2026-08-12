@@ -2,8 +2,11 @@
 
 Routes `/coffre/ouvrir` · `/coffre` · `/coffre/:section` · `/coffre/:id/secret` ·
 `/coffre/media/:id/thumbnail` · `/coffre/nas/:id/stream` · `/coffre/catalog/nas/:id/thumbnail` ·
-`/coffre/immich/dossier` · `/coffre/immich/dossier/:assetId/thumbnail` · `/coffre/catalog` ·
+`/coffre/catalog/nas/:id/stream` · `/coffre/immich/dossier` ·
+`/coffre/immich/dossier/:assetId/thumbnail` · `/coffre/immich/dossier/:assetId/video` ·
+`/coffre/catalog` ·
 `/coffre/catalog/items` · `/coffre/nas` · `/coffre/nas/browse` · `/coffre/nas/thumbnail` ·
+`/coffre/nas/stream` ·
 `/coffre/nas/upload` · `/coffre/nas/rename` · `/coffre/nas/move` · `/coffre/nas/file` ·
 `/coffre/immich` · pages Inertia
 `modules/coffre/{ouvrir, index, section, catalog, nas, immich}` · tables
@@ -141,6 +144,16 @@ controllers/coffre_nas_write_controller.ts  4 actions d'écriture NAS — AVEC �
                                          (CC-240)
 shared/csrf.ts                           PUR · jeton CSRF client, copie locale au module — un
                                          module n'importe pas chez un voisin (CC-240)
+services/video_playback.ts               PUR · le PLAN de lecture (passthrough/remux/transcode) et
+                                         les tableaux d'arguments ffprobe/ffmpeg (CC-241)
+services/video_transcode_slots.ts        la borne de transcodages simultanés, en MÉMOIRE du
+                                         process — patron d'`immich_session_state.ts` (CC-241)
+services/video_transcoder.ts             PUR-ish (binaire externe) · sonde, spawn, détection
+                                         VAAPI journalisée, mort du processus (CC-241)
+services/nas_media_response.ts           la réponse HTTP d'un fichier NAS — `Range` ou flux
+                                         généré — PARTAGÉE par trois points d'accès (CC-241)
+components/VideoPlayerModal.vue          le lecteur, sur `AppModal` — l'unique `<video>` de
+                                         contenu de source du module (CC-241)
 components/CatalogGrid.vue               la grille à plat extraite de `pages/catalog.vue`, source
                                          VERROUILLÉE en prop — consommée par `pages/immich.vue` et
                                          `pages/nas.vue` en mode recherche (CC-239)
@@ -1911,6 +1924,224 @@ câblage HTTP (capacité, throttle, traduction des refus). Restent un passage na
 propriétaire : l'apparence des boutons par fichier, le comportement de `PromptModal`/`ConfirmModal`
 sur cet écran précis, et un envoi réel depuis un téléphone (le cas d'usage cité par le ticket).
 
+## La lecture vidéo — lot 6 (CC-241, épique CC-224)
+
+Le besoin, dit par le propriétaire : **voir les vidéos depuis le coffre**, plutôt que d'aller les
+ouvrir sur le NAS ou dans Immich. Deux trous que CC-181 avait laissés — les fichiers de source **non
+rattachés à une entrée** n'avaient aucune route de lecture (alors que c'est précisément ce que les
+cartes de CC-239 affichent), et les **vidéos Immich** n'avaient rien du tout.
+
+⚠️ **Le piège qui rendrait la fonctionnalité inutile si on l'ignorait : une vidéo d'iPhone est du
+HEVC dans un `.mov`, que ni Chrome ni Firefox ne lisent.** Même famille que le `.heic` de CC-229,
+même cause (licence HEVC), et **le même échec muet** — lecteur noir, aucune erreur, rien dans la
+console. C'est le format par défaut de l'appareil qui remplit un NAS familial : le cas majoritaire,
+pas le cas limite.
+
+### Trois plans, et le premier est le nominal
+
+`videoPlaybackPlanFor` (`video_playback.ts`, **pur**) décide à partir de la sonde `ffprobe` :
+
+| plan | quand | coût | `Range` |
+|---|---|---|---|
+| `passthrough` | codecs lisibles **et** conteneur `mp4`/`webm` | zéro processus | **oui** |
+| `remux` | codecs lisibles, conteneur non (`.mov`, `.mkv`, `.avi`) | `-c copy`, quelques % | non |
+| `transcode` | codec hors liste (HEVC, AC-3…) | ré-encodage complet | non |
+
+⚠️ **Le transcodage ne s'applique JAMAIS « au cas où »** — exigence explicite du ticket, et
+`coffre_nas_video.spec.ts` l'asserte sur le **nombre de lancements du binaire**, pas seulement sur le
+corps rendu : un transcodage qui rendrait par hasard les mêmes octets passerait sinon au vert.
+
+⚠️ **`remux` existe pour ne pas payer un ré-encodage sur un `.mkv` H.264**, qui est le cas le plus
+fréquent après le HEVC. Sur le Celeron J3455 du DS918+, c'est la différence entre quelques pour cent
+de CPU et une machine à genoux.
+
+⚠️ **Le `format_name` de `ffprobe` est COMPOSITE** (`mov,mp4,m4a,3gp,3g2,mj2` pour toute la famille
+ISO-BMFF, donc pour un MP4 ordinaire) : il se découpe sur les virgules. Comparer la chaîne entière à
+`'mp4'` ne matcherait **jamais**, et toute la bibliothèque partirait en ré-empaquetage sans qu'une
+seule erreur ne le signale.
+
+⚠️ **Une sonde impossible rend `passthrough`, jamais `transcode`.** C'est le comportement d'avant ce
+lot : une image sans `ffmpeg` continue de servir ses fichiers au lieu de perdre la lecture de tout
+ce qui marchait déjà. La sonde ratée est **journalisée** — c'est un état à voir, pas à taire.
+
+### Le flux généré n'honore pas `Range`, et l'écran le dit
+
+La taille de sortie n'existe pas encore : aucun `content-range` n'est calculable. Les deux plans qui
+génèrent partent donc en 200 avec `accept-ranges: none`, en **MP4 fragmenté**
+(`frag_keyframe+empty_moov+default_base_moof` — sans quoi l'index `moov` partirait en fin de flux et
+le navigateur n'aurait rien à lire avant la fin du transcodage).
+
+⚠️ **Conséquence assumée, affichée à l'écran** (`coffre.video.transcodedHint`) : sur une vidéo
+transcodée, le curseur ne se déplace que dans ce qui est déjà tamponné. La rendre déplaçable
+demanderait du HLS — segmentation, manifeste, cache de segments — donc un autre lot, pas un réglage.
+Le composant **observe** le cas (`duration` non finie) au lieu de le recevoir en prop : le client ne
+peut pas prédire une décision que seule la sonde serveur prend.
+
+⚠️ **`cache-control: no-store` reste, et ne se rediscute pas ici.** Une vidéo mise en cache
+resterait lisible sur le disque du navigateur après verrouillage du coffre — c'est le point de
+cohérence du modèle de sécurité du module (CC-180, CC-181).
+
+### Matériel d'abord, repli logiciel — et le chemin pris est JOURNALISÉ
+
+VAAPI quand un `renderD*` de `/dev/dri` est **ouvrable**, `libx264` sinon. Le J3455 du DS918+ porte
+Intel Quick Sync (décodage HEVC 8 bits, encodage H.264 matériel) ; en logiciel pur, une seule lecture
+4K sature les quatre cœurs.
+
+- ⚠️ **Le conteneur ne reçoit PAS `/dev/dri` par défaut** (`docker-compose.install.yml`, bloc
+  `devices:` commenté). Sans la ligne, on tombe en repli logiciel — d'où la **journalisation
+  obligatoire** au premier usage : sans elle, la panne de performance est invisible et cherchée au
+  mauvais endroit. Le message nomme la cause **et** le remède.
+- ⚠️ **L'existence du nœud ne suffit pas, il faut pouvoir l'OUVRIR** (`access(R_OK|W_OK)`). Le cas
+  réel : `/dev/dri` est bien monté mais le nœud appartient au groupe `render` de l'hôte, auquel
+  l'utilisateur `node` n'appartient pas (il manque `group_add`). Se contenter de `readdir`
+  annoncerait « accélération matérielle » puis échouerait à chaque lecture — un écran noir dont la
+  cause serait cherchée dans le fichier plutôt que dans une permission.
+- ⚠️ **`renderD*`, jamais `card*`** : les secondes servent l'affichage et exigent des droits que le
+  conteneur n'a pas.
+- La détection est **mise en cache pour la vie du process** (un `readdir` par lecture serait un coût
+  pur) ; `reinitialiserAccelerationDetectee()` existe pour les tests seuls.
+
+### La borne, et la mort du processus — les deux gardes qui protègent la machine
+
+⚠️ **`MAX_TRANSCODAGES_SIMULTANES = 2`, et le dépassement rend 503 avec `retry-after`, jamais une
+attente.** Une file d'attente sur une requête HTTP de vidéo se traduirait par un lecteur figé sans
+message — exactement l'échec muet que ce lot existe pour supprimer. 503 et non 404 : ce n'est pas un
+fichier introuvable, et les confondre tromperait le diagnostic autant que l'utilisateur.
+
+- ⚠️ **Le compteur vit dans un singleton de MODULE, pas sur le service.** `VideoTranscoder` est
+  résolu par le conteneur IoC, donc reconstruit à chaque injection : un compteur porté par
+  l'instance repartirait à zéro à chaque requête et ne bornerait **rien**, sans que rien ne le dise.
+- ⚠️ **`libererCreneau` est idempotent (`Math.max(0, …)`), et ce n'est pas de la coquetterie.** Le
+  créneau est rendu par deux chemins qui arrivent tous les deux, dans un ordre non garanti — la
+  terminaison du processus et la fermeture de la réponse HTTP. Un compteur descendu à -3 laisserait
+  passer cinq transcodages avant de refuser le premier.
+- ⚠️ **Le `remux` compte aussi**, alors qu'il ne ré-encode rien : il tient un processus et un tube
+  ouverts pour toute la durée de la lecture.
+
+⚠️ **Un ffmpeg est TUÉ quand le client se déconnecte** — `response.response.on('close')`. Sans ça,
+fermer l'onglet laisse le transcodage tourner jusqu'au dernier octet du fichier : quelques onglets
+fermés suffisent à saturer un NAS pour personne. `SIGTERM` puis **`SIGKILL` de secours** après 2 s :
+un ffmpeg bloqué sur une écriture dans un tube dont plus personne ne lit l'autre bout n'atteint
+jamais son gestionnaire de signal.
+
+⚠️ **Côté client, le lecteur est monté en `v-if`, jamais `v-show`.** C'est le démontage qui détruit
+le `<video>`, donc coupe la connexion, donc déclenche la garde serveur. La garde ne peut réagir qu'à
+une déconnexion réelle : en `v-show`, le flux resterait ouvert.
+
+### `spawn` avec un tableau, et pourquoi pas `execFile` pour ffmpeg
+
+⚠️ **Jamais `exec()` avec une chaîne interpolée** — un chemin de fichier NAS est une entrée
+utilisateur même après résolution (le propriétaire du NAS choisit ses noms de fichiers). `spawn` et
+`execFile` avec un tableau, `shell: false` (le défaut) : `;`, `$(…)` et les espaces redeviennent des
+caractères ordinaires. `coffre_video_playback.spec.ts` le vérifie sur un nom réellement hostile, en
+assertant que le chemin occupe **une case entière** du tableau.
+
+- **`ffmpeg` → `spawn`**, pas pour la sécurité mais parce qu'`execFile` **tamponne** toute la sortie
+  avant de la rendre : sur une vidéo, ça veut dire la charger entière avant d'en servir le premier
+  octet. **`ffprobe` → `execFile`**, borné par `maxBuffer`, quelques centaines d'octets de JSON.
+- ⚠️ **`-i` devant le chemin, jamais un positionnel** : un fichier dont le nom commence par `-`
+  serait sinon lu comme une option.
+- ⚠️ **`pipe:1`, jamais un fichier temporaire** — rien de dérivé du contenu du coffre ne touche le
+  disque, même doctrine que le reste du module.
+
+### Les trois routes, et pourquoi trois
+
+- **`GET /coffre/nas/stream?root=&path=`** — le fichier PARCOURU (le trou principal). `root`+`path`
+  en clair, confinés par la **même** `resolveInRoot` que `/coffre/nas/thumbnail`, jamais une seconde
+  implémentation. Un fichier qu'on vient de découvrir en naviguant n'a pas de ligne en base :
+  l'indexer par un `id` n'aurait pas eu de sens. ⚠️ Deux niveaux, donc sans ambiguïté avec
+  `/coffre/nas/:id/stream` (trois niveaux, `:id` numérique).
+- **`GET /coffre/catalog/nas/:id/stream`** — l'élément de CATALOGUE, pour la grille de recherche.
+  Sans lui, trouver une vidéo par la recherche puis cliquer dessus ne faisait rien. Scopé `owner_id`
+  **et** `source = 'nas'` ; un item `immich_locked` rend 404. Aucun cache, contrairement à la
+  vignette : `coffre_catalog_thumbnails` stocke des vignettes de 512 Ko, y ranger des vidéos ferait
+  grossir la base de gigaoctets chiffrés pour un gain nul.
+- **`GET /coffre/immich/dossier/:assetId/video`** — voir la section suivante.
+
+⚠️ **`/coffre/nas/stream` n'est PAS throttlé, contrairement à `browse`.** Un lecteur redemande un
+segment à chaque déplacement du curseur (conséquence directe de `no-store`) : compter ces requêtes
+dans le budget de navigation ferait s'auto-verrouiller une lecture normale. Ce qui borne le coût ici
+est la borne de transcodages, qui vise la ressource réellement rare — le CPU, pas la requête.
+
+⚠️ **Les trois sont dans `ROUTES_MUREES` de `coffre_wall.spec.ts` ET dans l'assertion qui lit le
+routeur** — mesuré à l'identique aux lots précédents : sortir une route du groupe muré ne fait
+rougir QUE cette assertion-là, les contrôleurs levant eux aussi sans clé de session.
+
+⚠️ **`/coffre/nas/:id/stream` (CC-181) passe désormais par `serveNasMedia` lui aussi.** Une vidéo
+HEVC **attachée à une entrée** serait sinon restée un lecteur noir pendant que la même vidéo
+parcourue se lit — une incohérence que rien n'aurait signalée. ⚠️ **Le chemin PHOTO est inchangé, à
+la ligne près** : aucune sonde, aucun processus.
+
+### La vidéo Immich : c'est Immich qui transcode, pas nous
+
+`/api/assets/:id/video/playback` — le point d'accès que le lecteur d'Immich utilise lui-même. Il sert
+la version H.264 qu'Immich a déjà produite, ou l'original quand il est déjà lisible.
+
+⚠️ **Aucun ffmpeg sur ce chemin, et c'est la décision qui compte.** Faire lire un flux HTTP distant à
+notre ffmpeg aurait mis le jeton de session Immich dans l'`argv` d'un processus, où `ps` le lit. Le
+transcodage maison reste réservé aux fichiers **locaux**, les seuls où ffmpeg ouvre un descripteur de
+fichier et se déplace dedans.
+
+- ⚠️ **`Range` est relayé dans les DEUX sens, tel quel** : Immich seul connaît la taille du flux
+  qu'il sert, recalculer un `content-range` rendrait un segment faux.
+- ⚠️ **`extra.signal` remplace le délai d'expiration partagé** dans `#request`.
+  `AbortSignal.timeout` couvre la requête entière, **corps compris** : sur une vidéo, il couperait la
+  lecture au bout d'`IMMICH_TIMEOUT_MS`, en plein milieu. Le contrôleur d'abandon dédié sert aussi à
+  couper la requête distante à la déconnexion du client — l'équivalent du `SIGKILL`.
+- ⚠️ **L'URL de lecture est construite par le SERVEUR** (`#videoUrlFor`, comme `#thumbnailUrlFor`) :
+  la fabriquer côté client exigerait `reference` dans la charge utile, donc l'UUID Immich et le
+  chemin NAS en clair.
+
+### Ce que ce lot ne prouve PAS — à ne jamais écrire comme fait
+
+- ✅ **Ce qui A ÉTÉ prouvé contre le vrai binaire, dans l'image construite** (2026-08-12, hors
+  suite de tests) : `ffprobe` rend exactement la forme que le parseur attend — dont le
+  `format_name` composite `mov,mp4,m4a,3gp,3g2,mj2` sur un `.mov`, le piège que le code traite —
+  et les arguments de `ffmpegArgsFor(..., 'transcode', 'software', null)`, passés tels quels à un
+  vrai HEVC dans un `.mov`, rendent bien du `h264`+`aac`. C'est le chemin LOGICIEL. Le chemin
+  VAAPI, lui, reste non prouvé : aucun `/dev/dri` n'est passé au conteneur sur ce poste.
+- ⚠️ **Aucun test de ce dépôt ne prouve qu'un vrai `ffmpeg` produit un flux lisible.** Ni `ffmpeg` ni
+  `ffprobe` n'existent sur le poste de développement (mesuré : aucun binaire sur le `PATH`,
+  seulement des bibliothèques `libav*` et des copies confinées dans des runtimes Flatpak) ni sur les
+  runners de CI. Les deux points d'appel du binaire sont substitués (`runFfprobe`, `spawnFfmpeg`) —
+  mais tout le reste s'exécute réellement, y compris un vrai processus qu'on tue vraiment.
+  **Conséquence bénéfique : `gates.yml` n'a PAS eu à changer**, contrairement à CC-228 qui avait dû
+  y installer ImageMagick.
+- ⚠️ **Le chemin Immich n'a reçu AUCUNE vérification live** : l'instance du propriétaire répond 502
+  sur `/api/auth/login` au 2026-08-11, donc la source `immich_locked` est vide en base. Il est
+  couvert par un double (`FakeImmichSessionClient.videoPlayback`), ce qui prouve ce que le
+  **contrôleur** fait d'une réponse — jamais que `/video/playback` se comporte ainsi chez Immich.
+- ⚠️ **Que la lecture soit fluide sur le DS918+, que Quick Sync soit réellement utilisé, que l'image
+  arm64 fonctionne sur du matériel réel** — ce poste n'a aucun outil de pilotage de navigateur, et
+  `/dev/dri` n'est pas passé au conteneur aujourd'hui. Livré au propriétaire en procédure
+  exécutable, jamais affirmé.
+- ⚠️ **La résolution `apk` a été mesurée dans les deux architectures**, pas supposée : ffmpeg 8.1.2
+  sur `node:22-alpine` amd64 **et** arm64 (sous QEMU), `h264_vaapi` et le décodeur `hevc` présents
+  des deux côtés. ⚠️ **`qsv` est ABSENT d'arm64** (Quick Sync est x86) — sans conséquence, le code
+  visant VAAPI, qui est justement la couche par laquelle Quick Sync s'utilise sur le J3455. QEMU
+  émule le jeu d'instructions, pas un SoC réel : même limite que CC-228.
+
+### Limites connues — ne les fais pas passer pour couvertes
+
+- ⚠️ **Les TROIS écrans de grille sont câblés, y compris `pages/catalog.vue`.** CC-239 avait laissé
+  cet écran multi-sources intact plutôt que d'y risquer une régression, et ce lot a d'abord repris
+  cette arbitration — puis le propriétaire a tranché l'inverse le 2026-08-12 : laisser un clic sans
+  effet sur le seul écran qui cherche dans les DEUX sources aurait été l'incohérence la plus visible
+  du lot. Le geste est identique aux deux autres (`videoUrl` de la charge utile → `VideoPlayerModal`),
+  donc **si tu touches l'un des trois, regarde les trois** — c'est le prix de la duplication que
+  CC-239 a acceptée en n'extrayant pas `catalog.vue` vers `CatalogGrid.vue`.
+- ⚠️ **L'incrustation `Play` ne se superpose QU'À une vignette réelle.** Une vidéo NAS n'en a pas
+  (CC-228 = photos seulement) : c'est alors la pastille de nature qui porte l'icône. Sans cette
+  distinction, `Play` et `Film` se chevauchaient exactement au même pixel — trouvé en review, pas à
+  l'écran, ce poste n'ayant aucun outil de pilotage de navigateur.
+- ⚠️ **Aucune extraction de vignette vidéo.** Une vidéo du catalogue affiche toujours une pastille de
+  nature (décision de CC-228). `ffmpeg` étant désormais dans l'image, l'obstacle qui avait fermé la
+  question n'existe plus — mais ce lot ne l'a pas rouverte.
+- ⚠️ **Aucun cache de transcodage.** Rejouer la même vidéo la re-transcode intégralement. Un cache
+  poserait la question d'un troisième gisement de données dérivées du coffre, et celle de sa purge.
+- ⚠️ **Le déplacement du curseur ne fonctionne pas sur un flux transcodé** — voir plus haut, c'est
+  du HLS ou rien.
+
 ## Passphrase perdue = contenu perdu
 
 Elle n'est stockée **nulle part** — ni en clair, ni hachée. Il n'existe donc, et il n'existera, ni
@@ -1960,6 +2191,18 @@ Le détail par fichier est dans [TESTS.md](./TESTS.md) — à lire avant de **mo
 - ⚠️ **Le trousseau n'est PAS rollbacké** par la transaction globale : il vit en mémoire. C'est ce
   qui rend `unlockedSession()` possible, et ce qui interdit de partager le singleton entre tests
   unitaires — d'où l'export nommé `VaultKeyring`.
+- ⚠️ **La borne de transcodages vidéo n'est pas rollbackée non plus, même raison** (CC-241) : elle
+  vit dans un singleton de module. Tout test qui lance un transcodage doit appeler
+  `reinitialiserCreneaux()` en setup **et** en teardown, sinon un créneau laissé pris fait échouer
+  le test suivant pour une raison sans rapport avec ce qu'il vérifie. Idem pour
+  `reinitialiserAccelerationDetectee()`, la détection VAAPI étant mise en cache pour la vie du
+  process.
+- ⚠️ **`app_test` laissé à moitié démonté fait échouer des CENTAINES de tests sans rapport**
+  (constaté au 2026-08-11 : 428 échecs, tout redirigeant vers `/login`). Japa migre au setup et
+  **déroule au teardown** ; un run interrompu (Ctrl-C, `kill`) laisse `adonis_schema` vide avec des
+  tables résiduelles, et le run suivant échoue en cascade. Le remède n'est pas de chercher un bug
+  dans l'authentification :
+  `docker compose exec postgres psql -U root -d app_test -c 'drop schema public cascade; create schema public;'`
 
 ## Limites connues — ne les fais pas passer pour couvertes
 

@@ -124,3 +124,87 @@ test.group('Coffre / le dossier verrouillé Immich', (group) => {
     response.assertStatus(404)
   })
 })
+
+/**
+ * La lecture vidéo du dossier verrouillé (CC-241).
+ *
+ * ⚠️ **AUCUNE vérification live n'a été possible** : l'instance Immich du propriétaire répond 502
+ * sur `/api/auth/login`, donc la source `immich_locked` est vide en base. Ce groupe prouve ce que le
+ * CONTRÔLEUR fait d'une réponse de la couche session — jamais que `/api/assets/:id/video/playback`
+ * se comporte ainsi chez Immich. Voir le `CLAUDE.md` du module, « Ce que ce lot ne prouve pas ».
+ */
+test.group('Coffre / la vidéo du dossier verrouillé', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+  group.each.teardown(() => app.container.restore(ImmichSessionClient))
+
+  test('relaie le flux, sans cache', async ({ client, assert }) => {
+    const user = await createUserWith(['coffre.view'])
+    const vault = await createVault(user)
+    const faux = new FakeImmichSessionClient()
+    app.container.swap(ImmichSessionClient, () => faux)
+
+    const response = await client
+      .get(`/coffre/immich/dossier/${ASSET_ID}/video`)
+      .loginAs(user)
+      .withSession(await unlockedSession(user, vault))
+
+    response.assertStatus(200)
+    response.assertHeader('content-type', 'video/mp4')
+    response.assertHeader('cache-control', 'no-store')
+    assert.equal(response.body().toString(), 'faux-flux-video')
+    assert.deepEqual(faux.videoed, [{ assetId: ASSET_ID, range: null }])
+  })
+
+  test('⚠️ le `Range` du navigateur est transmis à Immich, et sa réponse relayée telle quelle', async ({
+    client,
+    assert,
+  }) => {
+    // Immich seul connaît la taille du flux qu'il sert : recalculer un `content-range` de notre
+    // côté rendrait un segment faux.
+    const user = await createUserWith(['coffre.view'])
+    const vault = await createVault(user)
+    const faux = new FakeImmichSessionClient()
+    app.container.swap(ImmichSessionClient, () => faux)
+
+    const response = await client
+      .get(`/coffre/immich/dossier/${ASSET_ID}/video`)
+      .header('range', 'bytes=5-9')
+      .loginAs(user)
+      .withSession(await unlockedSession(user, vault))
+
+    response.assertStatus(206)
+    assert.deepEqual(faux.videoed, [{ assetId: ASSET_ID, range: 'bytes=5-9' }])
+  })
+
+  test('un UUID malformé rend 404 sans jamais appeler Immich', async ({ client, assert }) => {
+    const user = await createUserWith(['coffre.view'])
+    const vault = await createVault(user)
+    const faux = new FakeImmichSessionClient()
+    app.container.swap(ImmichSessionClient, () => faux)
+
+    const response = await client
+      .get('/coffre/immich/dossier/pas-un-uuid/video')
+      .loginAs(user)
+      .withSession(await unlockedSession(user, vault))
+
+    response.assertStatus(404)
+    assert.lengthOf(faux.videoed, 0)
+  })
+
+  test('une panne d’Immich rend 404 uniforme, jamais un oracle sur la cause', async ({
+    client,
+  }) => {
+    const user = await createUserWith(['coffre.view'])
+    const vault = await createVault(user)
+    const faux = new FakeImmichSessionClient()
+    faux.setVideo(new Error('Immich (session) est injoignable.'))
+    app.container.swap(ImmichSessionClient, () => faux)
+
+    const response = await client
+      .get(`/coffre/immich/dossier/${ASSET_ID}/video`)
+      .loginAs(user)
+      .withSession(await unlockedSession(user, vault))
+
+    response.assertStatus(404)
+  })
+})

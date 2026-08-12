@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream'
 import { DateTime } from 'luxon'
 import {
   ImmichUnavailableError,
@@ -44,6 +45,25 @@ export interface ImmichLockedCatalogListing {
   assets: ImmichLockedCatalogAsset[]
   /** `true` si le dossier porte plus d'assets que `MAX_CATALOG_PAGES` n'en a ramené. */
   truncated: boolean
+}
+
+/**
+ * Un flux vidéo relayé depuis Immich (CC-241) — **jamais tamponné en mémoire**, contrairement à une
+ * vignette : un fichier de plusieurs gigaoctets ne passe pas par `#readBounded`.
+ */
+export interface ImmichVideoStream {
+  /** 200, ou 206 quand Immich a honoré le `Range` transmis. */
+  status: number
+  contentType: string
+  contentLength: string | null
+  contentRange: string | null
+  body: Readable
+  /**
+   * Coupe la requête vers Immich. ⚠️ **À appeler à la déconnexion du client** — c'est l'équivalent
+   * exact, côté distant, du `SIGKILL` sur ffmpeg : sans ça, fermer l'onglet laisserait le serveur
+   * continuer d'aspirer la vidéo depuis Immich jusqu'au dernier octet, pour personne.
+   */
+  abort(): void
 }
 
 /** `'IMAGE'`/`'VIDEO'` connus, tout le reste (absent, autre valeur) range en `'other'`. */
@@ -168,6 +188,26 @@ export default class ImmichSessionClient {
   /** La vignette d'UN asset — l'appelant garantit qu'il est verrouillé ou que la clé d'API a échoué. */
   async thumbnail(assetId: string): Promise<ImmichThumbnail> {
     return this.#withSession((token) => this.#fetchThumbnail(token, assetId))
+  }
+
+  /**
+   * Le flux vidéo d'UN asset du dossier verrouillé (CC-241).
+   *
+   * ⚠️ **`/video/playback`, PAS `/original` — et ce choix est le cœur de la décision côté Immich.**
+   * C'est le point d'accès que le lecteur d'Immich utilise lui-même : il sert la version transcodée
+   * (H.264) qu'Immich a déjà produite, ou l'original quand il est déjà lisible. Autrement dit, **le
+   * transcodage HEVC est fait par Immich, pas par nous** — ce qui évite d'avoir à faire lire un
+   * flux HTTP distant à ffmpeg, donc à poser le jeton de session dans l'`argv` d'un processus (où
+   * `ps` le lit). Le transcodage maison de ce lot reste réservé aux fichiers LOCAUX du NAS, les
+   * seuls où ffmpeg peut ouvrir un descripteur de fichier et se déplacer dedans.
+   *
+   * ⚠️ **AUCUNE vérification live n'a été possible pour ce chemin** : l'instance Immich du
+   * propriétaire répond 502 sur `/api/auth/login` au moment d'écrire ceci, donc la source
+   * `immich_locked` est vide en base. Il est couvert par un double de test, pas par une mesure —
+   * voir le `CLAUDE.md` du module, « Ce que ce lot ne prouve pas ».
+   */
+  async videoPlayback(assetId: string, range: string | null): Promise<ImmichVideoStream> {
+    return this.#withSession((token) => this.#fetchVideoPlayback(token, assetId, range))
   }
 
   /**
@@ -455,6 +495,70 @@ export default class ImmichSessionClient {
     }
   }
 
+  async #fetchVideoPlayback(
+    accessToken: string,
+    assetId: string,
+    range: string | null
+  ): Promise<ImmichVideoStream> {
+    // ⚠️ Un contrôleur d'abandon PROPRE à cette requête, jamais le délai d'expiration partagé :
+    // voir le commentaire de `#request`. C'est aussi lui que l'appelant coupe à la déconnexion.
+    const controller = new AbortController()
+
+    const response = await this.#request(
+      `/api/assets/${assetId}/video/playback`,
+      'GET',
+      null,
+      accessToken,
+      {
+        headers: {
+          accept: 'video/*,*/*;q=0.8',
+          // Le `Range` du navigateur est transmis TEL QUEL et la réponse d'Immich relayée telle
+          // quelle : c'est lui qui sait la taille du fichier transcodé, pas nous.
+          ...(range === null ? {} : { range }),
+        },
+        signal: controller.signal,
+      }
+    )
+
+    if (response.status === 401 || response.status === 403) {
+      await this.#drain(response)
+      throw new ImmichAuthExpiredError(
+        `Immich a refusé la session (${response.status}) pour la vidéo de l'asset ${assetId}.`
+      )
+    }
+
+    if (!response.ok && response.status !== 206) {
+      await this.#drain(response)
+      throw new ImmichUnavailableError(
+        `Immich a répondu ${response.status} pour la vidéo (session) de l'asset ${assetId}.`
+      )
+    }
+
+    const contentType = response.headers.get('content-type') ?? ''
+    if (!contentType.startsWith('video/')) {
+      await this.#drain(response)
+      throw new ImmichUnavailableError(
+        `Immich a rendu « ${contentType || 'aucun type'} » au lieu d'une vidéo (session) : ` +
+          'la route de lecture a probablement changé (Immich sert son interface en repli).'
+      )
+    }
+
+    if (response.body === null) {
+      throw new ImmichUnavailableError(
+        `Immich a rendu une réponse sans corps pour la vidéo de l'asset ${assetId}.`
+      )
+    }
+
+    return {
+      status: response.status,
+      contentType: contentType.split(';')[0].trim(),
+      contentLength: response.headers.get('content-length'),
+      contentRange: response.headers.get('content-range'),
+      body: Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
+      abort: () => controller.abort(),
+    }
+  }
+
   async #readJson(response: Response, path: string): Promise<Record<string, unknown>> {
     if (!response.ok) {
       await this.#drain(response)
@@ -486,11 +590,19 @@ export default class ImmichSessionClient {
     }
   }
 
+  /**
+   * ⚠️ **`extra.signal` remplace le délai d'expiration par défaut, et c'est réservé au flux vidéo
+   * (CC-241).** `AbortSignal.timeout` couvre la requête ENTIÈRE, corps compris : sur une vidéo, il
+   * couperait la lecture au bout de `IMMICH_TIMEOUT_MS`, en plein milieu, sans erreur exploitable.
+   * Tous les autres appels gardent le délai — ils rendent du JSON ou une vignette bornée, où une
+   * réponse qui traîne est une panne, pas un usage normal.
+   */
   async #request(
     path: string,
     method: 'GET' | 'POST',
     body: unknown,
-    accessToken: string | null
+    accessToken: string | null,
+    extra: { headers?: Record<string, string>; signal?: AbortSignal } = {}
   ): Promise<Response> {
     if (!this.config.enabled) {
       throw new ImmichUnavailableError('Le dossier verrouillé Immich n’est pas configuré.')
@@ -499,6 +611,7 @@ export default class ImmichSessionClient {
     const headers: Record<string, string> = {
       'accept': 'application/json',
       'user-agent': USER_AGENT,
+      ...(extra.headers ?? {}),
     }
     if (body !== null) headers['content-type'] = 'application/json'
     // ⚠️ Le jeton ne sort d'ici que vers l'hôte configuré, et ne repart jamais vers le client.
@@ -513,7 +626,7 @@ export default class ImmichSessionClient {
         // ⚠️ Comme le core : aucune redirection légitime pour une API, et la suivre ferait sortir
         // de l'hôte configuré avec le jeton dans les en-têtes.
         redirect: 'manual',
-        signal: AbortSignal.timeout(this.config.timeoutMs),
+        signal: extra.signal ?? AbortSignal.timeout(this.config.timeoutMs),
       })
     } catch {
       throw new ImmichUnavailableError(

@@ -121,6 +121,34 @@ RUN apk add --no-cache postgresql16-client
 RUN apk add --no-cache imagemagick imagemagick-heic imagemagick-jpeg imagemagick-webp
 COPY docker/coffre-imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
 
+# ffmpeg pour la lecture vidéo du coffre (CC-241) — le SECOND binaire natif de l'image, après
+# ImageMagick. Le mécanisme est le même que les deux `apk add` ci-dessus (résolution par
+# architecture, aucun axe multi-arch nouveau), et il a été MESURÉ dans les deux, pas supposé :
+#
+#   docker run --rm --platform linux/amd64 node:22-alpine sh -c 'apk add --no-cache ffmpeg && ffmpeg -hwaccels'
+#   docker run --rm --platform linux/arm64 node:22-alpine sh -c 'apk add --no-cache ffmpeg && ffmpeg -hwaccels'
+#
+# amd64 : ffmpeg 8.1.2, `-hwaccels` = vdpau/vaapi/**qsv**/drm/vulkan, encodeur `h264_vaapi` présent,
+# décodeur `hevc` présent. arm64 (sous QEMU) : même version, même `h264_vaapi`, même décodeur `hevc`
+# — mais **`qsv` est ABSENT**, Quick Sync étant une technologie x86. C'est sans conséquence : le code
+# vise VAAPI (`nas_video_playback.ts`), présent sur les deux, et VAAPI est justement la couche par
+# laquelle Quick Sync s'utilise sur le J3455 du DS918+.
+#
+# ⚠️ **Le paquet apporte ffmpeg ET ffprobe** — les deux sont nécessaires : la sonde décide s'il faut
+# transcoder, et c'est elle qui garantit qu'un MP4/H.264 déjà lisible n'est PAS transcodé.
+#
+# ⚠️ **Contrepartie MESURÉE, pas estimée : l'image passe de 604 Mo à 758 Mo (+154 Mo, +25 %).**
+# Les binaires eux-mêmes pèsent moins de 1 Mo ; tout le reste est la centaine de bibliothèques de
+# codecs qu'`apk` tire avec (`OK: 135.5 MiB in 123 packages`). Mesure faite en construisant deux
+# fois le MÊME Dockerfile, avec et sans cette ligne, sur ce poste. C'est le prix d'un `docker pull`
+# et d'un disque de NAS, pas d'une exécution — à connaître avant de proposer un troisième binaire.
+#
+# ⚠️ **Sans `/dev/dri` passé au conteneur, le transcodage tombe en repli LOGICIEL** — le code le
+# détecte et le JOURNALISE au premier usage (`video_transcoder.ts`), parce que sinon la panne de
+# performance qui en résulte sur un Celeron est invisible et cherchée au mauvais endroit. Voir
+# `docker-compose.install.yml` pour la ligne `devices:` à décommenter.
+RUN apk add --no-cache ffmpeg
+
 # Le résultat du build, puis SEULEMENT les dépendances de production (le build a
 # recopié package.json + package-lock.json à la racine de build/).
 COPY --from=build /app/build ./

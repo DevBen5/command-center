@@ -17,10 +17,12 @@ import AppLayout from '~/layouts/AppLayout.vue'
 import ConfirmModal from '~/components/ConfirmModal.vue'
 import PromptModal from '~/components/PromptModal.vue'
 import CatalogGrid from '../components/CatalogGrid.vue'
+import VideoPlayerModal from '../components/VideoPlayerModal.vue'
 import { xsrfToken } from '../shared/csrf.js'
 import {
   buildNasBrowseQueryString,
   nasBreadcrumbFor,
+  nasStreamUrl,
   nasThumbnailUrl,
 } from '../shared/nas_browse_query.js'
 
@@ -111,10 +113,23 @@ function enterRoot(name: string): void {
   load()
 }
 
+/**
+ * ⚠️ **La lecture vidéo (CC-241) passe par le MÊME geste que l'entrée dans un dossier** — cliquer
+ * la carte. Un second bouton « lire » à côté de renommer/déplacer/supprimer aurait rangé la seule
+ * action de consultation parmi trois actions destructrices.
+ */
+const videoLue = ref<{ url: string; title: string } | null>(null)
+
 function enterEntry(entry: NasBrowseEntry): void {
-  if (entry.kind !== 'dir') return
-  path.value = entry.path
-  load()
+  if (entry.kind === 'dir') {
+    path.value = entry.path
+    load()
+    return
+  }
+
+  if (entry.kind === 'video' && root.value !== null) {
+    videoLue.value = { url: nasStreamUrl(root.value, entry.path), title: entry.name }
+  }
 }
 
 function goToRootsList(): void {
@@ -181,7 +196,7 @@ async function handleFileSelected(event: Event): Promise<void> {
 
     const response = await fetch('/coffre/nas/upload', {
       method: 'POST',
-      headers: { accept: 'application/json', 'x-xsrf-token': xsrfToken() },
+      headers: { 'accept': 'application/json', 'x-xsrf-token': xsrfToken() },
       body,
     })
 
@@ -208,7 +223,7 @@ async function startRename(entry: NasBrowseEntry): Promise<void> {
   const response = await fetch('/coffre/nas/rename', {
     method: 'PUT',
     headers: {
-      accept: 'application/json',
+      'accept': 'application/json',
       'content-type': 'application/json',
       'x-xsrf-token': xsrfToken(),
     },
@@ -233,7 +248,7 @@ async function startMove(entry: NasBrowseEntry): Promise<void> {
   const response = await fetch('/coffre/nas/move', {
     method: 'PUT',
     headers: {
-      accept: 'application/json',
+      'accept': 'application/json',
       'content-type': 'application/json',
       'x-xsrf-token': xsrfToken(),
     },
@@ -261,7 +276,7 @@ async function removeEntry(entry: NasBrowseEntry): Promise<void> {
   const params = new URLSearchParams({ root: root.value, path: entry.path })
   const response = await fetch(`/coffre/nas/file?${params.toString()}`, {
     method: 'DELETE',
-    headers: { accept: 'application/json', 'x-xsrf-token': xsrfToken() },
+    headers: { 'accept': 'application/json', 'x-xsrf-token': xsrfToken() },
   })
 
   if (!response.ok) {
@@ -311,7 +326,10 @@ onMounted(load)
     </template>
 
     <template v-else>
-      <nav v-if="root !== null" class="flex flex-wrap items-center justify-between gap-1.5 text-[12.5px]">
+      <nav
+        v-if="root !== null"
+        class="flex flex-wrap items-center justify-between gap-1.5 text-[12.5px]"
+      >
         <div class="flex flex-wrap items-center gap-1.5">
           <button type="button" class="text-txt-3 hover:text-aqua" @click="goToRootsList">
             <HardDrive :size="14" :stroke-width="1.5" class="inline" aria-hidden="true" />
@@ -321,7 +339,9 @@ onMounted(load)
             <button
               type="button"
               class="text-txt-2 hover:text-aqua"
-              :class="{ 'font-semibold text-txt': index === nasBreadcrumbFor(root, path).length - 1 }"
+              :class="{
+                'font-semibold text-txt': index === nasBreadcrumbFor(root, path).length - 1,
+              }"
               @click="goToBreadcrumb(segment.path)"
             >
               {{ segment.label }}
@@ -341,13 +361,22 @@ onMounted(load)
         <input ref="fileInput" type="file" class="hidden" @change="handleFileSelected" />
       </nav>
 
-      <p v-if="throttled" class="rounded-[10px] border border-warn/40 bg-panel-2 p-4 text-[13px] text-warn">
+      <p
+        v-if="throttled"
+        class="rounded-[10px] border border-warn/40 bg-panel-2 p-4 text-[13px] text-warn"
+      >
         {{ t('coffre.nas.throttled') }}
       </p>
-      <p v-else-if="errorMessage" class="rounded-[10px] border border-bad/40 bg-panel-2 p-4 text-[13px] text-bad">
+      <p
+        v-else-if="errorMessage"
+        class="rounded-[10px] border border-bad/40 bg-panel-2 p-4 text-[13px] text-bad"
+      >
         {{ errorMessage }}
       </p>
-      <p v-if="writeError" class="rounded-[10px] border border-bad/40 bg-panel-2 p-4 text-[13px] text-bad">
+      <p
+        v-if="writeError"
+        class="rounded-[10px] border border-bad/40 bg-panel-2 p-4 text-[13px] text-bad"
+      >
         {{ writeError }}
       </p>
 
@@ -368,11 +397,11 @@ onMounted(load)
           </button>
         </section>
 
-        <section
-          v-else
-          class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
-        >
-          <p v-if="!loading && entries.length === 0" class="col-span-full py-8 text-center text-[13px] text-txt-3">
+        <section v-else class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <p
+            v-if="!loading && entries.length === 0"
+            class="col-span-full py-8 text-center text-[13px] text-txt-3"
+          >
             {{ t('coffre.nas.folderEmpty') }}
           </p>
 
@@ -381,13 +410,14 @@ onMounted(load)
             :key="entry.path"
             class="overflow-hidden rounded-[12px] border border-line bg-panel text-left"
           >
-            <button
-              type="button"
-              class="block w-full text-left"
-              @click="enterEntry(entry)"
-            >
+            <button type="button" class="block w-full text-left" @click="enterEntry(entry)">
               <div class="grid aspect-square place-items-center bg-panel-2">
-                <Folder v-if="entry.kind === 'dir'" :size="32" :stroke-width="1.5" aria-hidden="true" />
+                <Folder
+                  v-if="entry.kind === 'dir'"
+                  :size="32"
+                  :stroke-width="1.5"
+                  aria-hidden="true"
+                />
                 <img
                   v-else-if="entry.kind === 'photo' && !brokenThumbnails.has(entry.path)"
                   :src="nasThumbnailUrl(root, entry.path)"
@@ -397,7 +427,12 @@ onMounted(load)
                   @error="onThumbnailError(entry.path)"
                 />
                 <div v-else class="grid place-items-center gap-1 text-txt-3">
-                  <Film v-if="entry.kind === 'video'" :size="28" :stroke-width="1.5" aria-hidden="true" />
+                  <Film
+                    v-if="entry.kind === 'video'"
+                    :size="28"
+                    :stroke-width="1.5"
+                    aria-hidden="true"
+                  />
                   <FileQuestion
                     v-else-if="entry.kind === 'other'"
                     :size="28"
@@ -405,7 +440,9 @@ onMounted(load)
                     aria-hidden="true"
                   />
                   <ImageIcon v-else :size="28" :stroke-width="1.5" aria-hidden="true" />
-                  <span class="text-[10.5px] uppercase tracking-[.08em]">{{ natureLabel(entry.kind) }}</span>
+                  <span class="text-[10.5px] uppercase tracking-[.08em]">{{
+                    natureLabel(entry.kind)
+                  }}</span>
                 </div>
               </div>
               <p class="truncate p-2 text-[12.5px] font-semibold text-txt" :title="entry.name">
@@ -413,7 +450,10 @@ onMounted(load)
               </p>
             </button>
 
-            <div v-if="entry.kind !== 'dir'" class="flex justify-end gap-1 border-t border-line p-1.5">
+            <div
+              v-if="entry.kind !== 'dir'"
+              class="flex justify-end gap-1 border-t border-line p-1.5"
+            >
               <button
                 type="button"
                 class="rounded-md p-1 text-txt-3 hover:text-aqua"
@@ -443,6 +483,13 @@ onMounted(load)
         </section>
       </template>
     </template>
+
+    <VideoPlayerModal
+      v-if="videoLue !== null"
+      :url="videoLue.url"
+      :title="videoLue.title"
+      @close="videoLue = null"
+    />
 
     <ConfirmModal ref="confirmModal" />
     <PromptModal ref="promptModal" />

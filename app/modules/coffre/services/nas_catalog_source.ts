@@ -41,6 +41,19 @@ export default class NasCatalogSource implements CatalogSource {
    * identique sous deux racines distinctes rendrait la vignette de la MAUVAISE racine.
    */
   async thumbnailFor(reference: string): Promise<CatalogThumbnail> {
+    return generateNasThumbnail(await this.resolveReference(reference))
+  }
+
+  /**
+   * Le chemin réel d'une référence de catalogue — **le seul endroit du dépôt qui sépare
+   * `<nom de racine>/<chemin relatif>`** (CC-241 l'a extrait de `thumbnailFor` pour que la lecture
+   * vidéo d'un élément de catalogue le réutilise au lieu de recopier ce découpage).
+   *
+   * ⚠️ **Lève plutôt que de rendre `null`** — contrat conservé de `thumbnailFor`, dont les deux
+   * appelants traduisent déjà toute exception en 404 uniforme. Rendre `null` obligerait chacun à
+   * inventer son message pour un cas que le module traite partout de la même façon.
+   */
+  async resolveReference(reference: string): Promise<string> {
     const separatorIndex = reference.indexOf('/')
     if (separatorIndex === -1) {
       throw new Error(
@@ -58,6 +71,6 @@ export default class NasCatalogSource implements CatalogSource {
       )
     }
 
-    return generateNasThumbnail(realPath)
+    return realPath
   }
 }

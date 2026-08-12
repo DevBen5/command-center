@@ -124,6 +124,30 @@ services:
       # is "a container breakout owns the host".
       # - '/var/run/docker.sock:/var/run/docker.sock'
 
+    # GPU render node — hardware video transcoding for the vault (CC-241).
+    #
+    # The vault transcodes on the fly what a browser cannot play: an iPhone video is HEVC in a
+    # .mov, which Chrome and Firefox refuse (HEVC licensing), and the failure is silent — a black
+    # player, no error. Software encoding a 4K file saturates all four cores of a DS918+ Celeron
+    # J3455; that same chip has Intel Quick Sync, reachable through VAAPI, which does it for a few
+    # percent of CPU.
+    #
+    # ⚠️ Commented out on purpose: `/dev/dri` does not exist on every host, and a missing device
+    # makes `docker compose up` fail outright rather than degrade. Uncomment only if `ls /dev/dri`
+    # lists a `renderD*` node on the host.
+    #
+    # ⚠️ Without it, transcoding still WORKS — it falls back to software, and the app LOGS which
+    # path it took at first use ("REPLI LOGICIEL" vs "ACCÉLÉRATION MATÉRIELLE"). Read that line
+    # before hunting a performance problem anywhere else.
+    #
+    # ⚠️ The `node` user must be able to OPEN the node, not just see it: on most hosts it belongs
+    # to a `render` or `video` group, which means adding `group_add: ['<gid>']` here with the
+    # host's numeric gid (`stat -c '%g' /dev/dri/renderD128`). The app checks for read+write access
+    # rather than mere existence, so a present-but-unopenable device falls back to software and
+    # says so in the log — it does not claim hardware and then fail on every playback.
+    # devices:
+    #   - '/dev/dri:/dev/dri'
+
     depends_on:
       postgres:
         condition: service_healthy
