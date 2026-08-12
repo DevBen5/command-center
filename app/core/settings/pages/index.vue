@@ -71,7 +71,33 @@ async function postJson(url: string, body?: unknown): Promise<{ recoveryCodes: s
   return (await response.json()) as { recoveryCodes: string[] }
 }
 
-function startEnrollment(): void {
+/**
+ * Démarre un enrôlement — ou en refait un, ce qui n'est pas le même geste (CC-249).
+ *
+ * ⚠️ **La confirmation ne vaut QUE pour le second cas, et le discriminant est
+ * `props.enrollment`.** Deux boutons appellent cette fonction : « Activer » (rien en cours,
+ * `v-else`) et « Générer un nouveau QR code » (enrôlement en cours). Le premier ne périme rien —
+ * lui coller un avertissement le ferait payer à qui n'a encore rien scanné.
+ *
+ * Ce que le second détruit tient en une ligne, et rien ne le disait : le secret est remplacé en
+ * base, donc **le QR déjà scanné dans une application d'authentification devient une entrée
+ * morte** — indistinguable d'une entrée valide, produisant des codes que le serveur refuse.
+ * Constaté sur usage réel le 2026-08-12, une matinée perdue à chercher la panne côté
+ * application. La confirmation nomme le geste que personne ne pense à faire : supprimer
+ * l'ancienne entrée avant de rescanner.
+ *
+ * ⚠️ Elle ne protège rien d'autre : quand la double authentification est **active**, ce bouton
+ * n'est pas rendu, et `SettingsController.enroll` refuse de toute façon avant d'écrire quoi que
+ * ce soit. Aucune session, aucun code de secours n'est touché ici.
+ */
+async function startEnrollment(): Promise<void> {
+  if (
+    props.enrollment !== null &&
+    !(await confirmModal.value?.ask(t('settings.security.restartConfirm')))
+  ) {
+    return
+  }
+
   router.post('/reglages/2fa/enrolement', {}, { preserveScroll: true })
 }
 

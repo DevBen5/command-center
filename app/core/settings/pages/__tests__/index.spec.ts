@@ -220,4 +220,70 @@ describe('Core / écran de réglages', () => {
 
     wrapper.unmount()
   })
+
+  /*
+  | CC-249 : « Générer un nouveau QR code » remplace le secret en base, donc périme le QR déjà
+  | scanné dans une application d'authentification — qui devient une entrée morte, produisant des
+  | codes que le serveur refuse. Rien ne le disait, et c'était le seul geste destructif de cet
+  | écran sans confirmation (`disableConfirm` et `regenerateConfirm` existaient déjà).
+  |
+  | ⚠️ **Les deux tests suivants ne se remplacent pas, et le second est ce qui rend le premier
+  | probant.** La garde est `props.enrollment !== null` : la retirer ferait confirmer aussi le
+  | tout premier enrôlement — un avertissement payé par quelqu'un qui n'a encore rien scanné — et
+  | le test du chemin destructif resterait vert, la confirmation étant toujours là.
+  |
+  | ⚠️ **« Confirmer » est ambigu pendant un enrôlement, et c'est le piège de ce spec.** Le bouton
+  | qui valide le code TOTP (`settings.security.confirm`) porte le même libellé que celui de
+  | `ConfirmModal` (`confirm.confirm`). Une recherche par texte sur toute la page attraperait le
+  | premier des deux et ce test ne prouverait rien. D'où le passage par le `[role="dialog"]` que
+  | pose `AppModal`.
+  */
+  function boutonDeLaModale(wrapper: ReturnType<typeof monter>, libelle: string) {
+    const dialogue = wrapper.find('[role="dialog"]')
+    expect(dialogue.exists()).toBe(true)
+    return dialogue.findAll('button').find((b) => b.text() === libelle)!
+  }
+
+  test('le renouvellement du QR n’est posté qu’après confirmation', async () => {
+    const { router } = await import('@inertiajs/vue3')
+    const post = vi.mocked(router.post)
+
+    const wrapper = monter({ enabled: false, enrollment: ENROLLMENT })
+    const bouton = wrapper.findAll('button').find((b) => b.text() === settingsFr.security.restart)!
+
+    post.mockClear()
+
+    await bouton.trigger('click')
+    await wrapper.vm.$nextTick()
+    await boutonDeLaModale(wrapper, 'Annuler').trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(post).not.toHaveBeenCalled()
+
+    await bouton.trigger('click')
+    await wrapper.vm.$nextTick()
+    await boutonDeLaModale(wrapper, 'Confirmer').trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(post).toHaveBeenCalledWith('/reglages/2fa/enrolement', {}, { preserveScroll: true })
+
+    wrapper.unmount()
+  })
+
+  test('le PREMIER enrôlement ne demande aucune confirmation', async () => {
+    const { router } = await import('@inertiajs/vue3')
+    const post = vi.mocked(router.post)
+
+    // Rien en cours : c'est le bouton « Activer », qui ne périme aucun QR puisqu'il n'y en a pas.
+    const wrapper = monter({ enabled: false, enrollment: null })
+    const bouton = wrapper.findAll('button').find((b) => b.text() === settingsFr.security.start)!
+
+    post.mockClear()
+
+    await bouton.trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(post).toHaveBeenCalledWith('/reglages/2fa/enrolement', {}, { preserveScroll: true })
+
+    wrapper.unmount()
+  })
 })
