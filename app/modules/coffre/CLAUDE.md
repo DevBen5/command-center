@@ -338,7 +338,8 @@ limite nommée, pas oubliée.
   rejeu de 90 s sur six chiffres.
 - ⚠️ **Un code de secours n'ouvre PAS le coffre**, contrairement à `/login/2fa`. Là-bas il rattrape
   un téléphone perdu, faute de quoi la base entière devient inaccessible ; ici il n'y a rien à
-  rattraper — le contenu reste intact et le coffre se rouvre dès le second facteur réenrôlé.
+  rattraper — le contenu reste intact et le coffre se rouvre dès la double authentification
+  réenrôlée.
 - ⚠️ **Un compte sans TOTP ne peut pas ouvrir son coffre.** `ADMIN_2FA_REQUIRED` étant opt-in et
   faux par défaut, c'est un vrai prérequis : enrôler depuis `/reglages` **avant** d'activer le
   module. L'écran le dit avant le formulaire, et le serveur le tient aussi.

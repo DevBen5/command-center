@@ -44,7 +44,7 @@ import { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH } from '#core/auth/constants/p
 export default class ResetAccount extends BaseCommand {
   static commandName = 'auth:reset-account'
   static description =
-    "Repose le mot de passe d'un compte et désarme son second facteur. Saisie interactive obligatoire."
+    "Repose le mot de passe d'un compte et désarme sa double authentification. Saisie interactive obligatoire."
 
   /** La base est indispensable : sans `startApp`, aucun modèle n'est connecté. */
   static options: CommandOptions = { startApp: true }
@@ -166,7 +166,9 @@ export default class ResetAccount extends BaseCommand {
     this.logger.info(`Compte : ${user.fullName ?? 'sans nom'} <${user.email}>`)
     this.logger.info(`Administrateur : ${user.isAdmin ? 'oui' : 'non'}`)
     this.logger.info(`Compte actif : ${user.isActive ? 'oui' : 'non'}`)
-    this.logger.info(`Second facteur : ${avaitSecondFacteur ? 'actif — il sera retiré' : 'aucun'}`)
+    this.logger.info(
+      `Double authentification : ${avaitSecondFacteur ? 'active — elle sera retirée' : 'aucune'}`
+    )
 
     return this.prompt.confirm('Réinitialiser ce compte ?')
   }
@@ -229,8 +231,8 @@ export default class ResetAccount extends BaseCommand {
       const cause = error instanceof Error ? error.message : String(error)
 
       this.logger.error(
-        `⚠️ LE COMPTE EST BIEN RÉINITIALISÉ — mot de passe posé, second facteur retiré — mais le ` +
-          `registre « account_reset_events » n'a pas pu être écrit : ${cause}`
+        `⚠️ LE COMPTE EST BIEN RÉINITIALISÉ — mot de passe posé, double authentification retirée — ` +
+          `mais le registre « account_reset_events » n'a pas pu être écrit : ${cause}`
       )
       this.logger.error(
         'Ne relance pas la commande en croyant qu’elle a échoué. Si la table manque, joue les ' +
@@ -240,7 +242,7 @@ export default class ResetAccount extends BaseCommand {
     }
 
     logger.warn(
-      `auth:reset-account — mot de passe reposé et second facteur retiré sur le compte ` +
+      `auth:reset-account — mot de passe reposé et double authentification retirée sur le compte ` +
         `« ${user.email} » (id ${user.id}).`
     )
   }
@@ -255,8 +257,8 @@ export default class ResetAccount extends BaseCommand {
 
     if (avaitSecondFacteur) {
       this.logger.success(
-        'Second facteur retiré : secret, codes de secours et anti-rejeu. Le compte se reconnecte ' +
-          'avec le seul mot de passe, et peut réenrôler depuis /reglages.'
+        'Double authentification retirée : secret, codes de secours et anti-rejeu. Le compte se ' +
+          'reconnecte avec le seul mot de passe, et peut réenrôler depuis /reglages.'
       )
     } else if (enrolementEnCours) {
       this.logger.info('Un enrôlement commencé mais jamais confirmé a été effacé.')

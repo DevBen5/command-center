@@ -96,7 +96,7 @@ encore.
 
 Si le poste neuf **restaure un dump**, elle doit être **exactement la même** que celle de la machine
 d'origine. Les secrets TOTP sont chiffrés avec elle : une clé différente les rend illisibles, et un
-compte enrôlé au second facteur ne peut plus se connecter du tout. Le filet existe
+compte enrôlé à la double authentification ne peut plus se connecter du tout. Le filet existe
 (`node ace auth:reset-account`), mais c'est un filet, pas un plan.
 
 ### Ce qui ne vit dans aucun fichier, et qu'aucune procédure ne peut restituer

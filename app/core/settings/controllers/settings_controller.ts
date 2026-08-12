@@ -105,7 +105,9 @@ export default class SettingsController {
   /** De nouveaux codes de secours ; les précédents cessent de valoir. */
   async regenerateCodes({ auth, response }: HttpContext) {
     const user = auth.user!
-    if (!user.hasTotp) return response.badRequest({ error: 'Aucun second facteur actif.' })
+    if (!user.hasTotp) {
+      return response.badRequest({ error: 'Aucune double authentification active.' })
+    }
 
     return response.ok({ recoveryCodes: await twoFactor.regenerateRecoveryCodes(user) })
   }
@@ -124,7 +126,7 @@ export default class SettingsController {
     const user = auth.user!
 
     if (adminTotpRequired() && user.isAdmin) {
-      throw new ForbiddenException('Le second facteur est exigé pour ce compte.')
+      throw new ForbiddenException('La double authentification est exigée pour ce compte.')
     }
 
     await twoFactor.disable(user)

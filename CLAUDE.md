@@ -42,7 +42,7 @@ historique NON réécrit.** Le remède d'un secret publié est la rotation, jama
 rappelle ni les clones, ni les forks, ni les caches, ni les archives GitHub, pour un coût mesuré ici
 à **~74 branches distantes à force-pusher, 3 tags à refaire**, et tous les SHA cités dans `docs/`,
 dans ce fichier et dans les tickets rendus faux. Le compte de production porte un secret distinct et
-un second facteur (CC-114) ; le seeder qui posait cette valeur n'existe plus (CC-138).
+la double authentification (CC-114) ; le seeder qui posait cette valeur n'existe plus (CC-138).
 
 - ⚠️ **Ne rouvre pas ce dossier « par prudence ».** La question a été tranchée avec ses coûts sous
   les yeux ; la reposer sans fait neuf est du sur-process, et un force-push de 74 branches est
@@ -268,10 +268,10 @@ seule donnée de référence du lot, vit désormais dans une migration **idempot
 node ace auth:reset-account quelquun@exemple.fr
 ```
 
-Elle repose un mot de passe **et** désarme le second facteur — secret, codes de secours, anti-rejeu.
-C'est le filet sous CC-114, dont la sortie ultime (« un **autre** administrateur ») n'existe pas sur
-une installation à un seul compte : téléphone et codes perdus voulaient dire base inaccessible, avec
-l'unique exemplaire des cartes dedans.
+Elle repose un mot de passe **et** désarme la double authentification — secret, codes de secours,
+anti-rejeu. C'est le filet sous CC-114, dont la sortie ultime (« un **autre** administrateur »)
+n'existe pas sur une installation à un seul compte : téléphone et codes perdus voulaient dire base
+inaccessible, avec l'unique exemplaire des cartes dedans.
 
 ⚠️ **Elle ne crée aucun compte, et le titre de cette section reste donc vrai** : l'écran
 d'installation est le seul chemin vers un *premier* compte. Celle-ci répare un compte qui existe.
@@ -295,11 +295,11 @@ c'est-à-dire **exactement la précondition du prompt masqué** (`enquirer` appe
 qui n'existe que sur un TTY) : elle ne peut donc pas refuser une invocation où la saisie aurait
 fonctionné. Sur le NAS, `docker compose run` alloue un terminal ; `exec -T` non.
 
-⚠️ **L'ordre des écritures — second facteur d'abord, mot de passe ensuite — n'est pas décoratif.**
-Aucune transaction ne les couvre (les `delete` de `twoFactor.disable` en sortiraient). Interrompue
-au milieu, la commande laisse un compte au pire aussi ouvrable qu'avant. L'ordre inverse laisserait
-un compte au **nouveau** mot de passe et toujours bloqué par son second facteur : l'ancien mot de
-passe perdu pour rien, exactement ce qu'on venait réparer.
+⚠️ **L'ordre des écritures — double authentification d'abord, mot de passe ensuite — n'est pas
+décoratif.** Aucune transaction ne les couvre (les `delete` de `twoFactor.disable` en sortiraient).
+Interrompue au milieu, la commande laisse un compte au pire aussi ouvrable qu'avant. L'ordre inverse
+laisserait un compte au **nouveau** mot de passe et toujours bloqué par sa double authentification :
+l'ancien mot de passe perdu pour rien, exactement ce qu'on venait réparer.
 
 **Chaque passage laisse une ligne dans `account_reset_events`**, et le journal en dit autant. Les
 deux, parce qu'ils ne servent pas au même moment : le journal parle à qui lance la commande, mais
@@ -322,11 +322,11 @@ qui relira ce registre.
 ⚠️ **Elle doit être déployée AVANT d'en avoir besoin.** Le jour où le propriétaire est dehors,
 l'image qui tourne sur le NAS est celle d'avant : il faut d'abord reconstruire et recharger.
 
-**Elle ferme les sessions ouvertes ailleurs** (CC-176), en dernière écriture — après le second
-facteur et après le mot de passe, sans rouvrir l'ordre ci-dessus. Livrer un mot de passe neuf en
-laissant l'intrus dans la place viderait de son sens le filet du compte perdu : sans ce geste, un
-cookie volé restait valable jusqu'à la borne des 7 jours (CC-78), reset ou pas. ⚠️ **Elle n'en
-ferme aucune à l'unité** — le store est `cookie`, il n'existe aucune liste côté serveur : c'est
+**Elle ferme les sessions ouvertes ailleurs** (CC-176), en dernière écriture — après la double
+authentification et après le mot de passe, sans rouvrir l'ordre ci-dessus. Livrer un mot de passe
+neuf en laissant l'intrus dans la place viderait de son sens le filet du compte perdu : sans ce
+geste, un cookie volé restait valable jusqu'à la borne des 7 jours (CC-78), reset ou pas. ⚠️ **Elle
+n'en ferme aucune à l'unité** — le store est `cookie`, il n'existe aucune liste côté serveur : c'est
 une révocation **en bloc**, et une commande n'ayant pas de session, celle de l'opérateur tombe
 avec les autres.
 
@@ -863,13 +863,13 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
   - ⚠️ **L'élévation ne survit pas à une reconnexion** : le marqueur est comparé au
     `LOGIN_STAMP_KEY` de CC-78 — `auth.logout()` n'efface que la clé du guard, pas la session.
 
-### Le second facteur TOTP (CC-114)
+### La double authentification TOTP (CC-114)
 
 Optionnel par compte, activé depuis `/reglages` — l'écran de `core/settings`, où vit aussi le
 sélecteur de langue. ⚠️ **Ce domaine existe pour que l'entrée « Réglages » de la barre latérale ne
 mente pas** : CC-81 l'avait retirée parce qu'elle pointait vers `/`, donc vers un refus pour un
 non-admin. La remettre n'était acceptable qu'avec un écran derrière. Elle est **visible par tout le
-monde**, contrairement à l'administration — chacun y règle son propre facteur, et un compte que
+monde**, contrairement à l'administration — chacun y règle la sienne, et un compte que
 `ADMIN_2FA_REQUIRED` renvoie là doit pouvoir l'atteindre. `POST /login` valide le mot de passe puis,
 si le compte est enrôlé, **ne connecte pas** : il pose un marqueur de session expirant (5 min,
 `two_factor_challenge.ts`) et renvoie vers `/login/2fa`, qui seul appelle `auth.login()`. Le
@@ -882,9 +882,9 @@ produirait des codes refusés **sans lever d'erreur**.
   rejouer `/login`, dont on connaît le mot de passe, pour remettre le compteur à zéro entre chaque
   essai de code. « Un succès efface » (CC-78) veut dire un succès **complet**.
 - ⚠️ **L'acceptation d'une invitation exige le code, elle aussi.** Ce lien pose un mot de passe
-  **et** connecte : sans ce détour, quiconque l'intercepte entrerait sans jamais croiser le second
-  facteur, quel que soit le soin mis à le vérifier sur `/login`. Une porte fermée d'un seul bout
-  n'est pas fermée.
+  **et** connecte : sans ce détour, quiconque l'intercepte entrerait sans jamais croiser la double
+  authentification, quel que soit le soin mis à la vérifier sur `/login`. Une porte fermée d'un
+  seul bout n'est pas fermée.
 - ⚠️ **Le secret est chiffré (APP_KEY), les codes de secours sont hachés (SHA-256).** Ce n'est pas
   une incohérence : un secret TOTP doit être *relu* à chaque connexion, donc il ne peut pas être
   haché. Et une APP_KEY changée rend tous les secrets illisibles d'un coup — si les codes de

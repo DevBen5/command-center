@@ -246,8 +246,8 @@ file over following `latest` if you would rather decide when that happens. Relea
 docker compose -f docker-compose.install.yml run --rm app node ace auth:reset-account you@example.org
 ```
 
-Resets a password **and** disarms the second factor — secret, recovery codes, replay guard. It is
-the net under TOTP, whose documented last resort ("another administrator") does not exist on a
+Resets a password **and** disarms two-factor authentication — secret, recovery codes, replay guard.
+It is the net under TOTP, whose documented last resort ("another administrator") does not exist on a
 single-account installation.
 
 - It **creates no account**: `/installation` remains the only path to a *first* one.
@@ -269,10 +269,10 @@ single-account installation.
 
 What is in place: session cookies bounded to **7 days** regardless of activity; invitation links
 valid 48 h; `POST /login` throttled (10 failures / 15 min per IP, 5 per email — only failures count,
-and a *complete* success clears them); optional TOTP second factor per account, with encrypted
-secret and hashed recovery codes; CSP active with a strict `script-src`; every route required to
-declare its access condition, so a forgotten one answers 403 rather than opening; capability checks
-in middleware, never in the UI alone.
+and a *complete* success clears them); optional TOTP two-factor authentication per account, with
+encrypted secret and hashed recovery codes; CSP active with a strict `script-src`; every route
+required to declare its access condition, so a forgotten one answers 403 rather than opening;
+capability checks in middleware, never in the UI alone.
 
 What is **not**:
 
