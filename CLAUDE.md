@@ -520,7 +520,7 @@ lèverait TS2307. Contrepartie : les composants y sont typés `any` — le typec
 les props passées à `mount()`, un test qui se trompe échoue à l'exécution. La lever demanderait
 `vue-tsc` pour tout le dépôt.
 
-## Sept choses qui cassent sans lever d'erreur
+## Huit choses qui cassent sans lever d'erreur
 
 1. **Nouveau module → l'enregistrer dans `config/modules.ts`** (`KNOWN_MODULES`,
    `MODULE_MIGRATION_PATHS`) — **pas directement dans `config/database.ts`** (CC-137). Ce dernier
@@ -726,6 +726,28 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
    direct ne rougit nulle part tant que les deux modules sont allumés — et `.env.test` les active
    **tous**, donc aucune suite ne le verra jamais —, la duplication diverge sans que rien ne
    compare les deux copies.
+
+8. **Renommer une VALEUR i18n n'est protégé par rien, et le balayage qui en tient lieu a trois
+   angles morts** (CC-132). Quand une **clé** change de nom, `keys.spec.ts` rougit (point 6
+   ci-dessus). Quand seule sa **valeur** change, aucun runner ne peut le voir : un fichier oublié
+   ne se manifeste que par un écran qui dit encore l'ancien mot à côté d'un autre qui dit le
+   nouveau. La garde est alors un balayage à la main — et c'est lui qu'il faut savoir faire.
+
+   ⚠️ **Un `grep` ligne à ligne est AVEUGLE à sa propre cible en prose justifiée.** L'expression
+   cherchée peut être coupée par un retour à la ligne (`second\n  facteur`) : la commande rend
+   **0** et certifie un travail incomplet. Mesuré deux fois dans ce fichier même, et une fois
+   dans la KB. Le balayage doit normaliser les blancs avant de chercher, jamais être un `grep` nu
+   — c'est la vérification que le ticket proposait, et elle aurait menti.
+
+   ⚠️ **Une chaîne visible peut vivre HORS de tout fichier de traduction.** Deux gisements que
+   fouiller les `i18n/*.json` ne trouve jamais : les chaînes **en dur dans un contrôleur**
+   (`settings_controller.ts` en portait deux, rendues au navigateur) et la **sortie prose d'une
+   commande ace**, lue par un humain et couverte par aucun `t()`.
+
+   ⚠️ **Le tableau d'inventaire d'un ticket n'est pas sa garde — il vieillit entre sa rédaction
+   et son exécution.** Celui de CC-132 avait été corrigé par son propre addendum le matin même
+   et manquait encore quatre entrées, dont `README.md` et `docs/poste-de-developpement.md` — ce
+   dernier créé *après* le relevé. Refaire le relevé avant d'attaquer ; ne jamais s'y fier.
 
 ## Sécurité — ne pas régresser
 

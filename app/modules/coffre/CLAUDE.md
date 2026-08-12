@@ -299,6 +299,14 @@ en tapant `/coffre/ouvrir`.
 - ⚠️ **Les capacités, elles, SONT au registre.** Le rideau ne concerne que la *navigation*. Sans
   `start/capabilities.ts`, les routes citeraient des capacités inconnues : fermées à tout
   non-admin, sans que `is_admin` s'en aperçoive.
+- ⚠️ **Le module n'a AUCUN article de base de connaissance, et c'est une décision, pas un oubli**
+  (2026-08-12). `/kb-sync` signale la lacune à **chaque** passage — c'est sa consigne, et un
+  sous-agent neuf n'a aucun moyen de savoir qu'elle a été tranchée : la réponse est ici, sur
+  place, même geste que l'avertissement de `start/navigation.ts` ci-dessus. Le coffre reste un
+  module de développeur, qu'on ne présente pas. ⚠️ **Ça n'achète aucun secret** : tout ce fichier
+  est public sur GitHub, plus détaillé que ne le serait un article, et ce qui protège reste le
+  mur. La décision est **éditoriale** — la KB pointe, elle ne recopie pas, et un module hors de
+  `MODULES` par défaut n'a pas à peser dans son sommaire.
 
 ## Le mur — deux étages, et la porte est hors du mur
 

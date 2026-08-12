@@ -204,7 +204,7 @@ la base est `app`, pas `app_test`, que `npm test` vide à chaque exécution.
 
 Ce document ne recopie rien de ce qui suit — il y renvoie.
 
-- **`CLAUDE.md`** à la racine : l'architecture par feature, les sept choses qui cassent sans lever
+- **`CLAUDE.md`** à la racine : l'architecture par feature, les huit choses qui cassent sans lever
   d'erreur, la sécurité, les sauvegardes et leur chiffrement.
 - **`app/<couche>/<module>/CLAUDE.md`** : les invariants de chaque module, ses pièges, ses
   frontières de confiance. Celui du coffre est le plus dense.
