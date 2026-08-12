@@ -92,7 +92,7 @@ async function destroy(): Promise<void> {
 async function resetTwoFactor(): Promise<void> {
   const nom = props.account.fullName ?? props.account.email
   const message =
-    `Réinitialiser le second facteur de « ${nom} » ? ` +
+    `Réinitialiser la double authentification de « ${nom} » ? ` +
     'Ses codes de secours restants seront effacés, et son compte se reconnectera ' +
     'avec son seul mot de passe jusqu’à ce qu’il se réenrôle.'
   if (!(await confirmModal.value?.ask(message, { danger: true }))) {
@@ -271,7 +271,7 @@ async function issueInvitation(): Promise<void> {
     </section>
 
     <section class="flex flex-col gap-3 rounded-xl border border-line-2 bg-panel p-4">
-      <h3 class="text-[13px] font-semibold tracking-tight">Second facteur</h3>
+      <h3 class="text-[13px] font-semibold tracking-tight">Double authentification (2FA)</h3>
 
       <p class="text-[12.5px] text-txt-2">
         <template v-if="account.twoFactor.enabled">
@@ -285,8 +285,8 @@ async function issueInvitation(): Promise<void> {
 
       <template v-if="account.twoFactor.enabled">
         <p class="text-[12.5px] text-txt-3">
-          Réinitialiser retire le second facteur et efface les codes de secours restants : c'est
-          la sortie quand le téléphone
+          Réinitialiser retire la double authentification et efface les codes de secours restants :
+          c'est la sortie quand le téléphone
           <strong class="text-txt-2">et</strong> les codes ont disparu. Le compte se reconnecte
           alors avec son seul mot de passe, et se réenrôle depuis ses réglages.
         </p>
@@ -296,7 +296,7 @@ async function issueInvitation(): Promise<void> {
             class="rounded-lg border border-warn/40 px-3 py-2 text-[12.5px] text-warn transition hover:border-warn"
             @click="resetTwoFactor"
           >
-            Réinitialiser le second facteur
+            Réinitialiser la double authentification
           </button>
         </div>
       </template>

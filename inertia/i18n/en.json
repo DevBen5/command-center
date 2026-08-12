@@ -68,7 +68,7 @@
   },
   "twoFactor": {
     "eyebrow": "Verification",
-    "title": "Second factor",
+    "title": "Two-factor authentication (2FA)",
     "lead": "Enter the six-digit code from your authenticator app, or one of your recovery codes.",
     "code": "Code",
     "submit": "Verify",

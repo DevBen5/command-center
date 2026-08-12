@@ -68,7 +68,7 @@
   },
   "twoFactor": {
     "eyebrow": "Vérification",
-    "title": "Second facteur",
+    "title": "Double authentification (2FA)",
     "lead": "Saisissez le code à six chiffres de votre application d'authentification, ou l'un de vos codes de secours.",
     "code": "Code",
     "submit": "Vérifier",
