@@ -68,6 +68,11 @@ const SPECS_TRANSVERSES = [
   // backup (CC-231) et coffre_nas (CC-232). La phrase se périme à chaque config isolée ajoutée,
   // et RIEN ne l'attrape — ce fichier asserte la mention, jamais son exactitude.
   'tests/unit/env_isolation.spec.ts', // aucune valeur du `.env` de la machine n'entre en test
+  // ⚠️ Transverse **par construction, pas par commodité** : la brique de rendu Markdown
+  // (CC-133) vit dans `app/core/shared/` précisément pour qu'un second consommateur n'ait pas à
+  // l'importer depuis un module détachable (leçon CC-180). La ranger sous un préfixe `leitner_`
+  // dirait l'inverse de ce que le lot a décidé.
+  'tests/unit/markdown_renderer.spec.ts', // Markdown → HTML assaini, core/shared (CC-133)
   'tests/unit/modules_config.spec.ts', // MODULES, config/modules.ts (CC-137)
   'tests/unit/tests_index.spec.ts', // ce fichier
   'tests/unit/totp.spec.ts', // le second facteur du noyau (CC-114)
