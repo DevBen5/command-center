@@ -1,6 +1,5 @@
 import { realpath, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { DateTime } from 'luxon'
 import { isWithinRoot } from '#modules/coffre/services/nas_roots_service'
 import { nasFileKindFor } from '#modules/coffre/services/nas_file_format'
 import type { CoffreNasRoot } from '#config/coffre_nas'
@@ -16,11 +15,32 @@ import type { CatalogEnumeration, CatalogSourceItem } from '#modules/coffre/serv
 
 /**
  * ⚠️ **Garde-fou anti-boucle-infinie, PAS une borne réaliste** — même doctrine que
- * `MAX_CATALOG_PAGES` côté Immich. Un NAS familial porte des dizaines de milliers de fichiers ;
- * cette valeur est plusieurs ordres de grandeur au-dessus, au cas où une structure de dossiers
- * pathologique (ou un bug de cette fonction) ferait dériver le parcours.
+ * `MAX_CATALOG_PAGES` côté Immich. Au-delà, `truncated: true` plutôt qu'un blocage.
+ *
+ * ⚠️ **Cette valeur se RECALCULE, elle ne se devine pas — voici de quoi le faire (CC-244).** Le
+ * commentaire d'origine promettait « plusieurs ordres de grandeur au-dessus » d'un NAS familial ;
+ * la mesure a démenti la promesse, pas l'intention : le vrai NAS porte **126 023 fichiers**, donc
+ * l'ancien plafond de 200 000 ne le dépassait que de **1,6×**. Un garde-fou à 1,6× n'est plus un
+ * garde-fou, c'est une borne de fonctionnement — et la franchir ne lève pas : le catalogue cesse
+ * simplement de marquer les absences et se met à mentir doucement.
+ *
+ * Les deux chiffres qui décident, mesurés le 2026-08-12 contre le partage SMB réel (`enumerate()`
+ * étant tout-ou-rien, tout le parcours est en mémoire avant la moindre écriture) :
+ *
+ * - **277 o/élément** sur les 126 023 fichiers réels — 33,3 Mo retenus, pic RSS 207 Mo ;
+ *   369 o/élément sur une énumération synthétique aux chemins plus longs (le pire cas retenu).
+ * - **Le NAS de production a 4 Go de RAM, PARTAGÉS avec Postgres** et les autres conteneurs.
+ *
+ * D'où le budget : `1 000 000 × 369 o ≈ 370 Mo` retenus au pire, ~9 % de la RAM de la machine,
+ * pour **7,9× le contenu réel** — au lieu de 1,6×. Le garde-fou redevient un garde-fou.
+ *
+ * ⚠️ **Ce plafond n'est tenable QUE parce que `capturedAt` est un epoch** (voir `toCatalogItem`
+ * ci-dessous, et `catalog_source.ts`). Avec le `DateTime` Luxon d'avant CC-244, mesuré à
+ * 942 o/élément sur ce même partage, la même valeur vaudrait **~940 Mo** : le processus tué au
+ * lieu d'un résultat partiel — un mode d'échec bien pire que celui qu'on corrige. Si quelqu'un
+ * remet un objet de date dans le parcours, cette constante doit redescendre dans le même geste.
  */
-export const MAX_NAS_WALK_ITEMS = 200_000
+export const MAX_NAS_WALK_ITEMS = 1_000_000
 
 /**
  * ⚠️ **Dossiers spéciaux Synology, au-delà des quatre pièges du ticket — décision propre à ce
@@ -54,6 +74,11 @@ interface WalkState {
  * (CC-233) — sans lui, deux racines portant chacune un fichier de même chemin relatif produiraient
  * la même référence, et la seconde écraserait la première en base sans qu'aucune contrainte ne le
  * signale (voir `catalog_sync_service.ts`).
+ *
+ * ⚠️ **`mtime.getTime()`, jamais `stats.mtimeMs` (CC-244).** Les deux paraissent interchangeables :
+ * ils ne le sont pas. `mtimeMs` porte des fractions de milliseconde que `Date` tronque — donc que
+ * le `DateTime.fromJSDate(mtime)` d'avant ce lot n'a jamais vues. Le prendre décalerait les
+ * valeurs écrites en base pour tout le catalogue existant, sans qu'aucun test ne le dise.
  */
 function toCatalogItem(
   rootName: string,
@@ -68,7 +93,7 @@ function toCatalogItem(
     reference: `${rootName}/${relativePath}`,
     nature: nasFileKindFor(natureSourcePath) ?? 'other',
     displayName: name,
-    capturedAt: DateTime.fromJSDate(mtime),
+    capturedAt: mtime.getTime(),
     sizeBytes: size,
   }
 }

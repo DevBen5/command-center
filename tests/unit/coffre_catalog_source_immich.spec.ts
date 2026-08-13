@@ -34,15 +34,41 @@ test.group('Coffre / la source de catalogue Immich', () => {
     const { items, truncated } = await new ImmichLockedCatalogSource(fake).enumerate()
 
     assert.isFalse(truncated)
+    // ⚠️ `capturedAt` est un EPOCH depuis CC-244, pas le `DateTime` que le client rend : le
+    // contrat `CatalogSourceItem` est partagé avec la source NAS, dont l'énumération tout-ou-rien
+    // ne peut pas se permettre un objet de date par élément. La conversion a lieu ICI, à la
+    // frontière — `immich_session_client.ts`, lui, n'a pas bougé.
     assert.deepEqual(items, [
       {
         reference: '11111111-2222-4333-8444-555555555555',
         nature: 'photo',
         displayName: 'plage.jpg',
-        capturedAt,
+        capturedAt: capturedAt.toMillis(),
         sizeBytes: 2048,
       },
     ])
+  })
+
+  test('un asset sans date rend `capturedAt: null`, jamais `undefined`', async ({ assert }) => {
+    const fake = new FakeImmichSessionClient()
+    fake.setCatalog({
+      assets: [
+        {
+          assetId: '11111111-2222-4333-8444-555555555555',
+          nature: 'photo',
+          displayName: null,
+          capturedAt: null,
+          sizeBytes: null,
+        },
+      ],
+      truncated: false,
+    })
+
+    const { items } = await new ImmichLockedCatalogSource(fake).enumerate()
+
+    // `?? null` et non `?.toMillis()` seul : `undefined` traverserait Lucid en « champ non
+    // renseigné » plutôt qu'en `NULL` explicite, et la distinction ne se verrait nulle part.
+    assert.isNull(items[0].capturedAt)
   })
 
   test('enumerate() propage `truncated`', async ({ assert }) => {

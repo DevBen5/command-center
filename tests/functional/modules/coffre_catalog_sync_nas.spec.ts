@@ -1,5 +1,5 @@
 import { test } from '@japa/runner'
-import { mkdir, mkdtemp, rm, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, stat, unlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import app from '@adonisjs/core/services/app'
@@ -9,6 +9,8 @@ import { createUserWith } from '#tests/helpers/users'
 import { createVault } from '#tests/helpers/coffre'
 import CoffreCatalogItem from '#modules/coffre/models/coffre_catalog_item'
 import NasRootsService from '#modules/coffre/services/nas_roots_service'
+import { walkNasRoots } from '#modules/coffre/services/nas_directory_walker'
+import catalogSync from '#modules/coffre/services/catalog_sync_service'
 import ImmichSessionClient from '#modules/coffre/services/immich_session_client'
 import FakeImmichSessionClient from '#tests/fakes/fake_immich_session_client'
 import CoffreSyncCatalog from '#commands/coffre_sync_catalog'
@@ -74,7 +76,8 @@ test.group('Coffre / la source NAS du catalogue', (group) => {
   })
 
   test('découvre les fichiers réels et les écrit avec leurs métadonnées', async ({ assert }) => {
-    await writeFile(join(racine, 'plage.jpg'), 'x'.repeat(2048))
+    const chemin = join(racine, 'plage.jpg')
+    await writeFile(chemin, 'x'.repeat(2048))
     app.container.swap(NasRootsService, () => new NasRootsService([{ name: 'root', path: racine }]))
 
     const user = await createUserWith([])
@@ -89,6 +92,81 @@ test.group('Coffre / la source NAS du catalogue', (group) => {
     assert.equal(rows[0].nature, 'photo')
     assert.equal(rows[0].sizeBytes, 2048)
     assert.isNull(rows[0].missingSince)
+
+    // ⚠️ L'INSTANT écrit en base, pas seulement « une date est là » (CC-244). Le parcours porte
+    // désormais un epoch et la conversion vit dans `catalog_sync_service.ts` : c'est ce
+    // bout-en-bout qui prouve que la traduction n'a rien décalé — un `fromSeconds` à la place d'un
+    // `fromMillis`, ou une zone de construction différente, passeraient tous deux « une date est
+    // là » sans qu'aucun test ne rougisse.
+    const { mtime } = await stat(chemin)
+    assert.equal(rows[0].capturedAt?.toMillis(), mtime.getTime())
+  })
+
+  test('⚠️ un fichier dont la `mtime` est à l’epoch 0 garde sa date, il ne devient pas NULL', async ({
+    assert,
+  }) => {
+    // Le seul mode d'échec SILENCIEUX que CC-244 a créé : l'epoch `0` est *falsy*, alors que le
+    // `DateTime | null` d'avant ne pouvait pas l'être. Un `item.capturedAt ? … : null` dans
+    // `catalog_sync_service.ts` écrirait `captured_at NULL` sur un fichier daté du 1ᵉʳ janvier
+    // 1970 — une `mtime` cassée, ce qu'un NAS produit sans prévenir — sans erreur et sans test
+    // rouge ailleurs. C'est ce test qui rougit sur cette mutation.
+    const chemin = join(racine, 'sans-date.jpg')
+    await writeFile(chemin, 'contenu')
+    await utimes(chemin, new Date(0), new Date(0))
+    app.container.swap(NasRootsService, () => new NasRootsService([{ name: 'root', path: racine }]))
+
+    const user = await createUserWith([])
+    await createVault(user)
+
+    const command = await runSync()
+    command.assertSucceeded()
+
+    const rows = await catalogRowsFor(user.id)
+    assert.lengthOf(rows, 1)
+    assert.isNotNull(rows[0].capturedAt, 'l’epoch 0 est une date, pas une absence de date')
+    assert.equal(rows[0].capturedAt?.toMillis(), 0)
+  })
+
+  test('⚠️ au franchissement du plafond, `truncated` reste vrai et AUCUN élément n’est marqué absent', async ({
+    assert,
+  }) => {
+    // Les deux moitiés de cette garde étaient prouvées SÉPARÉMENT avant CC-244 : le plafond dans
+    // `coffre_nas_directory_walker.spec.ts` (sans base), le non-marquage dans
+    // `coffre_catalog_sync.spec.ts` (sur un `truncated` fabriqué à la main, source Immich). Ce
+    // test-ci les relie sur le vrai chemin NAS : un parcours réellement tronqué, appliqué à une
+    // vraie base qui porte déjà les deux fichiers. Sans le lien, relever le plafond aurait pu
+    // casser la chaîne sans qu'aucune des deux moitiés ne rougisse.
+    await writeFile(join(racine, 'un.jpg'), 'contenu')
+    await writeFile(join(racine, 'deux.jpg'), 'contenu')
+    app.container.swap(NasRootsService, () => new NasRootsService([{ name: 'root', path: racine }]))
+
+    const user = await createUserWith([])
+    await createVault(user)
+
+    // Un premier passage COMPLET : les deux fichiers entrent au catalogue, présents.
+    const premierPassage = await runSync()
+    premierPassage.assertSucceeded()
+    assert.lengthOf(await catalogRowsFor(user.id), 2)
+
+    // Un second passage TRONQUÉ au premier fichier — le plafond franchi pour de vrai, par le
+    // parcours réel, pas par un drapeau posé à la main.
+    const enumeration = await walkNasRoots([{ name: 'root', path: racine }], { maxItems: 1 })
+    assert.isTrue(enumeration.truncated, 'le plafond est bien franchi')
+    assert.lengthOf(enumeration.items, 1)
+
+    const outcome = await catalogSync.applyEnumeration(user.id, 'nas', enumeration)
+
+    assert.isTrue(outcome.truncated)
+    assert.equal(outcome.markedAbsent, 0, 'un parcours tronqué ne conclut à AUCUNE disparition')
+
+    const rows = await catalogRowsFor(user.id)
+    assert.lengthOf(rows, 2, 'les deux lignes sont toujours là')
+    for (const row of rows) {
+      assert.isNull(
+        row.missingSince,
+        `${row.reference} : ce que le plafond n’a pas vu n’est pas disparu`
+      )
+    }
   })
 
   test('⚠️ une racine absente fait échouer la commande, le catalogue reste INTACT', async ({
