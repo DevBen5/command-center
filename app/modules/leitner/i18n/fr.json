@@ -241,6 +241,17 @@
     "stop": "Arrêter",
     "boxesTitle": "Boîtes Leitner"
   },
+  "markdown": {
+    "hint": "Markdown : **gras**, *italique*, - liste, ``` pour un bloc de code (à refermer).",
+    "show": "Aperçu",
+    "hide": "Masquer l'aperçu",
+    "front": "Aperçu du recto",
+    "back": "Aperçu du verso",
+    "empty": "Rien à afficher pour l'instant.",
+    "loading": "Rendu…",
+    "tooLong": "Contenu trop long pour l'aperçu ({max} caractères maximum). La carte reste enregistrable.",
+    "failed": "L'aperçu n'a pas pu être calculé."
+  },
   "settings": {
     "crumb": "Cartes",
     "title": "Gestion des cartes",

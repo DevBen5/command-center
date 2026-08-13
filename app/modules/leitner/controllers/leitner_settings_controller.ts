@@ -3,6 +3,7 @@ import type { MultipartFile } from '@adonisjs/core/bodyparser'
 import type { HttpContext } from '@adonisjs/core/http'
 import { errors as vineErrors } from '@vinejs/vine'
 import { DateTime } from 'luxon'
+import { renderMarkdown } from '#core/shared/services/markdown_renderer'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
@@ -19,6 +20,7 @@ import {
   backupValidator,
   boxIntervalsValidator,
   cardIdsValidator,
+  cardPreviewValidator,
   cardValidator,
   cardsThemeValidator,
   categoryValidator,
@@ -254,6 +256,44 @@ export default class LeitnerSettingsController {
     const { ids, leitnerThemeId } = await request.validateUsing(cardsThemeValidator)
     await this.service.assignTheme(ids, leitnerThemeId, auth.user!.id, auth.user!.isAdmin)
     return response.redirect().back()
+  }
+
+  /**
+   * L'aperçu du rendu pendant la saisie (CC-257) — **le même rendu que la révision, par la même
+   * fonction**, et c'est tout l'intérêt.
+   *
+   * ⚠️ **`renderMarkdown` est appelée ici DIRECTEMENT, sans enveloppe, et il ne faut pas en
+   * fabriquer une.** Un helper `previewOf()` partagé avec `LeitnerIngestionController` paraîtrait
+   * plus propre pour deux lignes ; il affaiblirait précisément ce que ce lot doit garantir. Ce
+   * qui est promis, c'est « l'aperçu montre ce que la révision montrera » — or `LeitnerController`
+   * appelle `renderMarkdown(card.front)`. Un intermédiaire est un endroit où une option, un
+   * pré-traitement ou un repli peuvent s'ajouter un jour **d'un seul côté**, et rien ne le dirait :
+   * l'aperçu se mettrait à mentir. `leitner_preview.spec.ts` compare les deux sorties octet pour
+   * octet, et c'est cette comparaison — pas une abstraction — qui tient la promesse.
+   *
+   * ⚠️ **Cette route n'écrit RIEN** : ni carte, ni brouillon, ni la moindre trace. C'est
+   * l'équivalent, pour cet écran, de `/revision/ingest/extract` et des routes de diagnostic de
+   * `/revision/llm`.
+   *
+   * ⚠️ **Du JSON nu, pas de l'Inertia** : la page l'appelle en `fetch`, donc avec l'en-tête
+   * `x-xsrf-token` (sans lui, Shield rejette le POST par une redirection, pas par un 403 lisible)
+   * et `accept: application/json`, sans quoi un refus du validateur se changerait en redirection
+   * avec erreurs flashées au lieu d'un 422 — **mesuré** en écrivant la spec, et le symptôme est
+   * trompeur : la redirection retombe sur `/`, qui répond 403 à qui n'a pas `dashboard.view`.
+   *
+   * ⚠️ **Sous `leitner.cards.write`, la capacité de l'écran qui l'appelle.** Son jumeau de
+   * l'ingestion vit dans `LeitnerIngestionController#previewDraft` sous `leitner.ingest` :
+   * `middleware.can()` n'accepte **qu'une** capacité, et les deux écrans n'ont pas la même. Ce
+   * n'est donc pas une duplication qu'on aurait pu éviter — c'est ce que coûte le refus d'un
+   * « rendu de Markdown générique » ouvert à qui n'a ni l'un ni l'autre des deux écrans.
+   */
+  async preview({ request, response }: HttpContext) {
+    const { front, back } = await request.validateUsing(cardPreviewValidator)
+
+    return response.json({
+      frontHtml: renderMarkdown(front ?? ''),
+      backHtml: renderMarkdown(back ?? ''),
+    })
   }
 
   /*

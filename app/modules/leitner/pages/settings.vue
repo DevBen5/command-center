@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Head, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import AppModal from '~/components/AppModal.vue'
 import ConfirmModal from '~/components/ConfirmModal.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
+import MarkdownPreviewPanel from '../components/MarkdownPreviewPanel.vue'
 import { useCan } from '../components/leitner_can'
+import { useMarkdownPreview } from '../components/leitner_markdown_preview'
 import { scrollTopKeepingAnchor } from '../shared/settings_page'
 
 defineOptions({ layout: AppLayout })
@@ -258,6 +260,30 @@ const frontInput = ref<HTMLTextAreaElement | null>(null)
 
 const hasThemes = computed(() => props.categories.some((category) => category.themes.length > 0))
 
+/*
+| L'aperçu du rendu Markdown (CC-257)
+|------------------------------------------------------------------------------
+| Le contenu d'une carte est rendu en Markdown depuis CC-133, mais il se saisissait
+| dans un `<textarea>` nu : rien ne disait même que le Markdown était interprété. Une
+| clôture ``` non refermée bascule tout le reste de la carte dans un bloc de code —
+| comportement CommonMark correct — et ça ne se découvrait qu'en révision.
+|
+| ⚠️ Le HTML vient du SERVEUR, de la même `renderMarkdown` que la révision. Voir
+| `components/leitner_markdown_preview.ts` : rien n'est rendu ici, et rien ne doit
+| l'être — ce serait un second rendu, et `markdown-it` dans le bundle.
+|
+| L'état vit AU NIVEAU DE LA PAGE, pas de la modale : il survit donc à « Créer et
+| enchaîner » et à un aller-retour création → édition. Une fois qu'on a demandé à voir,
+| on veut voir la carte suivante aussi. Il est déclaré ICI, avant les trois fonctions
+| qui appellent `refresh()`, pour qu'on ne le lise pas après ses appelants.
+*/
+const preview = useMarkdownPreview('/revision/cards/preview', () => ({
+  front: cardForm.front,
+  back: cardForm.back,
+}))
+
+onUnmounted(preview.dispose)
+
 function openCreate(): void {
   editing.value = null
   cardForm.front = ''
@@ -268,6 +294,9 @@ function openCreate(): void {
   // Privée par défaut (CC-139) : jamais pré-cochée.
   cardForm.isShared = false
   modalOpen.value = true
+  // Le formulaire vient de changer d'un bloc, sans le moindre événement de saisie : sans ça, un
+  // panneau resté ouvert montrerait la carte d'avant à côté de champs vides (CC-257).
+  preview.refresh()
 }
 
 function openEdit(card: Card): void {
@@ -277,6 +306,7 @@ function openEdit(card: Card): void {
   cardForm.leitnerThemeId = card.theme?.id ?? null
   cardForm.isShared = card.isShared
   modalOpen.value = true
+  preview.refresh()
 }
 
 /**
@@ -322,6 +352,9 @@ function submitCard(keepOpen = false): void {
           cardForm.front = ''
           cardForm.back = ''
           frontInput.value?.focus()
+          // Les champs se vident sans événement de saisie : l'aperçu doit suivre, sinon il
+          // affiche la carte qu'on vient d'enregistrer à côté d'un formulaire vierge.
+          preview.refresh()
         },
       }
     )
@@ -1076,20 +1109,45 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
         {{ editing ? t('leitner.settings.modalEditTitle') : t('leitner.settings.modalCreateTitle') }}
       </div>
       <div class="flex min-h-0 flex-col gap-2 overflow-y-auto p-5">
-        <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase">{{ t('leitner.settings.front') }}</label>
+        <!-- La bascule d'aperçu gouverne les DEUX panneaux, et vit donc sur la première étiquette
+             plutôt qu'en double. Repliée, aucune requête ne part : voir
+             `components/leitner_markdown_preview.ts`. -->
+        <div class="flex items-center gap-2">
+          <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase">{{ t('leitner.settings.front') }}</label>
+          <button
+            type="button"
+            class="ml-auto rounded-md border px-2 py-1 text-[11px] transition"
+            :class="
+              preview.open.value
+                ? 'border-accent bg-accent-soft text-txt'
+                : 'border-line-2 bg-panel-2 text-txt-3 hover:border-accent hover:text-txt'
+            "
+            @click="preview.toggle()"
+          >
+            {{ preview.open.value ? t('leitner.markdown.hide') : t('leitner.markdown.show') }}
+          </button>
+        </div>
         <textarea
           ref="frontInput"
           v-model="cardForm.front"
           rows="2"
           class="shrink-0 resize-y rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
+          @input="preview.onInput()"
         ></textarea>
+        <MarkdownPreviewPanel :preview="preview" side="front" />
 
         <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">{{ t('leitner.settings.back') }}</label>
         <textarea
           v-model="cardForm.back"
           rows="3"
           class="shrink-0 resize-y rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
+          @input="preview.onInput()"
         ></textarea>
+        <MarkdownPreviewPanel :preview="preview" side="back" />
+
+        <!-- Rien ne disait que le Markdown était interprété (CC-257). Cette ligne ne remplace pas
+             l'aperçu : elle dit qu'il y a quelque chose à prévisualiser. -->
+        <p class="text-[11px] text-txt-3">{{ t('leitner.markdown.hint') }}</p>
 
         <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">{{ t('leitner.settings.theme') }}</label>
         <select

@@ -4,6 +4,9 @@ import { DateTime } from 'luxon'
 // Le plafond de transport vient de `shared/`, la seule copie que la page atteint aussi :
 // deux déclarations divergentes faisaient partir `POST /review` en 422, en silence (CC-60).
 import { MEASURE_MAX_MS } from '#modules/leitner/shared/review_page'
+// Même raison, même dossier : la borne de l'aperçu (CC-257) est lue ici ET par les deux pages
+// qui l'appellent. Recopiée, elle rendrait le panneau muet sans que rien ne le dise.
+import { PREVIEW_MAX_CHARS } from '#modules/leitner/shared/card_preview'
 
 /**
  * Création / édition d'une carte. `leitnerThemeId` est optionnel : une carte
@@ -17,6 +20,33 @@ export const cardValidator = vine.compile(
     // Absent = pas de changement à l'édition (le contrôleur ne l'applique que si
     // `!== undefined`) ; à la création, `?? false` dans le service : privé par défaut.
     isShared: vine.boolean().optional(),
+  })
+)
+
+/**
+ * L'aperçu du rendu Markdown, pendant la saisie (CC-257). Il **n'écrit rien** : le texte n'est ni
+ * stocké, ni interprété, ni utilisé comme identifiant — il traverse `renderMarkdown` et repart
+ * en HTML assaini.
+ *
+ * ⚠️ **Les deux champs sont optionnels, et le vide est valide** : on prévisualise en cours de
+ * frappe, donc un recto encore vide est l'état normal, pas une erreur. `cardValidator` exige un
+ * `minLength(1)` parce qu'il *crée* une carte ; le refuser ici ferait échouer l'aperçu à la
+ * seconde exacte où l'auteur commence à écrire.
+ *
+ * ⚠️ **`.trim()` n'est pas décoratif : c'est de la FIDÉLITÉ.** `cardValidator` trime avant
+ * d'écrire, donc un contenu enregistré est toujours trimé — un aperçu qui ne trimerait pas
+ * rendrait autre chose que ce que la révision affichera. Le cas qui mord est celui d'un contenu
+ * collé avec quatre espaces en tête : non trimé, CommonMark en fait un bloc de code indenté ;
+ * trimé, un paragraphe. Le bon aperçu est celui de ce qui sera stocké.
+ *
+ * ⚠️ **La borne existe parce que la route rend du HTML à partir d'un corps arbitraire.**
+ * `front`/`back` n'ont aucun plafond côté carte, et ce lot ne leur en donne pas — voir
+ * `shared/card_preview.ts`, qui porte l'unique déclaration et la conséquence assumée.
+ */
+export const cardPreviewValidator = vine.compile(
+  vine.object({
+    front: vine.string().trim().maxLength(PREVIEW_MAX_CHARS).optional(),
+    back: vine.string().trim().maxLength(PREVIEW_MAX_CHARS).optional(),
   })
 )
 
