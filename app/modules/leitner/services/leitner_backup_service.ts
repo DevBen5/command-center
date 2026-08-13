@@ -7,7 +7,7 @@ import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 import { DEFAULT_BOX } from '#modules/leitner/services/leitner_progress'
-import type { Grade, Verdict } from '#modules/leitner/services/leitner_service'
+import type { Grade, ReviewKind, Verdict } from '#modules/leitner/services/leitner_service'
 import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
 
 /**
@@ -39,8 +39,18 @@ import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
  * build d'avant CC-139 ne serait pas faux (le nouveau champ `shared` est ignoré), mais un
  * fichier v1/v2 importé après CC-139 attribuerait un sens à une absence de champ qu'il
  * faut trancher explicitement — voir `shared` sur `BackupCard`.
+ *
+ * ⚠️ **Une troisième fois en CC-260, d'où le `4`**, et c'est le même critère : `kind`
+ * **manque** dans un fichier antérieur, et son absence doit se trancher (`'normal'`, voir
+ * `resolveReviewKind`) plutôt que se deviner. Un aller-retour qui relirait l'absence comme
+ * autre chose transformerait un entretien en révision normale, en silence.
+ *
+ * ⚠️ **UNE seule montée pour les cinq colonnes du lot**, et c'est délibéré : chaque bump
+ * est une occasion d'oublier le `snapshot()` de `leitner_backup.spec.ts`, et cet oubli
+ * fait perdre des données sans qu'aucun test ne rougisse (c'est ce qui a laissé passer
+ * CC-51).
  */
-export const BACKUP_VERSION = 3
+export const BACKUP_VERSION = 4
 
 /**
  * Les versions qu'un import accepte, et la seule raison de la liste : **refuser v1/v2
@@ -49,25 +59,45 @@ export const BACKUP_VERSION = 3
  * CC-139), il le reste après import (`shared: true`, voir `resolveShared`). C'est
  * exactement le choix que fait le backfill de la migration sur le contenu déjà en base.
  */
-export const READABLE_BACKUP_VERSIONS = [1, 2, 3]
+export const READABLE_BACKUP_VERSIONS = [1, 2, 3, 4]
 
 /**
  * Une révision : sa note, son horodatage, et **la trace de ce qui l'a précédée**.
  *
- * Les cinq derniers champs sont **omis quand ils valent `null`**, comme le sont
+ * Les champs optionnels sont **omis quand ils valent `null`**, comme le sont
  * `category`/`theme` d'une carte non classée : le fichier se relit et se retouche à
  * la main, et un objet à deux clés vaut mieux qu'un objet à sept dont cinq disent
  * « rien ». L'import relit l'absence **comme `null`**, jamais comme `0` ni `''` —
  * voir la nullabilité, plus bas.
+ *
+ * ⚠️ **`kind` est TOUJOURS présent, et c'est la raison du bump v4** : son absence dans un
+ * fichier se relit `'normal'` (`resolveReviewKind`), donc un export qui l'omettrait
+ * transformerait silencieusement un entretien en révision normale. Il est déclaré non
+ * optionnel ici, et posé hors du bloc `omitNull` pour que ça se voie.
+ *
+ * ⚠️ **Le placer hors d'`omitNull` est documentaire, pas load-bearing — mesuré**, contre
+ * ce que le ticket de CC-260 affirmait : `kind` n'étant jamais `null`, `omitNull` ne le
+ * supprimerait pas, et l'y ranger laisse la suite **entièrement verte**. Ce qui tient
+ * réellement la promesse est le `snapshot()` de `leitner_backup.spec.ts`, qui rougit dès
+ * que la clé disparaît de l'export. Ne prends donc pas cette ligne pour une garde.
+ *
+ * ⚠️ **`boxBefore`/`boxAfter` sont omis quand ils valent `null`, et là c'est sans
+ * ambiguïté** : `null` veut dire « révision antérieure à CC-260, boîte inconnue », ce qui
+ * est exactement ce que l'absence signifie. Ils sont exportés parce que le module l'exige
+ * (« une colonne ajoutée à `leitner_reviews` s'ajoute au `snapshot()` dans le même lot, ou
+ * elle n'est pas sauvegardée ») : sans eux, chaque aller-retour les perdrait en silence.
  */
 export interface BackupReview {
   grade: Grade
   reviewedAt: string
+  kind: ReviewKind
   answer?: string
   verdict?: Verdict
   latencyMs?: number
   thinkingMs?: number
   totalMs?: number
+  boxBefore?: number
+  boxAfter?: number
 }
 
 /**
@@ -91,6 +121,14 @@ export interface BackupCard {
   box: number
   /** Colonne `date` : jour calendaire, sans heure. */
   nextReview: string
+  /**
+   * Les **marques de maîtrise** de celui qui exporte (CC-260), aux côtés de `box` et
+   * `nextReview` : elles décrivent la même progression personnelle. Omises quand elles
+   * valent `null` — ici l'absence *est* `null` (« pas en boîte 5 », « pas maîtrisée »), il
+   * n'y a rien à trancher, contrairement à `kind` sur une révision.
+   */
+  box5EnteredAt?: string
+  masteredAt?: string
   createdAt: string
   updatedAt: string
   reviews: BackupReview[]
@@ -121,17 +159,22 @@ export interface BackupCardInput {
   theme?: string | null
   box?: number
   nextReview?: string
+  box5EnteredAt?: string | null
+  masteredAt?: string | null
   createdAt?: string
   updatedAt?: string
   shared?: boolean
   reviews?: {
     grade: Grade
     reviewedAt: string
+    kind?: ReviewKind
     answer?: string | null
     verdict?: Verdict | null
     latencyMs?: number | null
     thinkingMs?: number | null
     totalMs?: number | null
+    boxBefore?: number | null
+    boxAfter?: number | null
   }[]
 }
 
@@ -206,6 +249,27 @@ export function resolveShared(
 }
 
 /**
+ * Ce que `kind` doit valoir à l'import, quand le fichier ne le dit pas (CC-260). Même
+ * patron que `resolveShared` ci-dessus, et pour une raison plus simple encore :
+ *
+ * ⚠️ **Un fichier v < 4 ne peut porter que des révisions normales, et ce n'est pas une
+ * approximation** — c'est vrai par construction, exactement comme le backfill de la
+ * migration. Une révision d'entretien ne peut exister qu'après que la maîtrise existe, or
+ * elle n'existait pas avant ce lot.
+ *
+ * Un fichier v4 **écrit à la main** sans `kind` obéit au défaut de la colonne : `'normal'`.
+ * C'est la seule valeur qu'on puisse poser sans inventer un entretien qui n'a pas eu lieu.
+ */
+export function resolveReviewKind(
+  fileVersion: number | undefined,
+  reviewKind: ReviewKind | undefined
+): ReviewKind {
+  const effectiveVersion = fileVersion ?? BACKUP_VERSION
+  if (effectiveVersion < 4) return 'normal'
+  return reviewKind ?? 'normal'
+}
+
+/**
  * Export / import du contenu du module, en JSON.
  *
  * Le fichier est **autoportant** : la taxonomie y est désignée par son nom, jamais
@@ -272,20 +336,36 @@ export default class LeitnerBackupService {
         // ce que la règle dit, plutôt qu'une absence que l'import devrait réinterpréter.
         box: card.progress[0]?.box ?? DEFAULT_BOX,
         nextReview: (card.progress[0]?.nextReview ?? DateTime.now()).toISODate()!,
+        // Les marques de maîtrise (CC-260). Une carte sans ligne de progression n'en a
+        // aucune — c'est ce que « boîte 1, due aujourd'hui » veut dire.
+        ...omitNull({
+          box5EnteredAt: card.progress[0]?.box5EnteredAt?.toISO() ?? null,
+          masteredAt: card.progress[0]?.masteredAt?.toISO() ?? null,
+        }),
         createdAt: card.createdAt.toISO()!,
         updatedAt: card.updatedAt.toISO()!,
         shared: card.isShared,
         reviews: card.reviews.map((review) => ({
           grade: review.grade,
           reviewedAt: review.reviewedAt.toISO()!,
+          // ⚠️ **Toujours écrit** : une absence se relit `'normal'` (`resolveReviewKind`),
+          // donc l'omettre transformerait un entretien en révision normale, en silence.
+          // La position hors du bloc `omitNull` ci-dessous ne fait que le rendre visible —
+          // voir `BackupReview` : elle n'est pas une garde, c'est le `snapshot()` du spec
+          // qui en est une.
+          kind: review.kind,
           // Ce qui vaut `null` est omis, jamais écrit : « aucun juge n'a tranché » et
           // « mesure inexploitable » se relisent comme une absence, pas comme un zéro.
+          // `boxBefore`/`boxAfter` s'y rangent sans ambiguïté : leur `null` **est**
+          // « révision antérieure à CC-260, boîte inconnue ».
           ...omitNull({
             answer: review.answer,
             verdict: review.verdict,
             latencyMs: review.latencyMs,
             thinkingMs: review.thinkingMs,
             totalMs: review.totalMs,
+            boxBefore: review.boxBefore,
+            boxAfter: review.boxAfter,
           }),
         })),
       })),
@@ -405,6 +485,11 @@ export default class LeitnerBackupService {
         // chaque carte d'un fichier de saisie en masse (où ni `box` ni `nextReview` ne
         // sont renseignés) remplirait la table de lignes qui ne disent rien, et ferait
         // diverger deux représentations du même état.
+        // ⚠️ **La condition n'inclut PAS les marques de maîtrise** (CC-260), et c'est un
+        // choix : un fichier écrit à la main qui déclarerait `masteredAt` sans `box`
+        // fabriquerait une carte « maîtrisée en boîte 1 », un état que rien ne produit.
+        // Un vrai export d'une carte maîtrisée porte toujours `box: 5`, donc la ligne est
+        // créée de toute façon et les marques suivent.
         if (card.box !== undefined || card.nextReview !== undefined) {
           await LeitnerCardProgress.create(
             {
@@ -412,6 +497,10 @@ export default class LeitnerBackupService {
               leitnerCardId: created.id,
               box: card.box ?? DEFAULT_BOX,
               nextReview: card.nextReview ? DateTime.fromISO(card.nextReview) : DateTime.now(),
+              // `?? null` explicite, même doctrine que les traces d'une révision : une
+              // absence est un `null`, jamais un `undefined` laissé à knex.
+              box5EnteredAt: card.box5EnteredAt ? DateTime.fromISO(card.box5EnteredAt) : null,
+              masteredAt: card.masteredAt ? DateTime.fromISO(card.masteredAt) : null,
             },
             { client: trx }
           )
@@ -424,6 +513,10 @@ export default class LeitnerBackupService {
               leitnerCardId: created.id,
               grade: review.grade,
               reviewedAt: DateTime.fromISO(review.reviewedAt),
+              // ⚠️ Jamais `review.kind ?? 'normal'` en direct : c'est la **version du
+              // fichier** qui tranche, comme pour `shared`. Un fichier v < 4 ne peut porter
+              // que des révisions normales — vrai par construction, pas par défaut.
+              kind: resolveReviewKind(backup.version, review.kind),
               // ⚠️ `?? null` explicite, jamais `undefined` : la nullabilité est du sens
               // et doit survivre à l'aller-retour. `verdict: null` veut dire « aucun juge
               // n'a tranché », jamais « jugé faux » ; `thinkingMs: null` veut dire « mesure
@@ -435,6 +528,10 @@ export default class LeitnerBackupService {
               latencyMs: review.latencyMs ?? null,
               thinkingMs: review.thinkingMs ?? null,
               totalMs: review.totalMs ?? null,
+              // `null` = « révision antérieure à CC-260, boîte inconnue » : c'est aussi ce
+              // que l'absence veut dire dans le fichier, aucune ambiguïté à trancher.
+              boxBefore: review.boxBefore ?? null,
+              boxAfter: review.boxAfter ?? null,
             },
             { client: trx }
           )

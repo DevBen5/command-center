@@ -211,6 +211,128 @@ test.group('LeitnerService / révision', (group) => {
   })
 })
 
+/**
+ * Les **marques de maîtrise** au site d'écriture (CC-260) — ce que le test pur de
+ * `leitner_mastery.spec.ts` ne peut pas dire : que le critère est réellement branché, sur
+ * l'état lu **avant** la note et sur l'intervalle lu **en base**.
+ */
+test.group('LeitnerService / marques de maîtrise', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+
+  /** La dernière révision enregistrée pour cette personne sur cette carte. */
+  async function lastReview(userId: number, cardId: number): Promise<LeitnerReview> {
+    return LeitnerReview.query()
+      .where('user_id', userId)
+      .where('leitner_card_id', cardId)
+      .orderBy('id', 'desc')
+      .firstOrFail()
+  }
+
+  test('la première note d’une carte jamais révisée est `normal`', async ({ assert }) => {
+    // ⚠️ **Le piège de l'`undefined`.** `firstOrNew` rend un modèle neuf dont `masteredAt`
+    // vaut `undefined`, pas `null` : un `!== null` posé directement dessus classerait
+    // **toute première note** en `'maintenance'`, sans erreur ni log. Ce test est le seul
+    // qui l'attrape.
+    const user = await createAdmin()
+    const card = await makeCard('Jamais notée')
+
+    await new LeitnerService().review(user.id, card, 'good')
+
+    const review = await lastReview(user.id, card.id)
+    assert.equal(review.kind, 'normal')
+  })
+
+  test('`box_before` et `box_after` encadrent réellement le mouvement', async ({ assert }) => {
+    const user = await createAdmin()
+    const card = await cardInBox(user, 2)
+
+    await new LeitnerService().review(user.id, card, 'good')
+
+    const review = await lastReview(user.id, card.id)
+    // ⚠️ `box_before` est lu **avant** `nextBox` : écrit après, il vaudrait 3 des deux
+    // côtés et la paire ne dirait plus aucun mouvement.
+    assert.equal(review.boxBefore, 2)
+    assert.equal(review.boxAfter, 3)
+  })
+
+  test('entrer en boîte 5 démarre l’horloge sans maîtriser la carte', async ({ assert }) => {
+    const user = await createAdmin()
+    const card = await cardInBox(user, 4)
+
+    const progress = await new LeitnerService().review(user.id, card, 'good')
+
+    assert.equal(progress.box, 5)
+    assert.isNotNull(progress.box5EnteredAt)
+    assert.isNull(progress.masteredAt)
+  })
+
+  test('une carte en boîte 5 depuis 40 jours notée `good` devient maîtrisée', async ({
+    assert,
+  }) => {
+    const user = await createAdmin()
+    const card = await makeCard('Tenue depuis longtemps')
+    await setProgress(user.id, card.id, { box: 5, box5DaysAgo: 40 })
+
+    const progress = await new LeitnerService().review(user.id, card, 'good')
+
+    assert.isNotNull(progress.masteredAt)
+    // La révision qui l'a acquise venait de la file **normale** : la carte n'était pas
+    // encore maîtrisée au moment où on l'a notée.
+    const review = await lastReview(user.id, card.id)
+    assert.equal(review.kind, 'normal')
+  })
+
+  test('une révision RATÉE d’entretien est enregistrée `maintenance`, et démaîtrise', async ({
+    assert,
+  }) => {
+    // ⚠️ **Le test qui porte le lot.** `kind` dit **de quelle file la carte venait**, pas
+    // où elle finit : elle ressort non maîtrisée, et la ligne doit quand même dire
+    // `maintenance`. Calculé après la mutation, l'historique affirmerait qu'aucun
+    // entretien n'a jamais échoué — et rien ne le signalerait.
+    const user = await createAdmin()
+    const card = await makeCard('Acquise puis ratée')
+    await setProgress(user.id, card.id, { box: 5, box5DaysAgo: 60, masteredDaysAgo: 20 })
+
+    const progress = await new LeitnerService().review(user.id, card, 'again')
+
+    const review = await lastReview(user.id, card.id)
+    assert.equal(review.kind, 'maintenance')
+    assert.equal(review.boxBefore, 5)
+    // `again` ne rétrograde pas : elle sort de l'entretien sans quitter la boîte 5.
+    assert.equal(review.boxAfter, 5)
+    assert.isNull(progress.masteredAt)
+  })
+
+  test('le délai suit l’intervalle RÉGLÉ, lu en base et non la constante', async ({ assert }) => {
+    // Ce que le test pur ne peut pas dire : que `boxIntervals()[5]` arrive bien jusqu'au
+    // critère. À 365 jours, 40 jours en boîte 5 ne suffisent plus.
+    const user = await createAdmin()
+    const service = new LeitnerService()
+    await service.updateBoxIntervals({ 1: 1, 2: 2, 3: 4, 4: 7, 5: 365 })
+
+    const card = await makeCard('Réglage allongé')
+    await setProgress(user.id, card.id, { box: 5, box5DaysAgo: 40 })
+
+    const progress = await service.review(user.id, card, 'good')
+
+    assert.isNull(progress.masteredAt)
+  })
+
+  test('le 2ᵉ `hard` d’affilée efface l’horloge ET l’acquis', async ({ assert }) => {
+    const user = await createAdmin()
+    const service = new LeitnerService()
+    const card = await makeCard('Deux fois péniblement')
+    await setProgress(user.id, card.id, { box: 5, box5DaysAgo: 90, masteredDaysAgo: 30 })
+
+    await service.review(user.id, card, 'hard')
+    const progress = await service.review(user.id, card, 'hard')
+
+    assert.equal(progress.box, 1)
+    assert.isNull(progress.box5EnteredAt)
+    assert.isNull(progress.masteredAt)
+  })
+})
+
 test.group('LeitnerService / intervalles des boîtes', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 

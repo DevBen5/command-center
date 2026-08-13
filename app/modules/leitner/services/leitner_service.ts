@@ -9,6 +9,7 @@ import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 import { isUsableMeasure } from '#modules/leitner/services/leitner_fluency'
 import { countByDay, currentStreak } from '#modules/leitner/services/leitner_habits'
 import LeitnerFluencyService from '#modules/leitner/services/leitner_fluency_service'
+import { nextMasteryState } from '#modules/leitner/services/leitner_mastery'
 import {
   DEFAULT_BOX,
   joinProgress,
@@ -38,6 +39,13 @@ export type Grade = 'again' | 'hard' | 'good' | 'easy'
  * `LeitnerJudgeService`, qui porte le mapping de l'un vers l'autre.
  */
 export type Verdict = 'juste' | 'partiel' | 'faux'
+
+/**
+ * **De quelle file la carte venait** au moment de la note (CC-260) — jamais où elle finit.
+ * Il vit ici pour la même raison que `Verdict` : il cohabite sur une ligne de
+ * `leitner_reviews`. Voir `LeitnerReview.kind` pour le piège d'ordre qu'il porte.
+ */
+export type ReviewKind = 'normal' | 'maintenance'
 
 export type BoxIntervals = Record<number, number>
 
@@ -339,6 +347,11 @@ export default class LeitnerService {
    * `again` cesserait de vouloir dire « remets-la moi » et la règle métier serait à
    * rouvrir, pas à contourner ici.
    *
+   * ⚠️ **Depuis CC-260, la note pose aussi les MARQUES DE MAÎTRISE**, et elles ne changent
+   * rien à ce qui précède : `nextBox` reste seul à décider d'une boîte, `nextMasteryState`
+   * ne fait qu'observer le mouvement qu'il vient de produire. Personne ne lit encore
+   * `mastered_at` — aucune file, aucun compteur, aucun écran.
+   *
    * ⚠️ **Rien de ce qui est écrit ici n'est partagé** (CC-119) : la boîte, l'échéance et
    * la ligne d'historique appartiennent à `userId` seul. C'est ce qui rend sûr d'accorder
    * la note à un collègue — et c'est aussi pourquoi `lastGrade` est lu **par personne** :
@@ -385,7 +398,37 @@ export default class LeitnerService {
         { client: trx }
       )
 
-      progress.box = this.nextBox(progress.box, grade, lastGrade)
+      // ⚠️ **L'état AVANT la note, capturé avant toute mutation** — même endroit et même
+      // raison que `lastGrade` plus haut, et c'est le piège central de CC-260 : `kind` dit
+      // **de quelle file la carte venait**, pas où elle finit. Une carte maîtrisée ratée
+      // en entretien produit une révision `maintenance` alors qu'elle en ressort non
+      // maîtrisée. Lu après le mouvement, le symptôme est indétectable : l'historique
+      // dirait qu'aucun entretien n'a jamais échoué.
+      //
+      // ⚠️ **Les `?? null` ne sont pas décoratifs.** `firstOrNew` rend un modèle **neuf**
+      // dont ces deux colonnes valent `undefined`, pas `null` : un `!== null` posé
+      // directement dessus classerait **toute première note** en `'maintenance'`, sans
+      // erreur ni log.
+      const before = {
+        box: progress.box,
+        box5EnteredAt: progress.box5EnteredAt ?? null,
+        masteredAt: progress.masteredAt ?? null,
+      }
+      const kind: ReviewKind = before.masteredAt !== null ? 'maintenance' : 'normal'
+
+      progress.box = this.nextBox(before.box, grade, lastGrade)
+      // La règle vit dans `leitner_mastery.ts`, pure : ni base ni horloge, donc prouvable
+      // sans attendre trente jours. L'intervalle vient de la base, jamais de la constante.
+      const mastery = nextMasteryState({
+        boxBefore: before.box,
+        boxAfter: progress.box,
+        grade,
+        current: before,
+        box5Days: intervals[5],
+        now: DateTime.now(),
+      })
+      progress.box5EnteredAt = mastery.box5EnteredAt
+      progress.masteredAt = mastery.masteredAt
       progress.nextReview =
         grade === 'again' ? DateTime.now() : DateTime.now().plus({ days: intervals[progress.box] })
       await progress.save()
@@ -395,6 +438,12 @@ export default class LeitnerService {
           userId,
           leitnerCardId: card.id,
           grade,
+          kind,
+          // ⚠️ `before.box`, jamais `progress.box` : celui-ci vient d'être écrasé par
+          // `nextBox`. La paire dit le mouvement, elle n'a de valeur que si elle encadre
+          // réellement la note.
+          boxBefore: before.box,
+          boxAfter: progress.box,
           // Une réponse vide n'est pas une réponse : `null`, comme les révisions d'avant
           // ce lot. `verdict` reste `null` quand aucun juge n'a tranché — « jamais jugé »
           // et « jugé faux » ne doivent pas se confondre en base.

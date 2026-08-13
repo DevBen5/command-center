@@ -36,6 +36,44 @@ export default class LeitnerCardProgress extends BaseModel {
   @column.date()
   declare nextReview: DateTime
 
+  /**
+   * **Depuis quand cette personne tient cette carte en boîte 5** (CC-260) — l'horloge du
+   * critère de maîtrise, et l'information que rien ne portait avant ce lot :
+   * `leitner_reviews` n'avait ni `box_before` ni `box_after`, et rejouer les notes depuis
+   * la boîte 1 aurait été faux dès qu'un import est passé.
+   *
+   * Posée à l'**entrée** en boîte 5, **réarmée** par `again`, remise à `null` dès que la
+   * carte en sort (2ᵉ `hard` d'affilée). ⚠️ **`hard` ne la réarme pas** — décision
+   * explicite : `hard` est une réussite, et réarmer serait une punition.
+   *
+   * ⚠️ `null` veut dire « pas en boîte 5 », jamais « en boîte 5 depuis toujours ». Une
+   * carte importée directement en boîte 5 arrive donc sans horloge : c'est
+   * `nextMasteryState` qui la lui pose à sa première note, faute de mieux — voir
+   * `services/leitner_mastery.ts`.
+   *
+   * ⚠️ **`columnName` explicite, exactement comme `leitner_settings.box5Days`** : la
+   * conversion automatique rend `box_5_entered_at`, pas `box5_entered_at`. Sans ce
+   * mappage, l'insertion échoue sur une colonne inexistante — mesuré, et c'est le même
+   * piège que le module documente déjà pour un identifiant qui mêle lettres et chiffres.
+   */
+  @column.dateTime({ columnName: 'box5_entered_at' })
+  declare box5EnteredAt: DateTime | null
+
+  /**
+   * **La date d'acquisition** (CC-260) : quand cette personne a satisfait le critère de
+   * maîtrise sur cette carte. `null` = pas (ou plus) maîtrisée.
+   *
+   * ⚠️ **Elle ne dérive pas.** Posée une fois, elle est conservée telle quelle par les
+   * réussites suivantes — une date d'acquisition qui avancerait à chaque `good` ne
+   * daterait plus rien. Seul ce qui réarme l'horloge l'efface : `again`, ou la sortie de
+   * la boîte 5.
+   *
+   * ⚠️ **Personne ne la lit encore** (CC-260 pose les marques, rien d'autre) : ni file, ni
+   * compteur, ni écran. CC-261 puis CC-262 la consommeront.
+   */
+  @column.dateTime()
+  declare masteredAt: DateTime | null
+
   @belongsTo(() => User)
   declare user: BelongsTo<typeof User>
 

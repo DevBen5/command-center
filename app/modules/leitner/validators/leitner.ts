@@ -267,6 +267,23 @@ function backupReviewTraceFields() {
     latencyMs: vine.number().withoutDecimals().min(0).max(600_000).nullable().optional(),
     thinkingMs: vine.number().withoutDecimals().min(0).max(MEASURE_MAX_MS).nullable().optional(),
     totalMs: vine.number().withoutDecimals().min(0).max(MEASURE_MAX_MS).nullable().optional(),
+    /*
+    | Les marques de mouvement (CC-260). Optionnelles : un fichier v < 4 n'en porte
+    | aucune, et son absence se relit `null` — « boîte inconnue », le sens définitif de
+    | cette colonne sur l'historique antérieur au lot.
+    |
+    | ⚠️ Bornées 1..5 comme `box`, et pour la même raison : la colonne n'a aucune
+    | contrainte en base. Contrairement à `box`, elles ne pilotent rien — mais une paire
+    | absurde rendrait fausse toute lecture future de l'historique, sans rien pour le dire.
+    */
+    boxBefore: vine.number().withoutDecimals().min(1).max(5).nullable().optional(),
+    boxAfter: vine.number().withoutDecimals().min(1).max(5).nullable().optional(),
+    /*
+    | ⚠️ Optionnel ici, mais **jamais résolu par le validateur** : c'est
+    | `resolveReviewKind` qui tranche l'absence, à partir de la version du FICHIER. Un
+    | `.optional()` avec un défaut posé ici court-circuiterait cette règle.
+    */
+    kind: vine.enum(['normal', 'maintenance'] as const).optional(),
   }
 }
 
@@ -303,6 +320,10 @@ export const backupValidator = vine.compile(
         theme: taxonomyName().nullable().optional(),
         box: vine.number().withoutDecimals().min(1).max(5).optional(),
         nextReview: vine.string().use(calendarDate()).optional(),
+        // Les marques de maîtrise (CC-260), du même ordre que `box`/`nextReview` : la
+        // progression de celui qui exporte. Des `timestamp`, pas des jours calendaires.
+        box5EnteredAt: vine.string().use(timestamp()).nullable().optional(),
+        masteredAt: vine.string().use(timestamp()).nullable().optional(),
         createdAt: vine.string().use(timestamp()).optional(),
         updatedAt: vine.string().use(timestamp()).optional(),
         // Absent (fichier v1/v2, ou v3 écrit à la main) : résolu par `resolveShared`.
