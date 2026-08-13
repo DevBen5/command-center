@@ -4,7 +4,8 @@ description: |
   Remet à jour le plan d'exécution du backlog — l'article `CC-A-14`, qui dit **quoi faire
   ensuite, dans quel ordre et pourquoi**, là où `CC-A-12` dit seulement ce qui existe.
   Deux phases : il rejoue d'abord `/kb-sync` (la KB doit être vraie avant qu'un plan puisse
-  s'appuyer dessus), puis relit le backlog réel et réécrit le plan en place.
+  s'appuyer dessus), puis relit le backlog réel et réécrit le plan en place. Tout ce qui peut
+  être délégué à un sous-agent l'est ; seuls l'arbitrage et l'écriture restent ici.
   Trigger : `/plan-sync` — déclenché **à la main**, jamais automatiquement, et depuis une
   conversation-orchestrateur : une conversation-ticket n'a pas vu le backlog.
 ---
@@ -41,6 +42,48 @@ les liens qui le citent — à commencer par le sommaire `CC-A-1`.
 
 ---
 
+## Règle transverse — déléguer par défaut, garder l'exception
+
+⚠️ **Toute tâche de ce skill qui PEUT être faite par un sous-agent DOIT l'être** (`Agent`,
+`subagent_type: general-purpose`). Ce n'est pas une optimisation de confort : ce skill tourne
+depuis une conversation-orchestrateur, celle-là même qui décidera de la suite. Y déverser
+cinquante items de backlog, un article de 285 lignes et des sorties `gh` la laisse sans place
+pour l'arbitrage qu'elle est censée rendre — et c'est déjà le motif écrit de la délégation de la
+phase 2.
+
+**Ce qui se délègue, et ne se fait donc jamais ici :**
+
+- toute **lecture de volume** — le backlog (phase 2), la relecture intégrale de `CC-A-14`, les PR
+  ouvertes, un `git log` pour l'en-tête d'instantané ;
+- toute **vérification ponctuelle** en chemin — l'état réel d'un ticket douteux, l'existence d'un
+  lien `depends on`, un fichier du dépôt qui contredirait le plan ;
+- tout **croisement mécanique** — comparer la file du plan précédent au backlog réel et rendre la
+  liste des écarts.
+
+⚠️ **Un sous-agent rend une synthèse, jamais son matériau.** Le dis explicitement dans chaque
+prompt, avec le format attendu — sinon il recopie ce qu'il a lu et la délégation n'a rien
+économisé. C'est le même contrat que `/kb-sync` et `/summarize-sprint`.
+
+⚠️ **Les délégations indépendantes partent dans le MÊME message**, en plusieurs appels `Agent` :
+relire `CC-A-14` ne dépend pas de la lecture du backlog. Les enchaîner en série double l'attente
+sans rien changer au résultat.
+
+**Les trois choses qui restent ici, et pourquoi elles ne sont pas déléguables :**
+
+1. **L'invocation de `/kb-sync`** (phase 1). Il porte déjà sa propre délégation interne :
+   l'envelopper dans un sous-agent ajouterait un étage sans rien retirer du contexte, et sa
+   synthèse est précisément ce qu'on veut lire ici.
+2. **L'arbitrage** — l'ordre de la file et la raison de chaque ligne. C'est la seule chose que ce
+   skill produit, et elle demande le contexte de la conversation, pas la lecture d'un backlog.
+   Un sous-agent qui « proposerait un ordre » rendrait un classement plausible sans savoir ce qui
+   a été tranché ici, ni ce qui vient d'être écarté.
+3. **L'écriture de `CC-A-14`** (`update_article`), pour une raison mécanique : c'est une mise à
+   jour **en place**, et un sous-agent qui perd ce fil appelle `create_article` — l'article
+   change d'ID, et tous les liens qui le citent, sommaire `CC-A-1` en tête, tombent. Ce risque ne
+   se rattrape pas après coup.
+
+---
+
 ## Phase 1 — la KB d'abord
 
 Invoque **`/kb-sync`** par l'outil Skill et attends sa synthèse.
@@ -67,7 +110,8 @@ trois fois dans la seule journée du 2026-08-06.
 
 Passe par un **sous-agent** (`Agent`, `subagent_type: general-purpose`), même motif que
 `/kb-sync` : le volume ne doit pas atteindre le contexte de l'orchestrateur, seule la synthèse y
-entre.
+entre. C'est le cas d'application le plus évident de la règle transverse ci-dessus, pas une
+exception qui lui serait propre.
 
 Ce que le sous-agent rapporte, et rien de plus :
 
@@ -85,7 +129,13 @@ Ce que le sous-agent rapporte, et rien de plus :
 
 ## Phase 3 — réécrire le plan
 
-Relis `CC-A-14` en entier, puis réécris-le. Ce qu'il doit contenir, et dans cet ordre :
+La **relecture** de `CC-A-14` part elle aussi à un sous-agent — en parallèle de la phase 2, elle
+n'en dépend pas. Ce qu'il rend : la structure de l'article, la file en vigueur item par item avec
+sa raison, et ce qui y est écrit comme délibérément écarté. Pas le texte intégral : c'est ce
+texte-là que la délégation existe pour tenir hors du contexte.
+
+L'**arbitrage** et l'**écriture**, eux, se font ici — voir les points 2 et 3 de la règle
+transverse. Ce que l'article doit contenir, et dans cet ordre :
 
 1. **L'en-tête d'instantané** — la date et le `master` du jour, plus le rappel que la vue *Issues*
    fait foi contre l'article.

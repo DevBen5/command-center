@@ -226,7 +226,27 @@ body {
   font-family: var(--font-mono);
   font-size: 0.85em;
   line-height: 1.55;
-  /* L'indentation est la moitié du besoin : elle ne se replie pas, elle défile. */
+  /*
+   * ⚠️ **Le bloc se REPLIE, il ne défile plus** — corrigé au passage navigateur de CC-133, après
+   * que `overflow-x: auto` seul a été essayé et jugé inutilisable. La carte de révision est
+   * étroite par construction (`w-3/5` pour le verso, `max-w-[420px]` pour le recto) : une ligne
+   * de SQL ou de shell y débordait de très loin, et lire demandait de faire défiler chaque ligne
+   * à la main. On lit une carte, on ne l'édite pas — le défilement horizontal est le mauvais
+   * compromis ici.
+   *
+   * ⚠️ **`pre-wrap`, jamais `normal` : c'est lui qui garde l'indentation ET les retours à la
+   * ligne**, qui sont la moitié du besoin d'un bloc de code. `normal` les effondrerait et
+   * rendrait le bloc illisible — ce serait pire que le défilement qu'on vient de retirer.
+   *
+   * ⚠️ **`overflow-wrap: break-word` est hérité de `.markdown` et il était INERTE ici** : il ne
+   * s'applique que là où le repli est permis, donc `white-space: pre` le neutralisait
+   * entièrement. C'est la ligne ci-dessous qui le réveille, et c'est elle qui casse le jeton
+   * qui ne rentre nulle part (une URL, un identifiant très long).
+   *
+   * `overflow-x` reste en filet pour ce qui ne se replie pas du tout — un tableau collé dans un
+   * fence, par exemple. Il ne doit plus se déclencher sur du code ordinaire.
+   */
+  white-space: pre-wrap;
   overflow-x: auto;
   tab-size: 2;
 }

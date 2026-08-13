@@ -560,8 +560,12 @@ function grade(g: Grade): void {
            LLM, import JSON, cartes communales depuis CC-121).
            `markdown` porte l'habillage ET le `text-align: left` sans lequel un bloc de code
            serait centré, le conteneur étant `text-center`. Ce qui empêche une ligne de code
-           longue d'élargir la carte, c'est le couple `max-w-[420px]` ici + `overflow-x: auto`
-           sur `.markdown pre` : le bloc défile à l'intérieur. -->
+           longue d'élargir la carte, c'est le couple `max-w-[420px]` ici + le `white-space:
+           pre-wrap` de `.markdown pre` : le bloc **se replie** dans la largeur disponible.
+           ⚠️ Il DÉFILAIT jusqu'au passage navigateur de CC-133 — lire une ligne de SQL y
+           demandait de la faire défiler à la main, dans une carte large de 60 %. Ne réintroduis
+           pas `white-space: pre` en croyant « préserver l'indentation » : `pre-wrap` la préserve
+           déjà, et c'est `pre` qui rendait `overflow-wrap` inerte. -->
       <div class="markdown max-w-[420px] text-[19px] font-semibold" v-html="currentCard.frontHtml"></div>
 
       <!-- On répond AVANT de voir : le dévoilement vaut soumission. Le champ se
