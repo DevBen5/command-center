@@ -1080,8 +1080,10 @@ pour un identifiant qui mêle lettres et chiffres.
   ce n'est pas un trou à combler un jour.
 - ⚠️ **Le backfill n'est prouvable par AUCUN runner, et c'est MESURÉ, pas déduit** : le supprimer
   entièrement laisse la suite **verte** (`app_test` est vide, l'`update ... where box = 5` touche
-  zéro ligne). La vérification est une empreinte relevée **avant et après** sur une base qui porte
-  du contenu, modèle CC-119 — voir `TESTS.md`.
+  zéro ligne). ⚠️ **L'empreinte CC-119 n'est PAS l'outil ici** — elle demande « le contenu réel
+  a-t-il survécu ? », alors que la question est « l'arithmétique est-elle juste ? ». La seconde se
+  prouve sur des lignes **fabriquées** avec des `updated_at` distincts, et elle a été prouvée ainsi
+  le 2026-08-13, mutation comprise — procédure rejouable dans `TESTS.md`.
 
 ⚠️ **`rawQuery`, jamais `.update({ col: db.raw('autre_col') })` dans un backfill.** Le `RawBuilder`
 de Lucid n'est pas une expression pour knex : il part en **binding**, sérialisé en

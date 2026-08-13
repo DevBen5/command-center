@@ -19,14 +19,31 @@ empreinte `md5` de (carte, boîte, échéance) relevée avant, après, puis apr�
 **avant tout `migration:run` sur une base qui porte du contenu**, c'est le seul endroit du lot où
 une erreur se paie en planning perdu.
 
-⚠️ **Même angle mort pour le backfill de CC-260 (`box5_entered_at = updated_at`), et il n'a PAS été
-levé.** Mesuré, pas déduit : supprimer le `defer` entier de
-`1786600000005_add_mastery_marks_to_leitner_tables.ts` laisse la suite **verte** — `app_test` est
-vide, l'`update ... where box = 5` touche zéro ligne. L'empreinte avant/après modèle CC-119 **n'a
-pas pu être faite** : la base de dev de ce poste portait 2 cartes et **0 en boîte 5** le 2026-08-13,
-donc il n'y avait rien à empreindre. Elle reste à faire sur une base qui porte du contenu réel, et
-ce lot ne doit pas être lu comme si elle l'avait été. Le backfill de `kind`, lui, n'a rien à
-prouver : le `default` de la colonne est exactement vrai (l'entretien n'existait pas).
+⚠️ **Même angle mort pour le backfill de CC-260 (`box5_entered_at = updated_at`), et il a été levé
+AUTREMENT — par des lignes fabriquées, pas par une empreinte.** L'angle mort est réel et mesuré :
+supprimer le `defer` entier de `1786600000005_add_mastery_marks_to_leitner_tables.ts` laisse la
+suite **verte** — `app_test` est vide, l'`update ... where box = 5` touche zéro ligne.
+
+L'empreinte avant/après modèle CC-119 était **infaisable** ici (la base de dev portait 3 cartes,
+1 progression, **0 en boîte 5**) : il n'y avait rien à empreindre. ⚠️ **Ce n'est pas la même
+question, et confondre les deux ferait croire le backfill couvert à deux titres.** L'empreinte
+CC-119 demande « le contenu réel a-t-il survécu ? » ; ce qu'il fallait ici est « l'arithmétique
+est-elle juste ? » — et celle-là se prouve sur des lignes qu'on fabrique.
+
+**Fait le 2026-08-13 (procédure rejouable) :** `db:backup` → trois progressions posées en SQL brut
+avec des `updated_at` **distincts et connus** (deux en boîte 5, une en boîte 3 comme témoin) →
+`migration:rollback` → `migration:run` → relevé. Résultat : les deux boîtes 5 portent
+`box5_entered_at` **exactement** égal à leur `updated_at` (distincts, donc pas une coïncidence), le
+témoin hors boîte 5 reste `NULL`, aucun `mastered_at` inventé. ⚠️ **Et le contrôle rougit** : la
+même vérification sur un `where box = 4` muté rend 0 correcte / 2 sans horloge — sans quoi elle
+n'aurait rien prouvé. Base restaurée depuis le dump ensuite.
+
+⚠️ **Ce que ça ne dit toujours pas** : que `updated_at` soit une bonne *approximation* de l'entrée
+en boîte 5 sur du contenu réel. C'est une limite de conception, assumée et écrite dans la migration
+— aucune vérification ne peut la lever.
+
+Le backfill de `kind`, lui, n'a rien à prouver : le `default` de la colonne est exactement vrai
+(l'entretien n'existait pas).
 
 ## Tests de composant (Vitest, `components/__tests__/`)
 

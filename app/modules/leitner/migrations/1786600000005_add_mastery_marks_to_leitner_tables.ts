@@ -27,8 +27,12 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  * JSON, sans que les révisions correspondantes produisent ce chemin).
  *
  * ⚠️ **Ce backfill n'est prouvable par AUCUN runner** : `app_test` est vide, donc il ne
- * s'exécute jamais sous Japa. La vérification est manuelle, par une empreinte relevée
- * **avant et après** sur une base qui porte du contenu (modèle CC-119) — voir `TESTS.md`.
+ * s'exécute jamais sous Japa — le supprimer entièrement laisse la suite verte. Il a été
+ * vérifié à la main sur des progressions **fabriquées** avec des `updated_at` distincts
+ * (deux en boîte 5, un témoin hors boîte 5), rollback → run, mutation à l'appui : la
+ * procédure rejouable est dans `TESTS.md`. ⚠️ Ce n'est pas l'empreinte CC-119, qui répond
+ * à une autre question (« le contenu réel a-t-il survécu ? ») et ne dit rien de
+ * l'arithmétique.
  */
 export default class extends BaseSchema {
   async up() {
