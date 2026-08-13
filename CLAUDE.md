@@ -765,9 +765,11 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
 - **Le seul `v-html` du dépôt passe par `renderMarkdown`, et rien d'autre** (CC-133,
   `app/core/shared/services/markdown_renderer.ts`). Le Markdown des cartes Leitner est rendu
   **côté serveur**, en prop dérivée (`frontHtml`/`backHtml`) ; la colonne reste la **source**.
-  **Quatre** `v-html` existent — recto et verso dans `leitner/pages/index.vue`, les deux champs de
-  l'aperçu dans `leitner/pages/llm.vue` — et tous consomment cette brique.
-  ⚠️ **N'en pose pas un cinquième sur autre chose que sa sortie** : le contenu n'est pas
+  **Cinq** `v-html` existent — recto et verso dans `leitner/pages/index.vue`, les deux champs de
+  l'aperçu de génération dans `leitner/pages/llm.vue`, et depuis CC-257 le panneau d'aperçu de
+  saisie (`leitner/components/MarkdownPreviewPanel.vue`, mutualisé par les deux écrans qui
+  saisissent du contenu de carte) — et tous consomment cette brique.
+  ⚠️ **N'en pose pas un sixième sur autre chose que sa sortie** : le contenu n'est pas
   de confiance (ingestion LLM, import JSON, cartes communales depuis CC-121), et la veille détruit
   toujours le HTML de ses flux à l'ingestion précisément pour qu'un `v-html` ne puisse rien y
   rouvrir. La brique vit dans `core/shared/` et non dans Leitner parce qu'elle ne sait rien des
