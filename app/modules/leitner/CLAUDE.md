@@ -220,7 +220,7 @@ Le filet n'est donc pas un seeder mais **l'export JSON** — les cartes n'existe
 autre copie. `./pgdata` survit à un `docker compose down -v` (voir le `CLAUDE.md` racine), pas à une
 corruption ni à un changement de machine.
 
-⚠️ **Douze fichiers hors du module** : `start/routes.ts` · `start/env.ts` et `.env.example` (les
+⚠️ **Treize fichiers hors du module** : `start/routes.ts` · `start/env.ts` et `.env.example` (les
 variables LLM) · `config/llm.ts` · `config/env_isolation.ts` (voir ci-dessous) ·
 `providers/leitner_provider.ts` (le **balayage au démarrage** des
 ingestions interrompues, déclaré dans `adonisrc.ts` sous `environment: ['web']`) ·
@@ -237,6 +237,9 @@ de `config/database.ts`) le consultent avant d'enregistrer quoi que ce soit pour
 ⚠️ Oublier `start/capabilities.ts` ne casse
 rien tout de suite : les capacités n'entrent pas au registre, personne ne peut les accorder, et le
 module devient inaccessible à tout non-admin — `capabilities_routes.spec.ts` attrape ce cas.
+Depuis CC-133, `app/core/shared/services/markdown_renderer.ts` s'y ajoute — le **rendu Markdown**,
+volontairement logé dans le noyau et non ici (voir la section dédiée plus bas). C'est le seul de
+la liste dont l'oubli ne casse rien : le module le consomme, il ne l'enregistre nulle part.
 ⚠️ Oublier `start/navigation.ts` est plus sournois : `/revision` disparaît de la barre latérale, et un
 compte qui n'aurait de droits que sur ce module atterrit sur « aucun accès » **alors qu'il y a
 accès** — `navigation_registry.spec.ts` attrape celui-là.
@@ -373,6 +376,59 @@ propres cas.
 hauteur de tableau, ni `scrollTop`, ni `getBoundingClientRect` réel, ni ancrage de défilement. Le
 reste se vérifie **au navigateur**, sur un lot de plusieurs dizaines de cartes — un import d'une
 carte ne prouve rien.
+
+## Le Markdown des cartes est rendu — et c'est le premier `v-html` du dépôt (CC-133)
+
+Recto et verso s'écrivent en **Markdown** : gras, listes, titres courts, et surtout des **blocs de
+code** qui gardent leur indentation. Rien n'a migré — `front`/`back` étaient déjà des colonnes
+`text` sans plafond, et **la colonne reste la source** : c'est le rendu qui a changé, pas le
+stockage.
+
+**Le rendu est SERVEUR, en prop dérivée.** `LeitnerController#index` pose `frontHtml`/`backHtml`
+sur chaque carte due, `LeitnerLlmController#test` fait de même dans son JSON. La brique est
+`renderMarkdown`, dans **`app/core/shared/services/markdown_renderer.ts`** — hors du module,
+délibérément : elle ne sait rien des cartes, CC-251 (corpus de cours) la consommera, et un service
+générique logé chez un module détachable est exactement la faute que le point 7 du `CLAUDE.md`
+racine documente (leçon CC-180). **Lis son en-tête avant d'y toucher** ; il porte la mesure des
+deux couches, qui ne dit pas ce qu'on attend.
+
+⚠️ **Ne rends JAMAIS `front`/`back` en `v-html`** — c'est le Markdown source, et le contenu d'une
+carte n'est pas de confiance : ingestion LLM, import JSON, et cartes communales depuis CC-121 (un
+compte porteur de `leitner.cards.write` peut viser qui révise, administrateur compris). Seuls
+`frontHtml`/`backHtml`, assainis côté serveur, s'affichent.
+
+⚠️ **Deux écrans rendent, trois ne rendent pas, et ce n'est pas un oubli :**
+
+| écran | rend ? | pourquoi |
+| --- | --- | --- |
+| `pages/index.vue` — la révision | **oui** | c'est l'écran qui compte |
+| `pages/llm.vue` — l'aperçu de génération | **oui** | on y juge la sortie du modèle *telle qu'elle s'affichera une fois promue* |
+| `pages/settings.vue` — le catalogue | non | `line-clamp-2` couperait au milieu d'une balise, et le recto est la clé de `confirmDeleteCard` |
+| `pages/stats.vue` — les cartes à problème | non | `truncate`, et `cardLink(front)` **construit une URL de recherche** — rendre y casserait une identité, pas une apparence |
+| `pages/ingest_show.vue` — les brouillons | non | ⚠️ **il n'y a rien à y rendre** : la relecture se fait dans des `<textarea>`, qui ne peuvent pas contenir de HTML. Ses deux seuls affichages en lecture (acceptés, rejetés) sont des listes `truncate`. Le ticket CC-133 le rangeait « à décider » en pointant l'une de ces listes ; la décision est **non**, et y rendre demanderait d'ajouter un aperçu, donc une fonctionnalité |
+
+⚠️ **L'habillage vit dans le châssis, pas ici** : la classe `.markdown` de `inertia/css/app.css`.
+Elle n'est **pas décorative** — sans elle le Preflight de Tailwind laisse les `ul` sans puces et
+les titres à la taille du texte, avec les trois gates au vert. Elle porte aussi le
+`text-align: left` sans lequel un bloc de code serait **centré** dans la carte (le conteneur est
+`text-center`), et ça, aucun test ne peut le voir.
+
+⚠️ **Les images Markdown sont RETIRÉES à l'assainissement.** La CSP (`imgSrc: ['self', 'data:']`)
+refuserait une image externe **en silence** ; et laisser passer `img` rouvrirait par la porte de
+derrière l'image tierce que **CC-134** écarte explicitement — il rouvrira la balise avec sa propre
+règle de source.
+
+⚠️ **Deux conséquences à connaître, aucune n'est un bug :**
+
+- **Le court-circuit du juge se déclenche moins souvent.** Il compare la réponse tapée au verso
+  **source** via `normalizeForSearch` : un verso passé en `**gras**` ne correspond plus à la même
+  réponse tapée sans les astérisques, donc un appel LLM là où il n'y en avait pas. Aucune
+  conséquence de justesse — c'est une optimisation de latence.
+- **La déduplication `(recto, thème)` porte sur la source** : le même contenu écrit une fois en
+  texte et une fois en Markdown fait deux cartes.
+
+**L'export JSON n'a pas bougé** : le Markdown est du texte, aucune clé ne change de nom ni de
+sens, `BACKUP_VERSION` reste à **3**. Vérifié, pas supposé.
 
 ## Le paquet à réviser : `/revision` a deux visages
 

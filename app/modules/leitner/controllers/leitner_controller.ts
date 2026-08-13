@@ -1,6 +1,7 @@
 import { inject } from '@adonisjs/core'
 import { DateTime } from 'luxon'
 import type { HttpContext } from '@adonisjs/core/http'
+import { renderMarkdown } from '#core/shared/services/markdown_renderer'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
@@ -120,6 +121,16 @@ export default class LeitnerController {
         // `serialize()` ne rend pas les `$extras`, elle doit être recopiée ici.
         box: progressBox(card),
         lastGrade: lastGrades.get(card.id) ?? null,
+        // Le Markdown rendu (CC-133). **La colonne reste la source** : `front`/`back` partent
+        // aussi, et ce sont eux que lisent l'édition, l'export et le juge.
+        //
+        // ⚠️ Le rendu est fait pour **toute** la file alors que la page n'affiche que
+        // `dueCards[0]`. C'est un choix : une prop qui ne porterait le HTML que sur la première
+        // carte serait un piège pour le prochain écran qui itère la file — un `v-html` sur
+        // `undefined` n'affiche **rien**, sans erreur ni log, et `tsc` ne lit pas les `.vue`.
+        // Le coût mesuré est sans commune mesure avec celui de la requête qui précède.
+        frontHtml: renderMarkdown(card.front),
+        backHtml: renderMarkdown(card.back),
       })),
       // La grille des 5 boîtes suit le paquet : elle décrit ce qu'on révise.
       boxCounts: await service.boxCounts(userId, resolved.scope, isAdmin),

@@ -225,6 +225,28 @@ navigateur.
   contenu privé des autres comptes »**, couvre le correctif de confidentialité de CC-139 :
   `export()` chargeait auparavant tout `leitner_cards` sans filtre.
 
+## Le rendu Markdown des cartes (CC-133)
+
+⚠️ **La brique elle-même n'est pas indexée ici, et c'est volontaire** : `renderMarkdown` vit dans
+`app/core/shared/services/markdown_renderer.ts` (hors module — voir le `CLAUDE.md` du module), donc
+sa spec est `tests/unit/markdown_renderer.spec.ts`, déclarée **transverse** dans
+`tests_index.spec.ts`. C'est elle qui porte les deux mutations du lot ; lis son en-tête avant d'y
+toucher, le résultat n'est pas celui qu'on attend.
+
+- `tests/functional/modules/leitner_markdown.spec.ts` — le **branchement**, ce que l'unitaire ne
+  peut pas dire. Son mode d'échec est muet : un `frontHtml` que le contrôleur oublierait de poser
+  rend une carte **vide** à l'écran (`v-html` sur `undefined` n'affiche rien, sans erreur, et
+  `tsc` ne lit pas les `.vue`). Trois tests : la file de révision porte le HTML **et** la source
+  (⚠️ l'assertion sur la source est celle qui compte — l'édition, l'export, la dédup `(recto,
+  thème)` et le prompt du juge travaillent tous dessus, et un contrôleur qui remplacerait `front`
+  par son HTML les casserait tous les quatre d'un geste) ; une carte hostile ressort assainie
+  jusque dans les props, **sans** que la base soit réécrite ; et **les écrans de liste ne
+  reçoivent aucun HTML** — c'est le pendant, et il vaut autant, le recto y étant une *clé*
+  (`cardLink`, `confirmDeleteCard`).
+- `tests/functional/modules/leitner_llm.spec.ts` porte depuis CC-133 le seul cas du module où le
+  HTML voyage dans un **JSON** (`fetch`) et non dans une prop Inertia : l'aperçu de génération.
+  Aucun autre test ne couvrirait ce branchement-là.
+
 ## Le rôle invité : ce qu'il révise (CC-121), ce qui lui reste fermé (CC-72)
 
 - `tests/functional/modules/leitner_guest.spec.ts` — le rôle invité **exact** de CC-121

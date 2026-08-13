@@ -25,8 +25,13 @@ type Verdict = 'juste' | 'partiel' | 'faux'
 
 interface LeitnerCard {
   id: number
+  // ⚠️ La **source** Markdown. Elle descend toujours (l'édition, l'export et le juge
+  // travaillent dessus), mais elle ne se rend jamais en `v-html` : ce sont
+  // `frontHtml`/`backHtml`, assainis côté serveur (CC-133), qui s'affichent.
   front: string
   back: string
+  frontHtml: string
+  backHtml: string
   // ⚠️ La boîte de **celui qui révise**, pas de la carte (CC-119) : elle vient d'une
   // table de progression jointe côté serveur, et vaut 1 tant qu'il ne l'a jamais notée.
   box: number
@@ -548,7 +553,16 @@ function grade(g: Grade): void {
           {{ currentCard.theme.category.name }} · {{ currentCard.theme.name }}
         </span>
       </div>
-      <div class="max-w-[420px] text-[19px] font-semibold">{{ currentCard.front }}</div>
+      <!-- ⚠️ Le PREMIER `v-html` du dépôt (CC-133), et il n'ouvre rien : le HTML vient de
+           `renderMarkdown` (`app/core/shared/services/markdown_renderer.ts`), côté serveur, et
+           n'est jamais construit ici. Ne rends **jamais** `currentCard.front` par cette voie —
+           c'est le Markdown source, et le contenu d'une carte n'est pas de confiance (ingestion
+           LLM, import JSON, cartes communales depuis CC-121).
+           `markdown` porte l'habillage ET le `text-align: left` sans lequel un bloc de code
+           serait centré, le conteneur étant `text-center`. Ce qui empêche une ligne de code
+           longue d'élargir la carte, c'est le couple `max-w-[420px]` ici + `overflow-x: auto`
+           sur `.markdown pre` : le bloc défile à l'intérieur. -->
+      <div class="markdown max-w-[420px] text-[19px] font-semibold" v-html="currentCard.frontHtml"></div>
 
       <!-- On répond AVANT de voir : le dévoilement vaut soumission. Le champ se
            verrouille dès qu'on a révélé — on ne peut pas lire puis écrire.
@@ -574,12 +588,13 @@ function grade(g: Grade): void {
       >
         {{ t('leitner.index.revealButton') }}
       </button>
+      <!-- Le verso. Même remarque que le recto : `backHtml` vient du serveur, `back` reste la
+           source et n'a rien à faire dans un `v-html`. -->
       <div
         v-else
-        class="w-3/5 rounded-[10px] border border-line bg-bg-2 p-4 text-[13px] text-txt-2"
-      >
-        {{ currentCard.back }}
-      </div>
+        class="markdown w-3/5 rounded-[10px] border border-line bg-bg-2 p-4 text-[13px] text-txt-2"
+        v-html="currentCard.backHtml"
+      ></div>
 
       <!-- Le verdict et, surtout, CE QUI MANQUAIT : c'est là qu'est la valeur
            pédagogique du lot, pas dans l'étiquette « juste / partiel / faux ». -->

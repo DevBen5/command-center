@@ -46,10 +46,18 @@ lui-même** : le vocabulaire et les pièges qu'on rencontre en y développant. I
 révisé par quelqu'un qui travaille ici, pas comme une introduction générale — chaque carte de piège
 renvoie à une décision réelle du projet.
 
-⚠️ **Ses versos sont en prose, sans blocs de code, et c'est délibéré** : le Markdown des cartes
-n'est pas rendu aujourd'hui (CC-133), donc des backticks s'afficheraient tels quels. Quand CC-133
-sera livré, les versos pourront être enrichis — l'import n'écrasant rien, une version corrigée du
-fichier ne créera pas de doublons.
+⚠️ **Ses versos sont en prose, sans blocs de code — un reste d'avant CC-133, plus une
+contrainte.** Ils avaient été écrits ainsi parce que le Markdown des cartes n'était pas rendu et
+que des backticks s'affichaient tels quels. **Depuis CC-133, le recto et le verso sont rendus** :
+gras, listes, titres courts et surtout blocs de code délimités par ```` ``` ````, qui gardent leur
+indentation. Les versos de ce paquet peuvent donc être enrichis — l'import n'écrasant rien, une
+version corrigée du fichier ne créera pas de doublons.
+
+⚠️ **Deux limites à connaître avant d'enrichir un paquet** : une image Markdown (`![](…)`) est
+**retirée au rendu** — les images arriveront avec CC-134, stockées en base ; et un verso enrichi
+ne correspondra plus au court-circuit du juge, qui compare la réponse tapée au **texte source** du
+verso. Sans conséquence de justesse (le juge LLM prend le relais), mais un appel réseau là où il
+n'y en avait pas.
 
 ## Le format, en trois champs
 

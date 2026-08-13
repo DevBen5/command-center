@@ -58,3 +58,185 @@ body {
     cursor: not-allowed;
   }
 }
+
+/*
+ * L'habillage du Markdown rendu (CC-133) — `renderMarkdown`, dans
+ * `app/core/shared/services/markdown_renderer.ts`, rend un fragment **sans classes** ; c'est
+ * cette feuille qui l'habille, et c'est la page qui pose `.markdown` sur son conteneur.
+ *
+ * ⚠️ **Elle vit dans le châssis, pas dans un module.** Même doctrine qu'`AppModal.vue` : la
+ * brique est partagée (CC-251 rendra des documents de cours avec), et une feuille rangée dans un
+ * module serait rangée là où le second consommateur ne la cherche pas.
+ *
+ * ⚠️ **Elle n'est pas décorative : sans elle, le rendu est CASSÉ, pas juste terne.** Le Preflight
+ * de Tailwind remet `list-style: none` sur les `ul`/`ol` et ramène tous les titres à la taille du
+ * texte courant. Une liste rendue n'aurait donc **aucune puce** et un `# Titre` serait
+ * indiscernable d'un paragraphe — avec `lint`, `typecheck` et les deux suites au vert, jsdom ne
+ * faisant aucun layout.
+ *
+ * ⚠️ **Écrite en CSS littéral avec les `var(--color-*)` du bloc `@theme`, jamais en classes
+ * construites.** C'est la leçon de la heatmap de `stats.vue` (`bg-accent/${level * 25}` ne génère
+ * rien) et du `calc(100vh_-_8rem)` de la modale : ce qui ne s'écrit pas en toutes lettres ne
+ * traverse pas le build. Ça se vérifie en greppant le `.css` de `public/assets/` après
+ * `npm run build`.
+ *
+ * ⚠️ **`text-align: left` est ici et pas dans les pages, délibérément.** Le bloc de la carte en
+ * révision est `text-center` (`pages/index.vue`) : un bloc de code ou une liste centrés y seraient
+ * illisibles, et **aucun test ne peut le voir**. Porté par la classe, le cas est fermé pour tous
+ * les consommateurs à venir plutôt que redécouvert par chacun.
+ *
+ * Les tailles sont en `em` : le recto est en 19 px, le verso en 13 px, et le rendu doit suivre son
+ * hôte au lieu d'imposer sa propre échelle.
+ */
+.markdown {
+  text-align: left;
+  /* Un mot très long (une URL, un identifiant) ne doit pas élargir la carte. */
+  overflow-wrap: break-word;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown p {
+  margin: 0.5em 0;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  margin: 0.9em 0 0.4em;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.markdown h1 {
+  font-size: 1.3em;
+}
+
+.markdown h2 {
+  font-size: 1.18em;
+}
+
+.markdown h3 {
+  font-size: 1.08em;
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 0.5em 0;
+  padding-left: 1.4em;
+}
+
+/*
+ * ⚠️ **La longhand, pas le raccourci `list-style`, et ce n'est pas un détail de style.** Écrit
+ * `list-style: disc`, le minifieur le réécrit en `list-style: outside` dans le CSS produit —
+ * équivalent (le raccourci remet `list-style-type` à son initiale, qui *est* `disc`), mais la
+ * règle devient illisible à la relecture du bundle, et c'est précisément ce bundle qu'on grepe
+ * pour prouver que la feuille n'est pas inerte. La longhand traverse le build telle quelle.
+ */
+.markdown ul {
+  list-style-type: disc;
+}
+
+.markdown ol {
+  list-style-type: decimal;
+}
+
+.markdown li {
+  margin: 0.15em 0;
+}
+
+.markdown li > ul,
+.markdown li > ol {
+  margin: 0.15em 0;
+}
+
+.markdown a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown blockquote {
+  margin: 0.6em 0;
+  padding: 0.1em 0 0.1em 0.8em;
+  border-left: 2px solid var(--color-accent);
+  color: var(--color-txt-2);
+}
+
+.markdown hr {
+  margin: 0.9em 0;
+  border: 0;
+  border-top: 1px solid var(--color-line);
+}
+
+.markdown table {
+  margin: 0.6em 0;
+  border-collapse: collapse;
+}
+
+.markdown th,
+.markdown td {
+  padding: 0.3em 0.6em;
+  border: 1px solid var(--color-line);
+  text-align: left;
+}
+
+.markdown th {
+  font-weight: 600;
+  background: var(--color-panel-2);
+}
+
+/*
+ * Le code. C'est le besoin principal de CC-133, et l'arbitrage du propriétaire (2026-08-13, sur
+ * référence Obsidian) est : **un bloc qu'on identifie au premier coup d'œil**, pas une coloration
+ * par jeton. Le marqueur est donc le fond, la bordure et la chasse fixe — plus, pour le code en
+ * ligne, la seule couleur du lot (`--color-aqua`), qui le détache d'une phrase sans la trouer.
+ *
+ * ⚠️ **Aucune bibliothèque de coloration n'est installée, et ce n'est pas un manque.** Celles à
+ * base de classes CSS exigent d'importer un thème, donc des couleurs en dur — ce que le
+ * `CLAUDE.md` racine interdit. Le jour où la coloration par jeton devient un besoin, c'est ce
+ * problème-là qu'il faut rouvrir, pas cette feuille.
+ */
+.markdown code {
+  padding: 0.1em 0.35em;
+  border: 1px solid var(--color-line);
+  border-radius: 4px;
+  background: var(--color-panel-2);
+  color: var(--color-aqua);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+}
+
+.markdown pre {
+  margin: 0.6em 0;
+  padding: 0.7em 0.85em;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: var(--color-panel-2);
+  color: var(--color-txt);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.55;
+  /* L'indentation est la moitié du besoin : elle ne se replie pas, elle défile. */
+  overflow-x: auto;
+  tab-size: 2;
+}
+
+/* Dans un bloc, le `<code>` n'est plus une pastille : le bloc porte déjà tout l'habillage. */
+.markdown pre code {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font-size: 1em;
+}

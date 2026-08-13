@@ -148,6 +148,48 @@ test.group('Leitner / configuration du LLM', (group) => {
     assert.equal(body.cards[0].front, 'À quoi sert le handshake TLS ?')
   })
 
+  test('l’aperçu rend le Markdown du modèle, assaini (CC-133)', async ({ client, assert }) => {
+    // ⚠️ La sortie d'un LLM est du contenu **non fiable** au même titre qu'une carte importée :
+    // c'est un des trois chemins que CC-133 nomme. Cet écran est aussi le seul du module dont le
+    // HTML voyage dans un **JSON** (`fetch`) et non dans une prop Inertia — donc le seul dont le
+    // branchement ne serait couvert par aucun autre test.
+    const user = await login()
+    fakeLlm(
+      [
+        JSON.stringify({
+          cards: [
+            {
+              front: 'Commande de **build** ?',
+              back: '```\ndocker build .\n```\n<img src=x onerror=alert(1)>',
+              category: 'DevOps',
+              theme: 'Docker',
+            },
+          ],
+        }),
+      ],
+      { reachable: [LM_STUDIO], models: ['qwen2.5-7b-instruct'] }
+    )
+
+    const response = await client
+      .post('/revision/llm/test')
+      .accept('json')
+      .json({ baseUrl: LM_STUDIO, model: 'qwen2.5-7b-instruct' })
+      .loginAs(user)
+      .withCsrfToken()
+
+    response.assertStatus(200)
+
+    const body = response.body() as {
+      cards: { front: string; frontHtml: string; backHtml: string }[]
+    }
+
+    assert.include(body.cards[0].frontHtml, '<strong>build</strong>')
+    assert.include(body.cards[0].backHtml, '<pre><code>docker build .')
+    assert.notInclude(body.cards[0].backHtml, '<img')
+    // La source part avec, intacte : c'est elle que la promotion écrira en base.
+    assert.equal(body.cards[0].front, 'Commande de **build** ?')
+  })
+
   test('la base est inchangée après un test de génération', async ({ client, assert }) => {
     const user = await login()
     fakeLlm([ONE_CARD], { reachable: [LM_STUDIO] })

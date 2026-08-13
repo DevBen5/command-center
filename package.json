@@ -72,6 +72,7 @@
     "edge.js": "^6.2.1",
     "lucide-vue-next": "^1.0.0",
     "luxon": "^3.7.2",
+    "markdown-it": "^15.0.0",
     "otpauth": "^9.5.1",
     "pg": "^8.22.0",
     "proxy-addr": "^2.0.7",
