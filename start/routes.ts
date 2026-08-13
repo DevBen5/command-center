@@ -421,6 +421,18 @@ router
           router
             .post('/cards/theme', [LeitnerSettingsController, 'assignTheme'])
             .use(middleware.can('leitner.cards.write'))
+          // L'aperçu du rendu Markdown pendant la saisie (CC-257). Elle **n'écrit rien** — ni
+          // carte, ni trace : du texte entre, du HTML assaini sort, par la même `renderMarkdown`
+          // que la révision. JSON nu (la page l'appelle en `fetch`, donc avec `x-xsrf-token`).
+          //
+          // ⚠️ Sous `leitner.cards.write`, la capacité de l'écran qui l'appelle — jamais
+          // `openRoute`, et jamais une capacité de lecture : elle rend du HTML à partir d'un
+          // corps arbitraire, et son jumeau de l'ingestion existe précisément parce que
+          // `middleware.can()` n'en accepte qu'une (voir `/ingest/drafts/preview`). Ce n'est pas
+          // un « rendu de Markdown générique » du dépôt : c'est une route de l'écran des cartes.
+          router
+            .post('/cards/preview', [LeitnerSettingsController, 'preview'])
+            .use(middleware.can('leitner.cards.write'))
 
           // La taxonomie (catégories, thèmes) est un geste d'écriture distinct du contenu
           // des cartes : `leitner.taxonomy.write`, pas `cards.write`.
@@ -472,6 +484,13 @@ router
             .use(middleware.can('leitner.ingest'))
           router
             .post('/ingest/drafts/reject', [LeitnerIngestionController, 'reject'])
+            .use(middleware.can('leitner.ingest'))
+          // Le jumeau de `/cards/preview` (CC-257), sous `leitner.ingest` : c'est la capacité de
+          // CET écran, et elle n'implique pas `leitner.cards.write`. Un compte qui ne fait que
+          // relire des brouillons prendrait 403 sur l'autre route — alors que `drafts/accept` lui
+          // laisse déjà créer des cartes. Elle n'écrit rien non plus.
+          router
+            .post('/ingest/drafts/preview', [LeitnerIngestionController, 'previewDraft'])
             .use(middleware.can('leitner.ingest'))
           // `where(number)` : sans lui, « drafts » serait un id d'ingestion recevable.
           router

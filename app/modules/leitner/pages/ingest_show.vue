@@ -6,7 +6,12 @@ import AppLayout from '~/layouts/AppLayout.vue'
 import ConfirmModal from '~/components/ConfirmModal.vue'
 import IngestionTitle from '../components/IngestionTitle.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
+import MarkdownPreviewPanel from '../components/MarkdownPreviewPanel.vue'
 import TaxonomyCombobox from '../components/TaxonomyCombobox.vue'
+import {
+  useMarkdownPreview,
+  type MarkdownPreview,
+} from '../components/leitner_markdown_preview'
 // Les prédicats de relecture vivent hors du `.vue` : Japa n'a aucun compilateur Vue, et ce
 // sont eux qui décident si le bouton *Enregistrer* existe. Voir `shared/draft_review.ts`.
 import {
@@ -239,6 +244,39 @@ function reject(ids: number[]): void {
   selected.value = []
 }
 
+/*
+|------------------------------------------------------------------------------
+| L'aperçu du rendu Markdown d'un brouillon (CC-257)
+|------------------------------------------------------------------------------
+| ⚠️ **C'est l'écran où voir le rendu compte le plus** : c'est ici qu'on valide ce qu'une
+| MACHINE a écrit. Et c'est le préalable de CC-259 — apprendre au modèle à produire du
+| Markdown avant que son relecteur puisse le voir ne ferait que déplacer le problème.
+|
+| ⚠️ **Une instance PAR brouillon, jamais une bascule globale.** Les brouillons se comptent
+| par dizaines : un interrupteur unique ferait partir autant de requêtes qu'il y a de
+| lignes, d'un coup, pour un contenu qu'on ne relit qu'une ligne à la fois. Chaque ligne
+| ouvre le sien, et **une instance repliée n'émet rien** — la mémoriser par id ne coûte
+| donc que quelques `ref`, sur le modèle de la copie locale `edited` juste au-dessus.
+|
+| ⚠️ Le HTML vient du SERVEUR, de la même `renderMarkdown` que la révision (CC-133) — voir
+| `components/leitner_markdown_preview.ts`. Rien n'est rendu dans cette page.
+*/
+const previews: Record<number, MarkdownPreview> = {}
+
+function previewFor(id: number): MarkdownPreview {
+  previews[id] ??= useMarkdownPreview('/revision/ingest/drafts/preview', () => ({
+    front: edited[id]?.front ?? '',
+    back: edited[id]?.back ?? '',
+  }))
+  return previews[id]
+}
+
+// Les minuteries d'un aperçu survivraient à une navigation Inertia, exactement comme le
+// `setInterval` du sondage plus haut — même piège, même remède.
+onUnmounted(() => {
+  for (const preview of Object.values(previews)) preview.dispose()
+})
+
 async function destroyIngestion(): Promise<void> {
   if (!(await confirmModal.value?.ask(t('leitner.ingestShow.confirmDelete'), { danger: true })))
     return
@@ -387,6 +425,11 @@ async function destroyIngestion(): Promise<void> {
 
   <!-- Brouillons à relire -->
   <div v-if="pendingDrafts.length" class="rounded-[14px] border border-line bg-panel">
+    <!-- Une seule fois pour l'écran, pas par brouillon : la règle est la même partout, la
+         répéter vingt fois la rendrait invisible (CC-257). -->
+    <p class="border-b border-line px-4 py-2.5 text-[11px] text-txt-3">
+      {{ t('leitner.markdown.hint') }}
+    </p>
     <div class="flex items-center gap-3 border-b border-line px-4 py-3">
       <label class="flex items-center gap-2 text-[12.5px] text-txt-2">
         <input type="checkbox" :checked="allSelected" @change="toggleAll" />
@@ -427,14 +470,35 @@ async function destroyIngestion(): Promise<void> {
           v-model="edited[draft.id].front"
           rows="2"
           class="resize-y rounded-md border border-line-2 bg-panel-2 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-accent"
+          @input="previewFor(draft.id).onInput()"
         />
+        <MarkdownPreviewPanel :preview="previewFor(draft.id)" side="front" />
         <textarea
           v-model="edited[draft.id].back"
           rows="2"
           class="resize-y rounded-md border border-line-2 bg-panel-2 px-2.5 py-1.5 text-[12.5px] text-txt-2 outline-none focus:border-accent"
+          @input="previewFor(draft.id).onInput()"
         />
+        <MarkdownPreviewPanel :preview="previewFor(draft.id)" side="back" />
 
         <div class="flex items-center gap-2">
+          <!-- La bascule d'aperçu du brouillon : repliée, aucune requête ne part (CC-257). -->
+          <button
+            type="button"
+            class="rounded-md border px-2 py-1 text-[11.5px] transition"
+            :class="
+              previewFor(draft.id).open.value
+                ? 'border-accent bg-accent-soft text-txt'
+                : 'border-line-2 bg-panel-2 text-txt-3 hover:border-accent hover:text-txt'
+            "
+            @click="previewFor(draft.id).toggle()"
+          >
+            {{
+              previewFor(draft.id).open.value
+                ? t('leitner.markdown.hide')
+                : t('leitner.markdown.show')
+            }}
+          </button>
           <!-- Clic sur la flèche = toute la liste, même si le champ est déjà rempli ;
                les lettres filtrent ensuite. Les thèmes dépendent de la catégorie
                saisie ; les deux champs restent libres (création à la validation). -->

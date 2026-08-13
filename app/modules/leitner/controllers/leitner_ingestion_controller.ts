@@ -1,5 +1,6 @@
 import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
+import { renderMarkdown } from '#core/shared/services/markdown_renderer'
 import LeitnerDraftCard from '#modules/leitner/models/leitner_draft_card'
 import LeitnerIngestion from '#modules/leitner/models/leitner_ingestion'
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
@@ -15,6 +16,7 @@ import {
   assertOwnedOrAdmin,
 } from '#modules/leitner/services/leitner_visibility'
 import {
+  cardPreviewValidator,
   courseIngestionValidator,
   documentExtractValidator,
   draftCardValidator,
@@ -123,6 +125,35 @@ export default class LeitnerIngestionController {
       }
       throw error
     }
+  }
+
+  /**
+   * L'aperçu du rendu d'un brouillon en cours de relecture (CC-257).
+   *
+   * ⚠️ **C'est l'écran où voir le rendu compte le plus, pas un bonus** : c'est ici qu'on valide ce
+   * qu'une **machine** a écrit. Le relire dans un `<textarea>` nu revient à accepter des clôtures
+   * et des listes sans jamais voir leur effet — et CC-259, qui apprendra au modèle à produire du
+   * Markdown, en dépend : lui faire écrire du Markdown avant que son relecteur puisse le voir ne
+   * ferait que déplacer le problème d'un écran.
+   *
+   * ⚠️ **Le jumeau de `LeitnerSettingsController#preview`, et la duplication est voulue.** Les
+   * deux méthodes appellent `renderMarkdown` directement, chacune sous **sa** capacité —
+   * `middleware.can()` n'en accepte qu'une, et `leitner.ingest` n'implique pas
+   * `leitner.cards.write` (un compte qui ne relit que des brouillons prendrait 403 sur la route de
+   * l'autre écran, alors que `drafts/accept` lui laisse déjà créer des cartes). Factoriser les
+   * deux lignes dans un helper créerait le seul endroit où l'aperçu pourrait un jour diverger de
+   * la révision ; c'est exactement ce que ce lot doit empêcher. Voir l'en-tête de `preview()`.
+   *
+   * Elle n'écrit RIEN, comme `extract()` juste au-dessus, et rend du **JSON nu** : `fetch`,
+   * `x-xsrf-token`, `accept: application/json`.
+   */
+  async previewDraft({ request, response }: HttpContext) {
+    const { front, back } = await request.validateUsing(cardPreviewValidator)
+
+    return response.json({
+      frontHtml: renderMarkdown(front ?? ''),
+      backHtml: renderMarkdown(back ?? ''),
+    })
   }
 
   /**

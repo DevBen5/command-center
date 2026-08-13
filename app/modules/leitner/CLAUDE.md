@@ -199,6 +199,12 @@ components/LeitnerScopeSearch.vue           la barre de recherche du choix — N
 components/leitner_csrf.ts                  le jeton `x-xsrf-token` des routes JSON — l'UNIQUE copie
 components/leitner_scope_search.ts          son filtrage — CODE PUR
 components/TaxonomyCombobox.vue             sélecteur de la relecture — rend une CHAÎNE, texte libre
+components/leitner_markdown_preview.ts      l'aperçu (CC-257) : QUAND demander, jamais QUOI rendre
+                                            — l'UNIQUE copie, les deux écrans de saisie
+components/MarkdownPreviewPanel.vue         son affichage — porte la classe `markdown`, et c'est
+                                            sa raison d'exister
+shared/card_preview.ts                      PUR · PREVIEW_MAX_CHARS (UNIQUE déclaration, lue aussi
+                                            par le validateur) + previewTooLong
 shared/review_page.ts                       PUR · MEASURE_MAX_MS (UNIQUE déclaration) + duration
                                             / fluencyMeasure + boxIntervalLabel / dueLabel
 shared/draft_review.ts                      PUR · la relecture des brouillons d'ingest_show.vue
@@ -397,15 +403,19 @@ carte n'est pas de confiance : ingestion LLM, import JSON, et cartes communales 
 compte porteur de `leitner.cards.write` peut viser qui révise, administrateur compris). Seuls
 `frontHtml`/`backHtml`, assainis côté serveur, s'affichent.
 
-⚠️ **Deux écrans rendent, trois ne rendent pas, et ce n'est pas un oubli :**
+⚠️ **Quatre écrans rendent, deux ne rendent pas, et ce n'est pas un oubli :**
 
 | écran | rend ? | pourquoi |
 | --- | --- | --- |
 | `pages/index.vue` — la révision | **oui** | c'est l'écran qui compte |
 | `pages/llm.vue` — l'aperçu de génération | **oui** | on y juge la sortie du modèle *telle qu'elle s'affichera une fois promue* |
-| `pages/settings.vue` — le catalogue | non | `line-clamp-2` couperait au milieu d'une balise, et le recto est la clé de `confirmDeleteCard` |
+| `pages/settings.vue` — la **modale de saisie** | **oui, depuis CC-257** | panneau d'aperçu sous chaque champ — voir la section suivante |
+| `pages/ingest_show.vue` — la **relecture des brouillons** | **oui, depuis CC-257** | idem, par brouillon. ⚠️ CC-133 avait tranché « non » sur cet écran en constatant qu'« il n'y a rien à y rendre, la relecture se fait dans des `<textarea>` » — c'était vrai, et c'est précisément ce que CC-257 corrige en ajoutant l'aperçu que cette phrase désignait comme la seule voie possible |
+| `pages/settings.vue` — le **catalogue** | non | `line-clamp-2` couperait au milieu d'une balise, et le recto est la clé de `confirmDeleteCard` |
 | `pages/stats.vue` — les cartes à problème | non | `truncate`, et `cardLink(front)` **construit une URL de recherche** — rendre y casserait une identité, pas une apparence |
-| `pages/ingest_show.vue` — les brouillons | non | ⚠️ **il n'y a rien à y rendre** : la relecture se fait dans des `<textarea>`, qui ne peuvent pas contenir de HTML. Ses deux seuls affichages en lecture (acceptés, rejetés) sont des listes `truncate`. Le ticket CC-133 le rangeait « à décider » en pointant l'une de ces listes ; la décision est **non**, et y rendre demanderait d'ajouter un aperçu, donc une fonctionnalité |
+
+⚠️ **Les listes d'acceptés / rejetés d'`ingest_show.vue` restent en texte brut** : ce sont des
+`truncate` de trace, pas de la saisie. Seuls les `<textarea>` de relecture ont gagné un aperçu.
 
 ⚠️ **L'habillage vit dans le châssis, pas ici** : la classe `.markdown` de `inertia/css/app.css`.
 Elle n'est **pas décorative** — sans elle le Preflight de Tailwind laisse les `ul` sans puces et
@@ -429,6 +439,71 @@ règle de source.
 
 **L'export JSON n'a pas bougé** : le Markdown est du texte, aucune clé ne change de nom ni de
 sens, `BACKUP_VERSION` reste à **3**. Vérifié, pas supposé.
+
+## L'aperçu du rendu pendant la saisie (CC-257)
+
+CC-133 a rendu le Markdown à la révision, mais on continuait de l'**écrire à l'aveugle** : deux
+`<textarea>` nus, rien qui dise même que le Markdown est interprété. Le défaut s'est vu le jour de
+la livraison — une clôture ``` non refermée fait basculer tout le reste de la carte dans un bloc de
+code (comportement CommonMark **correct**), et ça ne se découvrait qu'en révision, des jours plus
+tard. ⚠️ **Ce lot rend le comportement VISIBLE ; il ne le change pas.** Deviner où l'auteur voulait
+fermer serait imprévisible et casserait tout Markdown collé depuis ailleurs.
+
+**Deux routes, `POST /revision/cards/preview` et `POST /revision/ingest/drafts/preview`.** Elles
+n'écrivent rien, rendent du **JSON nu** (`fetch` + `x-xsrf-token` + `accept: application/json`) et
+appellent **`renderMarkdown` directement** — la même fonction que `LeitnerController#index`.
+
+- ⚠️ **Deux routes et non une, parce que `middleware.can()` n'accepte qu'UNE capacité**, et les
+  deux écrans n'ont pas la même : `leitner.cards.write` pour la modale, `leitner.ingest` pour les
+  brouillons — laquelle laisse déjà créer des cartes par `drafts/accept`, donc lui refuser
+  l'aperçu serait arbitraire. Ce n'est pas une duplication qu'on aurait pu éviter : c'est ce que
+  coûte le refus d'un « rendu de Markdown générique » ouvert à qui n'a ni l'un ni l'autre écran.
+- ⚠️ **Ne fabrique pas d'enveloppe pour mutualiser les deux lignes de rendu.** Un `previewOf()`
+  partagé paraîtrait plus propre ; ce serait le seul endroit où l'aperçu pourrait un jour diverger
+  de la révision, sans que rien ne le dise. Ce qui tient la promesse est le test d'**égalité
+  stricte** entre les deux sorties (`leitner_preview.spec.ts`), pas une abstraction.
+- ⚠️ **Rien n'est rendu côté client, et il ne faut jamais que ça change.** Un rendu dans la page
+  demanderait `markdown-it` **et** `sanitize-html` dans le bundle du navigateur, et créerait un
+  **second** rendu dont la sortie pourrait diverger sans que rien ne les compare — toute la raison
+  d'être de la brique unique. Corollaire concret : **un fichier de `shared/` ne doit jamais
+  importer `renderMarkdown`**, puisqu'un `.vue` l'importe et que Vite embarquerait la dépendance.
+
+**Le mécanisme côté page** vit dans `components/leitner_markdown_preview.ts` (l'unique copie, les
+deux écrans l'utilisent) et son affichage dans `components/MarkdownPreviewPanel.vue`.
+
+- **Replié par défaut, vivant une fois ouvert.** Mesuré avant d'être choisi : `renderMarkdown` coûte
+  0,11 ms sur une carte réelle et l'aller-retour ~10 ms sur ce poste — le coût n'est donc pas la
+  latence mais le **nombre de requêtes**, et il est nul tant que personne n'a demandé. Ouvert, un
+  débounce de 400 ms suit la frappe : un aperçu figé qu'il faudrait re-cliquer manquerait la
+  cible, puisque la clôture ouverte apparaît **pendant** qu'on tape.
+- ⚠️ **Aucun `watch`, et c'est structurel** : `ingest_show.vue` crée ses instances à la volée, hors
+  de tout `EffectScope` — un `watch` créé là n'aurait aucun propriétaire et ne s'arrêterait jamais.
+  Le déclenchement est explicite (`@input="…onInput()"`).
+- ⚠️ **`refresh()` existe pour les changements qui n'émettent AUCUN événement de saisie** :
+  « Créer et enchaîner » qui vide les champs, une modale d'édition qui s'ouvre sur une autre carte.
+  Sans lui, le panneau afficherait la carte précédente à côté de champs qui ne la portent plus.
+- ⚠️ **La requête en vol est annulée, jamais départagée après coup** (`AbortController`) : deux
+  réponses débouncées qui se croisent afficheraient le rendu d'un texte qu'on vient de corriger, en
+  paraissant parfaitement fonctionner. L'annulation rend le cas impossible au lieu de le rattraper.
+- ⚠️ **`PREVIEW_MAX_CHARS` (20 000, `shared/card_preview.ts`) est l'unique déclaration**, lue par
+  le validateur **et** par la page : recopiée, elle rejouerait CC-60 — la page posterait ce que le
+  validateur refuse, le 422 ne serait lu par personne, et le panneau resterait vide sans dire
+  pourquoi. Elle ne borne **que l'aperçu** : `cardValidator` n'a toujours aucun plafond, donc une
+  carte plus longue **s'enregistre** mais ne se prévisualise pas — et le panneau le dit.
+- ⚠️ **`markdown` sur le conteneur du `v-html`** : sans elle, ni puces, ni titres, ni bloc marqué —
+  avec les trois gates au vert. C'est la seule raison pour laquelle le panneau est un composant
+  plutôt que deux copies de balisage. `leitner_card_preview.spec.ts` balaie **tout** le module.
+- **Le panneau est SOUS le champ, pas à côté** : la modale fait 560 px, deux colonnes en donnent
+  ~250 où un bloc de code se replie en confettis — or ce qu'on doit voir est une structure
+  *verticale*. Sous le champ, il vit dans le corps `overflow-y-auto` : il allonge le défilement,
+  jamais la modale, donc le `max-h-[calc(100vh_-_8rem)]` de CC-66 reste intact.
+
+Une **ligne d'aide** (`leitner.markdown.hint`) accompagne les deux écrans — une fois par formulaire
+dans la modale, une fois pour tout l'écran des brouillons. Elle ne remplace pas l'aperçu : elle dit
+qu'il y a quelque chose à prévisualiser, ce que rien ne faisait.
+
+⚠️ **CC-259 en dépend** : apprendre au LLM d'ingestion à produire du Markdown avant que son
+relecteur puisse le voir n'aurait fait que déplacer le problème d'un écran.
 
 ## Le paquet à réviser : `/revision` a deux visages
 

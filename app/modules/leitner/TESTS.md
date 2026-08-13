@@ -26,6 +26,24 @@ une erreur se paie en planning perdu.
   préfixe des quatre autres).
 - `app/modules/leitner/components/__tests__/ingestion_title.spec.ts` — les deux gardes de `save()` :
   titre vide et titre inchangé n'envoient **aucune** requête.
+- `app/modules/leitner/components/__tests__/markdown_preview.spec.ts` — l'aperçu du rendu
+  (CC-257), côté page. ⚠️ **Il ne teste aucun rendu, et c'est le point** : le HTML vient du
+  serveur, ce composable ne décide que de la **politique de requête**. Trois assertions portent le
+  lot, chacune sur une régression muette : **replié, taper n'émet rien** (c'est ce qui laisse la
+  saisie en série aussi silencieuse qu'avant le lot — le coût mesuré n'est pas la latence mais le
+  nombre de requêtes) ; **la requête en vol est annulée** quand une plus récente part — le premier
+  `fetch` du test ne se résout **jamais**, sans quoi il n'y aurait plus rien à annuler et le test
+  passerait au vert sans exercer l'annulation du tout ; et **les deux en-têtes** (`x-xsrf-token`,
+  `accept: application/json`) sans lesquels une réponse d'erreur devient une redirection que le
+  `fetch` suit. Plus les deux cas qui n'atteignent jamais le réseau (champs vides, contenu
+  au-delà de la borne) et la distinction `tooLong` / `failed`.
+  Il monte aussi `MarkdownPreviewPanel` pour une **subtilité de Vue** que rien d'autre
+  n'attraperait : le composable rend un objet plat portant des `ref`, qui voyage en **prop** — les
+  props n'étant que superficiellement réactives, ça s'écrit `preview.open.value`, et un
+  `preview.open` nu (l'écriture qui *paraît* juste, puisque Vue déballe partout ailleurs) rendrait
+  un objet toujours truthy : le panneau s'afficherait **en permanence, y compris replié**, avec
+  les trois gates au vert. Le montage porte en prime l'assertion sur la classe `markdown` **au
+  rendu**, là où `leitner_card_preview.spec.ts` ne peut la lire que dans la source.
 - `app/modules/leitner/components/__tests__/taxonomy_combobox.spec.ts` — l'invariant `filtering` :
   rouvrir la liste après avoir tapé remontre **toute** la taxonomie. ⚠️ Il ne prouve quelque chose
   que parce qu'il **tape d'abord** : `filtering` vaut déjà `false` au montage, donc ouvrir sans
@@ -246,6 +264,34 @@ toucher, le résultat n'est pas celui qu'on attend.
 - `tests/functional/modules/leitner_llm.spec.ts` porte depuis CC-133 le seul cas du module où le
   HTML voyage dans un **JSON** (`fetch`) et non dans une prop Inertia : l'aperçu de génération.
   Aucun autre test ne couvrirait ce branchement-là.
+
+## L'aperçu du rendu pendant la saisie (CC-257)
+
+- `tests/functional/modules/leitner_preview.spec.ts` — **le test qui porte le lot est le premier** :
+  le `frontHtml` que `/revision` pose en prop et celui que la route d'aperçu rend sont comparés par
+  **égalité stricte**, sur la même source. C'est la seule chose qui tienne la promesse « l'aperçu
+  montre ce que la révision montrera » — une option ajoutée d'un seul côté, une enveloppe
+  intercalée, une couche d'assainissement retirée, et il rougit. ⚠️ Son témoin (`include` d'un
+  `<strong>`) n'est pas décoratif : sans lui, un contrôleur qui rendrait `''` des deux côtés
+  passerait l'égalité au vert. Le reste : les **deux** routes rendent la même chose, un contenu
+  hostile ressort assaini (et **visible en texte**, `&lt;img`), un corps vide rend 200, la borne
+  est éprouvée **des deux côtés du seuil** — trop serrée, elle refuserait ce que l'écran laisse
+  écrire —, chaque route est fermée à qui a la capacité de l'**autre** écran, et l'aperçu n'écrit
+  rien.
+  ⚠️ **Toutes ses requêtes portent `accept: application/json`, et ce n'est pas de la décoration** :
+  sans lui, un 422 devient un `redirect().back()` que le client de test **suit** jusqu'à `/`, qui
+  répond 403 à un compte sans `dashboard.view`. Mesuré sur le premier jet du fichier — on croit à
+  un défaut de capacité et on part corriger une route qui n'a rien.
+- `tests/unit/leitner_card_preview.spec.ts` — les deux régressions que rien d'autre ne verrait.
+  **(1)** `PREVIEW_MAX_CHARS` n'est déclaré qu'une fois : le spec relit les quatre fichiers qui la
+  consomment et rougit si le littéral y réapparaît (CC-60 rejoué — deux bornes divergentes rendent
+  le panneau muet, la page postant ce que le validateur refuse). ⚠️ Il attrape la **recopie
+  littérale**, pas un `20 * 1000`. **(2)** tout `v-html` du module porte la classe `markdown` :
+  sans elle, le Preflight de Tailwind laisse les `ul` sans puces et les titres à la taille du
+  texte — l'aperçu ment, avec les trois gates au vert. Le balayage porte sur **tout le module**,
+  pas sur les seuls fichiers du lot. ⚠️ **Son plancher (`isAtLeast(vus, 5)`) n'est pas décoratif** :
+  vérifié en cassant la racine du balayage, l'assertion principale passe alors au **vert** en
+  n'ayant rien comparé, et seul le plancher rougit — même mode d'échec que `tests_index.spec.ts`.
 
 ## Le rôle invité : ce qu'il révise (CC-121), ce qui lui reste fermé (CC-72)
 
