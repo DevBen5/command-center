@@ -21,8 +21,12 @@ interface ProbedCandidate extends Candidate {
 }
 
 interface DraftCard {
+  // La source telle que le modèle l'a produite ; l'aperçu affiche `frontHtml`/`backHtml`,
+  // assainis côté serveur (CC-133).
   front: string
   back: string
+  frontHtml: string
+  backHtml: string
   category: string | null
   theme: string | null
 }
@@ -468,8 +472,11 @@ const STEP_CLASSES: Record<StepState, string> = {
           :key="index"
           class="rounded-md border border-line bg-panel-2 px-2.5 py-2"
         >
-          <div class="text-[12.5px] font-semibold">{{ card.front }}</div>
-          <div class="mt-0.5 text-[12px] text-txt-2">{{ card.back }}</div>
+          <!-- ⚠️ Le HTML vient du serveur (`renderMarkdown`, CC-133), jamais d'un rendu écrit
+               ici : la sortie d'un LLM est du contenu non fiable, au même titre qu'une carte.
+               L'aperçu montre donc la carte **telle qu'elle s'affichera une fois promue**. -->
+          <div class="markdown text-[12.5px] font-semibold" v-html="card.frontHtml"></div>
+          <div class="markdown mt-0.5 text-[12px] text-txt-2" v-html="card.backHtml"></div>
           <div v-if="card.category" class="mt-1 text-[11px] text-txt-3">
             {{ card.category }} · {{ card.theme }}
           </div>

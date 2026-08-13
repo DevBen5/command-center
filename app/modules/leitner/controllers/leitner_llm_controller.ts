@@ -1,6 +1,7 @@
 import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
 import llmConfig from '#config/llm'
+import { renderMarkdown } from '#core/shared/services/markdown_renderer'
 import {
   courseMessages,
   LlmParseError,
@@ -146,7 +147,19 @@ export default class LeitnerLlmController {
         })
       }
 
-      return response.json({ ok: true, cards, error: null })
+      // ⚠️ L'aperçu rend le Markdown comme le fera la révision (CC-133) : c'est la sortie du
+      // modèle **telle qu'elle s'affichera une fois promue en carte** qu'on juge ici, pas une
+      // forme intermédiaire que plus aucun écran ne montrera. Le HTML voyage dans le JSON — cet
+      // écran n'appelle pas Inertia mais `fetch` — et la source part avec, intacte.
+      return response.json({
+        ok: true,
+        cards: cards.map((card) => ({
+          ...card,
+          frontHtml: renderMarkdown(card.front),
+          backHtml: renderMarkdown(card.back),
+        })),
+        error: null,
+      })
     } catch (error) {
       if (error instanceof LlmUnavailableError || error instanceof LlmParseError) {
         // L'échec brut, tel que le modèle l'a produit : c'est l'information utile.
