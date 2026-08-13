@@ -762,6 +762,20 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
   policy par défaut d'Alpine est « open » — sans les deux gardes ensemble, la famille de faille
   ImageTragick (MVG/MSL déguisés en image) reste ouverte. Voir le `CLAUDE.md` du coffre pour la
   mesure complète.
+- **Le seul `v-html` du dépôt passe par `renderMarkdown`, et rien d'autre** (CC-133,
+  `app/core/shared/services/markdown_renderer.ts`). Le Markdown des cartes Leitner est rendu
+  **côté serveur**, en prop dérivée (`frontHtml`/`backHtml`) ; la colonne reste la **source**.
+  **Quatre** `v-html` existent — recto et verso dans `leitner/pages/index.vue`, les deux champs de
+  l'aperçu dans `leitner/pages/llm.vue` — et tous consomment cette brique.
+  ⚠️ **N'en pose pas un cinquième sur autre chose que sa sortie** : le contenu n'est pas
+  de confiance (ingestion LLM, import JSON, cartes communales depuis CC-121), et la veille détruit
+  toujours le HTML de ses flux à l'ingestion précisément pour qu'un `v-html` ne puisse rien y
+  rouvrir. La brique vit dans `core/shared/` et non dans Leitner parce qu'elle ne sait rien des
+  cartes et qu'un second consommateur arrive (CC-251) — patron CC-180, point 7 ci-dessus.
+  ⚠️ **Son en-tête porte une mesure contre-intuitive à lire avant d'y toucher** : de ses deux
+  couches (`html: false` de markdown-it, puis `sanitize-html`), c'est la **seconde** qui ferme le
+  vecteur XSS — seule, mutation à l'appui — et la **première** qui garde le contenu neutralisé
+  *visible* au lieu de le supprimer en silence. Ce ne sont pas deux ceintures pour la même chute.
 - **Masquer un bouton n'est pas un droit.** Une route est un contrat public : `POST /revision/cards`
   répond que le bouton soit affiché ou non, et un `curl` muni d'un cookie de session valide n'a que
   faire du rendu Vue. Le middleware de capacité ferme ; le masquage dans l'UI évite seulement de
