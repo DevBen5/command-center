@@ -19,6 +19,15 @@ empreinte `md5` de (carte, boîte, échéance) relevée avant, après, puis apr�
 **avant tout `migration:run` sur une base qui porte du contenu**, c'est le seul endroit du lot où
 une erreur se paie en planning perdu.
 
+⚠️ **Même angle mort pour le backfill de CC-260 (`box5_entered_at = updated_at`), et il n'a PAS été
+levé.** Mesuré, pas déduit : supprimer le `defer` entier de
+`1786600000005_add_mastery_marks_to_leitner_tables.ts` laisse la suite **verte** — `app_test` est
+vide, l'`update ... where box = 5` touche zéro ligne. L'empreinte avant/après modèle CC-119 **n'a
+pas pu être faite** : la base de dev de ce poste portait 2 cartes et **0 en boîte 5** le 2026-08-13,
+donc il n'y avait rien à empreindre. Elle reste à faire sur une base qui porte du contenu réel, et
+ce lot ne doit pas être lu comme si elle l'avait été. Le backfill de `kind`, lui, n'a rien à
+prouver : le `default` de la colonne est exactement vrai (l'entretien n'existait pas).
+
 ## Tests de composant (Vitest, `components/__tests__/`)
 
 - `app/modules/leitner/components/__tests__/leitner_tabs.spec.ts` — l'onglet actif : query string,
@@ -99,6 +108,25 @@ navigateur.
   cloisonnement de l'historique n'était pas séparable de celui de la progression —, la première
   note d'une carte jamais vue (l'absence de ligne vaut boîte 1), et le fait que les intervalles
   restent un réglage d'**installation**, partagé.
+- `tests/unit/leitner_mastery.spec.ts` — le **critère de maîtrise** (CC-260), code pur sans base ni
+  horloge : c'est ce qui permet d'éprouver « trente jours se sont écoulés » sans attendre trente
+  jours. Les deux cas qui portent le lot sont les **extrêmes du réglage** — à `box5Days = 1` le
+  plancher de 30 jours mord (sans lui, deux jours suffiraient), à `365` c'est le réglage qui domine :
+  le défaut étant 30, un test au défaut seul n'éprouverait ni l'un ni l'autre. Plus la borne des 30
+  jours dans les **deux sens** (exactement 30 valide, 29 non — un seul des deux cas passerait sur une
+  comparaison trop laxiste), `hard` qui ne valide pas **et** ne réarme pas (l'arbitrage contestable,
+  et le test qui rougirait s'il bascule), `again` qui réarme et démaîtrise, le 2ᵉ `hard` d'affilée
+  qui efface tout, la carte qui vient d'arriver en boîte 5, la carte importée sans horloge qui la
+  reçoit **sans être maîtrisée pour autant**, et la date d'acquisition qui **ne dérive pas**.
+- `tests/unit/leitner_service.spec.ts`, groupe « marques de maîtrise » — ce que le pur ne peut pas
+  dire : que le critère est **branché**, sur l'état lu avant la note et sur l'intervalle lu **en
+  base** (à `box5Days = 365`, 40 jours en boîte 5 ne suffisent plus — la seule chose qui prouve que
+  `boxIntervals()[5]` arrive jusqu'au critère). ⚠️ **Le test qui porte le lot** est la révision
+  **ratée** d'entretien : `kind: 'maintenance'` alors que la carte en ressort non maîtrisée — calculé
+  après la mutation, l'historique affirmerait qu'aucun entretien n'a jamais échoué, sans symptôme.
+  ⚠️ Et « la première note d'une carte jamais révisée est `normal` » est le seul qui attrape le piège
+  de l'`undefined` : `firstOrNew` rend un modèle neuf dont `masteredAt` vaut `undefined`, pas `null`,
+  et un `!== null` naïf classerait **toute première note** en `'maintenance'`.
 - `tests/functional/modules/leitner_intervals.spec.ts` — les intervalles **lus en base**, pas dans
   la constante. Le test qui porte le lot enchaîne les deux moitiés dans la **même** exécution :
   boîte 3 réglée à 10 jours, puis une carte notée `good` dont `next_review` tombe à +10. Asserter
@@ -232,14 +260,24 @@ navigateur.
   L'aller-retour porte une révision **jugée** et une **jamais jugée** (`null` doit se relire `null`,
   jamais `0` ni `''`), plus une troisième aux valeurs falsy (`answer: ''`, `thinkingMs: 0`) qui sont
   des mesures et non des absences. Depuis CC-119 le `snapshot()` lit la progression **de
-  l'exportateur** (jointe par `preload` filtré) ; depuis CC-139 il porte aussi `shared`. Le format
-  est en **v3**, et deux tests dédiés couvrent ce qui protège les sauvegardes existantes dans les
+  l'exportateur** (jointe par `preload` filtré) ; depuis CC-139 il porte aussi `shared` ; depuis
+  CC-260, `kind`, `boxBefore`/`boxAfter` et les deux marques de maîtrise — et l'aller-retour porte
+  désormais une **carte maîtrisée avec sa révision d'entretien**, sans laquelle les cinq colonnes
+  du lot traverseraient à `null` des deux côtés et la comparaison serait verte en n'éprouvant rien.
+  ⚠️ Vérifié en retirant chaque clé de l'export une à une : `kind`, la paire `boxBefore`/`boxAfter`
+  et les deux marques font rougir l'aller-retour, chacune séparément. Le format
+  est en **v4**, et quatre tests dédiés couvrent ce qui protège les sauvegardes existantes dans les
   deux sens : **un fichier v1 reste importable** et son contenu **redevient partagé**
   (`resolveShared`) — sa progression et son historique devenant ceux de celui qui importe ; **un
   fichier v3 écrit à la main, sans `shared`, importe une carte privée** — le défaut du contenu
-  neuf, pas celui des vieux fichiers. ⚠️ Le cas « version inconnue » de la liste des fichiers
-  invalides est passé de `2` à `99` puis à nouveau `99` après le bump CC-139 — laissé à une valeur
-  devenue valide, il aurait viré au vert en n'éprouvant plus rien. Un test dédié, **« exclut le
+  neuf, pas celui des vieux fichiers. Depuis CC-260, le même couple pour `kind` : **un fichier v3
+  importe des révisions `normal`** (avec ses boîtes laissées **inconnues**, jamais reconstituées, et
+  aucune marque de maîtrise inventée sur une carte importée en boîte 5) et **un fichier v4 qui
+  déclare `maintenance` le conserve** — sans ce second test, un `resolveReviewKind` qui rendrait
+  toujours `'normal'` passerait au vert. ⚠️ Le cas « version inconnue » de la liste des fichiers
+  invalides est passé de `2` à `99` puis à nouveau `99` après les bumps CC-139 et CC-260 — laissé à
+  une valeur devenue valide, il aurait viré au vert en n'éprouvant plus rien. **À revérifier à
+  chaque bump.** Un test dédié, **« exclut le
   contenu privé des autres comptes »**, couvre le correctif de confidentialité de CC-139 :
   `export()` chargeait auparavant tout `leitner_cards` sans filtre.
 

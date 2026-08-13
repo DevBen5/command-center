@@ -179,6 +179,8 @@ services/leitner_habits.ts                  séries, heatmap, régularité, ryth
                                             courant est un PARAMÈTRE
 services/leitner_weakness.ts                les POINTS FAIBLES : rétention, taux d'again, seuils —
                                             CODE PUR, sans base
+services/leitner_mastery.ts                 le CRITÈRE DE MAÎTRISE (CC-260) : horloge de boîte 5 et
+                                            date d'acquisition — CODE PUR, `now` en paramètre
 services/leitner_stats_service.ts           les stats d'HABITUDE, d'EFFORT et les POINTS FAIBLES —
                                             globales, jamais par paquet
 services/leitner_catalog_service.ts         seul point d'écriture d'une carte, porte la dédup
@@ -214,6 +216,8 @@ migrations/                                 cards PUIS reviews PUIS categories/t
                                             PUIS ingestions PUIS draft_cards PUIS card_progress
                                             PUIS owner_id/is_shared (CC-139, categories → themes →
                                             cards → ingestions ; PAS draft_cards)
+                                            PUIS les marques de maîtrise (CC-260, UNE migration
+                                            pour les 5 colonnes des DEUX tables)
                                             (FK : l'ordre du nom de fichier compte)
 ```
 
@@ -956,8 +960,12 @@ et une carte mal sue finirait par se voir proposer `easy`.
   mesure est attribuée à la boîte où sa carte est **aujourd'hui** : le vivier d'une boîte haute est
   dominé par des mesures prises plus bas, quand ces cartes étaient moins sues. Les deux poussent vers
   un `easy` sur-proposé en boîte haute. Borné — ce repli ne sert que tant qu'une carte n'a pas 5
-  mesures à elle ; le corriger demanderait une colonne `box` sur `leitner_reviews`, vide pour tout
-  l'historique : un lot à part.
+  mesures à elle.
+  ⚠️ **Depuis CC-260 la colonne existe** (`box_before`/`box_after` sur `leitner_reviews`), donc le
+  second axe est corrigeable — mais **seulement en avant** : elle est `null` sur tout l'historique
+  antérieur au lot, et ça ne se rattrape pas. Un correctif devrait donc composer avec deux
+  populations dans la même colonne. Reste un lot à part, et la phrase « il faudrait une colonne »
+  n'est simplement plus la bonne raison de le reporter.
 - **Les ratios 0,6 / 1,6 sont des conventions**, comme `SESSION_GAP_MINUTES` : ils ne se vérifient
   qu'à l'usage.
 
@@ -973,6 +981,112 @@ carte qu'on vient de rater.
 ⚠️ **Une durée négative se rend `null`, jamais `0`** : une correction NTP recule l'horloge, et la
 ramener à zéro donnerait la **meilleure valeur possible** — `easy` proposé, et un `0` écrit qui
 tirerait la médiane vers le bas durablement. Une mesure qu'on n'a pas ne vaut pas zéro.
+
+## Les marques de maîtrise — posées, jamais lues (CC-260)
+
+Premier des trois lots qui donneront au module un **inventaire d'acquis**. Celui-ci pose le schéma
+et les marques. ⚠️ **Il ne change AUCUN comportement visible** : aucune file, aucun compteur, aucun
+écran ne bouge — `mastered_at` se remplit et personne ne le lit. CC-261 (sortie de file, régime
+d'entretien) puis CC-262 (l'inventaire visible) le consommeront.
+
+**Le défaut réel qu'il corrige** : on ne pouvait pas savoir depuis quand une carte est en boîte 5,
+et on ne pouvait pas le reconstituer. `leitner_reviews` ne portait ni `box_before` ni `box_after`,
+et rejouer `nextBox` depuis la boîte 1 aurait été faux dès qu'un import est passé — l'import écrit
+`box` **directement** depuis le JSON, sans que les révisions correspondantes produisent ce chemin.
+Les colonnes ne sont que la réponse ; le défaut est là.
+
+**Cinq colonnes, une seule migration** (`1786600000005_add_mastery_marks_to_leitner_tables.ts`) :
+
+| table | colonne | rôle |
+| --- | --- | --- |
+| `leitner_card_progress` | `box5_entered_at` | l'horloge — posée à l'entrée en boîte 5, réarmée par `again`, effacée à la sortie |
+| `leitner_card_progress` | `mastered_at` | la date d'acquisition. `null` = pas (ou plus) maîtrisée |
+| `leitner_reviews` | `kind` | `normal` \| `maintenance` — **de quelle file la carte venait** |
+| `leitner_reviews` | `box_before` / `box_after` | la boîte avant et après la note, **nullables** |
+
+⚠️ **Les cinq voyagent ensemble, avec UNE seule montée de `BACKUP_VERSION` (→ 4)** : chaque montée
+est une occasion d'oublier le `snapshot()` de `leitner_backup.spec.ts`, et cet oubli fait perdre des
+données **sans qu'aucun test ne rougisse** — c'est ce qui a laissé passer CC-51.
+
+### Le critère, et le plancher qui le fonde
+
+Une carte devient maîtrisée quand, **au moment de la noter** : *(1)* elle était **déjà** en boîte 5 ;
+*(2)* la note est `good` ou `easy` ; *(3)* il s'est écoulé au moins **`max(box5Days, 30)` jours**
+depuis `box5_entered_at`. Le tout vit dans `services/leitner_mastery.ts`, **pur** — ni base, ni
+horloge (`now` est un paramètre), comme `leitner_habits.ts` : c'est ce qui permet d'éprouver
+« trente jours » sans attendre trente jours.
+
+⚠️ **Le plancher de 30 jours est constant, indépendant du réglage.** `leitner_settings` est un
+réglage d'**installation** (une ligne, partagée, réglable de 1 à 365 jours) : si le critère le
+suivait seul, « maîtrisée » voudrait dire deux choses différentes avant et après que quelqu'un l'ait
+touché, **sur des cartes déjà marquées**. Un inventaire d'acquis est une affirmation sur la mémoire
+d'une personne, pas sur la configuration de l'application. Par défaut (`box5Days = 30`) le plancher
+est **inerte** ; il ne mord que si on raccourcit l'intervalle.
+
+⚠️ **`hard` est une réussite mais ne valide pas — écart VOULU avec `retentionRate`.** La rétention
+(`leitner_weakness.ts`, et le `retention` 30 j de `/revision`) compte `hard` comme une réussite ;
+la maîtrise non. Ce sont deux barres différentes : l'une mesure « l'ai-je retrouvé », l'autre « le
+sais-je solidement ». **Ne les aligne pas « par cohérence »** — quelqu'un le remarquera, et c'est
+prévu.
+
+⚠️ **`hard` ne réarme PAS l'horloge — décision prise faute de consigne, à confirmer.** Raison :
+`hard` ayant été qualifié de réussite, réarmer serait une punition. Conséquence mesurable — avec
+`box5Days < 30`, un `hard` retarde la maîtrise d'un intervalle au lieu de la repousser au-delà du
+plancher. Si l'arbitrage bascule, c'est **une ligne** dans `nextMasteryState`, et
+`leitner_mastery.spec.ts` porte le test qui rougirait.
+
+Deux règles que le ticket ne portait pas et qui ont été tranchées à l'implémentation :
+
+- ⚠️ **La sortie de boîte 5 efface les deux marques** (2ᵉ `hard` d'affilée, seul chemin de
+  rétrogradation). Laissées en place, la colonne affirmerait « en boîte 5 depuis X » d'une carte en
+  boîte 1, et tout consommateur de CC-261/262 qui lirait `box5_entered_at IS NOT NULL` comme « est
+  en boîte 5 » serait faux.
+- ⚠️ **Une carte importée directement en boîte 5 reçoit son horloge à sa première note.** Elle
+  arrive sans horloge (l'import écrit `box` sans qu'aucune note ne l'y ait amenée) : la laisser
+  `null` la rendrait **définitivement** non maîtrisable, en silence. On ne sait pas quand elle est
+  entrée, donc on compte à partir de maintenant — et cette note-là ne peut donc pas la valider.
+- **La date d'acquisition ne dérive pas** : posée une fois, les réussites suivantes la conservent.
+  Elle avancerait à chaque `good` et ne daterait plus rien.
+
+### Le piège d'implémentation, et il a un précédent exact
+
+⚠️ **`kind` dit de quelle file la carte VENAIT, pas où elle finit.** Une carte maîtrisée ratée en
+entretien produit une révision `maintenance` **alors qu'elle en ressort non maîtrisée**. `kind` et
+`box_before` se calculent donc **avant** que la note ne modifie quoi que ce soit, au même endroit et
+pour la même raison que `lastGrade` (« l'ordre n'est pas négociable »). Inversé, le symptôme est
+indétectable : l'historique dirait qu'aucun entretien n'a jamais échoué.
+
+⚠️ **Et le piège dans le piège : `firstOrNew` rend `undefined`, pas `null`.** Sur un modèle neuf,
+`progress.masteredAt` vaut `undefined` — un `!== null` posé directement dessus classerait **toute
+première note** en `'maintenance'`, sans erreur ni log. D'où l'objet `before` normalisé par `?? null`
+dans `review()`, et le test dédié « la première note d'une carte jamais révisée est `normal` ».
+
+⚠️ **`columnName: 'box5_entered_at'` est explicite sur le modèle**, exactement comme
+`leitner_settings.box5Days` : la conversion automatique rend `box_5_entered_at`. Sans ce mappage
+l'insertion échoue sur une colonne inexistante — mesuré, même piège que le module documentait déjà
+pour un identifiant qui mêle lettres et chiffres.
+
+### Ce que les backfills valent, et ce qu'ils ne prouvent pas
+
+- **`kind = 'normal'` sur l'historique est EXACTEMENT vrai**, pas une approximation : une révision
+  d'entretien ne peut exister qu'après que la maîtrise existe, or elle n'existait pas avant ce lot.
+  Le `default` de la colonne suffit, il n'y a rien à écrire — et `resolveReviewKind` fait le même
+  raisonnement à l'import sur un fichier v < 4.
+- ⚠️ **`box5_entered_at = updated_at` (lignes en boîte 5) EST une approximation assumée.** C'est la
+  meilleure disponible — le module utilise déjà cette colonne comme marqueur d'ordre de file — et
+  elle peut **surestimer** l'ancienneté si la ligne a été touchée pour autre chose.
+- ⚠️ **`box_before`/`box_after` restent `NULL` sur tout l'historique, et ça ne se rattrape pas.**
+  `null` = « antérieur au lot, inconnu ». Tout agrégat qui les lira devra le gérer **pour toujours** ;
+  ce n'est pas un trou à combler un jour.
+- ⚠️ **Le backfill n'est prouvable par AUCUN runner, et c'est MESURÉ, pas déduit** : le supprimer
+  entièrement laisse la suite **verte** (`app_test` est vide, l'`update ... where box = 5` touche
+  zéro ligne). La vérification est une empreinte relevée **avant et après** sur une base qui porte
+  du contenu, modèle CC-119 — voir `TESTS.md`.
+
+⚠️ **`rawQuery`, jamais `.update({ col: db.raw('autre_col') })` dans un backfill.** Le `RawBuilder`
+de Lucid n'est pas une expression pour knex : il part en **binding**, sérialisé en
+`{"sql":"updated_at"}`, et Postgres refuse. Mesuré sur ce lot. Une colonne référencée est du SQL,
+pas une valeur.
 
 ## La règle métier
 
@@ -1080,7 +1194,7 @@ progression** — ce n'est pas un moyen de « rendre ses cartes ».
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "exportedAt": "2026-07-13T14:12:03.000Z",
   "categories": [{ "name": "DevOps", "themes": ["Docker", "Kubernetes"] }],
   "cards": [{
@@ -1090,14 +1204,19 @@ progression** — ce n'est pas un moyen de « rendre ses cartes ».
     "createdAt": "2026-07-01T08:00:00.000Z", "updatedAt": "2026-07-13T09:02:00.000Z",
     "shared": true,
     "reviews": [
-      { "grade": "good", "reviewedAt": "2026-07-13T09:02:00.000Z",
+      { "grade": "good", "reviewedAt": "2026-07-13T09:02:00.000Z", "kind": "normal",
         "answer": "Négocier les clés de session.", "verdict": "partiel",
-        "latencyMs": 4200, "thinkingMs": 8500, "totalMs": 31000 },
-      { "grade": "hard", "reviewedAt": "2026-07-14T09:02:00.000Z" }
+        "latencyMs": 4200, "thinkingMs": 8500, "totalMs": 31000,
+        "boxBefore": 2, "boxAfter": 3 },
+      { "grade": "hard", "reviewedAt": "2026-07-14T09:02:00.000Z", "kind": "normal" }
     ]
   }]
 }
 ```
+
+⚠️ **Une carte maîtrisée porte en plus `box5EnteredAt` et `masteredAt`** (CC-260), aux côtés de
+`box`/`nextReview` : ils décrivent la même progression personnelle. Omis quand ils valent `null` —
+là, l'absence *est* `null` (« pas en boîte 5 », « pas maîtrisée »), il n'y a rien à trancher.
 
 - **La taxonomie est désignée par son nom, jamais par un id — et le fichier n'en contient aucun.**
   Réinjecter un id casserait les séquences Postgres (`leitner_cards_id_seq` ne suit pas un insert à
@@ -1155,19 +1274,31 @@ route de ce module ne détruit du contenu en masse. Restaurer, c'est importer da
 - **`version` inconnue → refus** avec un message : un import « au mieux » sur un format qu'on ne
   comprend pas écrit des données fausses en silence. Un fichier **sans** `version` est un fichier
   écrit à la main, lu comme la version courante.
-- ⚠️ **`BACKUP_VERSION` a bumpé deux fois, et aucune des deux n'est décorative.** L'ajout des cinq
+- ⚠️ **`BACKUP_VERSION` a bumpé trois fois, et aucune n'est décorative.** L'ajout des cinq
   colonnes de trace (CC-51) ne l'avait **pas** bumpée, à raison : l'ajout était strictement additif.
   Elle est passée à `2` en CC-119 (`box`/`nextReview`/`reviews` décrivent la progression d'une
-  personne, plus celle du paquet) puis à `3` en CC-139 (le fichier décrit le **visible**, plus tout
-  le contenu — et porte un nouveau champ `shared` par carte). Même critère les deux fois : « le
-  jour où un champ change de sens ou devient obligatoire ».
-- ⚠️ **L'import accepte 1, 2 ET 3** (`READABLE_BACKUP_VERSIONS`), et c'est une liste, jamais une
+  personne, plus celle du paquet), à `3` en CC-139 (le fichier décrit le **visible**, plus tout
+  le contenu — et porte un nouveau champ `shared` par carte), puis à `4` en CC-260 (une révision
+  porte `kind`, dont l'**absence** doit se trancher plutôt que se deviner). Même critère les trois
+  fois : « le jour où un champ change de sens ou devient obligatoire ».
+- ⚠️ **L'import accepte 1, 2, 3 ET 4** (`READABLE_BACKUP_VERSIONS`), et c'est une liste, jamais une
   égalité. Refuser une version antérieure rendrait illisibles d'un coup **toutes** les sauvegardes
   faites avant ce lot — au moment précis où on en aurait le plus besoin. Une v1/v2 se relit sans
   ambiguïté : son contenu était visible de tous au moment de l'export, il **redevient partagé** à
   l'import (`resolveShared`, `services/leitner_backup_service.ts`) — exactement ce que le backfill
   de la migration fait pour la base. Un fichier v3 **écrit à la main** sans `shared` obéit au défaut
   du contenu neuf : privé.
+- ⚠️ **`resolveReviewKind` est le pendant exact de `resolveShared`, pour `kind`** : un fichier
+  v < 4 ne peut porter que des révisions `normal` — vrai **par construction**, pas par commodité
+  (l'entretien n'existait pas). Un fichier v4 écrit à la main sans `kind` obéit au défaut de la
+  colonne. ⚠️ **Ne « simplifie » pas en `review.kind ?? 'normal'` au site d'écriture** : c'est la
+  version du **fichier** qui tranche, comme pour `shared`.
+- ⚠️ **`kind` est toujours écrit à l'export ; `boxBefore`/`boxAfter` passent par `omitNull`.** La
+  distinction n'est pas cosmétique : leur `null` **est** ce que l'absence veut dire (« boîte
+  inconnue »), alors qu'une absence de `kind` se relirait `'normal'` et changerait le sens de la
+  ligne. ⚠️ **En revanche, poser `kind` hors du bloc `omitNull` est DOCUMENTAIRE, pas load-bearing —
+  mesuré** : `kind` n'étant jamais `null`, l'y ranger laisse la suite entièrement verte. La garde
+  réelle est le `snapshot()` du spec, qui rougit dès que la clé disparaît de l'export.
 - ⚠️ **Les cartes (et la taxonomie créée en chemin) appartiennent à l'importateur** (CC-139), jamais
   à qui que ce soit d'autre — même règle que `progression et historique` ci-dessous. `resolveShared`
   décide de `isShared` ; `ensureCategory`/`ensureTheme` ne réutilisent qu'une catégorie/thème
