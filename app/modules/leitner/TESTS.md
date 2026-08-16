@@ -116,6 +116,11 @@ navigateur.
   vérifier qu'elles rougissent : le `user_id` de la condition de jointure (5 rouges), l'`updated_at`
   de la progression dans l'ordre de file (3 rouges, dont les deux tests d'ordre pré-existants), et
   le `select('leitner_cards.*')` (17 rouges — sans lui `ucp.id` écrase `leitner_cards.id`).
+  ⚠️ **Depuis CC-261 il porte aussi les deux compteurs HORS module face à la maîtrise** — « la
+  pastille et la carte d'accueil ne comptent PLUS une carte maîtrisée ». Il est ici et pas dans le
+  module pour une raison précise : ce sont **eux** l'incohérence que le lot rend impossible, et
+  aucun des deux fichiers n'a été touché par le lot — ils suivent parce qu'ils appellent la même
+  paire `joinProgress` + `whereDue`, et que l'exclusion vit dans `whereDue`.
 
 ## La règle métier et la file
 
@@ -144,6 +149,39 @@ navigateur.
   ⚠️ Et « la première note d'une carte jamais révisée est `normal` » est le seul qui attrape le piège
   de l'`undefined` : `firstOrNew` rend un modèle neuf dont `masteredAt` vaut `undefined`, pas `null`,
   et un `!== null` naïf classerait **toute première note** en `'maintenance'`.
+- `tests/unit/leitner_maintenance.spec.ts` — l'**échelle d'entretien** (CC-261), code pur sans base
+  ni horloge : c'est ce qui permet d'éprouver « un an » sans attendre un an. ⚠️ **Les deux cas qui
+  portent le fichier sont les extrêmes du réglage, pas le défaut** — à `box5Days = 365` (borne
+  haute) le réglage écrase toute l'échelle, sans quoi une carte **maîtrisée** reviendrait quatre
+  fois plus souvent qu'une carte encore en apprentissage ; à `1` c'est l'échelle qui domine
+  partout. Le défaut étant 30, un test au seul défaut n'éprouverait ni le `Math.max` ni son
+  absence. Plus la répétition du dernier palier (« au moins une vérification par an », qui n'est
+  pas un effet de bord de la liste), le rang négatif qui ne doit **jamais** rendre `undefined` — un
+  `plus({ days: undefined })` de Luxon rend une date valide à +0 jour, donc une carte due
+  aujourd'hui indéfiniment, même piège que la boîte 12 de l'import — et un plancher sur la table
+  elle-même.
+- `tests/unit/leitner_service.spec.ts`, groupe « régime d'entretien » — ce que le pur ne peut pas
+  dire : que l'échelle est **branchée**, et sur l'intervalle lu **en base** (à `box5Days = 365`, le
+  premier palier ne peut plus valoir 90). ⚠️ **Le test qui porte l'arbitrage du lot** est celui de
+  la note qui *acquiert* la maîtrise : elle porte `kind: 'normal'` et repart pourtant à **90 j** —
+  l'échéance suit la file où la carte **va**, jamais celle d'où elle vient (le pendant inverse de
+  `kind`). Gaté sur `kind`, on lirait 30, et une carte tout juste maîtrisée reviendrait au rythme
+  d'avant dans une file que rien n'affiche encore. ⚠️ **Le test qui attrape une dérive du rang d'un
+  cran est la séquence complète** (90 → 180 → 365 → 365), et c'est le seul : le rang se compte
+  **avant** l'insertion de la note courante, et la note d'acquisition occupe le palier 0 — d'où le
+  `>=` et non le `>` qu'on écrirait spontanément, `mastered_at` et son `reviewed_at` étant deux
+  `DateTime.now()` distincts dont l'écart de quelques microsecondes serait sinon *load-bearing*.
+  ⚠️ **Et ce `>=` est INERTE aujourd'hui — mesuré, pas déduit** : le remplacer par `>` laisse la
+  suite entièrement **verte**, l'écart de microsecondes suffisant à compter la note d'acquisition.
+  Ce qu'il achète a été mesuré autrement, en simulant le refactor qu'il anticipe (un seul
+  `DateTime.now()` pour la marque **et** pour `reviewed_at`) : dans ce monde-là, `>=` reste vert et
+  `>` fait rougir la séquence. Même honnêteté que la note de CC-260 sur `kind` hors d'`omitNull` —
+  une garde qu'aucun test courant ne tient n'est pas une garde qu'on présente comme tenue.
+  Plus les deux dé-maîtrises (`again` en entretien efface `mastered_at` et **laisse `box` à 5** ;
+  le 2ᵉ `hard` d'affilée efface **et** renvoie en boîte 1 avec l'intervalle de sa nouvelle boîte) et
+  la carte **ré-acquise**, qui repart au premier palier — sans la borne `reviewed_at >=
+  mastered_at`, elle repartirait droit au palier d'un an alors qu'on vient de constater qu'elle
+  n'est plus sue.
 - `tests/functional/modules/leitner_intervals.spec.ts` — les intervalles **lus en base**, pas dans
   la constante. Le test qui porte le lot enchaîne les deux moitiés dans la **même** exécution :
   boîte 3 réglée à 10 jours, puis une carte notée `good` dont `next_review` tombe à +10. Asserter
@@ -162,6 +200,15 @@ navigateur.
   CC-139, `resolveScope` porte aussi qu'**un thème privé chez un autre compte est refusé comme
   inexistant** — jamais un troisième cas qui distinguerait « existe mais caché », la même doctrine
   que le refus d'un id inexistant.
+  Depuis CC-261, un groupe « sortie de file et entretien » : une carte maîtrisée **quitte la file
+  normale même due**, la file d'entretien la rend **et elle seule**, une maîtrisée pas encore due
+  n'est dans **aucune** des deux, et une carte jamais notée ne tombe pas dans l'entretien (le
+  pendant, qui vaut autant : `mastered_at` est nul par la jointure externe). Plus l'ordre de la
+  file d'entretien — ⚠️ **toutes ses cartes étant en boîte 5, un tri par boîte y serait *inerte* et
+  passerait inaperçu** : ce qui l'attrape est l'ordre par retard —, le paquet, le cloisonnement, le
+  compte de l'écran de choix et la tuile « boîte 5 ». ⚠️ **Ce fichier n'éprouve que deux des quatre
+  consommateurs de `whereDue`** ; c'est voulu — si retirer l'exclusion ne faisait rougir que lui,
+  c'est qu'elle serait au mauvais endroit.
 - `tests/functional/modules/leitner_scope.spec.ts` — l'écran de choix et ses **comptes dus**, la fin
   d'un paquet (distincte d'un paquet vide dès le départ), et surtout que **noter une carte conserve
   le paquet** : le piège n° 1, celui du `withQs()`. Il **assert l'en-tête `location` brut** —
@@ -180,6 +227,13 @@ navigateur.
   écartée s'écrit `null` là où `total_ms` s'écrit toujours, et une **première** présentation
   historise bien la sienne — le test qui tient l'ordre « compter les révisions du jour AVANT
   d'insérer la nouvelle ».
+  Depuis CC-261 il porte le **troisième** fichier que la mutation « retirer l'exclusion de
+  `whereDue` » doit faire rougir (groupe « une carte maîtrisée quitte l'écran »), et il est le seul
+  à l'éprouver sur **l'écran réel** : la file peut être juste dans le service et fausse dans la
+  prop si un contrôleur s'était écrit une seconde définition de « dû ». Il croise la grille des
+  boîtes, qui suit par un chemin **différent** (`boxCounts` ne passe pas par `whereDue`), et
+  l'inventaire de catalogue, qui lui ne bouge pas — sans cette dernière assertion, un filtre posé
+  au mauvais endroit passerait au vert.
 
 ## Les statistiques
 

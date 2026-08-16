@@ -181,6 +181,8 @@ services/leitner_weakness.ts                les POINTS FAIBLES : rétention, tau
                                             CODE PUR, sans base
 services/leitner_mastery.ts                 le CRITÈRE DE MAÎTRISE (CC-260) : horloge de boîte 5 et
                                             date d'acquisition — CODE PUR, `now` en paramètre
+services/leitner_maintenance.ts             l'ÉCHELLE D'ENTRETIEN (CC-261) : à quel rythme revient
+                                            une carte acquise — CODE PUR, le réglage en paramètre
 services/leitner_stats_service.ts           les stats d'HABITUDE, d'EFFORT et les POINTS FAIBLES —
                                             globales, jamais par paquet
 services/leitner_catalog_service.ts         seul point d'écriture d'une carte, porte la dédup
@@ -985,9 +987,11 @@ tirerait la médiane vers le bas durablement. Une mesure qu'on n'a pas ne vaut p
 ## Les marques de maîtrise — posées, jamais lues (CC-260)
 
 Premier des trois lots qui donneront au module un **inventaire d'acquis**. Celui-ci pose le schéma
-et les marques. ⚠️ **Il ne change AUCUN comportement visible** : aucune file, aucun compteur, aucun
-écran ne bouge — `mastered_at` se remplit et personne ne le lit. CC-261 (sortie de file, régime
-d'entretien) puis CC-262 (l'inventaire visible) le consommeront.
+et les marques, et **ne changeait aucun comportement visible** : `mastered_at` se remplissait et
+personne ne le lisait. ⚠️ **Ce n'est plus vrai depuis CC-261** (section précédente), qui en est le
+premier consommateur : `mastered_at` gouverne désormais la sortie de file et le rythme d'entretien.
+CC-262 (l'inventaire visible) reste à venir. Ce qui suit décrit **comment les marques se posent** —
+la mécanique qui les lit est au-dessus.
 
 **Le défaut réel qu'il corrige** : on ne pouvait pas savoir depuis quand une carte est en boîte 5,
 et on ne pouvait pas le reconstituer. `leitner_reviews` ne portait ni `box_before` ni `box_after`,
@@ -1090,6 +1094,95 @@ de Lucid n'est pas une expression pour knex : il part en **binding**, sérialis�
 `{"sql":"updated_at"}`, et Postgres refuse. Mesuré sur ce lot. Une colonne référencée est du SQL,
 pas une valeur.
 
+## La sortie de file et le régime d'entretien (CC-261)
+
+Deuxième des trois lots de l'inventaire d'acquis, et **le premier consommateur de `mastered_at`**.
+⚠️ **Il ne touche AUCUN écran** : à la fin de ce lot la mécanique est juste et **invisible** —
+c'est CC-262 qui montrera l'entretien. Corollaire assumé, à connaître avant de croire à un bug :
+**une carte maîtrisée n'est aujourd'hui atteignable par aucun écran**, ni la file normale, ni
+l'entretien (qui n'a pas de route), ni la tuile « boîte 5 ».
+
+**Le défaut réel** : une carte qu'on connaît revenait **indéfiniment tous les `box5Days`** (30 j
+par défaut), mélangée aux cartes qu'on est en train d'apprendre. Rien ne distinguait les deux, donc
+on ne « rangeait » jamais rien et la file ne rétrécissait jamais.
+
+**1. La carte maîtrisée quitte la file normale**, et l'exclusion vit dans **`whereDue` lui-même**
+(`services/leitner_progress.ts`). ⚠️ **C'est la seule forme qui tienne, et ce n'est pas une
+commodité.** Quatre lectures posent la question « qu'est-ce qui est dû ? », dont **deux hors du
+module** — la file, la pastille de la barre latérale, la carte d'accueil, les comptes de l'écran de
+choix — et toutes appellent exactement la même paire `joinProgress` + `whereDue`. Un seul point de
+modification, les quatre suivent **par construction** : aucun appelant ne peut oublier parce
+qu'aucun n'a le choix. Une carte qui disparaîtrait d'un compteur sans disparaître d'un autre ne
+lève **aucune erreur** — et la réponse à ce risque n'est pas « penser à mettre à jour les quatre ».
+C'est aussi ce qui protège le compteur qu'on ajoutera dans six mois. `whereMaintenanceDue` est son
+pendant ; les deux files sont **disjointes** par construction (`mastered_at is null` contre `is not
+null`), donc rien à synchroniser entre elles.
+
+**2. L'échelle d'entretien, croissante et plafonnée** — `services/leitner_maintenance.ts`, **pur**
+comme `leitner_mastery.ts` :
+
+```
+palier(n) = max(box5Days, [90, 180, 365][min(n, 2)])   jours
+n = paliers déjà consommés depuis mastered_at
+```
+
+- ⚠️ **Le `max(box5Days, …)` n'est pas cosmétique** : à `box5Days = 365` (borne haute autorisée),
+  un palier fixe à 90 ferait revenir une carte **maîtrisée** quatre fois plus souvent qu'une carte
+  en cours. Absurde, et invisible tant que personne ne pousse le réglage. Un `box5Days × 12` a été
+  écarté pour la raison symétrique : au même réglage, il donne **douze ans**.
+- **Plafonnée à 365**, donc au moins une vérification par an : c'est ce qui empêche « maîtrisée »
+  de devenir une affirmation que plus rien ne contrôle. Le dernier palier se **répète**.
+- ⚠️ **Le rang ne demande AUCUNE colonne** : c'est un `count(*)` sur `leitner_reviews`, une requête
+  au moment de noter, sur une seule carte. Le résultat part dans `next_review` comme avant — **la
+  forme de la file ne change pas**.
+
+⚠️ **L'échéance suit la file où la carte VA, jamais celle d'où elle vient — c'est le pendant
+inverse de `kind`, et la seule subtilité du lot.** La note qui **acquiert** la maîtrise porte
+`kind: 'normal'` (elle venait bien de la file normale) et repart pourtant au **premier palier**,
+90 j. Gater sur `kind` lui donnerait l'intervalle de la boîte 5 : la carte serait « maîtrisée » et
+reviendrait une dernière fois au rythme d'avant, dans une file que rien n'affiche encore — la
+moitié du lot perdue sur le premier cycle, sans rien de rouge. Arbitrage du propriétaire.
+
+⚠️ **Le rang se compte AVANT l'insertion de la note courante** — même endroit et même raison que
+`lastGrade` et `usableThinkingMs` : posé après, il se compterait lui-même et toute l'échelle
+glisserait d'un cran.
+
+⚠️ **Et il se compte en `>=`, pas en `>` comme on l'écrirait spontanément.** La note d'acquisition
+doit occuper le palier 0 : c'est elle qui a programmé les 90 premiers jours. Or `mastered_at` et
+son `reviewed_at` sont **deux appels distincts** à `DateTime.now()` dans `review()` — le second est
+postérieur de quelques microsecondes, et un `>` la compterait bel et bien… *tant que cet écart
+existe*. Unifier les deux `now()` est un nettoyage parfaitement plausible, et il ferait basculer
+toute l'échelle d'un cran (90 j servi deux fois) **sans qu'un seul test ne bouge**. Le `>=` rend le
+résultat identique dans les deux mondes. La borne sur `mastered_at`, elle, est ce qui fait repartir
+au premier palier une carte **ré-acquise** après un oubli : `mastered_at` est réécrit à chaque
+acquisition, donc les entretiens du cycle précédent tombent hors de la fenêtre.
+
+**3. La dé-maîtrise — et ce n'est PAS une rétrogradation.** Un `again` sur une révision d'entretien
+**efface `mastered_at`** et remet la carte dans la file normale ; **la boîte reste à 5**.
+⚠️ **La règle « `again` ne rétrograde JAMAIS » est intacte** — elle porte sur `box`, et `box` ne
+bouge pas. Ce lot ne rouvre donc pas une décision explicite du module en douce ; il ajoute un
+drapeau dont la sémantique est précisément d'être vérifiable, sans quoi « maîtrisée » serait un
+cul-de-sac que plus rien ne contrôle. ⚠️ **Le croisement avec la règle du 2ᵉ `hard` d'affilée**
+(seul chemin de rétrogradation du module) est le seul endroit où les deux mécaniques se touchent :
+il efface `mastered_at` **aussi**, sinon une carte en **boîte 1** resterait « maîtrisée » — exclue
+de la file normale par `whereDue` et présente dans l'entretien, donc perdue des deux côtés.
+
+**Les autres compteurs — décidés, à ne pas re-débattre :**
+
+| compteur | décision | pourquoi |
+| --- | --- | --- |
+| `boxCounts` | **les maîtrisées sortent de la boîte 5** | sinon la tuile compte des cartes qu'aucun clic n'atteint. ⚠️ **Seul compteur du module qui ne passe pas par `whereDue`** (il compte ce qui est dans chaque boîte, dû ou non), donc le seul à porter son exclusion propre — `whereNotMastered`, qui garde la condition dans `leitner_progress.ts` plutôt qu'une seconde formulation chez l'appelant |
+| `totalCards` | **inchangé** | inventaire de **catalogue** (visibilité, pas `user_id`), déjà volontairement non personnel — le toucher casserait un invariant existant |
+| **Le catalogue** (`/revision/settings`, filtre « boîte 5 ») | **inchangé — DÉCIDÉ, pas oublié** | ⚠️ **Il en découle que les deux écrans ne disent pas la même chose, et c'est voulu** : la tuile de `/revision` annonce 0 pendant que `?box=5` liste la carte. Le catalogue est un inventaire de **contenu** — la carte *est* factuellement en boîte 5 —, même raison que `totalCards` juste au-dessus ; et c'est l'écran qui sert à **corriger** une carte, donc l'y faire disparaître serait la rendre inatteignable. Ne « réconcilie » pas les deux côtés sans rouvrir cet arbitrage |
+| Rétention, `mostAgainCards`, `stuckCards` | **inchangés** | ils lisent `leitner_reviews` ; les entretiens y entrent et **comptent comme des réussites**, assumé |
+| **Pastille latérale** | **file normale seulement** | un entretien dû une fois par an ne doit pas produire la même pression qu'une carte due aujourd'hui. ⚠️ **Ce que ça coûte, et c'est assumé** : l'entretien peut être ignoré indéfiniment — d'où le fait que sa section devra être **visible** sur `/revision` au lot suivant, pas enterrée |
+
+⚠️ **Aucune migration dans ce lot** : les cinq colonnes de CC-260 suffisent, et aucune ligne
+existante ne portait `mastered_at`. ⚠️ **Si un jour on veut rendre le choix de la pastille réglable
+par compte, ce sera un autre ticket** : `leitner_settings` est un réglage d'**installation** (une
+ligne, `check(id = 1)`), il n'existe **aucun** mécanisme de préférence par compte dans le module.
+N'en improvise pas un.
+
 ## La règle métier
 
 Les intervalles **vivent en base**, dans la ligne unique de `leitner_settings`, et se règlent depuis
@@ -1106,6 +1199,9 @@ ne t'en sers jamais pour calculer une échéance.
 
 - Boîte plafonnée à 5. `next_review` = aujourd'hui + l'intervalle **réglé** pour la boîte **atteinte**
   (après mouvement). `again` est la seule note qui laisse la carte due le jour même.
+- ⚠️ **Sauf si la carte ressort MAÎTRISÉE** (CC-261) : l'échéance vient alors de l'échelle
+  d'entretien, pas de l'intervalle de la boîte — voir la section dédiée plus haut. Ça inclut la note
+  qui *acquiert* la maîtrise, qui repart donc à 90 j et non à 30.
 - **`again` ne rétrograde pas** : c'est « remets-la moi maintenant », pas une sanction. La carte reste
   dans sa boîte, redevient due, revient **en fin de file dans la session en cours**. Rater une fois ne
   défait pas ce qui a été acquis — seule la promotion est suspendue.
