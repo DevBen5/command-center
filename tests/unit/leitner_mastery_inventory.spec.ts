@@ -8,7 +8,13 @@ import {
   nextMaintenanceAt,
   type MasteredCard,
 } from '#modules/leitner/shared/mastery_inventory'
-import { dueInLabel, gradeHint, type GradeOutcome } from '#modules/leitner/shared/review_page'
+import {
+  dueInLabel,
+  gradeHint,
+  gradeLabelKey,
+  highlightedGrade,
+  type GradeOutcome,
+} from '#modules/leitner/shared/review_page'
 import { splitByMastery } from '#modules/leitner/shared/settings_page'
 
 /**
@@ -229,12 +235,17 @@ test.group('Leitner / phrase d’un bouton de note', () => {
       ],
     ]
 
+    // `leitner.index.grade.xxx` → `index.grade.xxx` : le namespace du module vient du nom
+    // de son dossier, il n'est pas dans le fichier.
+    const traduction = (key: string) =>
+      key
+        .replace(/^leitner\./, '')
+        .split('.')
+        .reduce<any>((noeud, morceau) => noeud?.[morceau], fr)
+
     for (const [outcome, card] of cas) {
       const { key, params } = gradeHint(outcome, card)
-      // `leitner.index.grade.xxx` → `index.grade.xxx` : le namespace du module vient du nom
-      // de son dossier, il n'est pas dans le fichier.
-      const chemin = key.replace(/^leitner\./, '').split('.')
-      const valeur = chemin.reduce<any>((noeud, morceau) => noeud?.[morceau], fr)
+      const valeur = traduction(key)
 
       assert.isString(valeur, `clé absente de fr.json : ${key}`)
       // ⚠️ Et chaque variable passée doit être **utilisée** par la phrase : un paramètre
@@ -243,6 +254,87 @@ test.group('Leitner / phrase d’un bouton de note', () => {
         assert.include(valeur, `{${nom}}`, `${key} ignore le paramètre ${nom}`)
       }
     }
+
+    // ⚠️ **Les LIBELLÉS passent par la même garde** (CC-265) : ils sont calculés eux aussi,
+    // donc invisibles de `keys.spec.ts`. Une clé manquante afficherait
+    // `leitner.index.grade.stillKnowIt` en toutes lettres **sur le bouton**.
+    for (const [outcome, card] of cas) {
+      const key = gradeLabelKey(outcome, card)
+      assert.isString(traduction(key), `libellé absent de fr.json : ${key}`)
+    }
+  })
+
+  /**
+   * Le libellé d'un bouton (CC-265) — l'entretien **vérifie**, il n'apprend pas : « À
+   * revoir / Correct » y seraient les mots de la mauvaise question.
+   */
+  test('en entretien, les deux boutons disent la vérification, pas l’effort', async ({
+    assert,
+  }) => {
+    const acquise = { mastered: true, lastGrade: null }
+
+    assert.equal(
+      gradeLabelKey({ grade: 'again', box: 5, mastered: false, days: 0 }, acquise),
+      'leitner.index.grade.lostIt'
+    )
+    assert.equal(
+      gradeLabelKey({ grade: 'good', box: 5, mastered: true, days: 180 }, acquise),
+      'leitner.index.grade.stillKnowIt'
+    )
+
+    // ⚠️ La file normale garde ses quatre libellés d'origine, au mot près.
+    for (const grade of ['again', 'hard', 'good', 'easy'] as const) {
+      assert.equal(
+        gradeLabelKey({ grade, box: 3, mastered: false, days: 4 }, normal),
+        `leitner.index.grade.${grade}`
+      )
+    }
+  })
+
+  test('le libellé se décide sur l’état AVANT la note, jamais sur celui d’après', async ({
+    assert,
+  }) => {
+    // ⚠️ Le piège : `outcome.mastered` d'un `again` d'entretien vaut `false` (la carte sort
+    // des acquis). Lu là, le bouton « Je l'ai perdu » se rebaptiserait « À revoir »
+    // exactement sur la carte où la distinction compte.
+    assert.equal(
+      gradeLabelKey({ grade: 'again', box: 5, mastered: false, days: 0 }, { mastered: true }),
+      'leitner.index.grade.lostIt'
+    )
+  })
+
+  /**
+   * ⚠️ **Le mode d'échec silencieux ouvert par les deux réponses** (CC-265) : le juge
+   * propose `hard` sur un verdict `partiel`, la fluence propose `hard` sur une réponse
+   * lente — deux notes sans bouton en entretien. Le surlignage tombait dans le vide.
+   */
+  test('le surlignage tombe toujours sur un bouton réellement offert', async ({ assert }) => {
+    const quatre: GradeOutcome[] = [
+      { grade: 'again', box: 2, mastered: false, days: 0 },
+      { grade: 'hard', box: 2, mastered: false, days: 2 },
+      { grade: 'good', box: 3, mastered: false, days: 4 },
+      { grade: 'easy', box: 4, mastered: false, days: 7 },
+    ]
+    const deux: GradeOutcome[] = [
+      { grade: 'again', box: 5, mastered: false, days: 0 },
+      { grade: 'good', box: 5, mastered: true, days: 90 },
+    ]
+
+    // File normale : comportement **strictement** inchangé — la suggestion gagne toujours,
+    // et l'absence de suggestion retombe sur `easy`, comme avant l'arrivée du juge.
+    assert.equal(highlightedGrade(quatre, 'hard'), 'hard')
+    assert.equal(highlightedGrade(quatre, null), 'easy')
+
+    // Entretien : une suggestion sans bouton désigne « je le sais encore » — les trois
+    // notes que le juge pouvait proposer hors `again` disaient toutes « rappelé ».
+    assert.equal(highlightedGrade(deux, 'hard'), 'good')
+    assert.equal(highlightedGrade(deux, 'easy'), 'good')
+    assert.equal(highlightedGrade(deux, null), 'good')
+    // Un échec, lui, reste un échec : `again` est offert, il gagne.
+    assert.equal(highlightedGrade(deux, 'again'), 'again')
+
+    // Aucune carte : rien à surligner, et surtout pas une note inventée.
+    assert.isNull(highlightedGrade([], 'good'))
   })
 
   test('sur un acquis, `again` dit la SORTIE des acquis, pas « reste boîte 5 »', async ({

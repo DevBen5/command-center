@@ -151,6 +151,67 @@ export interface GradeHint {
 }
 
 /**
+ * **Le LIBELLÉ d'un bouton de note** — sa clé i18n, comme `gradeHint` rend celle de sa
+ * phrase d'effet (CC-265).
+ *
+ * ⚠️ **Elle existe parce que le libellé ne se déduit plus du nom de la note.** La page
+ * écrivait ``t(`leitner.index.grade.${outcome.grade}`)`` : en entretien, les deux réponses
+ * s'y seraient appelées « À revoir » et « Correct » — les mots de l'apprentissage sur un
+ * écran qui **vérifie**. Un entretien ne demande pas quel effort la carte a coûté, il
+ * demande si on la sait encore.
+ *
+ * ⚠️ **Le témoin est `mastered`, l'état AVANT la note** — celui d'`outcome` est celui
+ * d'après, et un `again` d'entretien le rend `false` : lu là, le bouton « Je l'ai perdu »
+ * se rebaptiserait « À revoir » exactement sur la carte où la distinction compte. Même
+ * piège que la phrase la plus importante de `gradeHint`, et pour la même raison.
+ *
+ * ⚠️ **Cette clé est CALCULÉE, donc invisible de `keys.spec.ts`** (qui extrait les
+ * littéraux des `.vue`). Ce qui tient sa promesse est le test « toutes les clés rendues
+ * existent dans fr.json » de `leitner_mastery_inventory.spec.ts` — étends-le plutôt que
+ * d'écrire une seconde garde.
+ */
+export function gradeLabelKey(outcome: GradeOutcome, card: { mastered: boolean }): string {
+  if (!card.mastered) return `leitner.index.grade.${outcome.grade}`
+  return outcome.grade === 'again'
+    ? 'leitner.index.grade.lostIt'
+    : 'leitner.index.grade.stillKnowIt'
+}
+
+/**
+ * **Quel bouton est mis en avant**, à partir des notes réellement proposées et de ce que
+ * le juge (affiné par la fluence) suggère (CC-265).
+ *
+ * ⚠️ **Elle existe pour un mode d'échec silencieux ouvert par les deux réponses de
+ * l'entretien.** La page faisait `suggestedGrade ?? 'easy'` : or le juge propose `hard`
+ * sur un verdict `partiel` (`leitner_judge_service.ts`) et la fluence propose `hard` sur
+ * une réponse lente (`leitner_fluency.ts`) — deux notes qui n'ont plus de bouton en
+ * entretien. Le surlignage tombait alors **dans le vide** : aucun bouton en avant, aucune
+ * erreur, aucun log.
+ *
+ * La règle est unique et reproduit les deux mondes sans cas particulier : **la suggestion
+ * si elle est offerte, sinon la note la plus généreuse qui l'est.** En file normale les
+ * quatre notes sont là, donc le comportement est **strictement** celui d'avant — la
+ * suggestion gagne toujours, et le repli est `easy`, dernier de la liste. En entretien,
+ * une suggestion `hard` ou `easy` désigne « je le sais encore », ce qui est bien ce que le
+ * juge veut dire : les trois notes qu'il pouvait proposer hors `again` disaient toutes
+ * « rappelé », plus ou moins péniblement.
+ *
+ * ⚠️ **Le repli sur la plus généreuse n'est pas esthétique** : c'est le bouton que cet
+ * écran mettait en avant avant l'arrivée du juge, et une panne de LM Studio ne doit pas
+ * changer l'apparence de la révision.
+ */
+export function highlightedGrade(
+  outcomes: GradeOutcome[],
+  suggested: GradeOutcome['grade'] | null
+): GradeOutcome['grade'] | null {
+  if (outcomes.length === 0) return null
+  if (suggested !== null && outcomes.some((outcome) => outcome.grade === suggested)) {
+    return suggested
+  }
+  return outcomes[outcomes.length - 1].grade
+}
+
+/**
  * **Quelle phrase annonce l'effet d'une note** (CC-262). Pure : elle ne lit ni horloge, ni
  * réglage, ni base — tout vient de l'`outcome` calculé par la règle elle-même.
  *

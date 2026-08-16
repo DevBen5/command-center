@@ -115,11 +115,66 @@ test.group('Leitner / effets d’une note', () => {
       const effects = outcomes({ box: 5, mastery: mastered, maintenanceRank: rank })
       assert.equal(effects.good.days, expected, `rang ${rank}`)
       assert.isTrue(effects.good.mastered)
-      // ⚠️ `hard` sur un acquis le CONSERVE (la date d'acquisition ne dérive pas) : il suit
-      // donc le même palier, pas l'intervalle de la boîte 5.
-      assert.equal(effects.hard.days, expected, `rang ${rank}, hard`)
-      assert.isTrue(effects.hard.mastered)
     }
+  })
+
+  /**
+   * ⚠️ **Le cœur de CC-265.** Sur une carte acquise, `hard`, `good` et `easy` rendaient un
+   * `GradeOutcome` **identique** — le plafond de boîte écrase `+1` et `+2`, et l'échéance
+   * vient de l'échelle d'entretien, qui ne lit pas la note. L'écran proposait donc trois
+   * boutons pour un seul effet.
+   */
+  test('en entretien, DEUX réponses seulement — et elles ne font pas la même chose', async ({
+    assert,
+  }) => {
+    const list = gradeOutcomes({
+      box: 5,
+      lastGrade: null,
+      mastery: { box5EnteredAt: NOW.minus({ days: 200 }), masteredAt: NOW.minus({ days: 90 }) },
+      maintenanceRank: 1,
+      boxIntervals: INTERVALS,
+      now: NOW,
+    })
+
+    assert.deepEqual(
+      list.map((outcome) => outcome.grade),
+      ['again', 'good'],
+      'du plus sévère au plus généreux, comme les quatre autres'
+    )
+
+    // ⚠️ **La mutation que ce bloc existe pour attraper** : rendre les deux sorties
+    // identiques (ou rétablir les quatre notes) doit faire rougir ce test nommé. Deux
+    // boutons qui produisent le même effet sont exactement le défaut qu'on corrige.
+    assert.deepEqual(list[0], { grade: 'again', box: 5, mastered: false, days: 0 })
+    assert.deepEqual(list[1], { grade: 'good', box: 5, mastered: true, days: 180 })
+    assert.notDeepEqual(list[0], list[1])
+  })
+
+  /**
+   * ⚠️ **Le motif réel du lot, et il ne se voit que là.** `nextBox` rend
+   * `lastGrade === 'hard' ? 1 : box` : un « Difficile » qui suit un « Difficile » renvoyait
+   * en boîte 1 **et** faisait perdre l'acquis. Un bouton dont l'effet dépend d'un état que
+   * l'écran ne montre pas, sur une file dont les visites sont espacées de 90 à 365 jours.
+   */
+  test('l’exception cachée du 2ᵉ `hard` n’est plus PROPOSABLE en entretien', async ({ assert }) => {
+    const effects = outcomes({
+      box: 5,
+      lastGrade: 'hard',
+      mastery: { box5EnteredAt: NOW.minus({ days: 200 }), masteredAt: NOW.minus({ days: 90 }) },
+      maintenanceRank: 2,
+    })
+
+    assert.isUndefined(effects.hard, 'aucun bouton ne peut plus déclencher la rétrogradation')
+    // Et la note précédente ne contamine pas les deux qui restent : « je le sais encore »
+    // conserve l'acquis quoi qu'ait dit la visite d'avant.
+    assert.deepEqual(effects.good, { grade: 'good', box: 5, mastered: true, days: 365 })
+    assert.isFalse(effects.again.mastered)
+
+    // ⚠️ **La RÈGLE, elle, n'a pas bougé** — ce lot ferme un piège d'écran, pas un
+    // comportement de `review()`. `POST /review` accepte toujours `hard` sur une carte
+    // acquise, et `nextBox` le traite exactement comme avant. Confondre les deux ferait
+    // « réparer » un jour une régression qui n'existe pas.
+    assert.equal(nextBox(5, 'hard', 'hard'), 1)
   })
 
   test('`again` en entretien fait SORTIR des acquis, aujourd’hui', async ({ assert }) => {
@@ -134,23 +189,6 @@ test.group('Leitner / effets d’une note', () => {
     // lot ne rouvre pas cette décision.
     assert.equal(effects.again.box, 5)
     assert.equal(effects.again.days, 0)
-  })
-
-  test('le 2ᵉ `hard` sur un acquis le fait tomber en boîte 1 ET sortir des acquis', async ({
-    assert,
-  }) => {
-    const effects = outcomes({
-      box: 5,
-      lastGrade: 'hard',
-      mastery: { box5EnteredAt: NOW.minus({ days: 200 }), masteredAt: NOW.minus({ days: 90 }) },
-      maintenanceRank: 2,
-    })
-
-    assert.equal(effects.hard.box, 1)
-    assert.isFalse(effects.hard.mastered)
-    // L'intervalle redevient celui de la boîte atteinte, jamais le palier d'entretien du
-    // cycle qu'on vient de quitter.
-    assert.equal(effects.hard.days, INTERVALS[1])
   })
 
   test('un réglage extrême de la boîte 5 écrase l’échelle, dans les deux sens', async ({
@@ -198,7 +236,15 @@ test.group('Leitner / effets d’une note', () => {
     assert.equal(effects.good.days, 90)
   })
 
-  test('les quatre notes sortent toujours, dans l’ordre des boutons', async ({ assert }) => {
+  /**
+   * ⚠️ **Le pendant obligatoire du test d'entretien** : la file normale garde ses quatre
+   * notes, où `again`/`hard`/`good`/`easy` produisent bien quatre effets distincts. Sans
+   * les deux mondes dans le même fichier, réduire la file normale à deux boutons passerait
+   * au vert.
+   */
+  test('en file normale, les QUATRE notes sortent, dans l’ordre des boutons', async ({
+    assert,
+  }) => {
     const list = gradeOutcomes({
       box: 3,
       lastGrade: null,
@@ -212,6 +258,24 @@ test.group('Leitner / effets d’une note', () => {
       list.map((outcome) => outcome.grade),
       ['again', 'hard', 'good', 'easy']
     )
+    // Quatre effets réellement distincts : c'est ce qui justifie qu'on n'y touche pas.
+    assert.equal(new Set(list.map((outcome) => `${outcome.box}/${outcome.days}`)).size, 4)
+  })
+
+  /**
+   * ⚠️ **La file se DÉDUIT de `mastered_at`, elle ne se passe pas en paramètre.** Les deux
+   * files sont disjointes par construction (CC-261) : une carte acquise n'est servie que
+   * par l'entretien, une carte non acquise que par la file normale. Un second témoin
+   * pourrait contredire celui-là.
+   */
+  test('c’est l’ACQUIS qui décide du nombre de réponses, pas un drapeau de file', async ({
+    assert,
+  }) => {
+    const enCours = outcomes({ box: 5, mastery: { box5EnteredAt: NOW, masteredAt: null } })
+    const acquise = outcomes({ box: 5, mastery: { box5EnteredAt: NOW, masteredAt: NOW } })
+
+    assert.lengthOf(Object.keys(enCours), 4)
+    assert.lengthOf(Object.keys(acquise), 2)
   })
 
   test('`nextBox` reste la règle déplacée, à l’identique', async ({ assert }) => {

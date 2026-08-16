@@ -6,6 +6,7 @@ import { createUserWith } from '#tests/helpers/users'
 import { makeCard, setProgress } from '#tests/helpers/leitner'
 import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
+import LeitnerService from '#modules/leitner/services/leitner_service'
 
 /**
  * CC-262 — **l'inventaire d'acquis, éprouvé par les routes**.
@@ -128,6 +129,52 @@ test.group('Leitner / inventaire d’acquis', (group) => {
       ['Entretien dû']
     )
     assert.isTrue(page.dueCards[0].mastered)
+  })
+
+  /**
+   * CC-265 — **les deux mondes, par les props réelles**. L'unitaire prouve que
+   * `gradeOutcomes` sait rendre deux sorties ; celui-ci prouve que c'est bien ce que
+   * l'écran reçoit, sur les deux files, avec le contrôleur et la base dans la boucle.
+   */
+  test('l’entretien ne propose que DEUX réponses ; la file normale en garde QUATRE', async ({
+    client,
+    assert,
+  }) => {
+    const user = await reviewer()
+    const acquise = await masteredCard(user, 'Entretien dû', {
+      masteredDaysAgo: 120,
+      dueDaysAgo: 1,
+    })
+    const normal = await makeCard('En cours')
+    await setProgress(user.id, normal.id, { box: 5 })
+
+    // ⚠️ La visite d'entretien précédente a été notée « Difficile » : c'est le SEUL état
+    // qui armait l'exception cachée (2ᵉ `hard` d'affilée ⇒ boîte 1 **et** perte de
+    // l'acquis), et il est parfaitement invisible à l'écran — 90 à 365 jours plus tard,
+    // personne ne se souvient de sa note précédente.
+    await LeitnerReview.create({
+      userId: user.id,
+      leitnerCardId: acquise.id,
+      grade: 'hard',
+      kind: 'maintenance',
+      reviewedAt: DateTime.now().minus({ days: 10 }),
+    })
+
+    const entretien = await props(client, user, '/revision?queue=maintenance')
+    assert.deepEqual(
+      entretien.dueCards[0].outcomes.map((o: { grade: string }) => o.grade),
+      ['again', 'good'],
+      'un entretien VÉRIFIE : il n’y a aucune boîte à gagner, donc rien à nuancer en quatre'
+    )
+    // Et le piège a disparu de l'écran, alors même que son état d'armement est là.
+    assert.equal(await new LeitnerService().lastGrade(user.id, acquise), 'hard')
+
+    const normale = await props(client, user, '/revision?scope=all')
+    assert.deepEqual(
+      normale.dueCards[0].outcomes.map((o: { grade: string }) => o.grade),
+      ['again', 'hard', 'good', 'easy'],
+      'là, les quatre notes produisent bien quatre effets distincts'
+    )
   })
 
   test('les deux files sont disjointes : la normale ignore les acquis', async ({

@@ -1248,6 +1248,71 @@ pas les libellés, et le chiffre restait plausible.
   i18n**, jamais un texte. Deux phrases neuves seulement — « maîtrisée · entretien … » et « sort des
   acquis … » —, le reste est mot pour mot ce qui s'affichait avant.
 
+⚠️ **La phrase « quatre boutons » de cette section n'est plus vraie en entretien depuis CC-265** —
+voir la section suivante. Elle reste exacte pour la file normale, qui est le seul monde où quatre
+notes produisent quatre effets.
+
+### En entretien, deux réponses — pas quatre (CC-265)
+
+Trouvé au **passage navigateur de CC-262**, et mesurable dans le code : sur une carte acquise (donc
+en boîte 5), `hard`, `good` et `easy` rendaient un `GradeOutcome` **identique**. Deux raisons se
+combinent, et aucune n'est un bug — le plafond de boîte écrase la différence
+(`min(5, 5+1) = min(5, 5+2) = 5`) et l'échéance ne vient plus de la boîte mais de
+`maintenanceIntervalDays(rang, box5Days)`, qui **ne lit pas la note**. L'écran proposait trois choix
+pour un seul effet.
+
+⚠️ **`hard` ne partait pas par symétrie, il partait parce qu'il MENTAIT.** `nextBox` rend
+`lastGrade === 'hard' ? 1 : box` : un « Difficile » **qui suit un « Difficile »** renvoie en boîte 1
+et fait donc **perdre l'acquis**. Le bouton était inoffensif *sauf* dans ce cas — un effet qui
+dépend d'un état que l'écran ne montre pas, sur une file dont les visites sont espacées de 90 à
+365 jours. Un bouton pareil est pire qu'un bouton redondant. **C'est le motif du lot**, pas la
+redondance.
+
+L'entretien est une **vérification**, pas un apprentissage : il n'y a aucune boîte à gagner, donc
+rien que la granularité en quatre puisse exprimer. Deux réponses — « Je l'ai perdu » (`again`) et
+« Je le sais encore » (`good`).
+
+- ⚠️ **La liste vit dans `gradeOutcomes` (`MAINTENANCE_GRADES`), jamais dans un filtrage côté
+  page.** Deux boutons veulent **deux sorties calculées par la règle** ; écrémer les quatre dans le
+  `<script setup>` rejouerait exactement la copie que CC-262 a supprimée, un cran plus loin.
+- ⚠️ **La file se DÉDUIT de `mastery.masteredAt`, aucun paramètre `queue` n'a été ajouté.** Les deux
+  files sont disjointes par construction (`mastered_at is null` contre `is not null`, CC-261) :
+  « la carte est acquise » **est** « on est en entretien ». Un second témoin de la même chose peut
+  contredire le premier — l'écran proposerait deux réponses sur une carte que la règle traite comme
+  quatre, sans que rien ne le signale.
+- ⚠️ **`good`, et non `easy` — décision du propriétaire (2026-08-16).** Les deux rendent la même
+  sortie ici ; ce qui tranche est `leitner_reviews.grade`. `good` est ce qu'un clic « Correct »
+  enregistrait déjà en entretien, quand `easy` affirmerait « rappel immédiat » là où le bouton ne
+  dit que « je le sais ». Rien ne distingue les deux en aval (rétention, points faibles, critère de
+  maîtrise) : le gain serait nul et la sur-affirmation réelle.
+- ⚠️ **Conséquence ACTÉE : l'entretien n'écrit plus jamais `hard`, donc il n'ARME plus la règle du
+  2ᵉ `hard` d'affilée** pour la révision suivante de la carte. Il ne pouvait déjà que l'armer — une
+  carte acquise l'a forcément été par un `good` ou un `easy` (`isMasteringGrade`). Son signal
+  d'échec est `again`, qui sort la carte des acquis et la renvoie dans la file normale, où les
+  quatre notes **et** la règle sont intactes.
+- ⚠️ **La RÈGLE n'a pas bougé, et `POST /revision/:id/review` accepte toujours les quatre notes.**
+  Ce lot ferme un piège d'**écran** ; masquer un bouton n'est pas un droit, l'exception reste
+  atteignable au `curl` — par un geste délibéré, ce qui n'est pas le mal décrit. Retirer `hard` du
+  validateur serait un changement de comportement que l'écran ne peut plus produire. **Ne
+  « termine » pas le lot en le faisant.**
+- ⚠️ **Le mode d'échec silencieux du lot n'était pas dans le ticket : le bouton fantôme du juge.**
+  Le juge propose `hard` sur un verdict `partiel` (`leitner_judge_service.ts`) et la fluence propose
+  `hard` sur une réponse lente (`leitner_fluency.ts`) — deux notes sans bouton en entretien. Le
+  `suggestedGrade ?? 'easy'` de la page surlignait alors **du vide**, sans erreur ni log. La
+  résolution vit dans `shared/review_page.ts` (`highlightedGrade`, pur) : la suggestion si elle est
+  offerte, sinon la note **la plus généreuse** qui l'est. En file normale, comportement strictement
+  inchangé — la suggestion est toujours présente et le repli reste `easy`.
+- ⚠️ **Le LIBELLÉ se décide sur `mastered` AVANT la note** (`gradeLabelKey`, même fichier) : celui
+  d'`outcome` est celui d'après, et un `again` d'entretien le rend `false` — lu là, « Je l'ai
+  perdu » se rebaptiserait « À revoir » exactement sur la carte où la distinction compte. Ces clés
+  sont **calculées**, donc invisibles de `keys.spec.ts` : c'est le test « toutes les clés rendues
+  existent dans fr.json » (`tests/unit/leitner_mastery_inventory.spec.ts`) qui les tient, et il faut
+  l'**étendre** plutôt qu'écrire une seconde garde.
+- ⚠️ **Limite notée, pas gardée** : une carte acquise **hors boîte 5** — atteignable seulement par
+  un fichier d'import écrit à la main — verrait « Je le sais encore » au-dessus du hint « sort des
+  acquis ». Le hint reste vrai ; seul le libellé est optimiste, et l'état est inatteignable par
+  l'UI.
+
 **3. L'inventaire lui-même, sur l'écran de CHOIX seulement** (`components/MasteredInventory.vue`).
 Replié par défaut, groupé par mois d'acquisition, **sans pagination** (volumétrie personnelle, comme
 le catalogue et la heatmap). ⚠️ **Il n'est pas servi pendant une session** : `/revision` ne fait que
@@ -1360,6 +1425,11 @@ péniblement), même depuis qu'il ne fait plus progresser la carte.
 **Les boutons annoncent leur effet** : `index.vue` reçoit `boxIntervals` (envoyés par le serveur, la
 page ne les redéclare jamais) et le `lastGrade` de chaque carte due — chaque bouton affiche la boîte
 atteinte et l'échéance, y compris « 2ᵉ d'affilée · boîte 1 ». Ne réintroduis pas de libellés muets.
+
+⚠️ **Ce tableau décrit la RÈGLE, et elle vaut pour les quatre notes quelle que soit la file** —
+`review()` n'a pas bougé depuis CC-265. Ce qui a changé est ce que l'**écran propose** : deux
+réponses seulement en entretien, parce que trois des quatre y produisaient un effet identique (voir
+la section CC-265). Ne lis pas ce tableau comme la liste des boutons.
 
 ## Les intervalles se règlent : `leitner_settings`
 

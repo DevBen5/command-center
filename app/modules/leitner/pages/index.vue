@@ -14,6 +14,8 @@ import {
   boxIntervalLabel as labelForBox,
   fluencyMeasure as measureFluency,
   gradeHint,
+  gradeLabelKey,
+  highlightedGrade as resolveHighlight,
   type GradeOutcome,
 } from '../shared/review_page.js'
 import type { MasteredCard } from '../shared/mastery_inventory.js'
@@ -395,23 +397,31 @@ const VERDICT_LABELS = computed<Record<Verdict, string>>(() => ({
 }))
 
 /**
- * Le bouton mis en avant : celui que le juge propose, **sinon `easy`**.
+ * Le bouton mis en avant : celui que le juge propose **s'il est offert**, sinon le plus
+ * généreux de ceux qui le sont.
  *
- * ⚠️ Ce repli sur `easy` n'est pas un choix esthétique : c'est le bouton que cet écran
- * mettait en avant avant l'arrivée du juge. Sans lui, une panne de LM Studio changerait
- * l'apparence de la révision — or elle doit retomber *exactement* sur l'auto-évaluation
- * d'avant. Le mot « suggéré », lui, ne s'affiche que si un juge l'a vraiment dit.
+ * ⚠️ **La résolution vit dans `shared/review_page.ts`, pas ici** (CC-265) : depuis que
+ * l'entretien n'a que deux réponses, `suggestedGrade ?? 'easy'` pouvait désigner un bouton
+ * **inexistant** — le juge propose `hard` sur un verdict `partiel`, la fluence propose
+ * `hard` sur une réponse lente. Le surlignage tombait alors dans le vide, sans erreur ni
+ * log. Le repli sur la note la plus généreuse reste ce qu'il était (`easy` en file
+ * normale) : une panne de LM Studio ne doit pas changer l'apparence de la révision.
  */
-const highlightedGrade = computed<Grade>(() => suggestedGrade.value ?? 'easy')
+const highlightedGrade = computed<Grade | null>(() =>
+  resolveHighlight(currentCard.value?.outcomes ?? [], suggestedGrade.value)
+)
 
 /**
- * Chaque bouton annonce ce que la note fera : quatre notes, quatre effets.
+ * Chaque bouton annonce ce que la note fera : **quatre** réponses en file normale, **deux**
+ * en entretien (CC-265) — et c'est la règle qui décide desquelles, pas cet écran.
  *
- * ⚠️ **Plus une seule ligne d'arithmétique ici** (CC-262). La boîte atteinte, l'acquis et
- * le nombre de jours viennent de `outcomes`, calculés par la règle elle-même ; le choix de
- * la phrase vient de `gradeHint`, pur et prouvé. Ce `<script setup>` recopiait
+ * ⚠️ **Plus une seule ligne d'arithmétique ici** (CC-262), et **aucun filtrage de liste**
+ * (CC-265). La boîte atteinte, l'acquis et le nombre de jours viennent de `outcomes`,
+ * calculés par la règle elle-même ; le choix de la phrase vient de `gradeHint` et celui du
+ * libellé de `gradeLabelKey`, purs et prouvés. Ce `<script setup>` recopiait
  * `Math.min(5, box + 2)` et l'intervalle de la boîte atteinte — une copie qui est devenue
- * **fausse** avec l'entretien de CC-261 sans qu'aucun test ne puisse le voir.
+ * **fausse** avec l'entretien de CC-261 sans qu'aucun test ne puisse le voir. Écrémer les
+ * quatre notes ici rejouerait exactement cette faute, un cran plus loin.
  */
 const gradeActions = computed(() => {
   const card = currentCard.value
@@ -421,7 +431,10 @@ const gradeActions = computed(() => {
     const hint = gradeHint(outcome, { mastered: card.mastered, lastGrade: card.lastGrade })
     return {
       grade: outcome.grade,
-      label: t(`leitner.index.grade.${outcome.grade}`),
+      // ⚠️ `card.mastered` est l'état **avant** la note : celui d'`outcome` est celui
+      // d'après, et un `again` d'entretien le rend `false` — le bouton « Je l'ai perdu »
+      // se rebaptiserait « À revoir » précisément là où la distinction compte.
+      label: t(gradeLabelKey(outcome, { mastered: card.mastered })),
       hint: t(hint.key, hint.params),
     }
   })
@@ -733,7 +746,14 @@ function grade(g: Grade): void {
         >
           <span class="block text-[12.5px] font-semibold">
             {{ action.label }}
-            <span v-if="action.grade === suggestedGrade" class="text-[10px] opacity-75">
+            <!-- ⚠️ Le mot suit le bouton RÉSOLU, pas la note brute du juge (CC-265) : en
+                 entretien, une suggestion `hard` ou `easy` désigne « je le sais encore »,
+                 et la comparer telle quelle laisserait le badge muet sur le bouton
+                 pourtant mis en avant. En file normale les deux coïncident toujours. -->
+            <span
+              v-if="suggestedGrade !== null && action.grade === highlightedGrade"
+              class="text-[10px] opacity-75"
+            >
               {{ t('leitner.index.suggested') }}
             </span>
           </span>

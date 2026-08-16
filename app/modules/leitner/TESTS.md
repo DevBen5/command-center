@@ -190,11 +190,20 @@ navigateur.
   « boîte 5 · dans 30 j » alors qu'elle repart pour 90). Les cas qui portent le fichier : la note
   qui acquiert (90 et non 30), les trois rangs d'entretien plus la répétition du dernier, `hard` sur
   un acquis qui **le conserve** donc suit le même palier, `again` en entretien (dé-maîtrise,
-  aujourd'hui, boîte **inchangée**), le 2ᵉ `hard` sur un acquis (boîte 1 **et** sortie des acquis),
-  les deux extrêmes de `box5Days`, et le rang qui **ne s'applique qu'à une carte déjà acquise** —
-  sans cette borne, une carte ré-acquise après un oubli repartirait à un an. Plus `nextBox`, dont ce
-  lot n'a fait que **déplacer** la règle depuis `LeitnerService` : le test rougirait si elle avait
-  bougé au passage.
+  aujourd'hui, boîte **inchangée**), les deux extrêmes de `box5Days`, et le rang qui **ne s'applique
+  qu'à une carte déjà acquise** — sans cette borne, une carte ré-acquise après un oubli repartirait à
+  un an. Plus `nextBox`, dont CC-262 n'a fait que **déplacer** la règle depuis `LeitnerService` : le
+  test rougirait si elle avait bougé au passage.
+  ⚠️ **Depuis CC-265, il porte les DEUX MONDES, et c'est sa garde principale** : `gradeOutcomes` rend
+  **deux** sorties en entretien (`['again','good']`, distinctes — le test asserte les deux objets
+  entiers) et **quatre** en file normale (avec quatre effets réellement distincts). Le cas « le 2ᵉ
+  `hard` sur un acquis » n'assert plus la rétrogradation mais le fait qu'elle n'est **plus
+  proposable** — tout en vérifiant, sur la même ligne, que `nextBox(5,'hard','hard')` vaut toujours
+  1 : le lot ferme un piège d'écran, pas une règle, et confondre les deux ferait « réparer » un jour
+  une régression qui n'existe pas. **Deux mutations vérifiées le 2026-08-16** : rendre les deux
+  réponses identiques (7 tests rouges) et rétablir les quatre notes en entretien (4 rouges).
+  ⚠️ Le test « c'est l'ACQUIS qui décide du nombre de réponses » existe pour qu'on ne « simplifie »
+  pas en ajoutant un paramètre `queue` : deux témoins de la même chose peuvent se contredire.
 - `tests/unit/leitner_mastery_inventory.spec.ts` — l'inventaire **vu de la page** (CC-262), code pur.
   Le regroupement par mois (ordre décroissant, **aucun mois vide** — la liste n'est pas un
   calendrier), « ce mois-ci » qui est le mois **civil** et non trente jours glissants (le test le
@@ -206,6 +215,19 @@ navigateur.
   « 2ᵉ d'affilée » décidé sur la note **précédente** et non sur la boîte atteinte (une carte déjà en
   boîte 1 y reste sur un `hard` isolé), et la phrase la plus importante de l'écran d'entretien —
   `again` sur un acquis dit la **sortie** des acquis, pas « reste boîte 5 ».
+  ⚠️ **Il porte la garde qui compense ce que `keys.spec.ts` ne peut pas voir** : toute clé rendue
+  par `gradeHint` — **et par `gradeLabelKey` depuis CC-265** — existe réellement dans `fr.json`, et
+  chaque paramètre passé est utilisé par la phrase. Ces clés sont **calculées**, donc hors de portée
+  de l'extraction statique du châssis : une clé manquante s'afficherait en toutes lettres **sur le
+  bouton**. Étends cette liste, n'écris pas une seconde garde.
+  ⚠️ **Et le mode d'échec silencieux de CC-265, que le ticket n'avait pas vu** : `highlightedGrade`
+  résout la suggestion du juge contre les sorties **réellement offertes**. Le juge propose `hard`
+  sur un verdict `partiel` et la fluence sur une réponse lente — deux notes sans bouton en
+  entretien, où l'ancien `suggestedGrade ?? 'easy'` surlignait **du vide**, sans erreur ni log.
+  Le test tient les deux mondes (en file normale, la suggestion gagne toujours et le repli reste
+  `easy`) ; **mutation vérifiée le 2026-08-16** — rétablir `suggested ?? 'easy'` le fait rougir.
+  Il tient aussi que le **libellé** se décide sur l'état *avant* la note : lu sur `outcome.mastered`,
+  « Je l'ai perdu » se rebaptiserait « À revoir » sur la carte même où la distinction compte.
   Ce qu'il achète a été mesuré autrement, en simulant le refactor qu'il anticipe (un seul
   `DateTime.now()` pour la marque **et** pour `reviewed_at`) : dans ce monde-là, `>=` reste vert et
   `>` fait rougir la séquence. Même honnêteté que la note de CC-260 sur `kind` hors d'`omitNull` —
@@ -262,6 +284,12 @@ navigateur.
   filtrer** (`?box=5` liste encore l'acquise pendant que la tuile annonce 0 — décidé, pas oublié),
   et le cloisonnement **à deux cloisons** : visibilité du contenu (CC-139) *et* `user_id` de la
   progression (CC-119), retirer l'une des deux laisse le test rouge.
+  ⚠️ **Depuis CC-265 il porte aussi les deux mondes PAR LES PROPS RÉELLES** — l'unitaire prouve que
+  `gradeOutcomes` sait rendre deux sorties, celui-ci prouve que c'est bien ce que l'écran **reçoit**,
+  contrôleur et base dans la boucle : `['again','good']` sur `?queue=maintenance`, les quatre notes
+  sur `?scope=all`. Le cas est monté sur l'état qui armait l'exception cachée (une révision
+  d'entretien notée `hard`, vérifiée par `lastGrade`) : le piège a disparu de l'écran **alors même
+  que son armement est là**, ce qu'aucun test de la file normale ne pourrait dire.
 - `tests/unit/leitner_scope_search.spec.ts` — le **filtrage de la barre de recherche**, dont
   `securite` qui trouve « Sécurité » (le test qui compte), le chemin `Catégorie · Thème`, et un
   paquet à 0 trouvé mais **non sélectionnable**. Du code pur : il ne voit ni le focus/blur, ni le
