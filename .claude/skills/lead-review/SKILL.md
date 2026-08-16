@@ -88,10 +88,17 @@ Aucun sous-skill à déléguer : les checks ci-dessous sont à faire ici.
 - [ ] Contrôleurs fins : la logique est dans les `services/` du module
 - [ ] Pas de `node ace make:*` (il recrée l'ancienne arborescence)
 
-### Les trois pannes silencieuses du projet
-- [ ] **Nouveau module ou nouvelle migration → enregistré dans `config/database.ts`**, dans
-      `migrations.paths` *et* `seeders.paths`. Rien n'est auto-découvert : un path oublié = migration
-      jamais jouée, **en silence**. L'ordre des tableaux est l'ordre d'exécution (contraintes FK)
+### Les pannes silencieuses du projet
+⚠️ **La liste fait autorité dans le `CLAUDE.md` racine — elle en compte huit, pas trois.** La
+relire plutôt que se fier à cet extrait, qui ne garde que les trois plus fréquentes.
+- [ ] **Nouveau module → enregistré dans `config/modules.ts`** (`KNOWN_MODULES`,
+      `MODULE_MIGRATION_PATHS`), dont `config/database.ts` ne fait plus que **dériver** ses
+      `migrations.paths` (CC-137). ⚠️ **Un chemin codé en dur dans `config/database.ts` fait naître
+      le module NON DÉSACTIVABLE** — migrations jouées, tests verts, et il apparaîtra quoi que dise
+      `MODULES`. L'ordre de `KNOWN_MODULES` est l'ordre d'exécution (contraintes FK) ; une migration
+      **neuve** dans un module déjà enregistré n'a rien à déclarer, le chemin pointe le dossier
+- [ ] **`seeders.paths` est vide et le reste** (CC-138) : plus aucun seeder n'existe. Y
+      réenregistrer un chemin fait rougir `tests/unit/db_seeders.spec.ts`
 - [ ] **Nom de page Inertia ⇄ chemin du fichier** — `inertia.render('modules/veille/index')` ⇄
       `app/modules/veille/pages/index.vue` (résolu à la main dans `inertia/app/app.ts`). Un écart
       échoue **au runtime**, pas au build

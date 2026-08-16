@@ -132,13 +132,20 @@ couvre bien ce périmètre — ni moins, ni davantage.
 - **Contrôleurs fins** : la logique vit dans les `services/` du module
 - **`providers/` à la racine** est la seule exception structurelle au découpage par feature
 
-### Axe 4 — Les trois pannes silencieuses
+### Axe 4 — Les pannes silencieuses
 
-Aucune ne lève d'erreur. Ce sont les premières à vérifier.
+Aucune ne lève d'erreur. Ce sont les premières à vérifier. ⚠️ **La liste fait autorité dans le
+`CLAUDE.md` racine — elle en compte huit, pas trois** ; ce qui suit n'en garde que les plus
+fréquentes, et le relire vaut mieux que s'y fier.
 
-- **Nouveau module ou nouvelle migration → déclaré dans `config/database.ts`**, dans
-  `migrations.paths` *et* `seeders.paths`. Rien n'est auto-découvert : un chemin oublié =
-  migration jamais jouée, **en silence**. L'ordre des tableaux est l'ordre d'exécution (FK)
+- **Nouveau module → déclaré dans `config/modules.ts`** (`KNOWN_MODULES`,
+  `MODULE_MIGRATION_PATHS`), dont `config/database.ts` ne fait plus que **dériver** ses
+  `migrations.paths` (CC-137). ⚠️ **Un chemin codé en dur dans `config/database.ts` fait naître le
+  module NON DÉSACTIVABLE** — migrations jouées, tests verts, rien ne le signale, et il apparaîtra
+  quoi que dise `MODULES`. L'ordre de `KNOWN_MODULES` est l'ordre d'exécution (FK) ; une migration
+  **neuve** dans un module déjà enregistré n'a rien à déclarer, le chemin pointe le dossier
+- **`seeders.paths` est vide et le reste** (CC-138) : plus aucun seeder n'existe, y réenregistrer
+  un chemin fait rougir `tests/unit/db_seeders.spec.ts`
 - **Nom de page Inertia ⇄ chemin du fichier** : `inertia.render('modules/veille/index')` ⇄
   `app/modules/veille/pages/index.vue`, résolu à la main dans `inertia/app/app.ts`. Un écart
   échoue **au runtime**, pas au build
