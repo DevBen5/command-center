@@ -400,3 +400,163 @@ test.group('LeitnerService / intervalles des boîtes', (group) => {
     assert.equal(progress.nextReview.toISODate(), scheduled)
   })
 })
+
+/**
+ * Le **régime d'entretien au site d'écriture** (CC-261) — ce que le test pur de
+ * `leitner_maintenance.spec.ts` ne peut pas dire : que l'échelle est réellement branchée,
+ * qu'elle est choisie par la file où la carte **va**, et que le rang se compte au bon
+ * moment.
+ */
+test.group('LeitnerService / régime d’entretien', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+
+  /** Une carte en boîte 5 depuis longtemps, **pas encore acquise**. */
+  async function readyToMaster(user: User): Promise<LeitnerCard> {
+    const card = await makeCard('Tenue depuis longtemps')
+    await setProgress(user.id, card.id, { box: 5, box5DaysAgo: 40 })
+    return card
+  }
+
+  test('la note qui ACQUIERT la maîtrise programme déjà le premier palier', async ({ assert }) => {
+    // ⚠️ **Le test qui porte l'arbitrage du lot.** Cette note-là porte `kind: 'normal'`
+    // (la carte venait bien de la file normale) et repart pourtant à 90 jours : l'échéance
+    // suit la file où la carte **va**, jamais celle d'où elle vient. Gaté sur `kind`, on
+    // lirait 30 ici — la carte serait « maîtrisée » et reviendrait au rythme d'avant, dans
+    // une file que rien n'affiche encore.
+    const user = await createAdmin()
+    const card = await readyToMaster(user)
+
+    const progress = await new LeitnerService().review(user.id, card, 'good')
+
+    assert.isNotNull(progress.masteredAt)
+    assert.equal(progress.nextReview.toISODate(), IN(90))
+  })
+
+  test('l’échelle gravit ses paliers note après note : 90, 180, 365, 365', async ({ assert }) => {
+    // ⚠️ **Le test qui attrape une dérive du rang d'un cran** — et c'est le seul. Le rang
+    // se compte AVANT l'insertion de la note courante (sinon elle se compterait
+    // elle-même) et la note d'acquisition occupe le palier 0 (d'où le `>=` et non le `>` :
+    // `mastered_at` et son `reviewed_at` sont deux `DateTime.now()` distincts).
+    const user = await createAdmin()
+    const card = await readyToMaster(user)
+    const service = new LeitnerService()
+
+    const acquisition = await service.review(user.id, card, 'good')
+    assert.equal(acquisition.nextReview.toISODate(), IN(90))
+
+    const premier = await service.review(user.id, card, 'good')
+    assert.equal(premier.nextReview.toISODate(), IN(180))
+
+    const deuxieme = await service.review(user.id, card, 'easy')
+    assert.equal(deuxieme.nextReview.toISODate(), IN(365))
+
+    // Le dernier palier se répète : au moins une vérification par an, indéfiniment.
+    const troisieme = await service.review(user.id, card, 'good')
+    assert.equal(troisieme.nextReview.toISODate(), IN(365))
+  })
+
+  test('la note d’entretien est bien historisée `maintenance`', async ({ assert }) => {
+    const user = await createAdmin()
+    const card = await readyToMaster(user)
+    const service = new LeitnerService()
+
+    await service.review(user.id, card, 'good')
+    await service.review(user.id, card, 'good')
+
+    const reviews = await LeitnerReview.query()
+      .where('user_id', user.id)
+      .where('leitner_card_id', card.id)
+      .orderBy('id', 'asc')
+
+    // La première venait de la file normale, la seconde de l'entretien.
+    assert.deepEqual(
+      reviews.map((review) => review.kind),
+      ['normal', 'maintenance']
+    )
+  })
+
+  test('l’intervalle réglé de la boîte 5 relève le plancher de l’entretien', async ({ assert }) => {
+    // La seule chose qui prouve que `boxIntervals()[5]` arrive **en base** jusqu'à
+    // l'échelle : à 365 j de réglage, le premier palier ne peut plus valoir 90.
+    const user = await createAdmin()
+    const service = new LeitnerService()
+    await service.updateBoxIntervals({ 1: 1, 2: 2, 3: 4, 4: 7, 5: 365 })
+
+    const card = await makeCard('Tenue depuis très longtemps')
+    await setProgress(user.id, card.id, { box: 5, box5DaysAgo: 400 })
+
+    const progress = await service.review(user.id, card, 'good')
+    assert.isNotNull(progress.masteredAt)
+    assert.equal(progress.nextReview.toISODate(), IN(365))
+  })
+
+  test('`again` en entretien démaîtrise, laisse la boîte à 5, et rend la carte aujourd’hui', async ({
+    assert,
+  }) => {
+    // ⚠️ **La règle « `again` ne rétrograde JAMAIS » est intacte** : elle porte sur `box`,
+    // et `box` ne bouge pas. Ce lot n'ajoute qu'un drapeau, dont la sémantique est
+    // précisément d'être vérifiable — sans quoi « maîtrisée » serait un cul-de-sac que
+    // plus rien ne contrôle.
+    const user = await createAdmin()
+    const card = await makeCard('Acquise puis oubliée')
+    await setProgress(user.id, card.id, { box: 5, box5DaysAgo: 120, masteredDaysAgo: 90 })
+
+    const progress = await new LeitnerService().review(user.id, card, 'again')
+
+    assert.equal(progress.box, 5)
+    assert.isNull(progress.masteredAt)
+    assert.equal(progress.nextReview.toISODate(), TODAY())
+
+    // Et elle est bien retombée dans la file normale, pas dans l'entretien.
+    assert.lengthOf(await new LeitnerService().dueCards(user.id), 1)
+    assert.isEmpty(await new LeitnerService().maintenanceCards(user.id))
+  })
+
+  test('le 2ᵉ `hard` d’affilée démaîtrise ET renvoie en boîte 1', async ({ assert }) => {
+    // ⚠️ **Le seul endroit où les deux mécaniques se croisent.** Sans l'effacement, une
+    // carte en **boîte 1** resterait « maîtrisée » : invisible de la file normale
+    // (`whereDue` l'exclut) et présente dans l'entretien, donc perdue des deux côtés.
+    const user = await createAdmin()
+    const card = await makeCard('Acquise puis stagnante')
+    await setProgress(user.id, card.id, { box: 5, box5DaysAgo: 120, masteredDaysAgo: 90 })
+    const service = new LeitnerService()
+
+    // Un premier `hard` : la carte reste acquise, et repart au palier d'entretien.
+    const premier = await service.review(user.id, card, 'hard')
+    assert.equal(premier.box, 5)
+    assert.isNotNull(premier.masteredAt)
+
+    const second = await service.review(user.id, card, 'hard')
+    assert.equal(second.box, 1)
+    assert.isNull(second.masteredAt)
+    assert.isNull(second.box5EnteredAt)
+    // L'intervalle est celui de sa nouvelle boîte, plus celui de l'entretien.
+    assert.equal(second.nextReview.toISODate(), IN(1))
+  })
+
+  test('une carte ré-acquise repart au premier palier, jamais là où elle s’était arrêtée', async ({
+    assert,
+  }) => {
+    // ⚠️ **Ce que la borne `reviewed_at >= mastered_at` achète.** `mastered_at` est
+    // réécrit à chaque acquisition : les entretiens du cycle précédent tombent hors de la
+    // fenêtre. Sans la borne, cette carte repartirait droit au palier d'un an alors qu'on
+    // vient de constater qu'elle n'est plus sue.
+    const user = await createAdmin()
+    const card = await makeCard('Acquise, perdue, reprise')
+    await setProgress(user.id, card.id, { box: 5, box5DaysAgo: 120, masteredDaysAgo: 90 })
+    const service = new LeitnerService()
+
+    // Deux entretiens réussis, puis l'oubli : la carte est démaîtrisée.
+    await service.review(user.id, card, 'good')
+    await service.review(user.id, card, 'good')
+    await service.review(user.id, card, 'again')
+
+    // L'horloge de boîte 5 a été réarmée par `again` : on la recule pour rendre la carte
+    // ré-acquérable sans attendre trente jours.
+    await setProgress(user.id, card.id, { box: 5, box5DaysAgo: 40 })
+
+    const reacquise = await service.review(user.id, card, 'good')
+    assert.isNotNull(reacquise.masteredAt)
+    assert.equal(reacquise.nextReview.toISODate(), IN(90))
+  })
+})

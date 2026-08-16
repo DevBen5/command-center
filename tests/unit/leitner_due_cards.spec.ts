@@ -337,3 +337,159 @@ test.group('Leitner / dueScopeChoices', (group) => {
     assert.strictEqual(choices.totalDueCount, 0)
   })
 })
+
+/**
+ * La **sortie de file** et le **régime d'entretien** (CC-261).
+ *
+ * ⚠️ **Le point que ce groupe existe pour tenir** : l'exclusion vit dans `whereDue`, pas
+ * chez chaque appelant. Ce fichier n'en éprouve donc que deux consommateurs (la file et
+ * l'écran de choix) — les deux autres sont **hors du module** et vivent dans
+ * `leitner_multi_user.spec.ts`. C'est voulu : si retirer l'exclusion ne faisait rougir
+ * que ce fichier, c'est qu'elle serait au mauvais endroit.
+ */
+test.group('Leitner / sortie de file et entretien', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+
+  const service = new LeitnerService()
+  const fronts = (cards: LeitnerCard[]) => cards.map((card) => card.front)
+
+  /** Une carte acquise depuis `masteredDaysAgo`, due depuis `dueDaysAgo`. */
+  async function masteredCard(
+    userId: number,
+    front: string,
+    options: { themeId?: number | null; dueDaysAgo?: number; masteredDaysAgo?: number } = {}
+  ) {
+    const card = await makeCard(front, { themeId: options.themeId ?? null })
+    await setProgress(userId, card.id, {
+      box: 5,
+      dueDaysAgo: options.dueDaysAgo ?? 0,
+      box5DaysAgo: 120,
+      masteredDaysAgo: options.masteredDaysAgo ?? 90,
+    })
+    return card
+  }
+
+  test('une carte maîtrisée quitte la file normale, même due', async ({ assert }) => {
+    const user = await createAdmin()
+    await masteredCard(user.id, 'Acquise', { dueDaysAgo: 10 })
+    await makeCard('En cours')
+
+    const due = await service.dueCards(user.id)
+    assert.deepEqual(fronts(due), ['En cours'])
+  })
+
+  test('la file d’entretien la rend, et elle seule', async ({ assert }) => {
+    const user = await createAdmin()
+    await masteredCard(user.id, 'Acquise', { dueDaysAgo: 10 })
+    await makeCard('En cours')
+
+    const maintenance = await service.maintenanceCards(user.id)
+    assert.deepEqual(fronts(maintenance), ['Acquise'])
+  })
+
+  test('une carte maîtrisée pas encore due n’est dans AUCUNE des deux files', async ({
+    assert,
+  }) => {
+    // Le cas le plus fréquent en régime établi : acquise, échéance dans trois mois. Elle
+    // ne doit ni peser sur la file normale, ni encombrer l'entretien.
+    const user = await createAdmin()
+    await masteredCard(user.id, 'Acquise', { dueDaysAgo: -60 })
+
+    assert.isEmpty(await service.dueCards(user.id))
+    assert.isEmpty(await service.maintenanceCards(user.id))
+  })
+
+  test('les deux files sont disjointes : une carte en cours n’entre pas en entretien', async ({
+    assert,
+  }) => {
+    // Le pendant du test précédent, et il vaut autant : `whereMaintenanceDue` exige
+    // `mastered_at is not null`, donc une carte **jamais notée** (sans ligne du tout,
+    // `mastered_at` nul par la jointure externe) ne doit pas y tomber.
+    const user = await createAdmin()
+    await makeCard('Jamais notée')
+    const enCours = await makeCard('En boîte 5, pas acquise')
+    await setProgress(user.id, enCours.id, { box: 5, box5DaysAgo: 10 })
+
+    assert.lengthOf(await service.dueCards(user.id), 2)
+    assert.isEmpty(await service.maintenanceCards(user.id))
+  })
+
+  test('la file d’entretien garde l’ordre de la file : la plus en retard d’abord', async ({
+    assert,
+  }) => {
+    // ⚠️ **Elle ne trie pas par boîte**, comme la file normale — et ici toutes les cartes
+    // sont en boîte 5, donc un tri par boîte serait *inerte* et passerait inaperçu. Ce
+    // qui l'attrape est l'ordre par retard.
+    const user = await createAdmin()
+    await masteredCard(user.id, 'Due aujourd’hui', { dueDaysAgo: 0 })
+    await masteredCard(user.id, 'En retard de 30 j', { dueDaysAgo: 30 })
+    await masteredCard(user.id, 'En retard de 5 j', { dueDaysAgo: 5 })
+
+    const maintenance = await service.maintenanceCards(user.id)
+    assert.deepEqual(fronts(maintenance), [
+      'En retard de 30 j',
+      'En retard de 5 j',
+      'Due aujourd’hui',
+    ])
+  })
+
+  test('le paquet s’applique à l’entretien comme à la file normale', async ({ assert }) => {
+    const user = await createAdmin()
+    const category = await LeitnerCategory.create({ name: 'DevOps' })
+    const docker = await LeitnerTheme.create({ leitnerCategoryId: category.id, name: 'Docker' })
+    const k8s = await LeitnerTheme.create({ leitnerCategoryId: category.id, name: 'Kubernetes' })
+
+    await masteredCard(user.id, 'Docker acquise', { themeId: docker.id })
+    await masteredCard(user.id, 'K8s acquise', { themeId: k8s.id })
+
+    const scoped = await service.maintenanceCards(user.id, { kind: 'theme', id: docker.id })
+    assert.deepEqual(fronts(scoped), ['Docker acquise'])
+  })
+
+  test('l’entretien reste cloisonné : ni celui d’un autre, ni le contenu privé d’un autre', async ({
+    assert,
+  }) => {
+    const mine = await createAdmin()
+    const theirs = await createAdmin()
+
+    // Acquise par l'autre, pas par moi : elle est dans SON entretien, dans MA file normale.
+    const shared = await makeCard('Partagée')
+    await setProgress(theirs.id, shared.id, { box: 5, box5DaysAgo: 120, masteredDaysAgo: 90 })
+
+    // Et une carte privée de l'autre, qu'il a acquise : invisible des deux côtés chez moi.
+    const priv = await makeCard('Privée', { ownerId: theirs.id })
+    await setProgress(theirs.id, priv.id, { box: 5, box5DaysAgo: 120, masteredDaysAgo: 90 })
+
+    assert.deepEqual(fronts(await service.maintenanceCards(theirs.id)), ['Partagée', 'Privée'])
+    assert.isEmpty(await service.maintenanceCards(mine.id))
+    assert.deepEqual(fronts(await service.dueCards(mine.id)), ['Partagée'])
+  })
+
+  test('l’écran de choix ne compte plus une carte maîtrisée', async ({ assert }) => {
+    // Le troisième des quatre consommateurs de `whereDue` — les deux autres sont hors du
+    // module. Un thème dont tout est acquis affiche 0, il ne disparaît pas.
+    const user = await createAdmin()
+    const category = await LeitnerCategory.create({ name: 'DevOps' })
+    const docker = await LeitnerTheme.create({ leitnerCategoryId: category.id, name: 'Docker' })
+
+    await masteredCard(user.id, 'Acquise', { themeId: docker.id })
+    await makeCard('En cours', { themeId: docker.id })
+
+    const choices = await service.dueScopeChoices(user.id)
+    assert.strictEqual(choices.totalDueCount, 1)
+    assert.strictEqual(choices.categories[0].themes[0].dueCount, 1)
+  })
+
+  test('la tuile « boîte 5 » ne compte plus les cartes maîtrisées', async ({ assert }) => {
+    // ⚠️ **Le seul compteur du module qui ne passe pas par `whereDue`** : il compte ce qui
+    // est dans chaque boîte, dû ou non. Sans sa propre exclusion, la tuile annoncerait des
+    // cartes qu'aucun clic n'atteint plus.
+    const user = await createAdmin()
+    await masteredCard(user.id, 'Acquise', { dueDaysAgo: -60 })
+    const enCours = await makeCard('En boîte 5, pas acquise')
+    await setProgress(user.id, enCours.id, { box: 5, box5DaysAgo: 10 })
+
+    const counts = await service.boxCounts(user.id)
+    assert.strictEqual(counts[5], 1)
+  })
+})

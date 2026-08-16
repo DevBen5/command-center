@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
@@ -9,6 +10,7 @@ import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 import { isUsableMeasure } from '#modules/leitner/services/leitner_fluency'
 import { countByDay, currentStreak } from '#modules/leitner/services/leitner_habits'
 import LeitnerFluencyService from '#modules/leitner/services/leitner_fluency_service'
+import { maintenanceIntervalDays } from '#modules/leitner/services/leitner_maintenance'
 import { nextMasteryState } from '#modules/leitner/services/leitner_mastery'
 import {
   DEFAULT_BOX,
@@ -17,6 +19,8 @@ import {
   progressBox,
   selectWithBox,
   whereDue,
+  whereMaintenanceDue,
+  whereNotMastered,
 } from '#modules/leitner/services/leitner_progress'
 import { ALL_CARDS, applyScope, type CardScope } from '#modules/leitner/services/leitner_scope'
 import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
@@ -152,6 +156,11 @@ export default class LeitnerService {
    * ⚠️ **Une carte sans progression est due**, et c'est ce qui donne sa file à un compte
    * neuf. Toute la mécanique — jointure externe, `coalesce`, ordre — vit dans
    * `leitner_progress.ts` : va y lire les trois pièges avant de toucher à cette requête.
+   *
+   * ⚠️ **Une carte maîtrisée n'y est plus** (CC-261) : elle est passée en entretien, voir
+   * `maintenanceCards`. L'exclusion vit dans `whereDue`, pas ici — c'est ce qui la fait
+   * s'appliquer du même geste à la pastille de la barre latérale et à la carte d'accueil,
+   * qui sont hors de ce module.
    */
   async dueCards(
     userId: number,
@@ -165,6 +174,40 @@ export default class LeitnerService {
     joinProgress(query, userId)
     selectWithBox(query)
     whereDue(query, today)
+    orderByQueue(query, today)
+    applyScope(query, scope)
+    applyVisibility(query, 'leitner_cards', userId, isAdmin)
+
+    return query
+  }
+
+  /**
+   * Les cartes **d'entretien** dues pour cette personne (CC-261) — le pendant exact de
+   * `dueCards`, de l'autre côté de la maîtrise. Les deux files sont **disjointes** :
+   * `whereDue` exige `mastered_at is null`, `whereMaintenanceDue` l'inverse.
+   *
+   * ⚠️ **Elle ne trie PAS par boîte, exactement comme la file normale.** Toutes les cartes
+   * d'entretien sont en boîte 5 — un tri par boîte serait donc *inerte aujourd'hui*, ce
+   * qui est précisément ce qui le rendrait tentant. C'est le même `orderByQueue` : la plus
+   * en retard d'abord, à égalité la moins récemment touchée. Voir `leitner_progress.ts`
+   * pour la boucle que ce choix évite.
+   *
+   * ⚠️ **Personne ne l'appelle encore** : ce lot rend la mécanique juste et **invisible**,
+   * aucun écran ne montre l'entretien — c'est CC-262. Elle est donc prouvée par
+   * l'unitaire seul, jamais par une route.
+   */
+  async maintenanceCards(
+    userId: number,
+    scope: CardScope = ALL_CARDS,
+    isAdmin: boolean = false
+  ): Promise<LeitnerCard[]> {
+    const today = DateTime.now().startOf('day')
+
+    const query = LeitnerCard.query().preload('theme', (theme) => theme.preload('category'))
+
+    joinProgress(query, userId)
+    selectWithBox(query)
+    whereMaintenanceDue(query, today)
     orderByQueue(query, today)
     applyScope(query, scope)
     applyVisibility(query, 'leitner_cards', userId, isAdmin)
@@ -429,8 +472,31 @@ export default class LeitnerService {
       })
       progress.box5EnteredAt = mastery.box5EnteredAt
       progress.masteredAt = mastery.masteredAt
+
+      // ⚠️ **L'échéance suit la file où la carte VA, jamais celle d'où elle vient**
+      // (CC-261) — c'est le pendant inverse de `kind` juste au-dessus, et la seule
+      // subtilité de ce lot. La note qui **acquiert** la maîtrise porte `kind: 'normal'`
+      // (elle venait bien de la file normale) et repart pourtant au premier palier
+      // d'entretien : gater sur `kind` lui donnerait l'intervalle de la boîte 5, donc une
+      // carte tout juste maîtrisée reviendrait une dernière fois au rythme d'avant, dans
+      // une file que rien n'affiche encore. Arbitrage du propriétaire, 2026-08-16.
+      //
+      // ⚠️ `again` ne peut jamais atteindre cette branche : `nextMasteryState` efface
+      // `mastered_at` sur tout `again` en boîte 5, donc « ressort maîtrisée » et `again`
+      // sont incompatibles **par construction**. Le privilège d'`again` — due le jour
+      // même — reste donc intact sans qu'il faille l'écrire deux fois.
+      const maintenanceDays =
+        mastery.masteredAt === null
+          ? null
+          : maintenanceIntervalDays(
+              await this.maintenanceRank(trx, userId, card.id, mastery.masteredAt),
+              intervals[5]
+            )
+
       progress.nextReview =
-        grade === 'again' ? DateTime.now() : DateTime.now().plus({ days: intervals[progress.box] })
+        grade === 'again'
+          ? DateTime.now()
+          : DateTime.now().plus({ days: maintenanceDays ?? intervals[progress.box] })
       await progress.save()
 
       await LeitnerReview.create(
@@ -498,6 +564,47 @@ export default class LeitnerService {
   }
 
   /**
+   * Combien de paliers d'entretien cette personne a déjà consommés **sur cette carte,
+   * depuis qu'elle l'a acquise** (CC-261). C'est le `rank` de `maintenanceIntervalDays`.
+   *
+   * ⚠️ **La borne sur `mastered_at` est ce qui rend le rang juste après une
+   * dé-maîtrise.** `mastered_at` est réécrit à chaque nouvelle acquisition : les
+   * entretiens du cycle précédent tombent hors de la fenêtre. Sans elle, une carte ratée
+   * puis ré-acquise repartirait directement au palier d'un an.
+   *
+   * ⚠️ **Appelée AVANT `LeitnerReview.create()`, et l'ordre n'est pas négociable** — même
+   * raison que `lastGrade` et `usableThinkingMs` plus haut : la note qu'on est en train de
+   * poser se compterait elle-même, et toute l'échelle glisserait d'un cran.
+   *
+   * ⚠️ **`>=`, et surtout pas `>` comme on l'écrirait spontanément.** La note qui acquiert
+   * la maîtrise doit occuper le palier 0 : c'est elle qui a programmé les 90 premiers
+   * jours. Or `mastered_at` et son `reviewed_at` sont **deux appels distincts** à
+   * `DateTime.now()` dans cette méthode — le second est donc postérieur au premier de
+   * quelques microsecondes, et un `>` la compterait bel et bien… tant que cet écart
+   * existe. Unifier les deux `now()` est un nettoyage parfaitement plausible, et il
+   * ferait alors basculer **toute l'échelle d'un cran** (90 j servi deux fois) sans qu'un
+   * seul test ne bouge. Le `>=` rend le résultat identique dans les deux mondes.
+   */
+  private async maintenanceRank(
+    trx: TransactionClientContract,
+    userId: number,
+    cardId: number,
+    masteredAt: DateTime
+  ): Promise<number> {
+    const rows = await LeitnerReview.query({ client: trx })
+      .where('user_id', userId)
+      .where('leitner_card_id', cardId)
+      // `reviewed_at` est un `timestamp` — `toSQL()`, jamais `toSQLDate()` : le piège que
+      // le module documente déjà pour `hasReviewedTodayInScope`.
+      .where('reviewed_at', '>=', masteredAt.toSQL()!)
+      .count('* as total')
+
+    // Postgres rend `count(*)` en `bigint`, donc en **chaîne** : sans `Number`, le rang
+    // partirait en `Math.min('1', 2)` et l'écrêtage de l'échelle deviendrait du hasard.
+    return Number(rows[0].$extras.total)
+  }
+
+  /**
    * Boîte atteinte pour cette note, à partir de la boîte courante et de la **note
    * précédente de la même personne**. Pure : elle ne lit ni base ni horloge, ce qui la
    * rend assertable directement — et empêche qu'un appelant lui glisse le `lastGrade`
@@ -555,6 +662,16 @@ export default class LeitnerService {
    * qui restent globales : ce sont des mesures d'**habitude**, pas de thème. Une série
    * de 40 jours qui retomberait à zéro parce qu'on a ouvert un autre thème serait
    * absurde.
+   *
+   * ⚠️ **Les cartes maîtrisées sortent de la boîte 5** (CC-261) : elles y sont toujours,
+   * mais la tuile compterait sinon des cartes qu'aucun clic n'atteint plus — la file
+   * normale ne les rend plus, et l'entretien n'a pas encore d'écran. C'est le **seul**
+   * compteur du module qui ne passe pas par `whereDue`, donc le seul à devoir écarter les
+   * maîtrisées lui-même ; d'où `whereNotMastered`, qui garde la condition dans
+   * `leitner_progress.ts` plutôt que d'en écrire une seconde formulation ici.
+   *
+   * Contrepartie assumée, dans la lignée de celle qui existe déjà : la grille des cinq
+   * boîtes ne somme pas au « total cartes » affiché à côté.
    */
   async boxCounts(
     userId: number,
@@ -564,6 +681,7 @@ export default class LeitnerService {
     const query = LeitnerCard.query()
     joinProgress(query, userId)
     selectWithBox(query)
+    whereNotMastered(query)
     applyScope(query, scope)
     applyVisibility(query, 'leitner_cards', userId, isAdmin)
 

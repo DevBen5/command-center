@@ -214,6 +214,34 @@ test.group('Leitner / cloisonnement par personne', (group) => {
     assert.strictEqual((forMe.inertiaProps as any).cards.leitner.total, 1)
   })
 
+  test('la pastille et la carte d’accueil ne comptent PLUS une carte maîtrisée', async ({
+    client,
+    assert,
+  }) => {
+    // ⚠️ **Le test qui porte CC-261**, et il est ici plutôt que dans le module pour une
+    // raison précise : ce sont les **deux compteurs hors module**, et c'est exactement
+    // l'incohérence que le lot existe pour rendre impossible — une carte qui disparaît
+    // d'un compteur sans disparaître d'un autre ne lève aucune erreur. Aucun de ces deux
+    // fichiers n'a été touché par le lot : ils suivent parce qu'ils appellent la même
+    // paire `joinProgress` + `whereDue`, et que l'exclusion vit dans `whereDue`.
+    const user = await createAdmin()
+
+    const acquise = await makeCard('Acquise')
+    await setProgress(user.id, acquise.id, { box: 5, box5DaysAgo: 120, masteredDaysAgo: 90 })
+    await makeCard('En cours')
+
+    const response = await client.get('/').loginAs(user).withInertia()
+    const props = response.inertiaProps as any
+
+    // Deux cartes dues au sens de l'échéance, une seule dans la file.
+    assert.strictEqual(props.nav.leitner.due, 1)
+    assert.strictEqual(props.cards.leitner.due, 1)
+    // ⚠️ L'inventaire, lui, ne bouge pas : c'est un compte de **catalogue**, décision
+    // explicite du ticket. Sans cette assertion, un filtre posé au mauvais endroit
+    // passerait au vert.
+    assert.strictEqual(props.cards.leitner.total, 2)
+  })
+
   test('le catalogue est commun, la boîte de chaque ligne ne l’est pas', async ({
     client,
     assert,

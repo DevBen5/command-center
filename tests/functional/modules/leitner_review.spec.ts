@@ -465,3 +465,75 @@ test.group('Leitner / file de révision', (group) => {
     assert.equal(saved.totalMs, 9_000)
   })
 })
+
+/**
+ * La **sortie de file** par les routes (CC-261) — le troisième des trois fichiers que la
+ * mutation « retirer l'exclusion de `whereDue` » doit faire rougir. Les deux autres sont
+ * `tests/unit/leitner_due_cards.spec.ts` (la file et l'écran de choix) et
+ * `tests/functional/modules/leitner_multi_user.spec.ts` (les deux compteurs hors module).
+ *
+ * ⚠️ **Ce fichier est le seul à l'éprouver sur l'écran réel**, celui que l'utilisateur
+ * ouvre : la file peut être juste dans le service et fausse dans la prop si un contrôleur
+ * s'était écrit une seconde définition de « dû ».
+ */
+test.group('Leitner / une carte maîtrisée quitte l’écran', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+
+  function login() {
+    return createUserWith(['leitner.view', 'leitner.review'])
+  }
+
+  test('la file de /revision ne montre plus une carte maîtrisée, même en retard', async ({
+    client,
+    assert,
+  }) => {
+    const user = await login()
+
+    const acquise = await createCard('Acquise', { back: 'Verso' })
+    await setProgress(user.id, acquise.id, {
+      box: 5,
+      dueDaysAgo: 30,
+      box5DaysAgo: 150,
+      masteredDaysAgo: 120,
+    })
+    await createCard('En cours', { back: 'Verso' })
+
+    const response = await client.get('/revision?scope=all').loginAs(user).withInertia()
+    const props = response.inertiaProps as Record<string, any>
+
+    assert.deepEqual(
+      (props.dueCards as any[]).map((card) => card.front),
+      ['En cours']
+    )
+    // ⚠️ La grille des boîtes suit, et par un chemin **différent** (`boxCounts` ne passe
+    // pas par `whereDue`) : sans son exclusion propre, la tuile « boîte 5 » annoncerait
+    // 1 pour une carte que l'écran ne montre plus.
+    assert.strictEqual(props.boxCounts[5], 0)
+    // L'inventaire de catalogue, lui, les compte toujours toutes les deux.
+    assert.strictEqual(props.stats.totalCards, 2)
+  })
+
+  test('une carte acquise ce jour-là quitte la file à la note qui l’acquiert', async ({
+    client,
+    assert,
+  }) => {
+    // Le cycle complet par la route : la carte est dans la file, on la note, elle en sort
+    // — et l'écran repart vide, sans qu'aucune ligne du contrôleur n'ait bougé.
+    const user = await login()
+    const card = await createCard('Tenue depuis longtemps', { back: 'Verso' })
+    await setProgress(user.id, card.id, { box: 5, box5DaysAgo: 40 })
+
+    const avant = await client.get('/revision?scope=all').loginAs(user).withInertia()
+    assert.lengthOf((avant.inertiaProps as Record<string, any>).dueCards as any[], 1)
+
+    await client
+      .post(`/revision/${card.id}/review`)
+      .json({ grade: 'good' })
+      .loginAs(user)
+      .withCsrfToken()
+      .redirects(0)
+
+    const apres = await client.get('/revision?scope=all').loginAs(user).withInertia()
+    assert.isEmpty((apres.inertiaProps as Record<string, any>).dueCards as any[])
+  })
+})

@@ -25,6 +25,17 @@ const P = 'ucp'
 export const DEFAULT_BOX = 1
 
 /**
+ * « Cette carte n'est pas (ou plus) maîtrisée » — l'**unique copie** de cette condition
+ * (CC-261).
+ *
+ * ⚠️ **Elle est vraie sans ligne de progression**, et il ne faut surtout pas l'« armer »
+ * d'un `coalesce` : la jointure étant externe, `ucp.mastered_at` vaut `null` pour une
+ * carte que personne n'a notée — ce qui veut bien dire « pas maîtrisée ». Une carte neuve
+ * doit rester dans la file normale, c'est tout le principe de ce fichier.
+ */
+const NOT_MASTERED = `${P}.mastered_at is null`
+
+/**
  * `LEFT JOIN` de la progression de `userId`. À appeler **avant** tout `whereDue`,
  * `orderByQueue`, `whereBox` ou `selectWithBox` — ils lisent tous l'alias.
  *
@@ -73,16 +84,58 @@ export function progressBox(card: LeitnerCard): number {
 
 /**
  * Les cartes dues pour cette personne — c'est-à-dire dont l'échéance est passée **ou**
- * qui n'ont aucune progression.
+ * qui n'ont aucune progression — **et qui ne sont pas maîtrisées** (CC-261).
  *
  * ⚠️ **Le jour est celui du process Node, jamais `CURRENT_DATE`.** Le fuseau de Postgres
  * et celui de Node divergeraient au voisinage de minuit, et la file ne dirait plus la
  * même journée que la série ou la heatmap — qui se découpent en JS depuis CC-46. Deux
  * chiffres plausibles qui se contredisent, et rien pour le signaler.
+ *
+ * ⚠️ **L'exclusion des maîtrisées est ICI, et c'est la seule forme qui tienne** (CC-261).
+ * Quatre lectures posent la question « qu'est-ce qui est dû ? », dont **deux vivent hors
+ * du module** : la file (`LeitnerService.dueCards`), la pastille de la barre latérale
+ * (`NavStatsService`), la carte d'accueil (`HomeController`) et les comptes de l'écran de
+ * choix (`LeitnerService.dueScopeChoices`). Toutes appellent exactement la même paire
+ * `joinProgress` + `whereDue` : un seul point de modification, les quatre suivent **par
+ * construction**. Une carte qui disparaîtrait d'un compteur sans disparaître d'un autre
+ * ne lèverait aucune erreur — et la réponse à ce risque n'est pas « penser à mettre à
+ * jour les quatre », c'est qu'aucun appelant n'ait le choix. C'est aussi ce qui protège
+ * le compteur que quelqu'un ajoutera dans six mois.
  */
 export function whereDue(query: CardQuery, today: DateTime): void {
   const day = today.toSQLDate()!
-  query.whereRaw(`coalesce(${P}.next_review, ?::date) <= ?::date`, [day, day])
+  query.whereRaw(`coalesce(${P}.next_review, ?::date) <= ?::date and ${NOT_MASTERED}`, [day, day])
+}
+
+/**
+ * Les cartes **d'entretien** dues pour cette personne (CC-261) : le pendant exact de
+ * `whereDue`, de l'autre côté de la ligne de partage. Les deux files sont **disjointes**
+ * par construction — l'une exige `mastered_at is null`, l'autre `is not null` — donc
+ * aucune carte ne peut être due deux fois, et rien à synchroniser entre elles.
+ *
+ * ⚠️ **Aucun `coalesce` ici, et ce n'est pas un oubli** : `mastered_at is not null`
+ * implique qu'une ligne de progression existe, or `next_review` y est `notNullable`. Le
+ * `coalesce` de `whereDue` ne sert qu'à donner sa valeur à l'**absence** de ligne (« due
+ * aujourd'hui ») — un cas qui ne peut pas se présenter ici.
+ */
+export function whereMaintenanceDue(query: CardQuery, today: DateTime): void {
+  query.whereRaw(`${P}.mastered_at is not null and ${P}.next_review <= ?::date`, [
+    today.toSQLDate()!,
+  ])
+}
+
+/**
+ * « Écarte les cartes maîtrisées », sans rien dire de l'échéance (CC-261).
+ *
+ * ⚠️ **Elle existe pour `boxCounts`, le seul compteur du module qui ne passe PAS par
+ * `whereDue`** — il compte ce qui est dans chaque boîte, dû ou non. Sans elle, la tuile
+ * « boîte 5 » annoncerait des cartes qu'aucun clic n'atteint plus. Elle vit ici, et pas
+ * dans un `where` écrit chez l'appelant, pour que l'alias de la jointure reste privé à ce
+ * fichier : une seconde formulation de « maîtrisée » finirait par diverger de celle de
+ * `whereDue`.
+ */
+export function whereNotMastered(query: CardQuery): void {
+  query.whereRaw(NOT_MASTERED)
 }
 
 /**
