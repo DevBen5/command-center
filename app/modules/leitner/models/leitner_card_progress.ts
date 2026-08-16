@@ -68,8 +68,10 @@ export default class LeitnerCardProgress extends BaseModel {
    * daterait plus rien. Seul ce qui réarme l'horloge l'efface : `again`, ou la sortie de
    * la boîte 5.
    *
-   * ⚠️ **Personne ne la lit encore** (CC-260 pose les marques, rien d'autre) : ni file, ni
-   * compteur, ni écran. CC-261 puis CC-262 la consommeront.
+   * ⚠️ **Elle est LUE depuis CC-261**, et par le chemin le plus exposé du module : non
+   * nulle, la carte quitte la file normale (`whereDue`), sort de la tuile « boîte 5 » et
+   * passe au rythme d'entretien. La phrase de CC-260 — « personne ne la lit encore » —
+   * n'est plus vraie. Reste CC-262 pour l'inventaire visible.
    */
   @column.dateTime()
   declare masteredAt: DateTime | null

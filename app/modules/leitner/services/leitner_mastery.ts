@@ -9,9 +9,11 @@ import type { Grade } from '#modules/leitner/services/leitner_service'
  * `leitner_habits.ts` et `leitner_sessions.ts`. C'est ce qui rend le critère prouvable
  * unitairement, sans conteneur Postgres et sans attendre trente jours.
  *
- * ⚠️ **Personne ne lit encore ce que ce fichier décide.** CC-260 pose les marques et rien
- * d'autre : aucune file, aucun compteur, aucun écran ne change. CC-261 (sortie de file et
- * régime d'entretien) puis CC-262 (l'inventaire visible) les consommeront.
+ * ⚠️ **Ce que ce fichier décide est LU depuis CC-261** : `masteredAt` sort la carte de la
+ * file normale (`whereDue`) et lui donne le rythme d'entretien de
+ * `leitner_maintenance.ts`. La phrase de CC-260 — « personne ne lit encore ces marques »
+ * — n'est donc plus vraie ; une erreur ici se paie désormais en cartes qui disparaissent
+ * de la file, ou qui n'en sortent jamais. Reste CC-262 pour l'inventaire visible.
  */
 
 /** La boîte terminale. Une carte n'est candidate à la maîtrise que là. */
