@@ -183,6 +183,10 @@ services/leitner_mastery.ts                 le CRITÈRE DE MAÎTRISE (CC-260) : 
                                             date d'acquisition — CODE PUR, `now` en paramètre
 services/leitner_maintenance.ts             l'ÉCHELLE D'ENTRETIEN (CC-261) : à quel rythme revient
                                             une carte acquise — CODE PUR, le réglage en paramètre
+services/leitner_grade_outcomes.ts          CE QUE CHAQUE NOTE FERA (CC-262) : boîte, acquis,
+                                            jours — CODE PUR, et l'UNIQUE copie de `nextBox`
+services/leitner_mastery_service.ts         sa partie base : inventaire, compteurs, rangs
+                                            d'entretien en UNE requête, cartes perdues
 services/leitner_stats_service.ts           les stats d'HABITUDE, d'EFFORT et les POINTS FAIBLES —
                                             globales, jamais par paquet
 services/leitner_catalog_service.ts         seul point d'écriture d'une carte, porte la dédup
@@ -207,10 +211,15 @@ components/leitner_markdown_preview.ts      l'aperçu (CC-257) : QUAND demander,
                                             — l'UNIQUE copie, les deux écrans de saisie
 components/MarkdownPreviewPanel.vue         son affichage — porte la classe `markdown`, et c'est
                                             sa raison d'exister
+components/MasteredInventory.vue            l'INVENTAIRE D'ACQUIS (CC-262) — il ne décide que du
+                                            repli ; le regroupement vit dans `shared/`
 shared/card_preview.ts                      PUR · PREVIEW_MAX_CHARS (UNIQUE déclaration, lue aussi
                                             par le validateur) + previewTooLong
 shared/review_page.ts                       PUR · MEASURE_MAX_MS (UNIQUE déclaration) + duration
-                                            / fluencyMeasure + boxIntervalLabel / dueLabel
+                                            / fluencyMeasure + boxIntervalLabel / dueInLabel
+                                            + gradeHint (la CLÉ d'un bouton, jamais son texte)
+shared/mastery_inventory.ts                 PUR · le regroupement par mois, « ce mois-ci », la
+                                            part du catalogue, l'entretien dû (CC-262)
 shared/draft_review.ts                      PUR · la relecture des brouillons d'ingest_show.vue
 shared/settings_page.ts                     PUR · scrollTopKeepingAnchor — le recalage du
                                             défilement après un import (CC-67)
@@ -520,7 +529,10 @@ noms de tests. « Portée » n'a plus cours. Le code et l'URL disent **`scope`**
 chaque note. **Ne renomme pas `scope`.**
 
 `/revision` **nu** = l'écran de **choix** ; `?scope=all|unclassified`, `?category=<id>`, `?theme=<id>`
-= la **session**. Une seule page Inertia, un prop `view` qui tranche.
+= la **session**. Une seule page Inertia, un prop `view` qui tranche. ⚠️ **Depuis CC-262 un
+cinquième paramètre ouvre aussi une session : `?queue=maintenance`** — la file d'entretien. Il est
+**orthogonal** au paquet (les deux se composent) et compte dans « un paquet a-t-il été demandé ? » ;
+l'oublier là rendrait l'écran de choix sans lever la moindre erreur. Voir la section CC-262.
 
 ### Le paquet vit dans l'URL, et nulle part ailleurs
 
@@ -1097,10 +1109,12 @@ pas une valeur.
 ## La sortie de file et le régime d'entretien (CC-261)
 
 Deuxième des trois lots de l'inventaire d'acquis, et **le premier consommateur de `mastered_at`**.
-⚠️ **Il ne touche AUCUN écran** : à la fin de ce lot la mécanique est juste et **invisible** —
-c'est CC-262 qui montrera l'entretien. Corollaire assumé, à connaître avant de croire à un bug :
-**une carte maîtrisée n'est aujourd'hui atteignable par aucun écran**, ni la file normale, ni
-l'entretien (qui n'a pas de route), ni la tuile « boîte 5 ».
+Il ne touchait aucun écran : à la fin de ce lot la mécanique était juste et **invisible**.
+⚠️ **Ce n'est plus vrai depuis CC-262** (section suivante), qui la montre et lui donne enfin un
+chemin — la phrase « une carte maîtrisée n'est atteignable par aucun écran », qui était le
+corollaire assumé de ce lot, est **périmée** : l'entretien a désormais sa file
+(`/revision?queue=maintenance`), la grille a sa 6ᵉ case, et l'inventaire est listé. Ce qui suit
+décrit la **mécanique** ; ce qui l'affiche est plus bas.
 
 **Le défaut réel** : une carte qu'on connaît revenait **indéfiniment tous les `box5Days`** (30 j
 par défaut), mélangée aux cartes qu'on est en train d'apprendre. Rien ne distinguait les deux, donc
@@ -1175,13 +1189,114 @@ de la file normale par `whereDue` et présente dans l'entretien, donc perdue des
 | `totalCards` | **inchangé** | inventaire de **catalogue** (visibilité, pas `user_id`), déjà volontairement non personnel — le toucher casserait un invariant existant |
 | **Le catalogue** (`/revision/settings`, filtre « boîte 5 ») | **inchangé — DÉCIDÉ, pas oublié** | ⚠️ **Il en découle que les deux écrans ne disent pas la même chose, et c'est voulu** : la tuile de `/revision` annonce 0 pendant que `?box=5` liste la carte. Le catalogue est un inventaire de **contenu** — la carte *est* factuellement en boîte 5 —, même raison que `totalCards` juste au-dessus ; et c'est l'écran qui sert à **corriger** une carte, donc l'y faire disparaître serait la rendre inatteignable. Ne « réconcilie » pas les deux côtés sans rouvrir cet arbitrage |
 | Rétention, `mostAgainCards`, `stuckCards` | **inchangés** | ils lisent `leitner_reviews` ; les entretiens y entrent et **comptent comme des réussites**, assumé |
-| **Pastille latérale** | **file normale seulement** | un entretien dû une fois par an ne doit pas produire la même pression qu'une carte due aujourd'hui. ⚠️ **Ce que ça coûte, et c'est assumé** : l'entretien peut être ignoré indéfiniment — d'où le fait que sa section devra être **visible** sur `/revision` au lot suivant, pas enterrée |
+| **Pastille latérale** | **file normale seulement** | un entretien dû une fois par an ne doit pas produire la même pression qu'une carte due aujourd'hui. ⚠️ **Ce que ça coûte** : l'entretien pouvait être ignoré indéfiniment — c'est la dette que CC-262 a payée en rendant sa section **visible** sur `/revision`, et c'est pour ça que cet écran est le **seul** qui la signale |
 
 ⚠️ **Aucune migration dans ce lot** : les cinq colonnes de CC-260 suffisent, et aucune ligne
 existante ne portait `mastered_at`. ⚠️ **Si un jour on veut rendre le choix de la pastille réglable
 par compte, ce sera un autre ticket** : `leitner_settings` est un réglage d'**installation** (une
 ligne, `check(id = 1)`), il n'existe **aucun** mécanisme de préférence par compte dans le module.
 N'en improvise pas un.
+
+## L'inventaire d'acquis, enfin visible (CC-262)
+
+Troisième et dernier lot de la série, et celui qui répond à l'objectif produit : le module ne
+montrait que **ce qu'il reste à faire**. Après CC-260 et CC-261 la donnée existait, la mécanique
+était juste — et rien ne l'affichait. Ce lot **n'ajoute aucune règle** : ni migration, ni critère,
+ni échelle, ni exclusion de file. Il ajoute des lectures et des écrans.
+
+**1. La file d'entretien a un chemin : `/revision?queue=maintenance`.** Aucune route neuve, aucune
+capacité neuve — même contrôleur, même `leitner.view`/`leitner.review`.
+
+- ⚠️ **`queue` n'est PAS une quatrième valeur de `scope`, et il ne faut pas l'y fondre.** Un paquet
+  dit *quelles cartes* (toutes, une catégorie, un thème), la file dit *lesquelles sont dues* ; les
+  deux se composent (`?queue=maintenance&theme=3` = l'entretien d'un thème). Rangé dans `scope`, il
+  aurait hérité du refus « catégorie ET thème » et serait devenu exclusif de tout paquet. Il n'y a
+  **pas** de valeur `normal` à écrire : l'absence est le défaut, et une seconde façon d'écrire le
+  défaut finirait dans les signets.
+- ⚠️ **Il compte dans `asked`, et l'oublier ne lève RIEN** : `/revision?queue=maintenance` rendrait
+  l'écran de **choix** — pas d'erreur, pas de log, juste un bouton d'entretien qui « ne fait rien ».
+  Mode d'échec silencieux n° 1 du lot, mutation vérifiée : la spec fonctionnelle rougit.
+- ⚠️ **Le `withQs()` de `review()` porte la file comme il porte le paquet** (piège n° 1 du module).
+  Sans lui, une session d'entretien retomberait sur la file normale **dès la première note**, en
+  affichant des cartes parfaitement plausibles.
+- Une file d'entretien vide dit « rien à vérifier », **jamais** « bravo, terminé » : on n'y a pas
+  mal choisi son paquet, on n'a simplement rien à faire.
+
+**2. Les boutons de note annoncent ce que la note fera VRAIMENT** — `services/leitner_grade_outcomes.ts`,
+**pur**. ⚠️ **C'est un cinquième livrable, assumé, et il corrige un mensonge introduit par CC-261 :**
+l'écran calculait ses libellés lui-même (`Math.min(5, box + 2)` et l'intervalle de la boîte atteinte,
+recopiés dans le `<script setup>`), donc une carte que la note allait **acquérir** annonçait
+« boîte 5 · dans 30 j » alors qu'elle repart pour 90. Aucun test ne pouvait le voir — jsdom ne lit
+pas les libellés, et le chiffre restait plausible.
+
+- ⚠️ **`nextBox` a été DÉPLACÉE** depuis `LeitnerService` (à l'identique, elle y était déjà pure et
+  privée) : ce n'est pas une troisième copie du plafond, c'est la suppression de la deuxième. La
+  règle qui décide et l'affichage qui l'annonce lisent la même fonction.
+- ⚠️ **Le fichier n'ajoute AUCUNE décision** : il applique `nextBox`, `nextMasteryState` et
+  `maintenanceIntervalDays` dans le **même ordre** que `review()`. Pour changer un comportement,
+  c'est là-bas, jamais ici.
+- ⚠️ **Le rang d'entretien annoncé et celui qui s'écrira doivent être le MÊME nombre** —
+  `LeitnerMasteryService.maintenanceRanks` (lecture, toute la file en une requête) est le pendant de
+  `LeitnerService.maintenanceRank` (écriture, une carte) : même borne `reviewed_at >= mastered_at`,
+  même `>=`. Une divergence donnerait un écran qui promet 90 jours pendant que la base en programme
+  180, et rien ne le signalerait avant l'échéance suivante, des mois plus tard. La spec fonctionnelle
+  compare les deux — c'est le seul endroit où ils se croisent.
+- ⚠️ **`dueLabel(intervalles, boîte)` a été RETIRÉE**, remplacée par `dueInLabel(jours)` : depuis
+  l'échelle d'entretien, une échéance ne se déduit **plus** d'une boîte. Une fonction qui prend une
+  boîte ne *peut pas* dire « dans 180 j, toujours boîte 5 ».
+- Le choix de la **phrase** vit dans `shared/review_page.ts` (`gradeHint`), pur : il rend une **clé
+  i18n**, jamais un texte. Deux phrases neuves seulement — « maîtrisée · entretien … » et « sort des
+  acquis … » —, le reste est mot pour mot ce qui s'affichait avant.
+
+**3. L'inventaire lui-même, sur l'écran de CHOIX seulement** (`components/MasteredInventory.vue`).
+Replié par défaut, groupé par mois d'acquisition, **sans pagination** (volumétrie personnelle, comme
+le catalogue et la heatmap). ⚠️ **Il n'est pas servi pendant une session** : `/revision` ne fait que
+réviser, et une liste de cartes connues à côté de la carte en cours serait du bruit sur le seul
+écran qui demande de la concentration.
+
+- **Ce qui rend l'inventaire *valorisant* tient en deux chiffres, et le second est le plus
+  important** : « dont N ce mois-ci » (sinon c'est un compteur, pas un inventaire) et « N cartes
+  perdues cette année », **sans lequel le premier serait auto-congratulant**. Les pertes viennent de
+  l'historique (`kind`, CC-260), pas de l'état courant : une carte perdue puis ré-acquise reste une
+  carte perdue cette année.
+- ⚠️ **« Perdue » compte des CARTES, pas des accidents** (`count(distinct …)`), et couvre les **deux**
+  chemins de perte : l'`again` d'entretien *et* le 2ᵉ `hard` d'affilée, qui se reconnaît à
+  `box_after < box_before`.
+- ⚠️ **« Ce mois-ci » est le mois CIVIL, pas trente jours glissants.** Un compteur glissant
+  reculerait tout seul demain matin, sans qu'aucune carte n'ait bougé. Un inventaire ne recule pas.
+- ⚠️ **Le panneau d'entretien reste affiché à ZÉRO**, avec la prochaine échéance : disparaître
+  ferait croire que le mécanisme n'existe pas — exactement le reproche que CC-261 se faisait.
+- ⚠️ **Tous les compteurs de l'écran de choix se DÉRIVENT de la même liste**, jamais d'une seconde
+  requête : « dont N ce mois-ci », « N à vérifier », « la prochaine le … ». Deux lectures finiraient
+  par diverger, et l'écran annoncerait « 3 à vérifier » avant d'en présenter 2.
+
+**4. La grille des boîtes gagne sa 6ᵉ case**, « Maîtrisées ». Les acquis ont quitté la boîte 5 des
+compteurs au lot précédent (`whereNotMastered`) : sans cette case, une carte maîtrisée disparaissait
+de l'écran sans la moindre explication — la grille annonçait simplement un nombre plus petit. Les
+deux compteurs sont **disjoints par construction**, aucune carte ne peut être comptée deux fois. La
+case **suit le paquet**, comme les cinq autres.
+
+**5. Le catalogue en deux sections** (`/revision/settings`), et **6. la tuile d'acquis** de
+`/revision/stats` — l'acquis y est une **mesure** (total, ce mois-ci, perdues, part du catalogue),
+jamais une liste : la liste vit sur `/revision`, l'écran où elle sert à choisir.
+
+- ⚠️ **Le catalogue MARQUE, il ne filtre pas.** Un seul tableau, deux `<tbody>` — la sélection
+  multiple, la barre d'actions groupées et les cinq colonnes sont communes. Le filtre `?box=5`
+  continue de lister la carte acquise pendant que la tuile de `/revision` annonce 0 : les deux
+  écrans ne répondent pas à la même question, et c'est l'arbitrage du tableau des compteurs de
+  CC-261. **Ne « réconcilie » pas les deux côtés** — l'y faire disparaître rendrait inéditable, sur
+  le seul écran qui sert à corriger, précisément ce qu'on connaît le mieux.
+- ⚠️ **La maîtrise est un DRAPEAU à côté de la boîte, pas une 6ᵉ boîte** : la carte *est* en boîte 5,
+  et `again` efface le drapeau sans toucher la boîte. Le module a cinq boîtes, et ça n'a pas changé.
+- ⚠️ **`LeitnerMasteryService` ne construit AUCUN arbre de taxonomie** : le chemin d'une carte se lit
+  sur son thème préchargé, sur des cartes déjà filtrées par `applyVisibility`. C'est délibéré —
+  c'est l'oubli que porte encore `leitner_stats_service.ts` sur sa lecture de catégories, et il ne
+  fallait pas le recopier.
+
+⚠️ **Ce qui reste vrai après ce lot, et qu'aucun test ne prouve** : `pages/index.vue` n'a toujours
+pas de test de composant (limite connue, plus bas), donc la session d'entretien elle-même se vérifie
+au navigateur. Et l'apparence — la 6ᵉ case, les mois, les couleurs — n'est prouvable par rien
+d'autre qu'un œil.
 
 ## La règle métier
 

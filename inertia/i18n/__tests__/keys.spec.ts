@@ -23,11 +23,17 @@ import { countCalls, extractKeys } from './extract_keys'
 |
 | ⚠️ **Ce qui n'est PAS couvert, et ne peut pas l'être ici :**
 |
-| 1. **Les clés calculées.** 20 sites du dépôt en portent, en deux familles : l'interpolation
-|    (`t(`agents.status.${status}`)`, `t(`nav.${item.key}`)`) et la clé venue d'une variable
-|    (`t(filter.labelKey)`, `t(p.labelKey)`, `t(urlLabelKey(source)!)` — dont les valeurs vivent en
-|    constantes dans `app/modules/veille/shared/`). Aucune extraction statique ne les atteint. Les
-|    faire passer pour couvertes serait pire que de les nommer.
+| 1. **Les clés calculées.** Une vingtaine de sites du dépôt en portent, en deux familles :
+|    l'interpolation (`t(`agents.status.${status}`)`, `t(`nav.${item.key}`)`) et la clé venue d'une
+|    variable (`t(filter.labelKey)`, `t(p.labelKey)`, `t(urlLabelKey(source)!)` — dont les valeurs
+|    vivent en constantes dans `app/modules/veille/shared/`). Aucune extraction statique ne les
+|    atteint. Les faire passer pour couvertes serait pire que de les nommer.
+|    ⚠️ **CC-262 en a ajouté une troisième variante, et elle est délibérée** : la clé rendue par une
+|    fonction PURE et testée (`gradeHint` → `leitner.index.grade.*`,
+|    `leitner.settings.section*`). Elle échappe au balayage comme les autres, mais elle est le seul
+|    moyen de garder hors du `<script setup>` le CHOIX de la phrase — lequel, lui, régresse en
+|    silence. `tests/unit/leitner_mastery_inventory.spec.ts` asserte chaque clé rendue ; ce que
+|    personne ne vérifie est qu'elle existe dans `fr.json`, et c'est la limite assumée ici.
 | 2. **Le sens inverse** — une clé déclarée que plus aucun template n'utilise. Hors périmètre, et
 |    pas seulement par choix de portée : les sites du point 1 consomment des clés que le balayage ne
 |    voit pas, donc ce sens produirait des faux positifs indiscernables d'une vraie clé morte.
