@@ -100,8 +100,107 @@ export function boxIntervalLabel(intervals: BoxIntervals, box: number): string {
   return days === 1 ? 'tous les jours' : `tous les ${days} j`
 }
 
-/** « demain » / « dans 4 j » — échéance annoncée par un bouton de note. */
-export function dueLabel(intervals: BoxIntervals, box: number): string {
-  const days = intervals[box] ?? 0
+/**
+ * « aujourd'hui » / « demain » / « dans 90 j » — l'échéance annoncée par un bouton de note,
+ * à partir d'un **nombre de jours** (CC-262).
+ *
+ * ⚠️ **`0` se dit « aujourd'hui », il ne se tait pas.** C'est le privilège d'`again` — la
+ * carte reste dans la session — et c'est aussi ce que le bouton doit promettre. Rendre une
+ * chaîne vide ferait disparaître la moitié de la phrase sans que rien ne le signale.
+ *
+ * ⚠️ **Elle prend des JOURS et non une boîte, et c'est ce qui a remplacé `dueLabel`** :
+ * depuis CC-261 l'échéance d'une note ne se déduit plus toujours d'une boîte — une carte
+ * acquise revient au rythme de l'échelle d'entretien (90, 180, 365 j), pas à celui de la
+ * boîte 5. Une fonction qui prend une boîte ne *peut pas* dire cette échéance-là, et c'est
+ * exactement ce qui rendait l'ancien libellé faux sans que rien ne le signale. Le nombre
+ * de jours, lui, vient de `gradeOutcomes`, donc de la règle elle-même.
+ */
+export function dueInLabel(days: number): string {
+  if (days <= 0) return "aujourd'hui"
   return days === 1 ? 'demain' : `dans ${days} j`
+}
+
+/**
+ * Ce que le serveur a calculé pour une note — voir `services/leitner_grade_outcomes.ts`,
+ * qui **importe ce type d'ici**. La page ne recalcule rien : elle choisit une phrase.
+ *
+ * ⚠️ **Une seule déclaration, et c'est le côté PAGE qui la porte** — l'inverse ne marche
+ * pas : un fichier de `shared/` ne peut pas importer par un alias `#modules/*` (Vite ne le
+ * résout pas), alors qu'un service, lui, importe très bien de `shared/` — c'est déjà ce que
+ * fait le validateur avec `PREVIEW_MAX_CHARS`. Recopiée des deux côtés, cette forme
+ * divergerait au premier champ ajouté : le serveur enverrait autre chose que ce que la page
+ * lit, sans que `tsc` ne voie rien (il ne lit pas les `.vue`).
+ */
+export interface GradeOutcome {
+  grade: 'again' | 'hard' | 'good' | 'easy'
+  /** La boîte **après** la note. */
+  box: number
+  /** La carte sera-t-elle un acquis après cette note ? */
+  mastered: boolean
+  /**
+   * Dans combien de jours elle reviendra. **`0` veut dire aujourd'hui**, et c'est une
+   * valeur, pas une absence : c'est tout le privilège d'`again`.
+   */
+  days: number
+}
+
+/** La clé i18n d'un bouton et ses variables — jamais la phrase elle-même. */
+export interface GradeHint {
+  key: string
+  params: Record<string, string | number>
+}
+
+/**
+ * **Quelle phrase annonce l'effet d'une note** (CC-262). Pure : elle ne lit ni horloge, ni
+ * réglage, ni base — tout vient de l'`outcome` calculé par la règle elle-même.
+ *
+ * ⚠️ **Elle rend une CLÉ, pas un texte.** Les libellés du module vivent dans
+ * `i18n/fr.json` ; construire la phrase ici la rendrait intraduisible et invisible du test
+ * qui vérifie que toute clé écrite dans un template existe.
+ *
+ * Les quatre cas qui ne se devinent pas, et qu'aucun test d'apparence ne pourrait
+ * attraper :
+ *
+ * - une note qui **acquiert** la carte n'annonce pas une boîte mais un entretien (90 j au
+ *   premier palier, pas les 30 j de la boîte 5) ;
+ * - `again` **en entretien** ne dit pas « reste boîte 5 » : la carte *sort des acquis* et
+ *   revient dans la file normale, aujourd'hui ;
+ * - le 2ᵉ `hard` d'affilée sur un acquis le fait tomber en boîte 1 **et** sortir des
+ *   acquis — deux effets, une seule phrase ;
+ * - tout le reste est exactement ce qui s'affichait avant ce lot.
+ *
+ * @param card L'état **avant** la note : `mastered` (celui d'`outcome` est celui d'après —
+ *   confondre les deux inverserait la phrase la plus importante de l'écran) et `lastGrade`,
+ *   qui seul distingue le 2ᵉ `hard` d'affilée. ⚠️ **Ne déduis pas la rétrogradation d'une
+ *   boîte 1 en sortie** : une carte *déjà* en boîte 1 y reste sur un `hard` isolé, et
+ *   l'écran annoncerait « 2ᵉ d'affilée » sur la première.
+ */
+export function gradeHint(
+  outcome: GradeOutcome,
+  card: { mastered: boolean; lastGrade: GradeOutcome['grade'] | null }
+): GradeHint {
+  const { mastered, lastGrade } = card
+  const due = dueInLabel(outcome.days)
+
+  if (outcome.grade === 'again') {
+    return mastered
+      ? { key: 'leitner.index.grade.lostMasteryAgain', params: { box: outcome.box } }
+      : { key: 'leitner.index.grade.againHint', params: { box: outcome.box } }
+  }
+
+  if (outcome.mastered) {
+    return { key: 'leitner.index.grade.masteredHint', params: { due } }
+  }
+
+  if (mastered) {
+    return { key: 'leitner.index.grade.lostMasteryHint', params: { box: outcome.box, due } }
+  }
+
+  if (outcome.grade === 'hard') {
+    return lastGrade === 'hard'
+      ? { key: 'leitner.index.grade.hardHintDemote', params: { due } }
+      : { key: 'leitner.index.grade.hardHint', params: { box: outcome.box, due } }
+  }
+
+  return { key: 'leitner.index.grade.boxDue', params: { box: outcome.box, due } }
 }

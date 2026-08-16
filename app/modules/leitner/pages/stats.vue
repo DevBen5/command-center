@@ -105,12 +105,25 @@ interface HabitStats {
   byHour: number[]
 }
 
+/**
+ * L'acquis **comme mesure** (CC-262) : la liste, elle, vit sur `/revision`. `share` vaut
+ * `null` quand le catalogue est vide — « 0 % » se lirait comme une mesure là où il n'y a
+ * rien à mesurer.
+ */
+interface MasteryStats {
+  total: number
+  thisMonth: number
+  lostThisYear: number
+  share: number | null
+}
+
 const props = defineProps<{
   habits: HabitStats
   stats: EffortStats
   retention: RetentionWindow[]
   weakness: WeaknessCategory[]
   problemCards: ProblemCards
+  mastery: MasteryStats
 }>()
 
 /**
@@ -244,6 +257,43 @@ function cardLink(front: string): string {
   </div>
 
   <div class="mx-auto max-w-[880px]">
+    <!-- ================= L'acquis : une mesure, jamais une liste (CC-262) =================
+         La liste complète vit sur `/revision`, l'écran où elle sert à quelque chose (on y
+         choisit quoi réviser). Ici, l'acquis prend sa place à côté des autres mesures : ce
+         qui est su, ce qui l'est devenu ce mois-ci, ce qui a été perdu — le chiffre qui
+         empêche l'inventaire d'être auto-congratulant. -->
+    <div class="mb-2 text-[12.5px] font-semibold text-txt-2">{{ t('leitner.stats.mastery.title') }}</div>
+    <div class="mb-3 rounded-[12px] border border-line bg-panel px-4 py-3">
+      <div v-if="mastery.total === 0" class="text-center text-[12.5px] text-txt-2">
+        {{ t('leitner.stats.mastery.empty') }}
+      </div>
+      <div v-else class="grid grid-cols-4 gap-3 text-center">
+        <div>
+          <div class="font-mono text-[22px] font-bold text-ok">{{ mastery.total }}</div>
+          <div class="text-[10.5px] text-txt-3">{{ t('leitner.stats.mastery.total') }}</div>
+        </div>
+        <div>
+          <div class="font-mono text-[22px] font-bold">{{ mastery.thisMonth }}</div>
+          <div class="text-[10.5px] text-txt-3">{{ t('leitner.stats.mastery.thisMonth') }}</div>
+        </div>
+        <div>
+          <div class="font-mono text-[22px] font-bold" :class="mastery.lostThisYear > 0 ? 'text-warn' : ''">
+            {{ mastery.lostThisYear }}
+          </div>
+          <div class="text-[10.5px] text-txt-3">{{ t('leitner.stats.mastery.lost') }}</div>
+        </div>
+        <div>
+          <!-- `—` et non « 0 % » quand il n'y a rien à mesurer : même règle que la
+               rétention et que les durées de session. -->
+          <div class="font-mono text-[22px] font-bold text-aqua">
+            {{ mastery.share !== null ? `${mastery.share}%` : '—' }}
+          </div>
+          <div class="text-[10.5px] text-txt-3">{{ t('leitner.stats.mastery.share') }}</div>
+        </div>
+      </div>
+      <div class="mt-2 text-[11px] text-txt-3">{{ t('leitner.stats.mastery.intro') }}</div>
+    </div>
+
     <!-- ================= Les points faibles : la rétention rendue actionnable ================= -->
     <div class="mb-2 text-[12.5px] font-semibold text-txt-2">{{ t('leitner.stats.weakness.title') }}</div>
 

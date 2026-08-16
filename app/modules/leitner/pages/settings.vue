@@ -9,11 +9,11 @@ import LeitnerTabs from '../components/LeitnerTabs.vue'
 import MarkdownPreviewPanel from '../components/MarkdownPreviewPanel.vue'
 import { useCan } from '../components/leitner_can'
 import { useMarkdownPreview } from '../components/leitner_markdown_preview'
-import { scrollTopKeepingAnchor } from '../shared/settings_page'
+import { scrollTopKeepingAnchor, splitByMastery } from '../shared/settings_page'
 
 defineOptions({ layout: AppLayout })
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const confirmModal = ref<InstanceType<typeof ConfirmModal> | null>(null)
 
@@ -62,6 +62,17 @@ interface Card {
   // celui qui regarde. Deux personnes voient les mêmes cartes avec des boîtes différentes,
   // et le filtre « boîte N » suit la même règle.
   box: number
+  /**
+   * La date d'acquisition, ou `null` pour une carte en cours (CC-262). C'est elle qui range
+   * la ligne dans l'une des deux sections du tableau.
+   *
+   * ⚠️ **Elle MARQUE, elle ne filtre pas** : une carte maîtrisée reste listée, y compris
+   * sous le filtre « boîte 5 » — qui la trouve toujours pendant que la tuile « boîte 5 »
+   * de `/revision` annonce 0. Les deux écrans ne disent pas la même chose, et c'est un
+   * arbitrage explicite : le catalogue est un inventaire de **contenu**, et c'est l'écran
+   * qui sert à **corriger** une carte. L'y faire disparaître la rendrait inatteignable.
+   */
+  masteredAt: string | null
   theme: { id: number; name: string; category: { id: number; name: string } } | null
   // Privé par défaut (CC-139) : `mine` évite de comparer `ownerId` à l'id du compte connecté
   // à chaque endroit du template.
@@ -183,6 +194,34 @@ function resetFilters(): void {
 const themesOfFilteredCategory = computed<ThemeNode[]>(
   () => props.categories.find((category) => category.id === filters.categoryId)?.themes ?? []
 )
+
+/**
+ * Le catalogue en deux sections (CC-262) — le partage vit dans `shared/settings_page.ts`,
+ * pur et prouvé.
+ *
+ * ⚠️ **Un seul tableau, deux `<tbody>`**, et non deux tableaux : la sélection multiple, la
+ * barre d'actions groupées et les cinq colonnes sont communes. Deux tableaux les auraient
+ * dédoublées, et « tout sélectionner » aurait cessé de vouloir dire quelque chose.
+ */
+const sections = computed(() => {
+  const { inProgress, mastered } = splitByMastery(props.cards)
+  return [
+    { key: 'inProgress', labelKey: 'leitner.settings.sectionInProgress', cards: inProgress },
+    { key: 'mastered', labelKey: 'leitner.settings.sectionMastered', cards: mastered },
+  ].filter((section) => section.cards.length > 0)
+})
+
+/**
+ * ⚠️ **Les en-têtes de section n'apparaissent que s'il y a quelque chose à séparer.** Sur
+ * une base sans aucun acquis — le cas de toute installation neuve — une bande « Cartes en
+ * cours » seule au-dessus du tableau ne dirait rien que le tableau ne dit déjà.
+ */
+const showSectionHeaders = computed(() => sections.value.length > 1)
+
+/** « 12 juin 2026 » — la date d'acquisition, dans la langue de l'interface. */
+function masteredLabel(iso: string): string {
+  return new Intl.DateTimeFormat(locale.value, { dateStyle: 'long' }).format(new Date(iso))
+}
 
 /*
 | Sélection multiple
@@ -708,9 +747,27 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
               </th>
             </tr>
           </thead>
-          <tbody>
+          <!-- Deux sections, un seul tableau (CC-262) : « Cartes en cours » puis « Cartes
+               maîtrisées ». Le partage est un marquage, jamais un filtre — les deux moitiés
+               gardent leurs actions, et le filtre « boîte 5 » traverse les deux. -->
+          <tbody v-for="section in sections" :key="section.key">
+            <tr v-if="showSectionHeaders" class="border-b border-line bg-panel-2">
+              <td
+                :colspan="canWriteCards ? 5 : 3"
+                class="px-3 py-2 text-[10.5px] tracking-[.1em] text-txt-3 uppercase"
+              >
+                {{ t(section.labelKey) }}
+                <span class="ml-1.5 normal-case">
+                  {{
+                    section.cards.length > 1
+                      ? t('leitner.settings.sectionCountPlural', { n: section.cards.length })
+                      : t('leitner.settings.sectionCountSingular', { n: section.cards.length })
+                  }}
+                </span>
+              </td>
+            </tr>
             <tr
-              v-for="card in cards"
+              v-for="card in section.cards"
               :key="card.id"
               class="border-b border-line last:border-b-0 hover:bg-panel-2"
             >
@@ -753,6 +810,15 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
               </td>
               <td class="py-2.5 pr-3 align-top">
                 <span class="font-mono text-[12.5px]">{{ card.box }}</span>
+                <!-- ⚠️ La carte reste en boîte 5 : la maîtrise est un DRAPEAU à côté de la
+                     boîte, pas une 6ᵉ boîte. Le module n'en a que cinq, et `again` sur un
+                     acquis efface le drapeau sans toucher la boîte. -->
+                <div v-if="card.masteredAt" class="mt-1 text-[10px] whitespace-nowrap text-ok">
+                  {{ t('leitner.settings.masteredBadge') }}
+                  <div class="text-txt-3">
+                    {{ t('leitner.settings.masteredSince', { date: masteredLabel(card.masteredAt) }) }}
+                  </div>
+                </div>
               </td>
               <td v-if="canWriteCards" class="py-2.5 pr-3 text-right align-top whitespace-nowrap">
                 <template v-if="canEditCard(card)">
@@ -774,7 +840,12 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
                 <span v-else class="text-[11px] text-txt-3 italic">{{ t('leitner.settings.notMineHint') }}</span>
               </td>
             </tr>
-            <tr v-if="!cards.length">
+          </tbody>
+          <!-- Le vide vit dans son propre `<tbody>` : celui des sections est vide lui-même
+               quand il n'y a rien à montrer, et une ligne posée à l'intérieur de sa boucle
+               ne s'afficherait jamais. -->
+          <tbody v-if="!cards.length">
+            <tr>
               <td :colspan="canWriteCards ? 5 : 3" class="py-8 text-center text-[12.5px] text-txt-3">
                 <template v-if="totalCards">{{ t('leitner.settings.noMatch') }}</template>
                 <template v-else>
