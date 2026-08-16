@@ -1354,9 +1354,9 @@ jamais une liste : la liste vit sur `/revision`, l'écran où elle sert à chois
 - ⚠️ **La maîtrise est un DRAPEAU à côté de la boîte, pas une 6ᵉ boîte** : la carte *est* en boîte 5,
   et `again` efface le drapeau sans toucher la boîte. Le module a cinq boîtes, et ça n'a pas changé.
 - ⚠️ **`LeitnerMasteryService` ne construit AUCUN arbre de taxonomie** : le chemin d'une carte se lit
-  sur son thème préchargé, sur des cartes déjà filtrées par `applyVisibility`. C'est délibéré —
-  c'est l'oubli que porte encore `leitner_stats_service.ts` sur sa lecture de catégories, et il ne
-  fallait pas le recopier.
+  sur son thème préchargé, sur des cartes déjà filtrées par `applyVisibility`. C'est délibéré — et
+  depuis CC-263, `leitner_stats_service.ts` (`weaknessByTheme`) suit la même règle sur son propre
+  arbre de catégories : c'était le seul oubli du module, corrigé, pas un patron à recopier ici.
 
 ⚠️ **Ce qui reste vrai après ce lot, et qu'aucun test ne prouve** : `pages/index.vue` n'a toujours
 pas de test de composant (limite connue, plus bas), donc la session d'entretien elle-même se vérifie
