@@ -70,6 +70,15 @@ Le backfill de `kind`, lui, n'a rien à prouver : le `default` de la colonne est
   un objet toujours truthy : le panneau s'afficherait **en permanence, y compris replié**, avec
   les trois gates au vert. Le montage porte en prime l'assertion sur la classe `markdown` **au
   rendu**, là où `leitner_card_preview.spec.ts` ne peut la lire que dans la source.
+- `app/modules/leitner/components/__tests__/mastered_inventory.spec.ts` — l'**inventaire d'acquis**
+  (CC-262). ⚠️ **Il ne teste que le repli, et c'est délibéré** : le regroupement par mois vit dans
+  `shared/mastery_inventory.ts`, prouvé côté Japa. Ce qui régresse en silence ici, c'est une liste
+  de centaines de lignes dépliée par défaut sur l'écran de choix — aucune erreur, juste un écran
+  noyé. ⚠️ **Le test reproduit le geste dans les DEUX sens** (cliquer, voir apparaître, recliquer,
+  voir disparaître) : s'arrêter à l'ouverture passerait au vert avec un `v-show` à la place du
+  `v-if`, donc avec la liste toujours montée — mutation vérifiée, elle rougit. Plus le compteur et
+  « dont N ce mois-ci » visibles **sans** déplier, les pertes de l'année masquées à zéro, et l'état
+  sans acquis qui explique au lieu d'afficher un zéro nu.
 - `app/modules/leitner/components/__tests__/taxonomy_combobox.spec.ts` — l'invariant `filtering` :
   rouvrir la liste après avoir tapé remontre **toute** la taxonomie. ⚠️ Il ne prouve quelque chose
   que parce qu'il **tape d'abord** : `filtering` vaut déjà `false` au montage, donc ouvrir sans
@@ -173,6 +182,30 @@ navigateur.
   `DateTime.now()` distincts dont l'écart de quelques microsecondes serait sinon *load-bearing*.
   ⚠️ **Et ce `>=` est INERTE aujourd'hui — mesuré, pas déduit** : le remplacer par `>` laisse la
   suite entièrement **verte**, l'écart de microsecondes suffisant à compter la note d'acquisition.
+- `tests/unit/leitner_grade_outcomes.spec.ts` — **ce que chaque note va faire** (CC-262), code pur :
+  la boîte atteinte, l'acquis, et le nombre de jours annoncés sous les quatre boutons. ⚠️ **Ce que
+  ce fichier garde, et que rien d'autre ne pouvait garder** : l'écran calculait ces effets lui-même,
+  dans un `<script setup>` hors de portée de tout exécuteur — et depuis CC-261 sa promesse était
+  **fausse** sur la note la plus importante du module, celle qui acquiert une carte (annoncée
+  « boîte 5 · dans 30 j » alors qu'elle repart pour 90). Les cas qui portent le fichier : la note
+  qui acquiert (90 et non 30), les trois rangs d'entretien plus la répétition du dernier, `hard` sur
+  un acquis qui **le conserve** donc suit le même palier, `again` en entretien (dé-maîtrise,
+  aujourd'hui, boîte **inchangée**), le 2ᵉ `hard` sur un acquis (boîte 1 **et** sortie des acquis),
+  les deux extrêmes de `box5Days`, et le rang qui **ne s'applique qu'à une carte déjà acquise** —
+  sans cette borne, une carte ré-acquise après un oubli repartirait à un an. Plus `nextBox`, dont ce
+  lot n'a fait que **déplacer** la règle depuis `LeitnerService` : le test rougirait si elle avait
+  bougé au passage.
+- `tests/unit/leitner_mastery_inventory.spec.ts` — l'inventaire **vu de la page** (CC-262), code pur.
+  Le regroupement par mois (ordre décroissant, **aucun mois vide** — la liste n'est pas un
+  calendrier), « ce mois-ci » qui est le mois **civil** et non trente jours glissants (le test le
+  prouve en changeant de mois sans changer les cartes : un compteur glissant reculerait tout seul),
+  l'entretien dû **bornes incluses**, la part du catalogue qui rend `null` et jamais « 0 % » sur une
+  base vide, et le partage du catalogue en deux sections — dont la somme fait le tout, sans quoi une
+  carte acquise deviendrait inéditable sur le seul écran qui sert à corriger. Plus la **phrase** de
+  chaque bouton (`gradeHint`, qui rend une clé i18n et jamais un texte) : le cas nominal inchangé,
+  « 2ᵉ d'affilée » décidé sur la note **précédente** et non sur la boîte atteinte (une carte déjà en
+  boîte 1 y reste sur un `hard` isolé), et la phrase la plus importante de l'écran d'entretien —
+  `again` sur un acquis dit la **sortie** des acquis, pas « reste boîte 5 ».
   Ce qu'il achète a été mesuré autrement, en simulant le refactor qu'il anticipe (un seul
   `DateTime.now()` pour la marque **et** pour `reviewed_at`) : dans ce monde-là, `>=` reste vert et
   `>` fait rougir la séquence. Même honnêteté que la note de CC-260 sur `kind` hors d'`omitNull` —
@@ -213,6 +246,22 @@ navigateur.
   d'un paquet (distincte d'un paquet vide dès le départ), et surtout que **noter une carte conserve
   le paquet** : le piège n° 1, celui du `withQs()`. Il **assert l'en-tête `location` brut** —
   `assertRedirectsTo` ne compare que le chemin et laisserait passer la régression.
+- `tests/functional/modules/leitner_mastery_inventory.spec.ts` — l'inventaire d'acquis **par les
+  routes** (CC-262), et le seul fichier qui prouve que la file d'entretien a enfin un chemin :
+  CC-261 l'avait laissée sans appelant, donc une carte acquise n'était atteignable par **aucun**
+  écran. ⚠️ **Le test qui ferme le mode d'échec silencieux du lot** est `?queue=maintenance` qui
+  rend `view: 'session'` : si `queue` ne comptait pas dans « un paquet a-t-il été demandé ? », on
+  obtiendrait l'écran de choix — sans erreur, sans log, avec un bouton d'entretien qui « ne fait
+  rien » (mutation vérifiée, elle rougit). ⚠️ **Le second** est la comparaison entre ce que l'écran
+  **promet** sous le bouton et ce que la base **programme** ensuite : c'est le seul endroit où les
+  deux se croisent, et une divergence ne se verrait pas avant l'échéance suivante, des mois plus
+  tard. Plus : noter en entretien **conserve** `queue=maintenance` (le piège n° 1, avec l'en-tête
+  `location` brut), les deux files disjointes, la 6ᵉ case qui compte ce que la boîte 5 ne compte
+  plus, un `again` d'entretien qui sort la carte des acquis **et** la fait compter comme perdue,
+  « perdue » qui compte des **cartes** et non des accidents, le catalogue qui **marque sans
+  filtrer** (`?box=5` liste encore l'acquise pendant que la tuile annonce 0 — décidé, pas oublié),
+  et le cloisonnement **à deux cloisons** : visibilité du contenu (CC-139) *et* `user_id` de la
+  progression (CC-119), retirer l'une des deux laisse le test rouge.
 - `tests/unit/leitner_scope_search.spec.ts` — le **filtrage de la barre de recherche**, dont
   `securite` qui trouve « Sécurité » (le test qui compte), le chemin `Catégorie · Thème`, et un
   paquet à 0 trouvé mais **non sélectionnable**. Du code pur : il ne voit ni le focus/blur, ni le
@@ -297,6 +346,12 @@ navigateur.
   **une durée négative rendue `null`, jamais `0`**), le dévoilement qui **fige** le temps total, les
   libellés d'échéance qui régressent en silence, et le **garde-fou anti-copie** de `MEASURE_MAX_MS`
   — il relit `index.vue` et rougit si le littéral y réapparaît, y compris en commentaire.
+  ⚠️ **`dueLabel(intervalles, boîte)` a été RETIRÉE par CC-262**, remplacée par `dueInLabel(jours)` :
+  depuis l'échelle d'entretien, l'échéance d'une note ne se déduit plus d'une boîte — une carte
+  acquise revient dans 90, 180 ou 365 jours **en restant boîte 5**. Une fonction qui prend une boîte
+  ne *peut pas* dire cette échéance-là. Son cas « 0 » disait « dans 0 j » et dit maintenant
+  « aujourd'hui », qui est ce qu'`again` promet réellement — et c'est devenu un cas **nominal**,
+  plus une boîte inexistante.
 
 ## Le catalogue et la sauvegarde
 

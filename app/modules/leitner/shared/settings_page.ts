@@ -50,3 +50,27 @@ export interface AnchorShift {
 export function scrollTopKeepingAnchor({ scrollTop, topBefore, topAfter }: AnchorShift): number {
   return Math.max(0, scrollTop + (topAfter - topBefore))
 }
+
+/**
+ * Le catalogue en **deux sections** : ce qui est en cours d'apprentissage, et ce qui est
+ * acquis (CC-262).
+ *
+ * ⚠️ **C'est un partage, jamais un filtre.** Les deux moitiés s'affichent, l'une sous
+ * l'autre, dans le même tableau et avec les mêmes actions : une carte maîtrisée doit rester
+ * éditable et supprimable, sans quoi l'écran de correction du module cesserait de pouvoir
+ * corriger ce qu'on connaît le mieux. C'est aussi pour ça que le filtre « boîte 5 »
+ * continue de la trouver, pendant que la tuile « boîte 5 » de `/revision` annonce 0 — les
+ * deux écrans ne répondent pas à la même question (contenu / file), arbitrage de CC-261.
+ *
+ * ⚠️ **L'ordre reçu du serveur est conservé dans chaque section** (`id desc`), et il ne
+ * faut pas retrier ici : c'est lui que le recalage de défilement ci-dessus suppose, les
+ * cartes importées s'insérant en tête.
+ */
+export function splitByMastery<T extends { masteredAt: string | null }>(
+  cards: T[]
+): { inProgress: T[]; mastered: T[] } {
+  return {
+    inProgress: cards.filter((card) => card.masteredAt === null),
+    mastered: cards.filter((card) => card.masteredAt !== null),
+  }
+}

@@ -5,19 +5,22 @@ import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import LeitnerScopePicker from '../components/LeitnerScopePicker.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
+import MasteredInventory from '../components/MasteredInventory.vue'
 import { xsrfToken } from '../components/leitner_csrf'
 import { useCan } from '../components/leitner_can'
 // L'écrêtage, la mesure et les libellés d'échéance vivent hors du `.vue` : Japa n'a aucun
 // compilateur Vue, et `MEASURE_MAX_MS` doit être la MÊME valeur que celle du validateur.
 import {
   boxIntervalLabel as labelForBox,
-  dueLabel as labelForDue,
   fluencyMeasure as measureFluency,
+  gradeHint,
+  type GradeOutcome,
 } from '../shared/review_page.js'
+import type { MasteredCard } from '../shared/mastery_inventory.js'
 
 defineOptions({ layout: AppLayout })
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 type Grade = 'again' | 'hard' | 'good' | 'easy'
 /** Ce que le juge peut dire. Il **propose** une note, il ne la choisit jamais. */
@@ -38,6 +41,14 @@ interface LeitnerCard {
   // Note de la révision précédente **de cette personne** : deux `hard` d'affilée
   // ramènent en boîte 1, et la règle ne traverse jamais deux comptes.
   lastGrade: Grade | null
+  // La carte est-elle un acquis **avant** cette note (CC-262) ? Toujours `true` dans la
+  // file d'entretien, `false` dans la file normale — les deux sont disjointes.
+  mastered: boolean
+  // ⚠️ **Ce que chaque note fera, calculé par la RÈGLE** (`leitner_grade_outcomes.ts`).
+  // La page ne recalcule ni le plafond des boîtes ni l'intervalle : c'est cette recopie
+  // qui annonçait « boîte 5 · dans 30 j » sur une carte que la note allait acquérir, donc
+  // ramener dans 90 jours.
+  outcomes: GradeOutcome[]
   theme: { id: number; name: string; category: { id: number; name: string } } | null
 }
 
@@ -62,6 +73,17 @@ interface ScopeChoices {
   totalDueCount: number
 }
 
+/** L'inventaire d'acquis, servi **uniquement** sur l'écran de choix (CC-262). */
+interface MasteryInventory {
+  cards: MasteredCard[]
+  total: number
+  thisMonth: number
+  lostThisYear: number
+  /** Les acquis dont l'entretien est dû aujourd'hui — ceux que `?queue=maintenance` sert. */
+  maintenanceDue: number
+  nextMaintenanceAt: string | null
+}
+
 /**
  * Deux visages, une seule page — c'est la query string qui tranche (`view`) :
  * `/revision` propose de **choisir** un paquet, `/revision?theme=3` le révise.
@@ -73,19 +95,36 @@ interface ScopeChoices {
 const props = defineProps<{
   view: 'choice' | 'session'
   scope: { label: string; finished: boolean } | null
+  /**
+   * **Quelle file** on révise (CC-262). Les deux sont disjointes : la normale exclut les
+   * acquis, l'entretien ne contient qu'eux. Le paquet (`scope`) est orthogonal — on peut
+   * entretenir un thème.
+   */
+  queue: 'normal' | 'maintenance'
   choices?: ScopeChoices
   scopeError?: string | null
   dueCards?: LeitnerCard[]
   boxCounts: Record<number, number>
+  /** La 6ᵉ case : les acquis, qui ont quitté la boîte 5 des compteurs (CC-261). */
+  masteredCount: number
+  mastery?: MasteryInventory
   // Intervalles envoyés par le serveur (BOX_INTERVAL_DAYS) : ne pas les redéclarer ici.
   boxIntervals: Record<number, number>
   stats: Stats
 }>()
 
-// Deux enveloppes : elles n'injectent que les intervalles reçus du serveur. Le libellé
+// Enveloppe d'une ligne : elle n'injecte que les intervalles reçus du serveur. Le libellé
 // lui-même vit dans `shared/review_page.ts`, où il est prouvé.
 const boxIntervalLabel = (box: number): string => labelForBox(props.boxIntervals, box)
-const dueLabel = (box: number): string => labelForDue(props.boxIntervals, box)
+
+/** « 12 novembre » — la prochaine échéance d'entretien, dans la langue de l'interface. */
+const nextMaintenanceLabel = computed(() => {
+  const iso = props.mastery?.nextMaintenanceAt
+  if (!iso) return null
+  return new Intl.DateTimeFormat(locale.value, { day: 'numeric', month: 'long' }).format(
+    new Date(iso)
+  )
+})
 
 /**
  * Noter écrit une progression et une ligne d'historique, **qui n'appartiennent qu'à celui
@@ -365,39 +404,27 @@ const VERDICT_LABELS = computed<Record<Verdict, string>>(() => ({
  */
 const highlightedGrade = computed<Grade>(() => suggestedGrade.value ?? 'easy')
 
-// Chaque bouton annonce la boîte atteinte et l'échéance : quatre notes, quatre effets.
+/**
+ * Chaque bouton annonce ce que la note fera : quatre notes, quatre effets.
+ *
+ * ⚠️ **Plus une seule ligne d'arithmétique ici** (CC-262). La boîte atteinte, l'acquis et
+ * le nombre de jours viennent de `outcomes`, calculés par la règle elle-même ; le choix de
+ * la phrase vient de `gradeHint`, pur et prouvé. Ce `<script setup>` recopiait
+ * `Math.min(5, box + 2)` et l'intervalle de la boîte atteinte — une copie qui est devenue
+ * **fausse** avec l'entretien de CC-261 sans qu'aucun test ne puisse le voir.
+ */
 const gradeActions = computed(() => {
   const card = currentCard.value
   if (!card) return []
 
-  const good = Math.min(5, card.box + 1)
-  const easy = Math.min(5, card.box + 2)
-  const hardDemotes = card.lastGrade === 'hard'
-
-  return [
-    {
-      grade: 'again' as Grade,
-      label: t('leitner.index.grade.again'),
-      hint: t('leitner.index.grade.againHint', { box: card.box }),
-    },
-    {
-      grade: 'hard' as Grade,
-      label: t('leitner.index.grade.hard'),
-      hint: hardDemotes
-        ? t('leitner.index.grade.hardHintDemote', { due: dueLabel(1) })
-        : t('leitner.index.grade.hardHint', { box: card.box, due: dueLabel(card.box) }),
-    },
-    {
-      grade: 'good' as Grade,
-      label: t('leitner.index.grade.good'),
-      hint: t('leitner.index.grade.boxDue', { box: good, due: dueLabel(good) }),
-    },
-    {
-      grade: 'easy' as Grade,
-      label: t('leitner.index.grade.easy'),
-      hint: t('leitner.index.grade.boxDue', { box: easy, due: dueLabel(easy) }),
-    },
-  ]
+  return card.outcomes.map((outcome) => {
+    const hint = gradeHint(outcome, { mastered: card.mastered, lastGrade: card.lastGrade })
+    return {
+      grade: outcome.grade,
+      label: t(`leitner.index.grade.${outcome.grade}`),
+      hint: t(hint.key, hint.params),
+    }
+  })
 })
 
 /**
@@ -451,6 +478,11 @@ function grade(g: Grade): void {
       </div>
       <div v-else class="text-[18px] font-bold">{{ t('leitner.index.browseTitle') }}</div>
       <div v-if="scope" class="mt-0.5 flex items-center gap-2 text-[11.5px] text-txt-3">
+        <!-- La file d'entretien se nomme : sans ça, on croirait réviser normalement des
+             cartes qu'on connaît, et les échéances annoncées paraîtraient absurdes. -->
+        <span v-if="queue === 'maintenance'" class="rounded-full border border-ok px-2 py-0.5 text-ok">
+          {{ t('leitner.index.maintenanceDeckLabel') }}
+        </span>
         <span>{{ t('leitner.index.deckLabel', { label: scope.label }) }}</span>
         <Link href="/revision" class="text-accent transition hover:opacity-80">{{
           t('leitner.index.change')
@@ -531,6 +563,57 @@ function grade(g: Grade): void {
           Gérer les cartes
         </Link>
       </div>
+
+      <!-- ⚠️ **L'entretien est ici et nulle part ailleurs** (CC-262). La pastille de la
+           barre latérale l'ignore délibérément — un entretien dû une fois par an ne doit
+           pas produire la même pression qu'une carte due aujourd'hui (CC-261) — donc cet
+           écran est le SEUL qui le signale. Enterré, il serait ignorable indéfiniment, et
+           « maîtrisée » deviendrait une affirmation que plus rien ne contrôle.
+           Il reste affiché à zéro : disparaître ferait croire que le mécanisme n'existe pas. -->
+      <section
+        v-if="mastery && mastery.total > 0"
+        class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-[14px] border p-5"
+        :class="mastery.maintenanceDue > 0 ? 'border-aqua bg-panel' : 'border-line bg-panel'"
+      >
+        <div class="min-w-0 flex-1">
+          <div class="text-[12px] font-bold tracking-[.12em] text-txt-2 uppercase">
+            {{ t('leitner.index.maintenanceTitle') }}
+          </div>
+          <div v-if="mastery.maintenanceDue > 0" class="mt-1 text-[15px] font-semibold text-aqua">
+            {{
+              mastery.maintenanceDue > 1
+                ? t('leitner.index.maintenanceDuePlural', { n: mastery.maintenanceDue })
+                : t('leitner.index.maintenanceDueSingular', { n: mastery.maintenanceDue })
+            }}
+          </div>
+          <div v-else class="mt-1 text-[12.5px] text-txt-2">
+            {{ t('leitner.index.maintenanceNone') }}
+            <span v-if="nextMaintenanceLabel">
+              {{ t('leitner.index.maintenanceNext', { date: nextMaintenanceLabel }) }}
+            </span>
+          </div>
+          <div class="mt-0.5 text-[11.5px] text-txt-3">
+            {{ t('leitner.index.maintenanceHint') }}
+          </div>
+        </div>
+        <Link
+          v-if="mastery.maintenanceDue > 0 && canReview"
+          href="/revision?queue=maintenance"
+          class="rounded-[10px] border border-aqua bg-panel-2 px-3.5 py-2 text-[12.5px] text-aqua transition hover:opacity-90"
+        >
+          {{ t('leitner.index.maintenanceStart') }}
+        </Link>
+      </section>
+
+      <!-- L'inventaire d'acquis — le seul écran du module qui ne parle pas de dette. -->
+      <MasteredInventory
+        v-if="mastery"
+        class="mt-4"
+        :cards="mastery.cards"
+        :total="mastery.total"
+        :this-month="mastery.thisMonth"
+        :lost-this-year="mastery.lostThisYear"
+      />
     </template>
 
     <div
@@ -680,6 +763,15 @@ function grade(g: Grade): void {
           {{ t('leitner.index.finishedHint') }}
         </div>
       </template>
+      <!-- Une file d'entretien vide ne se dit pas comme un paquet vide : on n'y « n'a rien
+           à réviser » pas, on n'a simplement **rien à vérifier** — et c'est une bonne
+           nouvelle, pas un paquet mal choisi. -->
+      <template v-else-if="queue === 'maintenance'">
+        <div class="text-[16px] font-semibold">{{ t('leitner.index.maintenanceEmptyTitle') }}</div>
+        <div class="max-w-[380px] text-[12.5px] text-txt-2">
+          {{ t('leitner.index.maintenanceEmptyHint') }}
+        </div>
+      </template>
       <template v-else>
         <div class="text-[16px] font-semibold">{{ t('leitner.index.emptyDeckTitle') }}</div>
         <div class="max-w-[380px] text-[12.5px] text-txt-2">
@@ -709,7 +801,12 @@ function grade(g: Grade): void {
       </h2>
       <span class="h-px flex-1 bg-line"></span>
     </div>
-    <div class="grid grid-cols-5 gap-3.5">
+    <!-- ⚠️ **Six cases depuis CC-262, et la sixième n'est pas décorative** : les acquis ont
+         quitté la boîte 5 des compteurs au lot précédent (`whereNotMastered`). Sans elle,
+         une carte maîtrisée disparaîtrait de cet écran sans la moindre explication — la
+         grille annoncerait simplement un nombre plus petit. Les deux compteurs sont
+         disjoints par construction, ils ne peuvent pas compter la même carte deux fois. -->
+    <div class="grid grid-cols-6 gap-3.5">
       <div
         v-for="box in [1, 2, 3, 4, 5]"
         :key="box"
@@ -726,6 +823,13 @@ function grade(g: Grade): void {
           {{ boxCounts[box] ?? 0 }}
         </div>
         <div class="text-[10.5px] text-txt-2">{{ boxIntervalLabel(box) }}</div>
+      </div>
+      <div class="rounded-[12px] border border-ok bg-panel p-4 text-center">
+        <div class="text-[10px] tracking-[.1em] text-txt-3 uppercase">
+          {{ t('leitner.index.masteredBox') }}
+        </div>
+        <div class="my-2 font-mono text-[26px] font-bold text-ok">{{ masteredCount }}</div>
+        <div class="text-[10.5px] text-txt-2">{{ t('leitner.index.masteredBoxHint') }}</div>
       </div>
     </div>
   </div>

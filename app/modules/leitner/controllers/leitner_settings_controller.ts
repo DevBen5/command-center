@@ -65,6 +65,9 @@ export default class LeitnerSettingsController {
       cards: cards.map((card) => ({
         ...card.serialize(),
         box: progressBox(card),
+        // La date d'acquisition (CC-262) : c'est elle qui range la ligne dans la section
+        // « Cartes maîtrisées ». `null` = en cours — l'immense majorité des lignes.
+        masteredAt: card.progress[0]?.masteredAt?.toISO() ?? null,
         // `owner_id`/`is_shared` sont déjà dans `serialize()` (colonnes du modèle) sous
         // `ownerId`/`isShared` — `mine` évite à la page de comparer un id à la main.
         mine: card.ownerId === userId,

@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import {
   MEASURE_MAX_MS,
   boxIntervalLabel,
-  dueLabel,
+  dueInLabel,
   duration,
   fluencyMeasure,
   type FluencyState,
@@ -84,20 +84,32 @@ test.group('Leitner — libellés d’échéance', () => {
   test('le singulier se dit sans le nombre', ({ assert }) => {
     // Du wording, mais il régresse en silence — d'où son test.
     assert.equal(boxIntervalLabel({ 1: 1 }, 1), 'tous les jours')
-    assert.equal(dueLabel({ 1: 1 }, 1), 'demain')
+    assert.equal(dueInLabel(1), 'demain')
   })
 
   test('au-delà d’un jour, le nombre s’affiche', ({ assert }) => {
     const intervals = { 1: 1, 2: 2, 3: 4, 4: 7, 5: 30 }
 
     assert.equal(boxIntervalLabel(intervals, 3), 'tous les 4 j')
-    assert.equal(dueLabel(intervals, 5), 'dans 30 j')
+    assert.equal(dueInLabel(intervals[5]), 'dans 30 j')
   })
 
   test('une boîte sans intervalle réglé retombe sur 0, sans lever', ({ assert }) => {
     // Le cas d'une carte importée en boîte 12 : la grille affiche, elle ne casse pas.
     assert.equal(boxIntervalLabel({ 1: 1 }, 12), 'tous les 0 j')
-    assert.equal(dueLabel({ 1: 1 }, 12), 'dans 0 j')
+  })
+
+  test('zéro jour se dit « aujourd’hui », il ne se tait pas', ({ assert }) => {
+    // ⚠️ **`dueLabel(intervalles, boîte)` a été RETIRÉE par CC-262, remplacée par
+    // `dueInLabel(jours)`** : depuis l'échelle d'entretien (CC-261), l'échéance d'une note
+    // ne se déduit plus d'une boîte — une carte acquise revient dans 90, 180 ou 365 jours
+    // en restant boîte 5. Une fonction qui prend une boîte ne *peut pas* dire ça, et
+    // c'était exactement le libellé faux que personne ne voyait.
+    //
+    // Son cas « 0 » disait « dans 0 j » ; il dit maintenant « aujourd'hui », qui est ce
+    // qu'`again` promet réellement — et c'est désormais un cas nominal, plus une boîte
+    // inexistante.
+    assert.equal(dueInLabel(0), "aujourd'hui")
   })
 })
 

@@ -57,6 +57,13 @@ export default class LeitnerCatalogService {
    * la boîte de chaque ligne, et le filtre « boîte N », sont ceux de `userId`. Deux
    * personnes voient donc le même catalogue avec des boîtes différentes, ce qui est le
    * comportement voulu.
+   *
+   * ⚠️ **La progression est préchargée pour la date d'acquisition** (CC-262) : le
+   * catalogue sépare « cartes en cours » et « cartes maîtrisées ». ⚠️ **Il les MARQUE, il
+   * ne les filtre pas** — une carte acquise reste listée, y compris sous le filtre
+   * « boîte 5 » qui la trouve toujours pendant que la tuile de `/revision` annonce 0.
+   * C'est un arbitrage explicite de CC-261 (inventaire de **contenu** d'un côté, file de
+   * l'autre) et l'écran de correction : l'y faire disparaître la rendrait inéditable.
    */
   async cards(
     userId: number,
@@ -65,6 +72,7 @@ export default class LeitnerCatalogService {
   ): Promise<LeitnerCard[]> {
     const query = LeitnerCard.query()
       .preload('theme', (theme) => theme.preload('category'))
+      .preload('progress', (progress) => progress.where('user_id', userId))
       .orderBy('leitner_cards.id', 'desc')
 
     joinProgress(query, userId)

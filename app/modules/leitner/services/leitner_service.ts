@@ -10,6 +10,7 @@ import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 import { isUsableMeasure } from '#modules/leitner/services/leitner_fluency'
 import { countByDay, currentStreak } from '#modules/leitner/services/leitner_habits'
 import LeitnerFluencyService from '#modules/leitner/services/leitner_fluency_service'
+import { nextBox } from '#modules/leitner/services/leitner_grade_outcomes'
 import { maintenanceIntervalDays } from '#modules/leitner/services/leitner_maintenance'
 import { nextMasteryState } from '#modules/leitner/services/leitner_mastery'
 import {
@@ -58,6 +59,12 @@ export interface ScopeInput {
   scope?: 'all' | 'unclassified'
   category?: number
   theme?: number
+  /**
+   * La **file** demandée — orthogonale au paquet (CC-262), donc absente de `resolveScope`,
+   * qui ne tranche que le paquet. C'est le contrôleur qui choisit entre `dueCards` et
+   * `maintenanceCards`.
+   */
+  queue?: 'maintenance'
 }
 
 /** Pourquoi un paquet est refusé. Chaque raison doit avoir son message côté contrôleur. */
@@ -169,7 +176,14 @@ export default class LeitnerService {
   ): Promise<LeitnerCard[]> {
     const today = DateTime.now().startOf('day')
 
-    const query = LeitnerCard.query().preload('theme', (theme) => theme.preload('category'))
+    // ⚠️ **La progression est préchargée EN PLUS de la jointure, et les deux servent** : la
+    // jointure filtre et ordonne (elle seule le peut), le préchargement rend les marques de
+    // maîtrise en `DateTime` plutôt qu'en type du driver. C'est de là que l'écran tire ce
+    // que chaque note va faire (`gradeOutcomes`, CC-262) — sans elles, les boutons
+    // annonceraient encore l'intervalle de la boîte 5 sur une carte qu'ils vont acquérir.
+    const query = LeitnerCard.query()
+      .preload('theme', (theme) => theme.preload('category'))
+      .preload('progress', (progress) => progress.where('user_id', userId))
 
     joinProgress(query, userId)
     selectWithBox(query)
@@ -192,9 +206,9 @@ export default class LeitnerService {
    * en retard d'abord, à égalité la moins récemment touchée. Voir `leitner_progress.ts`
    * pour la boucle que ce choix évite.
    *
-   * ⚠️ **Personne ne l'appelle encore** : ce lot rend la mécanique juste et **invisible**,
-   * aucun écran ne montre l'entretien — c'est CC-262. Elle est donc prouvée par
-   * l'unitaire seul, jamais par une route.
+   * ⚠️ **Elle a son appelant depuis CC-262** : `/revision?queue=maintenance`. La phrase de
+   * CC-261 — « personne ne l'appelle encore, aucun écran ne montre l'entretien » — n'est
+   * plus vraie. Ce n'est plus seulement l'unitaire qui la couvre, mais aussi la route.
    */
   async maintenanceCards(
     userId: number,
@@ -203,7 +217,12 @@ export default class LeitnerService {
   ): Promise<LeitnerCard[]> {
     const today = DateTime.now().startOf('day')
 
-    const query = LeitnerCard.query().preload('theme', (theme) => theme.preload('category'))
+    // Même préchargement que `dueCards`, et pour la même raison : ici les marques sont même
+    // indispensables, puisque le rythme annoncé sous les boutons est celui de l'échelle
+    // d'entretien, jamais celui d'une boîte.
+    const query = LeitnerCard.query()
+      .preload('theme', (theme) => theme.preload('category'))
+      .preload('progress', (progress) => progress.where('user_id', userId))
 
     joinProgress(query, userId)
     selectWithBox(query)
@@ -605,24 +624,17 @@ export default class LeitnerService {
   }
 
   /**
-   * Boîte atteinte pour cette note, à partir de la boîte courante et de la **note
-   * précédente de la même personne**. Pure : elle ne lit ni base ni horloge, ce qui la
-   * rend assertable directement — et empêche qu'un appelant lui glisse le `lastGrade`
-   * d'un autre compte sans que ça se voie.
+   * Boîte atteinte pour cette note. **La règle a été DÉPLACÉE dans
+   * `leitner_grade_outcomes.ts`** (CC-262), à l'identique et sans changement de
+   * comportement — elle y était déjà pure, elle y est désormais partagée.
+   *
+   * ⚠️ **Ce n'est pas de l'indirection gratuite** : l'écran de révision annonce sous
+   * chaque bouton la boîte que la note fera atteindre, et il calculait ce plafond
+   * lui-même. Deux copies, dont une dans un `<script setup>` qu'aucun exécuteur
+   * n'atteint. La règle et son annonce lisent maintenant la même fonction.
    */
   private nextBox(box: number, grade: Grade, lastGrade: Grade | null): number {
-    switch (grade) {
-      case 'again':
-        // La boîte est inchangée : `again` remet la carte dans la session, il ne
-        // rétrograde pas. Seul `next_review` bouge (à aujourd'hui), dans `review()`.
-        return box
-      case 'hard':
-        return lastGrade === 'hard' ? 1 : box
-      case 'good':
-        return Math.min(5, box + 1)
-      case 'easy':
-        return Math.min(5, box + 2)
-    }
+    return nextBox(box, grade, lastGrade)
   }
 
   /**

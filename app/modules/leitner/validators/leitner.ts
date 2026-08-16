@@ -152,6 +152,20 @@ export const reviewScopeValidator = vine.compile(
     scope: vine.enum(['all', 'unclassified'] as const).optional(),
     category: vine.number().positive().optional(),
     theme: vine.number().positive().optional(),
+    /**
+     * **Quelle FILE réviser** — orthogonal au paquet (CC-262).
+     *
+     * ⚠️ **Ce n'est pas une quatrième valeur de `scope`, et il ne faut pas l'y fondre.**
+     * Un paquet dit *quelles cartes* (toutes, une catégorie, un thème) ; la file dit
+     * *lesquelles sont dues*, et les deux se composent — `?queue=maintenance&theme=3` est
+     * l'entretien d'un thème. Rangée dans `scope`, elle aurait hérité du refus
+     * « catégorie ET thème » et serait devenue exclusive de tout paquet.
+     *
+     * Absente = la file normale. Il n'y a **pas** de valeur `normal` à écrire : une
+     * seconde façon d'exprimer le défaut finirait dans les signets et il faudrait la
+     * maintenir pour toujours.
+     */
+    queue: vine.enum(['maintenance'] as const).optional(),
   })
 )
 

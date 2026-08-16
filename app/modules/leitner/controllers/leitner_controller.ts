@@ -6,13 +6,20 @@ import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerFluencyService from '#modules/leitner/services/leitner_fluency_service'
+import { gradeOutcomes } from '#modules/leitner/services/leitner_grade_outcomes'
 import LeitnerJudgeService from '#modules/leitner/services/leitner_judge_service'
+import LeitnerMasteryService from '#modules/leitner/services/leitner_mastery_service'
 import { DEFAULT_BOX, progressBox } from '#modules/leitner/services/leitner_progress'
 import LeitnerService, {
   type ScopeInput,
   type ScopeRefusal,
 } from '#modules/leitner/services/leitner_service'
 import { applyVisibility, assertVisibleOrAdmin } from '#modules/leitner/services/leitner_visibility'
+import {
+  maintenanceDueCount,
+  masteredThisMonth,
+  nextMaintenanceAt,
+} from '#modules/leitner/shared/mastery_inventory'
 import {
   judgeValidator,
   reviewScopeValidator,
@@ -59,6 +66,7 @@ export default class LeitnerController {
    */
   async index({ auth, inertia, request, response, session }: HttpContext) {
     const service = new LeitnerService()
+    const mastery = new LeitnerMasteryService()
     const userId = auth.user!.id
     const isAdmin = auth.user!.isAdmin
 
@@ -74,8 +82,15 @@ export default class LeitnerController {
     const boxIntervals = await service.boxIntervals()
     const stats = await this.globalStats(service, userId, isAdmin)
 
+    // ⚠️ **`queue` compte dans `asked`, et l'oublier ne lève RIEN** : `?queue=maintenance`
+    // rendrait l'écran de choix, donc un bouton d'entretien qui « ne fait rien ». C'est le
+    // mode d'échec silencieux n° 1 de CC-262, et `leitner_mastery_inventory.spec.ts` le
+    // tient en assertant `view: 'session'` **et** le contenu de la file.
     const asked =
-      input.scope !== undefined || input.category !== undefined || input.theme !== undefined
+      input.scope !== undefined ||
+      input.category !== undefined ||
+      input.theme !== undefined ||
+      input.queue !== undefined
 
     if (!asked) {
       const choices = await service.dueScopeChoices(userId, isAdmin)
@@ -83,10 +98,16 @@ export default class LeitnerController {
       return inertia.render('modules/leitner/index', {
         view: 'choice',
         scope: null,
+        queue: 'normal',
         choices,
         scopeError: session.flashMessages.get('scopeError') ?? null,
         boxCounts: await service.boxCounts(userId, undefined, isAdmin),
+        masteredCount: await mastery.masteredCount(userId, undefined, isAdmin),
         boxIntervals,
+        // L'inventaire d'acquis n'est servi QUE sur l'écran de choix : `/revision` ne fait
+        // que réviser, et une liste de cartes connues à côté de la carte en cours serait
+        // du bruit sur le seul écran qui demande de la concentration.
+        mastery: await this.masteryInventory(mastery, userId, isAdmin),
         stats: { ...stats, dueCount: choices.totalDueCount },
       })
     }
@@ -94,7 +115,14 @@ export default class LeitnerController {
     const resolved = await service.resolveScope(input, userId, isAdmin)
     if (!resolved.ok) return this.rejectScope(session, response, SCOPE_ERRORS[resolved.reason])
 
-    const dueCards = await service.dueCards(userId, resolved.scope, isAdmin)
+    // ⚠️ **Les deux files sont disjointes par construction** (`mastered_at is null` contre
+    // `is not null`, CC-261) : rien à filtrer en plus, rien à synchroniser. La file demandée
+    // choisit sa requête, et la suite de la page ne fait aucune différence entre les deux.
+    const queue = input.queue === 'maintenance' ? 'maintenance' : 'normal'
+    const dueCards =
+      queue === 'maintenance'
+        ? await service.maintenanceCards(userId, resolved.scope, isAdmin)
+        : await service.dueCards(userId, resolved.scope, isAdmin)
 
     // La note précédente conditionne l'effet de `hard` (deux d'affilée = boîte 1) :
     // la page en a besoin pour annoncer honnêtement ce que fait le bouton.
@@ -112,15 +140,33 @@ export default class LeitnerController {
         ? await service.hasReviewedTodayInScope(userId, resolved.scope, isAdmin)
         : false
 
+    // Le rang d'entretien ne se demande que pour les cartes déjà acquises : une carte de la
+    // file normale repart au palier 0 par construction (`mastered_at` est posé à l'instant,
+    // donc aucune révision ne lui est postérieure). Une seule requête pour toute la file.
+    const ranks =
+      queue === 'maintenance'
+        ? await mastery.maintenanceRanks(
+            userId,
+            dueCards.map((card) => card.id)
+          )
+        : new Map<number, number>()
+    const now = DateTime.now()
+
     return inertia.render('modules/leitner/index', {
       view: 'session',
       scope: { label: resolved.label, finished },
+      queue,
       dueCards: dueCards.map((card) => ({
         ...card.serialize(),
         // ⚠️ La boîte vient de la jointure de progression, pas d'une colonne de la carte :
         // `serialize()` ne rend pas les `$extras`, elle doit être recopiée ici.
         box: progressBox(card),
         lastGrade: lastGrades.get(card.id) ?? null,
+        // L'état **avant** la note : c'est lui qui distingue « reste boîte 5 » de « sort
+        // des acquis » sous le bouton « À revoir ». Toujours `true` dans la file
+        // d'entretien, toujours `false` dans la file normale — les deux sont disjointes,
+        // et le dire par carte évite à la page de le déduire de la file.
+        mastered: (card.progress[0]?.masteredAt ?? null) !== null,
         // Le Markdown rendu (CC-133). **La colonne reste la source** : `front`/`back` partent
         // aussi, et ce sont eux que lisent l'édition, l'export et le juge.
         //
@@ -131,12 +177,56 @@ export default class LeitnerController {
         // Le coût mesuré est sans commune mesure avec celui de la requête qui précède.
         frontHtml: renderMarkdown(card.front),
         backHtml: renderMarkdown(card.back),
+        // ⚠️ **Ce que chaque note fera, calculé par la règle elle-même** (CC-262) : la page
+        // ne recopie plus ni le plafond des boîtes ni l'intervalle. Le mode d'échec que ça
+        // ferme est un écran qui promet 30 jours pendant que la base en programme 90.
+        outcomes: gradeOutcomes({
+          box: progressBox(card),
+          lastGrade: lastGrades.get(card.id) ?? null,
+          mastery: {
+            // ⚠️ `?? null` pour la même raison que dans `review()` : une carte jamais notée
+            // n'a pas de ligne de progression, et `undefined` ne se compare pas à `null`.
+            box5EnteredAt: card.progress[0]?.box5EnteredAt ?? null,
+            masteredAt: card.progress[0]?.masteredAt ?? null,
+          },
+          maintenanceRank: ranks.get(card.id) ?? 0,
+          boxIntervals,
+          now,
+        }),
       })),
       // La grille des 5 boîtes suit le paquet : elle décrit ce qu'on révise.
       boxCounts: await service.boxCounts(userId, resolved.scope, isAdmin),
+      masteredCount: await mastery.masteredCount(userId, resolved.scope, isAdmin),
       boxIntervals,
       stats: { ...stats, dueCount: dueCards.length },
     })
+  }
+
+  /**
+   * L'inventaire d'acquis tel que l'écran de choix le reçoit : les cartes, les compteurs
+   * datés, et l'état de la file d'entretien.
+   *
+   * ⚠️ **Tout ce qui se compte ici se DÉRIVE de la même liste**, jamais d'une seconde
+   * requête : « dont N ce mois-ci », « N à vérifier » et « la prochaine le … » répondent à
+   * des questions dont la liste porte déjà la réponse. Deux lectures finiraient par
+   * diverger, et l'écran annoncerait « 3 à vérifier » avant d'en présenter 2.
+   */
+  private async masteryInventory(service: LeitnerMasteryService, userId: number, isAdmin: boolean) {
+    const now = DateTime.now()
+    const today = now.toISODate()!
+    const cards = await service.inventory(userId, isAdmin)
+
+    return {
+      cards,
+      total: cards.length,
+      thisMonth: masteredThisMonth(cards, today),
+      // Le chiffre qui rend l'inventaire crédible plutôt qu'auto-congratulant : il vient
+      // de l'historique (`kind`, CC-260), pas de l'état courant — une carte perdue puis
+      // ré-acquise reste une carte perdue cette année.
+      lostThisYear: await service.lostSince(userId, now.startOf('year')),
+      maintenanceDue: maintenanceDueCount(cards, today),
+      nextMaintenanceAt: nextMaintenanceAt(cards),
+    }
   }
 
   /**

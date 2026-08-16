@@ -139,6 +139,22 @@ export function whereNotMastered(query: CardQuery): void {
 }
 
 /**
+ * « Cette carte est un acquis » — l'exact contraire de `whereNotMastered` (CC-262).
+ *
+ * ⚠️ **Elle ne dit rien de l'échéance**, contrairement à `whereMaintenanceDue` : un
+ * inventaire d'acquis liste **tout** ce qui est acquis, y compris ce dont l'entretien
+ * n'est pas dû avant des mois — c'est même l'essentiel de ce qu'il montre. Confondre les
+ * deux réduirait l'inventaire aux seules cartes en retard, c'est-à-dire à l'inverse de ce
+ * qu'il célèbre.
+ *
+ * Elle vit ici, comme ses trois sœurs, pour que l'alias de la jointure reste privé à ce
+ * fichier : une seconde formulation de « maîtrisée » finirait par diverger de `whereDue`.
+ */
+export function whereMastered(query: CardQuery): void {
+  query.whereRaw(`${P}.mastered_at is not null`)
+}
+
+/**
  * L'ordre de la file : la plus en retard d'abord ; à égalité, la moins récemment touchée.
  *
  * ⚠️ **Le second critère lit l'`updated_at` de la PROGRESSION, pas celui de la carte** —
@@ -159,6 +175,19 @@ export function orderByQueue(query: CardQuery, today: DateTime): void {
     .orderByRaw(`coalesce(${P}.next_review, ?::date) asc`, [today.toSQLDate()!])
     .orderByRaw(`coalesce(${P}.updated_at, leitner_cards.updated_at) asc`)
     .orderBy('leitner_cards.id', 'asc')
+}
+
+/**
+ * L'ordre de l'**inventaire d'acquis** : la plus récemment acquise d'abord (CC-262).
+ *
+ * ⚠️ Elle vit ici et non chez l'appelant pour la même raison que `whereMastered` : l'alias
+ * de la jointure reste privé à ce fichier. Un `orderByRaw('ucp.…')` écrit ailleurs
+ * casserait le jour où l'alias change, et il casserait **en silence** — un `order by` sur
+ * une colonne inconnue lève, mais un alias renommé dans un seul des deux endroits ne se
+ * voit qu'à l'exécution de la requête concernée.
+ */
+export function orderByMasteredAt(query: CardQuery): void {
+  query.orderByRaw(`${P}.mastered_at desc`).orderBy('leitner_cards.id', 'desc')
 }
 
 /** Le filtre « boîte N » du catalogue, appliqué à la progression de cette personne. */

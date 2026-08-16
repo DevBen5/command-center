@@ -191,6 +191,15 @@
       "recentTitle": "Dernières sessions",
       "recentEmpty": "Aucune session pour l'instant.",
       "recentEmptyHint": "Les statistiques se remplissent toutes seules, à mesure des révisions."
+    },
+    "mastery": {
+      "title": "Ce qui est acquis",
+      "intro": "Une carte devient un acquis après un mois passé en boîte 5 sans échec. Elle quitte alors la file normale et revient de plus en plus rarement — 90 jours, puis 180, puis une fois par an.",
+      "total": "cartes maîtrisées",
+      "thisMonth": "ce mois-ci",
+      "lost": "perdues cette année",
+      "share": "du catalogue",
+      "empty": "Aucune carte maîtrisée pour l'instant."
     }
   },
   "index": {
@@ -231,7 +240,10 @@
       "againHint": "reste boîte {box} · revient dans la session",
       "hardHintDemote": "2ᵉ d'affilée · boîte 1 · {due}",
       "hardHint": "reste boîte {box} · {due}",
-      "boxDue": "boîte {box} · {due}"
+      "boxDue": "boîte {box} · {due}",
+      "masteredHint": "maîtrisée · entretien {due}",
+      "lostMasteryAgain": "sort des acquis · reste boîte {box} · revient aujourd'hui",
+      "lostMasteryHint": "sort des acquis · boîte {box} · {due}"
     },
     "finishedTitle": "Paquet terminé — {label}",
     "finishedHint": "Plus aucune carte due ici, y compris celles que vous avez revues à l'instant.",
@@ -239,7 +251,31 @@
     "emptyDeckHint": "{label} n'a aucune carte due aujourd'hui. Choisissez un autre paquet, ou revenez demain.",
     "chooseOther": "Choisir un autre paquet",
     "stop": "Arrêter",
-    "boxesTitle": "Boîtes Leitner"
+    "boxesTitle": "Boîtes Leitner",
+    "masteredBox": "Maîtrisées",
+    "masteredBoxHint": "entretien espacé",
+    "maintenanceTitle": "Entretien des acquis",
+    "maintenanceDueSingular": "{n} carte maîtrisée à vérifier",
+    "maintenanceDuePlural": "{n} cartes maîtrisées à vérifier",
+    "maintenanceStart": "Vérifier maintenant",
+    "maintenanceNone": "Rien à vérifier pour l'instant.",
+    "maintenanceNext": "Prochaine vérification {date}.",
+    "maintenanceHint": "Une carte acquise revient de plus en plus rarement — 90 jours, puis 180, puis une fois par an.",
+    "maintenanceDeckLabel": "Entretien",
+    "maintenanceEmptyTitle": "Aucun entretien à faire",
+    "maintenanceEmptyHint": "Les cartes maîtrisées reviendront d'elles-mêmes, à leur échéance.",
+    "masteryTitle": "Ce que vous avez appris",
+    "masteryTotalSingular": "{n} carte maîtrisée",
+    "masteryTotalPlural": "{n} cartes maîtrisées",
+    "masteryThisMonth": "dont {n} ce mois-ci",
+    "masteryLostSingular": "{n} carte perdue cette année",
+    "masteryLostPlural": "{n} cartes perdues cette année",
+    "masteryEmpty": "Aucune carte maîtrisée pour l'instant. Une carte le devient après un mois passé en boîte 5, sans échec.",
+    "masteryShow": "Voir la liste",
+    "masteryHide": "Masquer la liste",
+    "masteryMonthCountSingular": "{n} carte",
+    "masteryMonthCountPlural": "{n} cartes",
+    "masteryNextReview": "entretien {date}"
   },
   "markdown": {
     "hint": "Markdown : **gras**, *italique*, - liste, ``` pour un bloc de code (à refermer).",
@@ -330,6 +366,12 @@
     "visibilityShared": "Partagé",
     "sharedField": "Partagé — visible de tout le monde",
     "sharedHint": "Décochée, seul vous la voyez. Cochée, elle apparaît aussi dans la révision et le catalogue de tout le monde.",
-    "notMineHint": "Appartient à quelqu'un d'autre — non modifiable."
+    "notMineHint": "Appartient à quelqu'un d'autre — non modifiable.",
+    "sectionInProgress": "Cartes en cours",
+    "sectionMastered": "Cartes maîtrisées",
+    "masteredSince": "acquise {date}",
+    "masteredBadge": "Maîtrisée",
+    "sectionCountSingular": "{n} carte",
+    "sectionCountPlural": "{n} cartes"
   }
 }
