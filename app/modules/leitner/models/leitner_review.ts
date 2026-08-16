@@ -24,6 +24,41 @@ export default class LeitnerReview extends BaseModel {
   declare grade: 'again' | 'hard' | 'good' | 'easy'
 
   /**
+   * **De quelle file la carte venait** au moment de la note (CC-260) — et surtout **pas**
+   * où elle finit.
+   *
+   * ⚠️ **Le piège du lot est là.** Une carte maîtrisée ratée en entretien produit une
+   * révision `maintenance` **alors qu'elle en ressort non maîtrisée** : `kind` se calcule
+   * donc **avant** que la note ne modifie quoi que ce soit, au même endroit et pour la
+   * même raison que `lastGrade` (`leitner_service.ts`, « l'ordre n'est pas négociable »).
+   * Calculé après, le symptôme est indétectable : l'historique dirait qu'aucun entretien
+   * n'a jamais échoué.
+   *
+   * `'normal'` sur tout l'historique antérieur au lot, et c'est **exactement vrai** : une
+   * révision d'entretien ne peut exister qu'après que la maîtrise existe, or elle
+   * n'existait pas.
+   */
+  @column()
+  declare kind: 'normal' | 'maintenance'
+
+  /**
+   * La boîte **avant** et **après** la note (CC-260).
+   *
+   * ⚠️ **`null` = « révision antérieure à CC-260, boîte inconnue », et ça ne se rattrape
+   * pas.** Rejouer `nextBox` depuis la boîte 1 serait faux dès qu'un import est passé :
+   * l'import écrit `box` directement depuis le JSON, sans que les révisions
+   * correspondantes produisent ce chemin. Tout agrégat qui lira ces colonnes devra donc
+   * gérer le `null` **pour toujours** — ce n'est pas un trou à combler un jour.
+   *
+   * `boxBefore` est lu **avant** la mutation, exactement comme `kind` ci-dessus.
+   */
+  @column()
+  declare boxBefore: number | null
+
+  @column()
+  declare boxAfter: number | null
+
+  /**
    * La réponse écrite avant le dévoilement du verso. `null` pour les révisions
    * d'avant ce lot, et pour un dévoilement sans rien écrire.
    */

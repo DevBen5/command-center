@@ -40,17 +40,35 @@ export async function makeCard(
  *
  * `dueDaysAgo` compte en arrière depuis aujourd'hui : `0` = due aujourd'hui, `3` = en
  * retard de trois jours. Une valeur négative la met dans le futur, donc hors file.
+ *
+ * `box5DaysAgo` / `masteredDaysAgo` posent les **marques de maîtrise** (CC-260) de la même
+ * façon. ⚠️ **Elles sont remises à `null` quand on ne les demande pas**, y compris sur une
+ * ligne existante : ce helper décrit un **état**, pas un delta — sinon un test hériterait
+ * en silence des marques posées par le test d'avant.
  */
 export async function setProgress(
   userId: number,
   cardId: number,
-  options: { box?: number; dueDaysAgo?: number } = {}
+  options: {
+    box?: number
+    dueDaysAgo?: number
+    box5DaysAgo?: number
+    masteredDaysAgo?: number
+  } = {}
 ): Promise<LeitnerCardProgress> {
   return LeitnerCardProgress.updateOrCreate(
     { userId, leitnerCardId: cardId },
     {
       box: options.box ?? 1,
       nextReview: DateTime.now().minus({ days: options.dueDaysAgo ?? 0 }),
+      box5EnteredAt:
+        options.box5DaysAgo === undefined
+          ? null
+          : DateTime.now().minus({ days: options.box5DaysAgo }),
+      masteredAt:
+        options.masteredDaysAgo === undefined
+          ? null
+          : DateTime.now().minus({ days: options.masteredDaysAgo }),
     }
   )
 }

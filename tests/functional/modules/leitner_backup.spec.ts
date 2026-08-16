@@ -85,12 +85,13 @@ test.group('Leitner / export JSON', (group) => {
     const response = await client.get('/revision/export').loginAs(user)
     const backup = JSON.parse(response.text())
 
-    // ⚠️ **v2 depuis CC-119, v3 depuis CC-139** : les clés n'ont pas bougé, leur sens
-    // si — `box`, `nextReview` et `reviews` décrivent la progression de **celui qui
-    // exporte** (v2) ; le fichier ne rend plus que le **visible** par l'exportateur,
-    // et chaque carte porte désormais `shared` (v3). C'est le critère de bump posé par
-    // le `CLAUDE.md` du module, les deux fois.
-    assert.equal(backup.version, 3)
+    // ⚠️ **v2 depuis CC-119, v3 depuis CC-139, v4 depuis CC-260** : les clés n'ont pas
+    // bougé, leur sens si — `box`, `nextReview` et `reviews` décrivent la progression de
+    // **celui qui exporte** (v2) ; le fichier ne rend plus que le **visible** par
+    // l'exportateur, et chaque carte porte désormais `shared` (v3) ; une révision porte
+    // `kind`, dont l'**absence** doit se trancher plutôt que se deviner (v4). C'est le
+    // critère de bump posé par le `CLAUDE.md` du module, les trois fois.
+    assert.equal(backup.version, 4)
     assert.deepEqual(backup.categories, [{ name: 'DevOps', themes: ['Docker', 'Kubernetes'] }])
 
     assert.lengthOf(backup.cards, 1)
@@ -263,6 +264,10 @@ test.group('Leitner / import JSON', (group) => {
         // l'export écrit, donc ce que la restauration doit rendre.
         box: card.progress[0]?.box ?? 1,
         nextReview: (card.progress[0]?.nextReview ?? DateTime.now()).toISODate(),
+        // Les marques de maîtrise (CC-260). Une carte sans ligne de progression n'en a
+        // aucune : `?? null` des deux côtés, jamais `undefined`.
+        box5EnteredAt: card.progress[0]?.box5EnteredAt?.toISO() ?? null,
+        masteredAt: card.progress[0]?.masteredAt?.toISO() ?? null,
         createdAt: card.createdAt.toISO(),
         updatedAt: card.updatedAt.toISO(),
         category: card.theme?.category.name ?? null,
@@ -278,6 +283,12 @@ test.group('Leitner / import JSON', (group) => {
           latencyMs: review.latencyMs,
           thinkingMs: review.thinkingMs,
           totalMs: review.totalMs,
+          // Les marques de mouvement (CC-260). `kind` n'est pas nullable : perdu à
+          // l'aller-retour, il retomberait sur `'normal'` et un entretien deviendrait
+          // une révision ordinaire — sans que rien ne le dise.
+          kind: review.kind,
+          boxBefore: review.boxBefore,
+          boxAfter: review.boxAfter,
         })),
       })),
     }
@@ -347,6 +358,34 @@ test.group('Leitner / import JSON', (group) => {
     })
     const nonClassee = await makeCard('Carte non classée', { back: 'Sans thème.' })
     await setProgress(user.id, nonClassee.id, { box: 1, dueDaysAgo: 3 })
+
+    // Une carte **maîtrisée** (CC-260), avec sa révision d'entretien. Sans elle, les cinq
+    // colonnes du lot traverseraient l'aller-retour à `null` des deux côtés : la
+    // comparaison serait verte en n'éprouvant rien.
+    const acquise = await LeitnerCard.create({
+      front: 'Port par défaut de Postgres ?',
+      back: '5432.',
+      leitnerThemeId: docker.id,
+      createdAt: DateTime.fromISO('2026-01-02T08:00:00.000Z'),
+      updatedAt: DateTime.fromISO('2026-06-02T08:00:00.000Z'),
+    })
+    await LeitnerCardProgress.create({
+      userId: user.id,
+      leitnerCardId: acquise.id,
+      box: 5,
+      nextReview: DateTime.fromISO('2026-09-01'),
+      box5EnteredAt: DateTime.fromISO('2026-03-01T08:00:00.000Z'),
+      masteredAt: DateTime.fromISO('2026-04-05T08:00:00.000Z'),
+    })
+    await LeitnerReview.create({
+      userId: user.id,
+      leitnerCardId: acquise.id,
+      grade: 'good',
+      reviewedAt: DateTime.fromISO('2026-06-02T08:00:00.000Z'),
+      kind: 'maintenance',
+      boxBefore: 5,
+      boxAfter: 5,
+    })
 
     const avant = await snapshot(user)
     const exported = await client.get('/revision/export').loginAs(user)
@@ -643,6 +682,93 @@ test.group('Leitner / import JSON', (group) => {
     assert.isFalse(card.isShared)
   })
 
+  /**
+   * Le pendant de `resolveShared` pour `kind` (CC-260). ⚠️ **Ce n'est pas un défaut par
+   * commodité, c'est vrai par construction** : une révision d'entretien ne peut exister
+   * qu'après que la maîtrise existe, or elle n'existait pas avant CC-260. Un fichier
+   * antérieur ne porte donc que des révisions normales — exactement ce que le `default`
+   * de la colonne fait sur l'historique déjà en base.
+   */
+  test('un fichier v3, sans `kind`, importe des révisions `normal`', async ({ client, assert }) => {
+    const user = await login()
+
+    const response = await upload(client, user, {
+      version: 3,
+      cards: [
+        {
+          front: 'Révisée avant CC-260',
+          back: 'Verso.',
+          box: 5,
+          nextReview: '2026-09-01',
+          reviews: [{ grade: 'good', reviewedAt: '2026-07-05T09:02:00.000Z' }],
+        },
+      ],
+    })
+
+    response.assertStatus(302)
+    assert.isUndefined(response.flashMessages().importErrors)
+
+    const card = await LeitnerCard.findByOrFail('front', 'Révisée avant CC-260')
+    const review = await LeitnerReview.query().where('leitner_card_id', card.id).firstOrFail()
+    assert.equal(review.kind, 'normal')
+    // ⚠️ Et les boîtes restent **inconnues**, pas reconstituées : `null` est la valeur
+    // définitive de l'historique antérieur au lot, jamais un trou à combler.
+    assert.isNull(review.boxBefore)
+    assert.isNull(review.boxAfter)
+
+    // Une carte importée en boîte 5 sans horloge : elle ne peut pas être maîtrisée, et
+    // la marque n'est pas inventée.
+    const progress = await LeitnerCardProgress.query()
+      .where('user_id', user.id)
+      .where('leitner_card_id', card.id)
+      .firstOrFail()
+    assert.isNull(progress.box5EnteredAt)
+    assert.isNull(progress.masteredAt)
+  })
+
+  test('un fichier v4 qui déclare `maintenance` le conserve', async ({ client, assert }) => {
+    // Le pendant : sur un fichier de la version courante, `kind` est lu tel quel. Sans ce
+    // test, un `resolveReviewKind` qui rendrait toujours `'normal'` passerait au vert.
+    const user = await login()
+
+    const response = await upload(client, user, {
+      version: 4,
+      cards: [
+        {
+          front: 'Entretien déclaré',
+          back: 'Verso.',
+          box: 5,
+          nextReview: '2026-09-01',
+          box5EnteredAt: '2026-03-01T08:00:00.000Z',
+          masteredAt: '2026-04-05T08:00:00.000Z',
+          reviews: [
+            {
+              grade: 'good',
+              reviewedAt: '2026-07-05T09:02:00.000Z',
+              kind: 'maintenance',
+              boxBefore: 5,
+              boxAfter: 5,
+            },
+          ],
+        },
+      ],
+    })
+
+    response.assertStatus(302)
+    assert.isUndefined(response.flashMessages().importErrors)
+
+    const card = await LeitnerCard.findByOrFail('front', 'Entretien déclaré')
+    const review = await LeitnerReview.query().where('leitner_card_id', card.id).firstOrFail()
+    assert.equal(review.kind, 'maintenance')
+    assert.equal(review.boxBefore, 5)
+
+    const progress = await LeitnerCardProgress.query()
+      .where('user_id', user.id)
+      .where('leitner_card_id', card.id)
+      .firstOrFail()
+    assert.equal(progress.masteredAt?.toISO(), DateTime.fromISO('2026-04-05T08:00:00.000Z').toISO())
+  })
+
   test('une boîte hors de 1..5 est refusée : sans ce garde-fou, la carte serait éternellement due', async ({
     client,
     assert,
@@ -708,9 +834,9 @@ test.group('Leitner / import JSON', (group) => {
         },
       ],
       ['thème sans catégorie', { cards: [{ front: 'A', back: 'B', theme: 'Docker' }] }],
-      // ⚠️ 99, et surtout plus 3 : depuis CC-139 la version courante EST 3, et 1 et 2
-      // restent lisibles. Une valeur encore acceptée ici aurait fait passer ce cas au
-      // vert en n'éprouvant plus rien.
+      // ⚠️ 99, et surtout plus 3 ni 4 : la version courante est passée à 3 (CC-139) puis
+      // à 4 (CC-260), et 1 à 3 restent lisibles. Une valeur devenue acceptée ferait
+      // passer ce cas au vert en n'éprouvant plus rien — à revérifier à chaque bump.
       ['version inconnue', { version: 99, cards: [{ front: 'A', back: 'B' }] }],
     ]
 
