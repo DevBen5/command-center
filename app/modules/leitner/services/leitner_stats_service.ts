@@ -257,8 +257,16 @@ export default class LeitnerStatsService {
    * catégorie se fait **en JS** via la taxonomie préchargée, comme `dueScopeChoices` :
    * aucune 3ᵉ copie de la sous-requête catégorie → thèmes. Patron `db.rawQuery` +
    * `count(*) FILTER` : cf. `VeilleStatsService`, `?` paramétré.
+   *
+   * ⚠️ **La taxonomie est filtrée par `applyVisibility`, sur les DEUX niveaux** (CC-263) —
+   * `leitner_categories` **et** `leitner_themes` dans le `preload`, patron
+   * `dueScopeChoices` (`leitner_service.ts`). Un thème privé chez quelqu'un d'autre, encore
+   * atteint par une ligne de `rows` (carte partagée classée dessous), retombe alors sur
+   * « Non classées » via `aggregateWeakness` plutôt que de fuiter son vrai nom. Les
+   * **chiffres**, eux, viennent déjà du `rawQuery` filtré sur `r.user_id` : ce filtre-ci ne
+   * touche que les noms.
    */
-  async weaknessByTheme(userId: number): Promise<WeaknessCategory[]> {
+  async weaknessByTheme(userId: number, isAdmin: boolean = false): Promise<WeaknessCategory[]> {
     const result = await db.rawQuery(
       `SELECT
          c.leitner_theme_id                    AS theme_id,
@@ -279,7 +287,13 @@ export default class LeitnerStatsService {
       })
     )
 
-    const categories = await LeitnerCategory.query().preload('themes').orderBy('name')
+    const categoriesQuery = LeitnerCategory.query()
+      .preload('themes', (themes) => {
+        applyVisibility(themes, 'leitner_themes', userId, isAdmin)
+      })
+      .orderBy('name')
+    applyVisibility(categoriesQuery, 'leitner_categories', userId, isAdmin)
+    const categories = await categoriesQuery
 
     return aggregateWeakness(
       rows,

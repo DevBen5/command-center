@@ -138,6 +138,51 @@ test.group('LeitnerStatsService / weaknessByTheme', (group) => {
       ['Non classées', 'DevOps', 'Réseau']
     )
   })
+
+  test('une catégorie/thème privés d’un autre compte ne fuitent pas leur nom (CC-263)', async ({
+    assert,
+  }) => {
+    const mine = await createAdmin()
+    const theirs = await createAdmin()
+
+    // Taxonomie PRIVÉE de « theirs » — jamais partagée.
+    const secretCategory = await LeitnerCategory.create({
+      name: 'Secrets de theirs',
+      ownerId: theirs.id,
+      isShared: false,
+    })
+    const secretTheme = await LeitnerTheme.create({
+      leitnerCategoryId: secretCategory.id,
+      name: 'Thème confidentiel',
+      ownerId: theirs.id,
+      isShared: false,
+    })
+
+    // La CARTE, elle, est partagée : c'est ce qui permet à « mine » de la réviser malgré
+    // la taxonomie privée sous laquelle elle est classée — le scénario réel de la fuite.
+    const card = await createCard('Question sensible', {
+      themeId: secretTheme.id,
+      ownerId: theirs.id,
+      isShared: true,
+    })
+
+    await review(mine, card, ['again', 'good'])
+
+    const result = await new LeitnerStatsService().weaknessByTheme(mine.id, false)
+
+    assert.notInclude(
+      result.map((c) => c.name),
+      'Secrets de theirs'
+    )
+    assert.isUndefined(result.flatMap((c) => c.themes).find((t) => t.name === 'Thème confidentiel'))
+
+    // Les CHIFFRES restent exacts — repliés sous « Non classées » (thème introuvable dans
+    // la taxonomie filtrée), jamais perdus : c'est l'arbre de noms qui est cloisonné, pas
+    // le comptage du `rawQuery` (filtré sur `r.user_id`, inchangé).
+    const unclassified = result.find((c) => c.categoryId === null)!
+    assert.strictEqual(unclassified.total, 2)
+    assert.strictEqual(unclassified.again, 1)
+  })
 })
 
 test.group('LeitnerStatsService / problemCards', (group) => {
