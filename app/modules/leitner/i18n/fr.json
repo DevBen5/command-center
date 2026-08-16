@@ -237,6 +237,8 @@
       "hard": "Difficile",
       "good": "Correct",
       "easy": "Facile",
+      "stillKnowIt": "Je le sais encore",
+      "lostIt": "Je l'ai perdu",
       "againHint": "reste boîte {box} · revient dans la session",
       "hardHintDemote": "2ᵉ d'affilée · boîte 1 · {due}",
       "hardHint": "reste boîte {box} · {due}",

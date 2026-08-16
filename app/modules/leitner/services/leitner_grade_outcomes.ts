@@ -63,6 +63,48 @@ export function nextBox(box: number, grade: Grade, lastGrade: Grade | null): num
 /** L'ordre des boutons de l'écran de révision, du plus sévère au plus généreux. */
 const GRADES: readonly Grade[] = ['again', 'hard', 'good', 'easy'] as const
 
+/**
+ * **Les deux seules réponses d'un entretien** (CC-265) — « je l'ai perdu », « je le sais
+ * encore » —, dans le même ordre que les quatre autres : du plus sévère au plus généreux.
+ *
+ * ⚠️ **Ce n'est pas une préférence d'affichage, c'est la suppression de trois boutons qui
+ * faisaient la même chose.** Sur une carte acquise (donc en boîte 5), `hard`, `good` et
+ * `easy` rendaient un `GradeOutcome` **identique** : le plafond de boîte écrase `+1` et
+ * `+2` (`min(5, 5+1) = min(5, 5+2) = 5`), et l'échéance ne vient plus de la boîte mais de
+ * `maintenanceIntervalDays(rang, box5Days)`, qui **ne lit pas la note**. Un entretien est
+ * une **vérification**, pas un apprentissage : il n'y a aucune boîte à gagner, donc rien
+ * que la granularité en quatre puisse exprimer.
+ *
+ * ⚠️ **`hard` ne disparaît pas par symétrie, il disparaît parce qu'il MENT.** `nextBox`
+ * rend `lastGrade === 'hard' ? 1 : box` : un « Difficile » qui suit un « Difficile »
+ * renvoie en boîte 1 **et fait perdre l'acquis**. Le bouton était donc inoffensif *sauf*
+ * quand la note précédente était déjà « Difficile » — un effet qui dépend d'un état que
+ * l'écran ne montre pas, sur une file dont les visites sont espacées de 90 à 365 jours.
+ * Un bouton pareil est pire qu'un bouton redondant.
+ *
+ * ⚠️ **`good` et non `easy` pour « je le sais encore » — décision du propriétaire
+ * (2026-08-16).** Les deux rendent exactement la même sortie ici (le plafond et l'échelle
+ * effacent la différence), mais c'est `leitner_reviews.grade` qui tranche : `good` est ce
+ * qu'un clic « Correct » enregistrait déjà en entretien, quand `easy` affirmerait « rappel
+ * immédiat » là où le bouton ne dit que « je le sais ». Rien ne distingue les deux en
+ * aval (rétention, points faibles, critère de maîtrise), donc le gain serait nul et la
+ * sur-affirmation réelle.
+ *
+ * ⚠️ **Conséquence actée, pas subie : l'entretien n'écrit plus jamais `hard`, donc il
+ * n'ARME plus la règle du 2ᵉ `hard` d'affilée** pour la révision suivante de la carte.
+ * Il ne pouvait déjà que l'armer — une carte acquise l'a forcément été par un `good` ou
+ * un `easy`, jamais par un `hard` (`isMasteringGrade`, `leitner_mastery.ts`). Le signal
+ * d'échec d'un entretien est `again`, qui sort la carte des acquis et la renvoie dans la
+ * file normale, où les quatre notes **et** la règle sont intactes.
+ *
+ * ⚠️ **La règle du serveur n'a PAS bougé** : `POST /revision/:id/review` accepte toujours
+ * les quatre notes, et `LeitnerService.review()` traite un `hard` d'entretien exactement
+ * comme avant. Masquer un bouton n'est pas un droit — ce lot ferme un piège d'**écran**,
+ * pas une règle, et retirer `hard` du validateur serait un changement de comportement que
+ * l'écran ne peut plus produire.
+ */
+const MAINTENANCE_GRADES: readonly Grade[] = ['again', 'good'] as const
+
 export interface GradeOutcomeInput {
   /** La boîte **avant** la note (celle de cette personne, jamais une colonne de la carte). */
   box: number
@@ -86,18 +128,27 @@ export interface GradeOutcomeInput {
 }
 
 /**
- * Les quatre effets, dans l'ordre des boutons.
+ * Les effets proposés, dans l'ordre des boutons : **quatre** en file normale, **deux** en
+ * entretien (CC-265, voir `MAINTENANCE_GRADES`).
  *
  * ⚠️ **L'échéance suit la file où la carte VA, jamais celle d'où elle vient** — la même
  * règle, écrite au même endroit qu'elle est appliquée dans `review()` (CC-261). La note
  * qui acquiert la maîtrise repart donc au **premier palier**, pas à l'intervalle de la
  * boîte 5 ; et un `again` en entretien ramène la carte dans la file normale **aujourd'hui**.
+ *
+ * ⚠️ **La file se DÉDUIT de `mastery.masteredAt`, elle ne se passe pas en paramètre.** Les
+ * deux files sont disjointes par construction (`mastered_at is null` contre `is not null`,
+ * `leitner_progress.ts`) : « la carte est acquise » **est** « on est en entretien ». Un
+ * paramètre `queue` de plus serait un second témoin de la même chose, donc quelque chose
+ * qui peut contredire le premier — et l'écran proposerait alors deux réponses sur une
+ * carte que la règle traite comme quatre, ou l'inverse, sans que rien ne le signale.
  */
 export function gradeOutcomes(input: GradeOutcomeInput): GradeOutcome[] {
   const { box, lastGrade, mastery, maintenanceRank, boxIntervals, now } = input
   const box5Days = boxIntervals[5]
+  const grades = mastery.masteredAt !== null ? MAINTENANCE_GRADES : GRADES
 
-  return GRADES.map((grade) => {
+  return grades.map((grade) => {
     const boxAfter = nextBox(box, grade, lastGrade)
     const after = nextMasteryState({
       boxBefore: box,
