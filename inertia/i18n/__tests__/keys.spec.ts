@@ -32,8 +32,11 @@ import { countCalls, extractKeys } from './extract_keys'
 |    fonction PURE et testée (`gradeHint` → `leitner.index.grade.*`,
 |    `leitner.settings.section*`). Elle échappe au balayage comme les autres, mais elle est le seul
 |    moyen de garder hors du `<script setup>` le CHOIX de la phrase — lequel, lui, régresse en
-|    silence. `tests/unit/leitner_mastery_inventory.spec.ts` asserte chaque clé rendue ; ce que
-|    personne ne vérifie est qu'elle existe dans `fr.json`, et c'est la limite assumée ici.
+|    silence. ⚠️ **La phrase qui suivait ici était FAUSSE, et CC-265 l'a mesurée** : elle disait que
+|    « personne ne vérifie que ces clés existent dans `fr.json` ». `tests/unit/
+|    leitner_mastery_inventory.spec.ts` le vérifie — il charge le fichier et résout chaque clé
+|    rendue par `gradeHint` (et par `gradeLabelKey` depuis CC-265). C'est **là** qu'on ajoute une
+|    clé calculée neuve, pas ici : ce balayage-ci ne peut structurellement pas les voir.
 | 2. **Le sens inverse** — une clé déclarée que plus aucun template n'utilise. Hors périmètre, et
 |    pas seulement par choix de portée : les sites du point 1 consomment des clés que le balayage ne
 |    voit pas, donc ce sens produirait des faux positifs indiscernables d'une vraie clé morte.
