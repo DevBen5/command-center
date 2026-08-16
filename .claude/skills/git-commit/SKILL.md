@@ -169,6 +169,21 @@ la PR ». Le corps se suffit à lui-même.
   ligne, séparé du corps par une ligne vide. C'est la convention constante de l'historique.
 - **Obligatoire** : chaque commit référence au moins un ticket YouTrack du projet CC. Si aucun
   ticket n'existe, en créer un avant de commiter.
+- **Un correctif d'outillage ou de doc trouvé PENDANT un lot porte le footer de ce lot**, et
+  aucun ticket n'est créé pour lui. Tranché le **2026-08-16**, après quatre occurrences en quatre
+  jours — la question revenait à chaque lot et coûtait plus cher, reposée, qu'une règle écrite une
+  fois. Deux commits l'appliquaient **déjà** (`cef5a28` sous `CC-132`, le correctif eslint sous
+  `CC-241`) : trancher autrement aurait fabriqué un troisième motif dans l'historique.
+  - Le rattachement est **par origine, pas par périmètre** — le footer répond à « quand l'a-t-on
+    vu ». C'est le corps du commit qui dit que c'est un à-côté, en une ligne.
+  - Il part dans **son propre commit** (`chore(tooling)` ou `docs`, l'ordre de découpe du § 4),
+    jamais fondu dans le commit de code. Sur la branche du lot s'il est encore ouvert ; sinon
+    une branche à lui, **en gardant le footer du lot d'origine**.
+  - ⚠️ **Trouvé hors de tout lot**, il attend le prochain et prend son footer. Un ticket dédié
+    n'est justifié que par ce qui ne peut pas attendre.
+  - ⚠️ **La limite, et elle est nette : ce qui change un COMPORTEMENT de l'application garde son
+    ticket**, même en une ligne. Cette règle ne couvre que `.claude/`, la documentation et
+    l'outillage de développement — rien qui s'exécute en production.
 - ❌ **Jamais de `Co-Authored-By` pour un assistant IA.** Le contributeur humain est l'unique
   auteur. Si un commit existant en porte un, le retirer.
 
