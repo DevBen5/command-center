@@ -8,6 +8,7 @@ import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
 import LeitnerIngestionService, {
   chunkCourse,
+  extractJson,
   ingestionJobs,
   keepNewDrafts,
   LlmParseError,
@@ -119,6 +120,57 @@ test.group('LeitnerIngestionService / parsing de la réponse du LLM', () => {
     assert.deepEqual(cards, [
       { front: 'Pod ?', back: 'Unité déployable.', category: null, theme: null },
     ])
+  })
+
+  /**
+   * CC-259 : la consigne Markdown fait apparaître ce cas en pratique, et il n'était
+   * couvert nulle part avant ce lot. La regex de bloc (non gourmande) s'arrête au
+   * PREMIER ``` fermant qu'elle rencontre — celui du bloc de code de la carte, pas
+   * celui de l'enveloppe extérieure — et rend un fragment tronqué que `JSON.parse`
+   * refuse. C'est `firstJsonValue` (le scanner d'accolades, conscient des chaînes)
+   * qui rattrape : il ignore les accolades internes au bloc de code, invisibles pour
+   * lui puisqu'elles sont à l'intérieur d'une chaîne JSON.
+   */
+  test('un bloc de code imbriqué, enveloppé de ```json, ne casse pas l’extraction', async ({
+    assert,
+  }) => {
+    const payload = {
+      cards: [
+        {
+          front: 'Comment retourner un objet littéral depuis une fonction fléchée ?',
+          back:
+            'Il faut parenthéser le corps :\n\n```js\n' +
+            'const f = () => ({ a: 1 });\n' +
+            'if (true) {\n' +
+            '```\n\nSinon les accolades sont lues comme un bloc de fonction.',
+          category: 'JavaScript',
+          theme: 'Fonctions fléchées',
+        },
+      ],
+    }
+    const raw = '```json\n' + JSON.stringify(payload) + '\n```'
+
+    const cards = await parseLlmCards(raw)
+
+    assert.lengthOf(cards, 1)
+    assert.include(cards[0].back, '```js')
+    assert.include(cards[0].back, 'if (true) {')
+  })
+
+  /**
+   * Garde de non-régression pour CC-259 : **ne retire jamais `firstJsonValue`** de la
+   * cascade de `extractJson` en le croyant redondant avec la regex de bloc. Sans lui,
+   * ce test — minimal, isolé du reste du parsing — rougit : mutation vérifiée en
+   * commentant `if (balanced) candidates.push(balanced)` dans `extractJson`.
+   */
+  test('extractJson dépend de firstJsonValue quand le bloc de code referme la clôture', ({
+    assert,
+  }) => {
+    const raw = '```json\n{"note":"before ``` after"}\n```'
+
+    const value = extractJson(raw)
+
+    assert.deepEqual(value, { note: 'before ``` after' })
   })
 })
 
