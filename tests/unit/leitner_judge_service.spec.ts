@@ -60,6 +60,28 @@ test.group('Leitner / juge de la réponse écrite', () => {
     assert.equal(judgment.verdict, 'juste')
   })
 
+  /**
+   * MESURÉ pour CC-259, pas supposé : `normalizeForSearch` (NFD, diacritiques, casse,
+   * espaces, ponctuation finale) ne touche ni `**`, ni les clôtures de bloc de code —
+   * un verso en Markdown ne correspond donc plus à la même réponse tapée sans balisage.
+   * Conséquence de latence, jamais de justesse : le juge tranche à sa place.
+   */
+  test('un verso en Markdown ne court-circuite plus une réponse tapée sans balisage', async ({
+    assert,
+  }) => {
+    const markdownCard = {
+      front: 'Que négocie le handshake TLS ?',
+      back: '**Les clés** de session et les algorithmes.',
+    }
+    const { llm, service } = judgeWith(['{"verdict":"juste","manquant":""}'])
+
+    const judgment = await service.judge(markdownCard, 'Les clés de session et les algorithmes.')
+
+    // Avant CC-259 (verso sans Markdown), ce même texte tapé produisait 0 appel.
+    assert.lengthOf(llm.calls, 1)
+    assert.equal(judgment.verdict, 'juste')
+  })
+
   test('une réponse vide ne part jamais au juge et ne présélectionne rien', async ({ assert }) => {
     const { llm, service } = judgeWith(['jamais appelé'])
 

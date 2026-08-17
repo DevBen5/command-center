@@ -407,6 +407,10 @@ est interdit : la carte doit se suffire à elle-même).
 Classe chaque carte : "category" est le domaine (ex. "DevOps"), "theme" le sujet précis
 dans ce domaine (ex. "Docker"). Les deux vont ensemble, ou aucun des deux.
 
+Les valeurs "front" et "back" peuvent utiliser du Markdown : **gras**, listes, titres
+courts. N'utilise un bloc de code que si le cours en contient un : une carte de deux
+phrases n'a besoin d'aucun balisage.
+
 Réponds UNIQUEMENT par cet objet JSON, sans prose, sans bloc de code :
 {"cards":[{"front":"…","back":"…","category":"…","theme":"…"}]}
 
