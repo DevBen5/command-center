@@ -30,7 +30,7 @@ export default class LeitnerStatsController {
       habits: await service.habitStats(userId),
       stats: await service.effortStats(userId),
       retention: await service.retentionByWindow(userId),
-      weakness: await service.weaknessByTheme(userId),
+      weakness: await service.weaknessByTheme(userId, isAdmin),
       problemCards: await service.problemCards(userId, isAdmin),
       mastery: await this.masteryTile(userId, isAdmin),
     })
@@ -47,9 +47,9 @@ export default class LeitnerStatsController {
    * formulations de « qu'est-ce qui est acquis ? » finiraient par diverger, et les deux
    * chiffres seraient également plausibles.
    *
-   * ⚠️ **Aucune lecture de taxonomie**, contrairement à `weaknessByTheme` qui, elle,
-   * charge encore ses catégories sans `applyVisibility` (ticket dédié). Le patron n'est
-   * pas recopié ici.
+   * ⚠️ **Aucune lecture de taxonomie** — `LeitnerMasteryService` lit le chemin d'une carte
+   * sur son thème préchargé, sur des cartes déjà filtrées par `applyVisibility`. Le patron
+   * de `weaknessByTheme` (filtrer la taxonomie elle-même, CC-263) n'est pas recopié ici.
    */
   private async masteryTile(userId: number, isAdmin: boolean) {
     const mastery = new LeitnerMasteryService()
