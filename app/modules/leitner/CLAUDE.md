@@ -1720,6 +1720,32 @@ formes. Ce qu'il ne peut pas lire, il le fait **réparer une seule fois** : pas 
 qui n'a pas compris au deuxième tour ne comprendra pas au dixième. `response_format: json_object` est
 demandé quand le serveur le connaît, jamais présumé (un 400 fait réessayer sans lui).
 
+### Le modèle écrit du Markdown dans les cartes (CC-259)
+
+`SYSTEM_PROMPT` demande désormais du Markdown **dans les valeurs `front`/`back`**, borné : gras et
+listes partout, un bloc de code seulement si le cours en contenait un — sans quoi un modèle enrobe
+même une carte de deux phrases sous des titres. ⚠️ **La consigne de format de l'enveloppe JSON
+n'a pas bougé** (« sans prose, sans bloc de code », lignes 410 et 634) : elle porte sur le transport,
+la nouvelle consigne porte sur le contenu des champs — les deux coexistent sans se contredire, et
+c'est **mesuré**, pas supposé : `extractJson` tente trois candidats (nu, bloc, scanner d'accolades
+`firstJsonValue`), et une carte dont le `back` porte lui-même un bloc de code parse correctement même
+enveloppée dans ```` ```json ```` — voir `tests/unit/leitner_ingestion_service.spec.ts`, le cas du
+bloc imbriqué.
+
+⚠️ **Ne retire jamais `firstJsonValue` de la cascade** en le croyant redondant avec la regex de bloc.
+C'est justement ce cas — un bloc de code imbriqué dans une enveloppe extérieure — qui le rend
+nécessaire : la regex, non gourmande, s'arrête au premier ``` ```` fermant qu'elle rencontre, celui du
+bloc **intérieur**, et rend un fragment tronqué que `JSON.parse` refuse. Le scanner d'accolades est
+seul à ignorer ce qui est à l'intérieur d'une chaîne JSON. Un test dédié, minimal, isole ce mécanisme
+et mute (retrait de la ligne qui pousse `firstJsonValue` dans les candidats) pour le prouver.
+
+⚠️ **Conséquence mesurée sur le court-circuit du juge** (voir plus haut, « la réponse écrite ») :
+`normalizeForSearch` ne touche ni `**`, ni les clôtures de bloc de code — un verso passé en
+`**gras**` ne correspond donc plus à la même réponse tapée sans balisage, et part au juge là où il y
+avait un court-circuit. Mesuré par un test dédié (`leitner_judge_service.spec.ts`) : le nombre d'appels
+LLM passe de 0 à 1 sur un cas identique, hors Markdown. Aucune conséquence de justesse, une latence
+en plus — la doctrine du module (« court-circuit = optimisation, pas une règle ») tient.
+
 ### Le cycle de vie d'un travail — asynchrone, dans le processus
 
 `GET /revision/ingest` est le formulaire (toujours vierge) et l'historique. `POST` crée la ligne en
