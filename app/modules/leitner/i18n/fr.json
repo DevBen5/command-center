@@ -279,9 +279,17 @@
     "remaining": "· {n} restantes",
     "answerPlaceholder": "Votre réponse — écrivez-la avant de révéler le verso",
     "revealButton": "verso masqué — cliquer pour révéler",
+    "dontKnowButton": "Je ne sais pas",
     "judging": "Évaluation en cours…",
     "judgeUnavailable": "Juge indisponible — évaluez vous-même.",
     "suggested": "· suggéré",
+    "coursePanel": {
+      "show": "Approfondir",
+      "hide": "Masquer",
+      "loading": "Recherche dans le corpus…",
+      "empty": "Rien trouvé dans le corpus pour cette carte.",
+      "error": "La recherche a échoué."
+    },
     "verdict": {
       "juste": "Juste",
       "partiel": "Partiellement juste",
