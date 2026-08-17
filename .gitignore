@@ -53,3 +53,8 @@ skill-observations/
 # Le skill task-observer lui-même : auto-installé localement, pas encore une décision
 # du dépôt — exception à la ligne 42 (les skills du projet sont normalement versionnés).
 .claude/skills/task-observer/
+
+# Rapports d'audit produits localement (2026-08-18) : ils citent l'installation réelle
+# — chemins, hôtes, valeurs de configuration — et ce dépôt est PUBLIC. Ils restent sur
+# la machine ; ce qui doit survivre part dans un ticket ou dans la KB, jamais ici.
+RAPPORT_SECURITE.md
