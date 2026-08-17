@@ -560,6 +560,15 @@ router
             .where('id', router.matchers.number())
             .use(middleware.can('leitner.courses.write'))
 
+          // « Approfondir » (CC-252) : recherche plein texte du corpus, JSON nu, GET donc
+          // pas de jeton CSRF. Sous `leitner.courses.view`, PAS `leitner.review` : c'est
+          // une lecture du corpus, pas un geste de révision — la même distinction que
+          // `/cours` ci-dessus.
+          router
+            .get('/:id/course-search', [LeitnerController, 'courseSearch'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('leitner.courses.view'))
+
           // La réponse écrite → un verdict, AVANT le dévoilement du verso. JSON nu (la
           // page l'appelle en fetch, donc avec `x-xsrf-token`), et elle n'écrit RIEN :
           // l'historisation se fait à la note. Un juge éteint rend 200 + `verdict: null`,

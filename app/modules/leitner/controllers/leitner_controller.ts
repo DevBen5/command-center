@@ -5,6 +5,7 @@ import { renderMarkdown } from '#core/shared/services/markdown_renderer'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
+import { searchCourseSections } from '#modules/leitner/services/leitner_course_search_service'
 import LeitnerFluencyService from '#modules/leitner/services/leitner_fluency_service'
 import { gradeOutcomes } from '#modules/leitner/services/leitner_grade_outcomes'
 import LeitnerJudgeService from '#modules/leitner/services/leitner_judge_service'
@@ -15,6 +16,7 @@ import LeitnerService, {
   type ScopeRefusal,
 } from '#modules/leitner/services/leitner_service'
 import { applyVisibility, assertVisibleOrAdmin } from '#modules/leitner/services/leitner_visibility'
+import { courseSearchQuery } from '#modules/leitner/shared/course_search'
 import {
   maintenanceDueCount,
   masteredThisMonth,
@@ -308,6 +310,39 @@ export default class LeitnerController {
     // Noter n'a donc plus aucun effet sur ce que voient les autres.
     await new LeitnerService().review(auth.user!.id, card, grade, judgment)
     return response.redirect().withQs().back()
+  }
+
+  /**
+   * « Approfondir » (CC-252) : la section du corpus la plus proche du recto de la carte,
+   * par recherche plein texte Postgres — instantané, aucun LLM, aucune écriture.
+   *
+   * ⚠️ **`assertVisibleOrAdmin` sur la CARTE, même garde que `judge()`/`review()`** : la
+   * capacité `leitner.courses.view` ouvre la route, mais rien n'empêcherait sinon de
+   * sonder le contenu d'une carte privée d'un autre compte par son id — la requête FTS
+   * elle-même est construite depuis `card.front`, jamais reçu du client.
+   *
+   * ⚠️ **Requête vide après nettoyage → aucun appel SQL.** Un recto réduit à des symboles
+   * (rare, mais possible) ne doit pas tenter `plainto_tsquery('')` ; la garde applicative
+   * évite l'aller-retour pour rien plutôt que de laisser Postgres trancher.
+   */
+  async courseSearch({ auth, params, response }: HttpContext) {
+    const card = await LeitnerCard.findOrFail(params.id)
+    assertVisibleOrAdmin(card, auth.user!.id, auth.user!.isAdmin)
+
+    const query = courseSearchQuery(card.front)
+    if (!query) return response.json({ results: [] })
+
+    const sections = await searchCourseSections(query, auth.user!.id, auth.user!.isAdmin)
+
+    return response.json({
+      results: sections.map((section) => ({
+        id: section.id,
+        courseTitle: section.course.title,
+        headingPath: section.headingPath,
+        bodyHtml: renderMarkdown(section.body),
+        aliases: section.aliases,
+      })),
+    })
   }
 
   /**

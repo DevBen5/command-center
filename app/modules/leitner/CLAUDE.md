@@ -2007,10 +2007,13 @@ permanence :
 - **La bande 20–120 s de la fluence** n'est couverte par rien : `visibilitychange` ne se déclenche ni
   au changement d'application, ni quand on se détourne de l'écran. C'est la distraction la plus
   courante, et la seule qui produise un `hard` *plausible*.
-- **`pages/index.vue` n'a pas de test de composant**, et c'est de loin la page la plus stateful du
-  module : la remise à zéro sur la référence de `dueCards`, le surlignage de la présélection, le
-  verrouillage du champ, le badge de repli et le chronométrage se vérifient au navigateur — noter
-  « À revoir » sur la **dernière** carte due, et voir l'écran repartir vierge.
+- **`pages/index.vue` a un test de composant depuis CC-252 (2026-08-18), mais étroit** :
+  `pages/__tests__/index.spec.ts` ne prouve que ce que ce lot a ajouté — « Je ne sais pas »
+  qui surligne sans poster, le panneau « Approfondir », et la remise à zéro sur la
+  RÉFÉRENCE de `dueCards` à même id. Le verrouillage du champ, le badge de repli et le
+  chronométrage restent hors de portée d'un test de composant et se vérifient toujours au
+  navigateur — noter « À revoir » sur la **dernière** carte due, et voir l'écran repartir
+  vierge.
 - **Le CSS de la modale** ne se prouve qu'à `npm run build` + navigateur (jsdom ne fait aucun layout).
 - **La qualité d'une extraction PDF** (deux colonnes, en particulier) et **la qualité des verdicts du
   juge** sur de vraies cartes demandent un vrai passage navigateur avec de vrais fichiers et LM Studio

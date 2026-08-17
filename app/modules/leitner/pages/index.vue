@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
+import CourseSectionView from '../components/CourseSectionView.vue'
 import LeitnerScopePicker from '../components/LeitnerScopePicker.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
 import MasteredInventory from '../components/MasteredInventory.vue'
@@ -52,6 +53,16 @@ interface LeitnerCard {
   // ramener dans 90 jours.
   outcomes: GradeOutcome[]
   theme: { id: number; name: string; category: { id: number; name: string } } | null
+}
+
+/** Une section du corpus rendue par « Approfondir » (CC-252) — le même contenu que
+ * `cours_show.vue`, prêt pour un autre châssis (CC-254). */
+interface CourseSearchResult {
+  id: number
+  courseTitle: string
+  headingPath: string[]
+  bodyHtml: string
+  aliases: string[] | null
 }
 
 interface Stats {
@@ -143,6 +154,13 @@ const nextMaintenanceLabel = computed(() => {
  */
 const { can } = useCan()
 const canReview = computed(() => can('leitner.review'))
+/**
+ * ⚠️ **Masquer n'est pas fermer** (même remarque que `canReview`) : la vraie garde est
+ * `middleware.can('leitner.courses.view')` sur `GET /:id/course-search`. Un compte sans
+ * cette capacité ne voit ni « Approfondir » ni le panneau — la carte reste révisable
+ * normalement, seule la porte vers le corpus se ferme.
+ */
+const canViewCourses = computed(() => can('leitner.courses.view'))
 
 const currentCard = computed(() => props.dueCards?.[0] ?? null)
 const revealed = ref(false)
@@ -170,6 +188,27 @@ const missing = ref('')
 const judgeUnavailable = ref(false)
 const suggestedGrade = ref<Grade | null>(null)
 const latencyMs = ref<number | null>(null)
+/**
+ * « Je ne sais pas » (CC-252) : surligne `again` SANS l'appliquer — un raccourci de
+ * présentation, jamais une note. Prime sur `suggestedGrade` dans `highlightedGrade`
+ * ci-dessous ; remis à `null` par le `watch` sur `dueCards`, comme le reste de l'état de
+ * présélection.
+ */
+const forcedHighlight = ref<Grade | null>(null)
+
+/*
+|----------------------------------------------------------------------------
+| Le panneau « Approfondir » (CC-252) : une recherche plein texte, aucune écriture
+|----------------------------------------------------------------------------
+| `courseResults` vaut `null` tant qu'aucune recherche n'a été faite POUR CETTE CARTE —
+| c'est cette absence qui évite de re-fetcher à chaque bascule du panneau. Un tableau
+| vide, lui, veut dire « recherché, rien trouvé ».
+*/
+const courseSearchOpen = ref(false)
+const courseResults = ref<CourseSearchResult[] | null>(null)
+const courseSearchLoading = ref(false)
+const courseSearchError = ref(false)
+const selectedSectionIndex = ref(0)
 
 /*
 |----------------------------------------------------------------------------
@@ -325,6 +364,16 @@ watch(
     revealedAt.value = null
     // Pas `false` : la carte peut arriver dans un onglet déjà masqué (voir plus haut).
     interrupted.value = hiddenAtPresentation()
+    // ⚠️ CC-252 : sans ce bloc, « Je ne sais pas » resterait surligné et le panneau de
+    // cours resterait ouvert sur les résultats de la carte PRÉCÉDENTE — même piège que
+    // le reste de cet état, y compris sur une file d'une seule carte où `again` renvoie
+    // le même id.
+    forcedHighlight.value = null
+    courseSearchOpen.value = false
+    courseResults.value = null
+    courseSearchLoading.value = false
+    courseSearchError.value = false
+    selectedSectionIndex.value = 0
   }
 )
 
@@ -406,10 +455,74 @@ const VERDICT_LABELS = computed<Record<Verdict, string>>(() => ({
  * `hard` sur une réponse lente. Le surlignage tombait alors dans le vide, sans erreur ni
  * log. Le repli sur la note la plus généreuse reste ce qu'il était (`easy` en file
  * normale) : une panne de LM Studio ne doit pas changer l'apparence de la révision.
+ *
+ * ⚠️ **`forcedHighlight` prime sur tout le reste** (CC-252) : « Je ne sais pas » est un
+ * geste explicite de l'utilisateur, pas une suggestion du juge — il l'emporte même si
+ * une réponse était restée dans le champ avant le clic.
  */
-const highlightedGrade = computed<Grade | null>(() =>
-  resolveHighlight(currentCard.value?.outcomes ?? [], suggestedGrade.value)
+const highlightedGrade = computed<Grade | null>(
+  () => forcedHighlight.value ?? resolveHighlight(currentCard.value?.outcomes ?? [], suggestedGrade.value)
 )
+
+/**
+ * Le raccourci « Je ne sais pas » (CC-252) : ce n'est PAS un mécanisme neuf, seulement un
+ * chemin plus court vers ce que l'écran sait déjà faire — dévoiler, surligner `again`,
+ * ouvrir la porte vers le cours. Aucune note n'est appliquée : c'est toujours un clic sur
+ * un bouton de note qui écrit quoi que ce soit.
+ *
+ * ⚠️ **Vide `answer` en premier.** Un texte resté dans le champ partirait sinon au juge
+ * (`reveal()` ne court-circuite que sur une réponse VIDE) — exactement l'appel réseau que
+ * ce bouton existe pour éviter, et une présélection du juge qui contredirait le geste
+ * explicite de l'utilisateur.
+ */
+function dontKnow(): void {
+  answer.value = ''
+  forcedHighlight.value = 'again'
+  void reveal()
+  if (canViewCourses.value) {
+    courseSearchOpen.value = true
+    void ensureCourseResults()
+  }
+}
+
+/**
+ * Charge les résultats de recherche pour la carte courante, une seule fois — `null` est
+ * la valeur qui dit « jamais interrogé pour cette carte », pas un tableau vide.
+ *
+ * ⚠️ **Aucun jeton CSRF** : la route est un `GET`, Shield ne le demande que sur les
+ * verbes qui écrivent.
+ */
+async function ensureCourseResults(): Promise<void> {
+  if (courseResults.value !== null || courseSearchLoading.value) return
+  const card = currentCard.value
+  if (!card) return
+
+  courseSearchLoading.value = true
+  courseSearchError.value = false
+  try {
+    const response = await fetch(`/revision/${card.id}/course-search`, {
+      headers: { accept: 'application/json' },
+    })
+    if (!response.ok) throw new Error(String(response.status))
+
+    const payload = (await response.json()) as { results: CourseSearchResult[] }
+    // Même garde que `reveal()` : la carte a pu changer pendant l'appel.
+    if (currentCard.value?.id !== card.id) return
+    courseResults.value = payload.results
+    selectedSectionIndex.value = 0
+  } catch {
+    if (currentCard.value?.id === card.id) courseSearchError.value = true
+  } finally {
+    if (currentCard.value?.id === card.id) courseSearchLoading.value = false
+  }
+}
+
+/** « Approfondir », disponible sur toute carte dévoilée (CC-252) — pas seulement sur un
+ * échec : la révision est aussi une porte vers la matière. */
+async function toggleCourseSearch(): Promise<void> {
+  courseSearchOpen.value = !courseSearchOpen.value
+  if (courseSearchOpen.value) await ensureCourseResults()
+}
 
 /**
  * Chaque bouton annonce ce que la note fera : **quatre** réponses en file normale, **deux**
@@ -680,14 +793,26 @@ function grade(g: Grade): void {
         ></textarea>
       </div>
 
-      <button
-        v-if="!revealed"
-        type="button"
-        class="w-3/5 rounded-[10px] border border-dashed border-line-2 bg-accent-soft py-3.5 text-[11.5px] text-txt-2 transition hover:border-accent"
-        @click="reveal()"
-      >
-        {{ t('leitner.index.revealButton') }}
-      </button>
+      <div v-if="!revealed" class="flex w-3/5 flex-col gap-2">
+        <button
+          type="button"
+          class="rounded-[10px] border border-dashed border-line-2 bg-accent-soft py-3.5 text-[11.5px] text-txt-2 transition hover:border-accent"
+          @click="reveal()"
+        >
+          {{ t('leitner.index.revealButton') }}
+        </button>
+        <!-- Raccourci (CC-252) : dévoile, surligne `again` sans l'appliquer, ouvre la
+             porte vers le cours. Réservé à `canReview` — sans boutons de note à côté, le
+             surlignage n'a aucun sens pour un compte en lecture seule. -->
+        <button
+          v-if="canReview"
+          type="button"
+          class="rounded-[10px] border border-line-2 bg-panel-2 py-2 text-[11px] text-txt-3 transition hover:border-accent"
+          @click="dontKnow()"
+        >
+          {{ t('leitner.index.dontKnowButton') }}
+        </button>
+      </div>
       <!-- Le verso. Même remarque que le recto : `backHtml` vient du serveur, `back` reste la
            source et n'a rien à faire dans un `v-html`. -->
       <div
@@ -723,6 +848,58 @@ function grade(g: Grade): void {
         <div v-else class="text-[11.5px] text-txt-3">
           {{ t('leitner.index.judgeUnavailable') }}
         </div>
+      </div>
+
+      <!-- « Approfondir » (CC-252) : sur TOUTE carte dévoilée, réponse juste comprise —
+           la révision est aussi une porte vers la matière, pas seulement un test raté.
+           Masqué sans `leitner.courses.view` : la route répond 403, les deux gardes. -->
+      <button
+        v-if="revealed && canViewCourses"
+        type="button"
+        class="text-[11.5px] text-accent transition hover:opacity-80"
+        @click="toggleCourseSearch()"
+      >
+        {{ courseSearchOpen ? t('leitner.index.coursePanel.hide') : t('leitner.index.coursePanel.show') }}
+      </button>
+
+      <!-- Le panneau : hauteur plafonnée + défilement INTERNE (CC-67 rejoue ici — le
+           panneau allonge la page et pousserait les boutons de note hors de l'écran ;
+           `preserveScroll` est inerte sur cette page, voir le CLAUDE.md du module). -->
+      <div
+        v-if="revealed && canViewCourses && courseSearchOpen"
+        class="max-h-[280px] w-3/5 overflow-y-auto rounded-[10px] border border-line bg-bg-2 p-3 text-left"
+      >
+        <div v-if="courseSearchLoading" class="text-[11.5px] text-txt-3">
+          {{ t('leitner.index.coursePanel.loading') }}
+        </div>
+        <div v-else-if="courseSearchError" class="text-[11.5px] text-bad">
+          {{ t('leitner.index.coursePanel.error') }}
+        </div>
+        <div v-else-if="!courseResults || courseResults.length === 0" class="text-[11.5px] text-txt-3">
+          {{ t('leitner.index.coursePanel.empty') }}
+        </div>
+        <template v-else>
+          <div v-if="courseResults.length > 1" class="mb-2 flex flex-wrap gap-1.5">
+            <button
+              v-for="(result, i) in courseResults"
+              :key="result.id"
+              type="button"
+              class="rounded-full border px-2.5 py-1 text-[11px] transition"
+              :class="
+                i === selectedSectionIndex
+                  ? 'border-accent bg-accent-soft text-txt'
+                  : 'border-line-2 text-txt-3 hover:border-accent'
+              "
+              @click="selectedSectionIndex = i"
+            >
+              {{ result.courseTitle }}
+            </button>
+          </div>
+          <CourseSectionView
+            v-if="courseResults[selectedSectionIndex]"
+            :section="courseResults[selectedSectionIndex]"
+          />
+        </template>
       </div>
 
       <!-- Boutons de note : masqués en lecture seule (`grade()` poste sur `POST /:id/review`,
