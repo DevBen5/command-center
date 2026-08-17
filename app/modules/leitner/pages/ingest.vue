@@ -128,6 +128,10 @@ const title = ref('')
 const text = ref('')
 const submitting = ref(false)
 
+// « Conserver ce cours dans la base » (CC-251) — cochée par défaut : le cours est créé
+// AVANT le lancement du LLM, donc une ingestion `failed` laisse le cours intact.
+const saveCourse = ref(true)
+
 /*
 |------------------------------------------------------------------------------
 | Le champ fichier n'est plus une soumission : c'est un chargeur de texte
@@ -247,6 +251,7 @@ function submitCourse(): void {
       text: text.value,
       source: source.value,
       sourceName: sourceName.value,
+      saveCourse: saveCourse.value,
     },
     {
       onFinish: () => {
@@ -352,6 +357,11 @@ function submitCourse(): void {
         <p v-else-if="source === 'pdf'" class="text-[11.5px] text-txt-3">
           {{ t('leitner.ingest.form.pdfHint') }}
         </p>
+
+        <label class="flex items-center gap-1.5 text-[11.5px] text-txt-2">
+          <input v-model="saveCourse" type="checkbox" class="accent-accent" />
+          {{ t('leitner.ingest.form.saveCourse') }}
+        </label>
 
         <button
           type="submit"

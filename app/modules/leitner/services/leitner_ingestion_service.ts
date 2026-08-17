@@ -530,6 +530,8 @@ export default class LeitnerIngestionService {
       source: IngestionSource
       sourceName?: string | null
       title?: string | null
+      /** Le cours conservé en base pour ce travail (CC-251), s'il a été créé avant l'appel. */
+      leitnerCourseId?: number | null
     },
     userId: number
   ): Promise<LeitnerIngestion> {
@@ -554,6 +556,7 @@ export default class LeitnerIngestionService {
       // ingestion, seulement les cartes qui en naissent. Voir le CLAUDE.md du module.
       ownerId: userId,
       isShared: false,
+      leitnerCourseId: input.leitnerCourseId ?? null,
     })
 
     track(this.run(ingestion, chunks))

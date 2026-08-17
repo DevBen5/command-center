@@ -48,6 +48,8 @@ const LeitnerIngestionController = () =>
   import('#modules/leitner/controllers/leitner_ingestion_controller')
 const LeitnerLlmController = () => import('#modules/leitner/controllers/leitner_llm_controller')
 const LeitnerStatsController = () => import('#modules/leitner/controllers/leitner_stats_controller')
+const LeitnerCourseController = () =>
+  import('#modules/leitner/controllers/leitner_course_controller')
 const CoffreDoorController = () => import('#modules/coffre/controllers/coffre_door_controller')
 const CoffreController = () => import('#modules/coffre/controllers/coffre_controller')
 const CoffreMediaController = () => import('#modules/coffre/controllers/coffre_media_controller')
@@ -523,6 +525,40 @@ router
           router
             .post('/llm/test', [LeitnerLlmController, 'test'])
             .use(middleware.can('leitner.llm'))
+
+          // Le corpus de cours (CC-251). Déclaré AVANT `/:id/judge` et `/:id/review` :
+          // ces deux-là n'ont pas de `where(number)`, même raison que le commentaire
+          // déjà posé sur `/ingest`.
+          //
+          // ⚠️ `store`/`resolveConflict`/`update` rendent du JSON nu, jamais une
+          // redirection Inertia : le store de session est `cookie` (CC-78), et flasher
+          // le markdown entier d'un cours dedans rejouerait la faille que CC-179 a
+          // fermée sur le coffre.
+          router
+            .get('/cours', [LeitnerCourseController, 'index'])
+            .use(middleware.can('leitner.courses.view'))
+          router
+            .post('/cours', [LeitnerCourseController, 'store'])
+            .use(middleware.can('leitner.courses.write'))
+          router
+            .post('/cours/conflict', [LeitnerCourseController, 'resolveConflict'])
+            .use(middleware.can('leitner.courses.write'))
+          router
+            .get('/cours/:id', [LeitnerCourseController, 'show'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('leitner.courses.view'))
+          router
+            .put('/cours/:id', [LeitnerCourseController, 'update'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('leitner.courses.write'))
+          router
+            .delete('/cours/:id', [LeitnerCourseController, 'destroy'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('leitner.courses.write'))
+          router
+            .post('/cours/:id/purge', [LeitnerCourseController, 'purge'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('leitner.courses.write'))
 
           // La réponse écrite → un verdict, AVANT le dévoilement du verso. JSON nu (la
           // page l'appelle en fetch, donc avec `x-xsrf-token`), et elle n'écrit RIEN :

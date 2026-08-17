@@ -4,8 +4,11 @@ import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
+import LeitnerCourse, { type CourseSource } from '#modules/leitner/models/leitner_course'
+import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
+import { hashCourseMarkdown } from '#modules/leitner/services/leitner_course_sections'
 import { DEFAULT_BOX } from '#modules/leitner/services/leitner_progress'
 import type { Grade, ReviewKind, Verdict } from '#modules/leitner/services/leitner_service'
 import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
@@ -49,8 +52,14 @@ import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
  * est une occasion d'oublier le `snapshot()` de `leitner_backup.spec.ts`, et cet oubli
  * fait perdre des données sans qu'aucun test ne rougisse (c'est ce qui a laissé passer
  * CC-51).
+ *
+ * ⚠️ **Une quatrième fois en CC-251, d'où le `5`** : le fichier gagne un champ `courses`
+ * entièrement nouveau, jamais lu par un build antérieur. Ce n'est pas le même critère
+ * que les trois bumps précédents (un champ existant qui change de sens) — mais un champ
+ * absent d'un fichier v < 5 doit se lire « aucun cours », jamais planter l'import : voir
+ * `courses` sur `backupValidator`, `.optional()`.
  */
-export const BACKUP_VERSION = 4
+export const BACKUP_VERSION = 5
 
 /**
  * Les versions qu'un import accepte, et la seule raison de la liste : **refuser v1/v2
@@ -59,7 +68,7 @@ export const BACKUP_VERSION = 4
  * CC-139), il le reste après import (`shared: true`, voir `resolveShared`). C'est
  * exactement le choix que fait le backfill de la migration sur le contenu déjà en base.
  */
-export const READABLE_BACKUP_VERSIONS = [1, 2, 3, 4]
+export const READABLE_BACKUP_VERSIONS = [1, 2, 3, 4, 5]
 
 /**
  * Une révision : sa note, son horodatage, et **la trace de ce qui l'a précédée**.
@@ -140,17 +149,59 @@ export interface BackupCategory {
   themes: string[]
 }
 
+/**
+ * Une section, exportée **telle quelle en base** — jamais re-dérivée du markdown à
+ * l'export ni à l'import. C'est ce qui préserve l'historique des pierres tombales
+ * (`obsoleteAt`) d'un cours à travers une restauration : re-découper le markdown au
+ * chargement perdrait la trace de tout slug disparu depuis.
+ */
+export interface BackupCourseSection {
+  slug: string
+  headingPath: string[]
+  body: string
+  /** `undefined` = hors glossaire, même sens que sur le modèle. */
+  aliases?: string[]
+  obsoleteAt?: string
+}
+
+export interface BackupCourse {
+  title: string
+  markdown: string
+  source: CourseSource
+  shared: boolean
+  createdAt: string
+  updatedAt: string
+  sections: BackupCourseSection[]
+}
+
 export interface Backup {
   version: number
   exportedAt: string
   categories: BackupCategory[]
   cards: BackupCard[]
+  courses: BackupCourse[]
 }
 
 /*
 | Le fichier importé, tel que le validateur le rend : tout est optionnel sauf le
 | recto et le verso, pour qu'un fichier écrit à la main tienne en trois champs.
 */
+
+export interface BackupCourseInput {
+  title: string
+  markdown: string
+  source?: CourseSource
+  shared?: boolean
+  createdAt?: string
+  updatedAt?: string
+  sections?: {
+    slug: string
+    headingPath?: string[]
+    body: string
+    aliases?: string[]
+    obsoleteAt?: string | null
+  }[]
+}
 
 export interface BackupCardInput {
   front: string
@@ -182,6 +233,7 @@ export interface BackupInput {
   version?: number
   categories?: { name: string; themes?: string[] }[]
   cards: BackupCardInput[]
+  courses?: BackupCourseInput[]
 }
 
 export interface ImportReport {
@@ -191,6 +243,9 @@ export interface ImportReport {
   categoriesCreated: number
   themesCreated: number
   reviewsCreated: number
+  coursesCreated: number
+  /** Cours ignorés : même empreinte déjà présente pour l'importateur. */
+  coursesSkipped: number
 }
 
 /**
@@ -319,12 +374,34 @@ export default class LeitnerBackupService {
     applyVisibility(cardsQuery, 'leitner_cards', userId, isAdmin)
     const cards = await cardsQuery
 
+    // Sections exportées telles quelles, tombes comprises (voir `BackupCourseSection`).
+    const coursesQuery = LeitnerCourse.query()
+      .preload('sections', (sections) => sections.orderBy('id', 'asc'))
+      .orderBy('id', 'asc')
+    applyVisibility(coursesQuery, 'leitner_courses', userId, isAdmin)
+    const courses = await coursesQuery
+
     return {
       version: BACKUP_VERSION,
       exportedAt: DateTime.now().toISO()!,
       categories: categories.map((category) => ({
         name: category.name,
         themes: category.themes.map((theme) => theme.name),
+      })),
+      courses: courses.map((course) => ({
+        title: course.title,
+        markdown: course.markdown,
+        source: course.source,
+        shared: course.isShared,
+        createdAt: course.createdAt.toISO()!,
+        updatedAt: course.updatedAt.toISO()!,
+        sections: course.sections.map((section) => ({
+          slug: section.slug,
+          headingPath: section.headingPath,
+          body: section.body,
+          ...omitNull({ aliases: section.aliases }),
+          ...omitNull({ obsoleteAt: section.obsoleteAt?.toISO() ?? null }),
+        })),
       })),
       cards: cards.map((card) => ({
         front: card.front,
@@ -421,6 +498,8 @@ export default class LeitnerBackupService {
       categoriesCreated: 0,
       themesCreated: 0,
       reviewsCreated: 0,
+      coursesCreated: 0,
+      coursesSkipped: 0,
     }
 
     // Une seule fois : la taxonomie créée en chemin suit la même règle que les cartes,
@@ -536,6 +615,66 @@ export default class LeitnerBackupService {
             { client: trx }
           )
           report.reviewsCreated++
+        }
+      }
+
+      // Le corpus de cours (CC-251, v5). Même doctrine de dédup qu'une carte : une
+      // empreinte déjà présente pour `userId` est **entièrement** ignorée — sections
+      // comprises, jamais rétro-remplies depuis le fichier.
+      //
+      // ⚠️ **Le TITRE est dédoublonné au même titre que l'empreinte, et ce n'est pas
+      // décoratif** : `leitner_courses` porte AUSSI `unique(owner_id, title)`. Sans ce
+      // second filtre, un cours de même titre mais de contenu différent (le cas
+      // normal d'un vieux fichier réimporté après édition) ferait lever une violation
+      // d'unicité non catchée, qui annulerait tout l'import — cartes et taxonomie
+      // comprises, faute d'être une `BackupImportError`. Ignorer silencieusement suit
+      // la même doctrine que le reste de l'import : « n'ajoute que ce qui manque »,
+      // jamais de remplacement.
+      const seenCourseHashes = new Set<string>()
+      const seenCourseTitles = new Set<string>()
+      for (const course of await LeitnerCourse.query({ client: trx }).where('owner_id', userId)) {
+        seenCourseHashes.add(course.contentHash)
+        seenCourseTitles.add(course.title)
+      }
+
+      for (const course of backup.courses ?? []) {
+        const contentHash = hashCourseMarkdown(course.markdown)
+        if (seenCourseHashes.has(contentHash) || seenCourseTitles.has(course.title)) {
+          report.coursesSkipped++
+          continue
+        }
+        seenCourseHashes.add(contentHash)
+        seenCourseTitles.add(course.title)
+
+        const createdCourse = await LeitnerCourse.create(
+          {
+            title: course.title,
+            markdown: course.markdown,
+            contentHash,
+            source: course.source ?? 'paste',
+            ownerId: userId,
+            isShared: resolveShared(backup.version, course.shared),
+            ...(course.createdAt ? { createdAt: DateTime.fromISO(course.createdAt) } : {}),
+            ...(course.updatedAt ? { updatedAt: DateTime.fromISO(course.updatedAt) } : {}),
+          },
+          { client: trx }
+        )
+        report.coursesCreated++
+
+        // Sections réinsérées TELLES QUELLES — tombes comprises — jamais re-découpées
+        // du markdown : c'est ce qui préserve l'historique des slugs disparus.
+        for (const section of course.sections ?? []) {
+          await LeitnerCourseSection.create(
+            {
+              courseId: createdCourse.id,
+              slug: section.slug,
+              headingPath: section.headingPath ?? [],
+              body: section.body,
+              aliases: section.aliases ?? null,
+              obsoleteAt: section.obsoleteAt ? DateTime.fromISO(section.obsoleteAt) : null,
+            },
+            { client: trx }
+          )
         }
       }
 

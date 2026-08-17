@@ -95,6 +95,8 @@ interface ImportReport {
   categoriesCreated: number
   themesCreated: number
   reviewsCreated: number
+  coursesCreated: number
+  coursesSkipped: number
 }
 
 const props = defineProps<{
@@ -1152,6 +1154,14 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
           </div>
           <div v-if="importReport.cardsSkipped" class="mt-0.5 text-warn">
             {{ t('leitner.settings.importSummarySkipped', { cards: importReport.cardsSkipped }) }}
+          </div>
+          <div v-if="importReport.coursesCreated || importReport.coursesSkipped" class="mt-0.5">
+            {{
+              t('leitner.settings.importSummaryCourses', {
+                courses: importReport.coursesCreated,
+                skipped: importReport.coursesSkipped,
+              })
+            }}
           </div>
         </div>
       </div>
