@@ -8,6 +8,8 @@ import { boxOf, makeCard, nextReviewOf, setProgress } from '#tests/helpers/leitn
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
+import LeitnerCourse from '#modules/leitner/models/leitner_course'
+import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 import type { ImportReport } from '#modules/leitner/services/leitner_backup_service'
@@ -85,13 +87,14 @@ test.group('Leitner / export JSON', (group) => {
     const response = await client.get('/revision/export').loginAs(user)
     const backup = JSON.parse(response.text())
 
-    // ⚠️ **v2 depuis CC-119, v3 depuis CC-139, v4 depuis CC-260** : les clés n'ont pas
-    // bougé, leur sens si — `box`, `nextReview` et `reviews` décrivent la progression de
-    // **celui qui exporte** (v2) ; le fichier ne rend plus que le **visible** par
-    // l'exportateur, et chaque carte porte désormais `shared` (v3) ; une révision porte
-    // `kind`, dont l'**absence** doit se trancher plutôt que se deviner (v4). C'est le
-    // critère de bump posé par le `CLAUDE.md` du module, les trois fois.
-    assert.equal(backup.version, 4)
+    // ⚠️ **v2 depuis CC-119, v3 depuis CC-139, v4 depuis CC-260, v5 depuis CC-251** : les
+    // clés n'ont pas bougé, leur sens si — `box`, `nextReview` et `reviews` décrivent la
+    // progression de **celui qui exporte** (v2) ; le fichier ne rend plus que le
+    // **visible** par l'exportateur, et chaque carte porte désormais `shared` (v3) ; une
+    // révision porte `kind`, dont l'**absence** doit se trancher plutôt que se deviner
+    // (v4) ; le fichier gagne `courses`, un champ entièrement nouveau (v5).
+    assert.equal(backup.version, 5)
+    assert.deepEqual(backup.courses, [])
     assert.deepEqual(backup.categories, [{ name: 'DevOps', themes: ['Docker', 'Kubernetes'] }])
 
     assert.lengthOf(backup.cards, 1)
@@ -251,10 +254,29 @@ test.group('Leitner / import JSON', (group) => {
 
     const categories = await LeitnerCategory.query().preload('themes').orderBy('name')
 
+    // ⚠️ Le corpus de cours (CC-251) : sections triées par id, tombes COMPRISES — sinon
+    // un aller-retour qui les perdrait passerait cette fonction au vert.
+    const courses = await LeitnerCourse.query()
+      .preload('sections', (sections) => sections.orderBy('id', 'asc'))
+      .orderBy('title', 'asc')
+
     return {
       categories: categories.map((category) => ({
         name: category.name,
         themes: category.themes.map((theme) => theme.name).sort(),
+      })),
+      courses: courses.map((course) => ({
+        title: course.title,
+        markdown: course.markdown,
+        source: course.source,
+        shared: course.isShared,
+        sections: course.sections.map((section) => ({
+          slug: section.slug,
+          headingPath: section.headingPath,
+          body: section.body,
+          aliases: section.aliases,
+          obsoleteAt: section.obsoleteAt?.toISO() ?? null,
+        })),
       })),
       cards: cards.map((card) => ({
         front: card.front,
@@ -387,6 +409,34 @@ test.group('Leitner / import JSON', (group) => {
       boxAfter: 5,
     })
 
+    // Un cours (CC-251), avec une pierre tombale : sans elle dans le fichier, une
+    // restauration perdrait l'historique des slugs disparus — exactement ce que la
+    // doctrine des pierres tombales existe pour empêcher.
+    const course = await LeitnerCourse.create({
+      title: 'Réseaux',
+      markdown: '# HTTP\n\nLes verbes.',
+      contentHash: 'empreinte-de-test',
+      source: 'paste',
+      ownerId: user.id,
+      isShared: true,
+    })
+    await LeitnerCourseSection.create({
+      courseId: course.id,
+      slug: 'http',
+      headingPath: ['HTTP'],
+      body: 'Les verbes.',
+      aliases: null,
+      obsoleteAt: null,
+    })
+    await LeitnerCourseSection.create({
+      courseId: course.id,
+      slug: 'tls',
+      headingPath: ['TLS'],
+      body: 'Le handshake — obsolète, mais conservé.',
+      aliases: ['TLS', 'Transport Layer Security'],
+      obsoleteAt: DateTime.fromISO('2026-07-15T00:00:00.000Z'),
+    })
+
     const avant = await snapshot(user)
     const exported = await client.get('/revision/export').loginAs(user)
     const backup = JSON.parse(exported.text())
@@ -394,7 +444,9 @@ test.group('Leitner / import JSON', (group) => {
     // `docker compose down -v` du pauvre.
     await LeitnerCard.query().delete()
     await LeitnerCategory.query().delete()
+    await LeitnerCourse.query().delete()
     assert.lengthOf(await LeitnerCard.all(), 0)
+    assert.lengthOf(await LeitnerCourse.all(), 0)
 
     const response = await upload(client, user, backup)
     response.assertStatus(302)
@@ -767,6 +819,120 @@ test.group('Leitner / import JSON', (group) => {
       .where('leitner_card_id', card.id)
       .firstOrFail()
     assert.equal(progress.masteredAt?.toISO(), DateTime.fromISO('2026-04-05T08:00:00.000Z').toISO())
+  })
+
+  /**
+   * ⚠️ **Le pendant CC-251 des tests v1/v3 ci-dessus** : un fichier v4 (ou antérieur) ne
+   * porte pas de champ `courses` du tout — absent, jamais vide par convention. Il doit
+   * rester lisible : c'est exactement ce que `courses` optionnel dans `backupValidator`
+   * garantit, et ce test le prouve contre une vraie requête d'import.
+   */
+  test('un fichier v4, sans `courses`, s’importe sans erreur et ne crée aucun cours', async ({
+    client,
+    assert,
+  }) => {
+    const user = await login()
+
+    const response = await upload(client, user, {
+      version: 4,
+      cards: [{ front: 'Carte v4', back: 'Verso.' }],
+    })
+
+    response.assertStatus(302)
+    assert.isUndefined(response.flashMessages().importErrors)
+    assert.lengthOf(await LeitnerCourse.all(), 0)
+  })
+
+  /**
+   * Le pendant exact de `resolveShared` sur les cours : un fichier v5 écrit à la main,
+   * sans `shared`, obéit au défaut du contenu neuf (privé) — jamais au défaut des vieux
+   * fichiers. Les sections sont réinsérées telles quelles, tombe comprise.
+   */
+  test('un cours importé recrée ses sections telles quelles, tombe comprise', async ({
+    client,
+    assert,
+  }) => {
+    const user = await login()
+
+    const response = await upload(client, user, {
+      version: 5,
+      cards: [],
+      courses: [
+        {
+          title: 'Cours écrit à la main',
+          markdown: '# HTTP\n\nLes verbes.',
+          sections: [
+            { slug: 'http', headingPath: ['HTTP'], body: 'Les verbes.' },
+            {
+              slug: 'tls',
+              headingPath: ['TLS'],
+              body: 'Ancien, conservé.',
+              obsoleteAt: '2026-07-15T00:00:00.000Z',
+            },
+          ],
+        },
+      ],
+    })
+
+    response.assertStatus(302)
+    assert.isUndefined(response.flashMessages().importErrors)
+
+    const course = await LeitnerCourse.findByOrFail('title', 'Cours écrit à la main')
+    assert.equal(course.ownerId, user.id)
+    assert.isFalse(course.isShared)
+
+    const sections = await LeitnerCourseSection.query().where('course_id', course.id)
+    assert.lengthOf(sections, 2)
+    const tls = sections.find((s) => s.slug === 'tls')!
+    assert.isNotNull(tls.obsoleteAt)
+    assert.equal(tls.body, 'Ancien, conservé.')
+  })
+
+  /**
+   * `leitner_courses` porte AUSSI `unique(owner_id, title)`, en plus de l'empreinte.
+   * Sans le filtre dédié, un cours de même titre mais de contenu différent ferait
+   * lever une violation d'unicité non catchée qui annulerait tout l'import — la carte
+   * du même fichier comprise. Ce test rougirait sur un import qui planterait en 500
+   * au lieu de rendre 302 avec un rapport « ignoré ».
+   */
+  test('un cours importé du même titre qu’un cours existant est ignoré, le reste de l’import continue', async ({
+    client,
+    assert,
+  }) => {
+    const user = await login()
+    await LeitnerCourse.create({
+      title: 'Réseaux',
+      markdown: '# Ancien\n\nContenu initial.',
+      contentHash: 'deadbeef',
+      source: 'paste',
+      ownerId: user.id,
+      isShared: false,
+    })
+
+    const response = await upload(client, user, {
+      version: 5,
+      cards: [{ front: 'Recto import titre', back: 'Verso' }],
+      courses: [
+        {
+          title: 'Réseaux',
+          markdown: '# Nouveau\n\nContenu différent, même titre.',
+          sections: [{ slug: 'nouveau', headingPath: ['Nouveau'], body: 'Contenu différent.' }],
+        },
+      ],
+    })
+
+    response.assertStatus(302)
+    assert.isUndefined(response.flashMessages().importErrors)
+    const report = response.flashMessages().importReport as ImportReport
+    assert.equal(report.coursesCreated, 0)
+    assert.equal(report.coursesSkipped, 1)
+
+    const courses = await LeitnerCourse.query().where('owner_id', user.id).where('title', 'Réseaux')
+    assert.lengthOf(courses, 1)
+    assert.equal(courses[0].markdown, '# Ancien\n\nContenu initial.')
+
+    const card = await LeitnerCard.findBy('front', 'Recto import titre')
+    assert.isNotNull(card)
   })
 
   test('une boîte hors de 1..5 est refusée : sans ce garde-fou, la carte serait éternellement due', async ({

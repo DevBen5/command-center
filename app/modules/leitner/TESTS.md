@@ -49,7 +49,11 @@ Le backfill de `kind`, lui, n'a rien à prouver : le `default` de la colonne est
 
 - `app/modules/leitner/components/__tests__/leitner_tabs.spec.ts` — l'onglet actif : query string,
   slash final, `/revision/ingest/42`, et surtout **un seul** onglet allumé (`/revision` étant
-  préfixe des quatre autres).
+  préfixe des cinq autres, depuis le 6ᵉ onglet « Cours » de CC-251).
+- `app/modules/leitner/components/__tests__/course_conflict_dialog.spec.ts` — le dialogue à 3
+  issues du corpus de cours (CC-251) : chaque bouton (`replace`/`createSecond`/`cancel`) émet
+  l'événement attendu, et lui seul, plus le clic hors du panneau (fermeture du chassis `AppModal`)
+  qui vaut aussi `cancel`.
 - `app/modules/leitner/components/__tests__/ingestion_title.spec.ts` — les deux gardes de `save()` :
   titre vide et titre inchangé n'envoient **aucune** requête.
 - `app/modules/leitner/components/__tests__/markdown_preview.spec.ts` — l'aperçu du rendu
@@ -419,9 +423,15 @@ navigateur.
   désormais une **carte maîtrisée avec sa révision d'entretien**, sans laquelle les cinq colonnes
   du lot traverseraient à `null` des deux côtés et la comparaison serait verte en n'éprouvant rien.
   ⚠️ Vérifié en retirant chaque clé de l'export une à une : `kind`, la paire `boxBefore`/`boxAfter`
-  et les deux marques font rougir l'aller-retour, chacune séparément. Le format
-  est en **v4**, et quatre tests dédiés couvrent ce qui protège les sauvegardes existantes dans les
-  deux sens : **un fichier v1 reste importable** et son contenu **redevient partagé**
+  et les deux marques font rougir l'aller-retour, chacune séparément. Depuis CC-251, le format est
+  en **v5** : le `snapshot()` porte aussi les **cours** (`courses`, sections ordonnées par id,
+  tombes comprises), l'aller-retour en sème un avec deux sections (une vivante, une tombée avec
+  `obsoleteAt` et des alias) et la base vidée détruit aussi `leitner_courses` — sans quoi la
+  comparaison serait verte en n'éprouvant aucun cours. Deux tests dédiés couvrent le format
+  existant : **un fichier v4 sans clé `courses`** importe toujours 0 cours, et un **fichier v5
+  écrit à la main** (avec une section tombée) réinsère les sections **telles quelles**, jamais
+  re-dérivées du markdown. Le format était en **v4**, et quatre tests dédiés couvrent ce qui
+  protège les sauvegardes existantes dans les deux sens : **un fichier v1 reste importable** et son contenu **redevient partagé**
   (`resolveShared`) — sa progression et son historique devenant ceux de celui qui importe ; **un
   fichier v3 écrit à la main, sans `shared`, importe une carte privée** — le défaut du contenu
   neuf, pas celui des vieux fichiers. Depuis CC-260, le même couple pour `kind` : **un fichier v3
@@ -550,6 +560,31 @@ c'est le piège du seuil global), `epais.pdf` (250 pages de vrai texte : seul le
 peut le refuser), `protege.pdf` (RC4, mot de passe `secret`). Ne les fabrique pas à la volée, et
 **ne les télécharge jamais**. Un fichier qui n'est pas un vrai PDF (tronqué, mentant sur son
 extension) se fabrique en revanche à la volée : il n'y a pas de binaire à versionner.
+
+## Le corpus de cours (CC-251)
+
+- `tests/unit/leitner_course_sections.spec.ts` — le découpeur pur (`splitCourseIntoSections`) et
+  l'empreinte (`hashCourseMarkdown`). Le test qui compte : **aucun chevauchement**, chaque section
+  ne porte que son propre contenu, contrairement à `chunkCourse` (ingestion) qui, lui, chevauche
+  exprès. Plus l'accumulation du chemin de titres (un titre de niveau 2 ferme tout ce qui est de
+  niveau ≥ 2 sous lui, jamais ses ancêtres), le préambule sans titre → `introduction` (et une
+  préambule vide ne produit **aucune** section fantôme), la désambiguïsation d'homonymes par
+  suffixe numérique (`resume`, `resume-2`) — dans un même chemin de parenté **et** entre deux
+  chemins différents —, la stabilité du slug quand seul le corps change, la slugification
+  (accents, ponctuation), le glossaire `> notion: X, Y` (présent et absent), et l'égalité/
+  différence de l'empreinte SHA-256 (normalisation CRLF→LF comprise).
+- `tests/functional/modules/leitner_courses.spec.ts` — le cycle de vie d'un cours **par les
+  routes**. Trois groupes : la **déduplication**, avec ses deux détections distinctes (même
+  empreinte → rattachement silencieux, même titre → les 3 issues du dialogue de conflit —
+  remplacer, créer un second avec suffixe `" (2)"`, annuler sans rien écrire —, scopée par
+  propriétaire) ; les **pierres tombales**, où le test qui compte est la mutation vérifiée qu'un
+  slug disparu du markdown remplaçant se voit poser `obsolete_at` sur la **même ligne** (jamais
+  recréée), qu'un slug qui réapparaît ressuscite (`obsolete_at = null`) sans doublon, et que la
+  purge ne supprime que les lignes tombées ; la **visibilité** (privé invisible + 403 à la
+  consultation, partagé visible, écriture refusée à un non-propriétaire avec la base laissée
+  intacte), les **capacités** (`leitner.courses.view` sans `.write` refuse la création), et la
+  **garde de suppression de compte** (un cours partagé bloque, un cours privé seul laisse
+  supprimer et devient orphelin).
 
 ## Le LLM et sa liste blanche
 

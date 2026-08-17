@@ -1,5 +1,6 @@
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
+import LeitnerCourse from '#modules/leitner/models/leitner_course'
 import LeitnerIngestion from '#modules/leitner/models/leitner_ingestion'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 
@@ -43,6 +44,12 @@ export async function ownedSharedContentTable(userId: number): Promise<string | 
           .where('owner_id', userId)
           .where('is_shared', true)
           .first()) !== null,
+    ],
+    [
+      'leitner_courses',
+      async () =>
+        (await LeitnerCourse.query().where('owner_id', userId).where('is_shared', true).first()) !==
+        null,
     ],
   ]
 

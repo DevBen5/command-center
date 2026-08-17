@@ -4,8 +4,10 @@ import { renderMarkdown } from '#core/shared/services/markdown_renderer'
 import LeitnerDraftCard from '#modules/leitner/models/leitner_draft_card'
 import LeitnerIngestion from '#modules/leitner/models/leitner_ingestion'
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
+import LeitnerCourseService from '#modules/leitner/services/leitner_course_service'
 import LeitnerIngestionService, {
   MAX_COURSE_CHARS,
+  deduceTitle,
 } from '#modules/leitner/services/leitner_ingestion_service'
 import LeitnerPdfService, {
   PdfExtractionError,
@@ -46,6 +48,8 @@ const RECENT_INGESTIONS = 20
  */
 @inject()
 export default class LeitnerIngestionController {
+  private courses = new LeitnerCourseService()
+
   constructor(
     private ingestion: LeitnerIngestionService,
     private catalog: LeitnerCatalogService,
@@ -193,8 +197,26 @@ export default class LeitnerIngestionController {
       )
     }
 
+    // Le titre se déduit une seule fois, ici, et voyage vers les deux créations
+    // (cours puis ingestion) : `LeitnerIngestionService.start` rappelle `deduceTitle`
+    // en aval, mais avec un titre déjà fourni il prend son chemin le plus court et
+    // rend exactement la même valeur — aucun risque de divergence.
+    const title = deduceTitle({ title: payload.title, text, fileName: sourceName })
+
+    // « Conserver ce cours » (CC-251) : le cours est créé AVANT le lancement du LLM,
+    // pour qu'une ingestion `failed` laisse le cours intact. Aucun dialogue de conflit
+    // n'est possible ici (flux asynchrone) — voir `LeitnerCourseService.createOrAttachSilently`.
+    let leitnerCourseId: number | null = null
+    if (payload.saveCourse) {
+      const course = await this.courses.createOrAttachSilently(auth.user!.id, {
+        title,
+        markdown: text,
+      })
+      leitnerCourseId = course.id
+    }
+
     const ingestion = await this.ingestion.start(
-      { text, source, sourceName, title: payload.title ?? null },
+      { text, source, sourceName, title, leitnerCourseId },
       auth.user!.id
     )
 

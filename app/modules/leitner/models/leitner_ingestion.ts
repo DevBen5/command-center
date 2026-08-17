@@ -83,6 +83,13 @@ export default class LeitnerIngestion extends BaseModel {
   @column()
   declare isShared: boolean
 
+  /**
+   * Le cours né de ce travail, si « conserver ce cours » était coché (CC-251).
+   * `SET NULL` : supprimer le cours ne doit pas effacer le travail qui l'a produit.
+   */
+  @column()
+  declare leitnerCourseId: number | null
+
   @hasMany(() => LeitnerDraftCard)
   declare drafts: HasMany<typeof LeitnerDraftCard>
 

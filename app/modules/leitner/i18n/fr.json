@@ -16,6 +16,7 @@
       "fileHint": "ou un fichier .txt / .md / .pdf",
       "overCap": "Au-delà, ce n'est plus un cours : découpe-le, ou soumets-le en plusieurs fois.",
       "pdfHint": "Texte extrait d'un PDF : relis-le. Coupe la page de garde et la bibliographie — et sur un document à deux colonnes, l'extraction les entrelace : ce charabia-là ne se rattrape pas, mieux vaut renoncer.",
+      "saveCourse": "Conserver ce cours dans la base — consultable ensuite depuis l'onglet « Cours »",
       "submit": "Analyser le cours",
       "submitting": "Lancement…",
       "backgroundNote": "L'analyse tourne en tâche de fond : tu es redirigé vers sa page de suivi, que tu peux quitter et retrouver à tout moment."
@@ -43,6 +44,60 @@
     "errors": {
       "serverStatus": "Le serveur a répondu {status}.",
       "extractFailed": "L'extraction a échoué."
+    }
+  },
+  "cours": {
+    "crumb": "Cours",
+    "title": "Corpus de cours",
+    "intro": "Le texte ingéré, gardé pour être relu — un wiki personnel consultable, rien de plus.",
+    "form": {
+      "titleLabel": "Titre",
+      "markdownLabel": "Le cours",
+      "markdownPlaceholder": "Colle ici le markdown du cours, ou charge un fichier .md…",
+      "clear": "Effacer",
+      "fileHint": "ou un fichier .md",
+      "submit": "Ajouter le cours",
+      "submitting": "Enregistrement…"
+    },
+    "list": {
+      "title": "Cours",
+      "empty": "Aucun cours pour l'instant.",
+      "shared": "Partagé"
+    },
+    "source": {
+      "paste": "Collé",
+      "file": "Fichier",
+      "ingest": "Ingestion"
+    },
+    "conflict": {
+      "title": "Un cours du même titre existe déjà",
+      "body": "« {title} » porte déjà ce titre, avec un texte différent.",
+      "replace": "Remplacer le contenu",
+      "createSecond": "Créer un second cours",
+      "cancel": "Annuler"
+    },
+    "errors": {
+      "serverStatus": "Le serveur a répondu {status}."
+    }
+  },
+  "coursShow": {
+    "crumb": "Cours",
+    "title": "Détail du cours",
+    "notMineHint": "Appartient à quelqu'un d'autre.",
+    "replace": "Remplacer le contenu",
+    "delete": "Supprimer",
+    "confirmDelete": "Supprimer « {title} » et toutes ses sections ? Cette action est définitive.",
+    "purgeTombstones": "Purger les sections obsolètes",
+    "confirmPurge": "Supprimer définitivement les sections obsolètes de ce cours ?",
+    "save": "Enregistrer",
+    "saving": "Enregistrement…",
+    "cancel": "Annuler",
+    "introduction": "Introduction",
+    "obsolete": "Obsolète",
+    "glossary": "Glossaire",
+    "empty": "Ce cours n'a aucune section.",
+    "errors": {
+      "serverStatus": "Le serveur a répondu {status}."
     }
   },
   "llm": {
@@ -347,6 +402,7 @@
     "importSummaryCards": "{cards} carte(s) ajoutée(s), {reviews} révision(s) restaurée(s).",
     "importSummaryTaxonomy": "{categories} catégorie(s) et {themes} thème(s) créés.",
     "importSummarySkipped": "{cards} carte(s) ignorée(s) : recto déjà présent sous ce thème.",
+    "importSummaryCourses": "{courses} cours ajouté(s), {skipped} ignoré(s) (déjà présents mot pour mot).",
     "modalEditTitle": "Éditer la carte",
     "modalCreateTitle": "Nouvelle carte",
     "front": "Recto",

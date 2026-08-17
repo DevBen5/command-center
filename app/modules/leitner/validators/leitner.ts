@@ -248,6 +248,14 @@ const timestamp = vine.createRule((value: unknown, _options: undefined, field: F
 const taxonomyName = () => vine.string().trim().minLength(1).maxLength(60)
 
 /**
+ * Le titre d'un cours (CC-251) — largeur de la colonne `leitner_courses.title`. Déclaré
+ * ici (avant `backupValidator`, qui le consomme) plutôt que près de
+ * `courseCreateValidator` plus bas dans le fichier : une `const` référencée avant son
+ * initialisation lèverait au chargement du module.
+ */
+export const COURSE_TITLE_MAX_CHARS = 200
+
+/**
  * Ce qu'une révision porte **en plus de sa note** : la réponse écrite, le verdict du
  * juge et les trois durées. Bornés **exactement** comme dans `reviewValidator` — un
  * fichier vient de l'utilisateur au même titre qu'un `POST /review`, et rien ne
@@ -353,6 +361,36 @@ export const backupValidator = vine.compile(
           .optional(),
       })
     ),
+    /**
+     * Le corpus de cours (CC-251, v5). Absent sur un fichier v < 5, ou écrit à la main —
+     * les deux se lisent alors comme « aucun cours ». Chaque section est exportée
+     * **telle quelle en base**, tombes comprises, plutôt que re-dérivée du markdown :
+     * une restauration doit rendre exactement l'historique des slugs, pas seulement le
+     * texte source.
+     */
+    courses: vine
+      .array(
+        vine.object({
+          title: vine.string().trim().minLength(1).maxLength(COURSE_TITLE_MAX_CHARS),
+          markdown: vine.string().trim().minLength(1),
+          source: vine.enum(['paste', 'file', 'ingest'] as const).optional(),
+          shared: vine.boolean().optional(),
+          createdAt: vine.string().use(timestamp()).optional(),
+          updatedAt: vine.string().use(timestamp()).optional(),
+          sections: vine
+            .array(
+              vine.object({
+                slug: vine.string().trim().minLength(1).maxLength(300),
+                headingPath: vine.array(vine.string().trim()).optional(),
+                body: vine.string(),
+                aliases: vine.array(vine.string().trim()).optional(),
+                obsoleteAt: vine.string().use(timestamp()).nullable().optional(),
+              })
+            )
+            .optional(),
+        })
+      )
+      .optional(),
   })
 )
 
@@ -422,6 +460,12 @@ export const courseIngestionValidator = vine.compile(
     text: vine.string().trim().optional(),
     source: vine.enum(['paste', 'file', 'pdf'] as const).optional(),
     sourceName: vine.string().trim().maxLength(SOURCE_NAME_MAX_CHARS).nullable().optional(),
+    /**
+     * « Conserver ce cours dans la base » (CC-251), cochée par défaut côté page.
+     * Absente = `false` : un fichier écrit à la main (ou un ancien client) ne conserve
+     * rien par surprise.
+     */
+    saveCourse: vine.boolean().optional(),
   })
 )
 
@@ -609,5 +653,54 @@ export const llmTestValidator = vine.compile(
   vine.object({
     baseUrl: llmBaseUrl().optional(),
     model: llmModel().optional(),
+  })
+)
+
+/*
+|------------------------------------------------------------------------------
+| Le corpus de cours (CC-251)
+|------------------------------------------------------------------------------
+| Un cours est du contenu — le titre partage sa borne avec la colonne `title` de
+| `leitner_courses` (`varchar(200)`), `COURSE_TITLE_MAX_CHARS` (déclarée plus haut, avant
+| `backupValidator` qui la consomme aussi).
+*/
+
+/**
+ * Ajout d'un cours : du markdown, et rien d'autre. ⚠️ **Un fichier `.md` n'est PAS
+ * téléversé au serveur** — contrairement au PDF de l'ingestion, un `.md` n'a besoin
+ * d'aucune extraction : la page le lit avec `FileReader` et remplit le même champ que
+ * le collage. `source` reste déclarative (`paste`/`file`), comme sur l'ingestion — la
+ * page dit d'où vient le texte, jamais interprété.
+ */
+export const courseCreateValidator = vine.compile(
+  vine.object({
+    title: vine.string().trim().minLength(1).maxLength(COURSE_TITLE_MAX_CHARS),
+    markdown: vine.string().trim().minLength(1),
+    source: vine.enum(['paste', 'file'] as const).optional(),
+  })
+)
+
+/**
+ * Résolution du dialogue à 3 issues, sur un conflit de titre (« Remplacer le contenu » ·
+ * « Créer un second cours » · « Annuler »). `markdown` répète le contenu déjà soumis :
+ * le formulaire de conflit renvoie ce que l'utilisateur avait collé, il ne le relit pas
+ * en base — la même doctrine que la validation en promotion de brouillon Leitner
+ * (« valider, c'est valider ce qu'on a sous les yeux »). Absent quand `resolution` vaut
+ * `cancel`, qui n'écrit rien.
+ */
+export const courseConflictValidator = vine.compile(
+  vine.object({
+    existingId: vine.number().positive(),
+    resolution: vine.enum(['replace', 'createSecond', 'cancel'] as const),
+    title: vine.string().trim().minLength(1).maxLength(COURSE_TITLE_MAX_CHARS).optional(),
+    markdown: vine.string().trim().minLength(1).optional(),
+    source: vine.enum(['paste', 'file'] as const).optional(),
+  })
+)
+
+/** Remplacement du contenu d'un cours existant. */
+export const courseReplaceValidator = vine.compile(
+  vine.object({
+    markdown: vine.string().trim().minLength(1),
   })
 )
