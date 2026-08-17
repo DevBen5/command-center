@@ -1868,6 +1868,96 @@ trois routes rendent du JSON nu, donc `x-xsrf-token` (sans lui tout POST part en
 `accept: application/json`, sans quoi un refus de la liste blanche se change en redirection avec
 erreurs flashées au lieu d'un 422.
 
+## Le corpus de cours (CC-251)
+
+Cinq écrans devient **six** : `/revision/cours` (liste + ajout) et `/revision/cours/:id`
+(consultation, remplacement, suppression). Deux tables neuves, `leitner_courses` (le markdown
+source, `owner_id`/`is_shared` comme les autres tables de **contenu**) et
+`leitner_course_sections` (le découpage, **sans** `owner_id`/`is_shared` — sa visibilité se
+dérive par jointure sur son cours parent, même doctrine que `leitner_draft_cards`).
+
+⚠️ **Aucun fichier `.md` n'est jamais téléversé au serveur.** `FileReader` côté client lit le
+fichier en texte ; le formulaire poste toujours `markdown` en JSON, exactement comme un collage.
+`source: 'paste' | 'file' | 'ingest'` reste **déclaratif**, même doctrine que `source`/`sourceName`
+de l'ingestion : c'est le client qui annonce l'origine, le dégât est cosmétique.
+
+⚠️ **Toute route qui porte du markdown en corps de requête rend du JSON nu, jamais une
+redirection Inertia classique** (`POST /cours`, `POST /cours/conflict`, `PUT /cours/:id`).
+Raison : le store de session est `cookie` (CC-78), et un échec de validation flasherait le
+markdown entier dedans à la racine du bagage — la faille que CC-179 a fermée sur le coffre,
+rejouée ici sur un contenu potentiellement long. `destroy`/`purge`, qui ne portent aucun texte,
+restent en redirection classique.
+
+### Deux découpages, jamais unifiés
+
+`splitCourseIntoSections` (pur, `services/leitner_course_sections.ts`) n'a **rien à voir** avec
+`chunkCourse` de l'ingestion, et il ne faut pas les fusionner : `chunkCourse` chevauche
+délibérément (`CHUNK_OVERLAP_CHARS`) pour qu'un principe à cheval sur deux morceaux reste
+énonçable par le LLM ; `splitCourseIntoSections` ne chevauche **jamais** — une section appartient
+à exactement une partie du texte, c'est ce qui rend le remplacement et les pierres tombales
+possibles. Chaque titre accumule un `headingPath` (le chemin depuis la racine), et le slug se
+dérive de ce chemin (`introduction/tls` par exemple), désambiguïsé par un suffixe numérique en
+cas d'homonymie.
+
+Une ligne `> notion: X, Y` n'importe où dans le corps d'une section déclare ses alias de
+glossaire (`aliases`) — texte libre, jamais interprété.
+
+### La déduplication : deux détections distinctes, pas une
+
+- **Même empreinte** (`hashCourseMarkdown`, SHA-256 du markdown normalisé CRLF→LF) → rattachement
+  **silencieux** au cours existant, aucun dialogue.
+- **Même titre, empreinte différente** → conflit à 3 issues (`CourseConflictDialog.vue`) :
+  **remplacer** le contenu (déclenche le remplacement tombale, voir plus bas), **créer un second
+  cours** (suffixe `" (2)"`, `" (3)"`… automatique), **annuler** (rien n'est écrit).
+- Les deux détections sont **scopées par propriétaire** (`unique(owner_id, content_hash)` et
+  `unique(owner_id, title)`) : deux comptes peuvent chacun avoir un cours au même titre ou au
+  même contenu sans se marcher dessus — même doctrine que `unique(owner_id, name)` sur les
+  catégories (CC-139).
+- **Depuis l'ingestion, aucun dialogue** : la case « conserver ce cours » (`saveCourse`) est un
+  flux asynchrone fire-and-forget — un conflit de titre se résout par suffixe automatique, jamais
+  par une boîte de dialogue qui bloquerait un travail de fond.
+
+### Le remplacement pose des pierres tombales, jamais une suppression
+
+`replaceMarkdown` (dans `db.transaction()`) recharge le markdown, le redécoupe, puis pour chaque
+section du nouveau découpage : une section dont le slug existe déjà est **mise à jour sur la même
+ligne** (et ressuscitée si elle portait une tombe, `obsolete_at = null`) ; une section neuve est
+créée. Toute section **existante et vivante** dont le slug est absent du nouveau découpage reçoit
+`obsolete_at = now()` — **jamais supprimée**. La purge (`purgeTombstones`) est un geste manuel
+distinct qui supprime les lignes tombées, jamais implicite dans le remplacement.
+
+⚠️ **La suppression d'un cours entier, elle, est une cascade réelle** sur ses sections — pas de
+pierre tombale. Aucune carte ne référence encore une section (ticket suivant) : rien à préserver
+côté section quand le cours disparaît en bloc.
+
+### Export v5 : les sections partent telles quelles, jamais re-dérivées
+
+`BACKUP_VERSION` passe à **5**, `READABLE_BACKUP_VERSIONS` reste une **liste** (`[1,2,3,4,5]`),
+jamais une égalité — un fichier v1 à v4 sans clé `courses` importe toujours 0 cours. L'export
+sérialise chaque cours **et ses sections en base**, tombes comprises : jamais re-découpées depuis
+le markdown à l'export ni à l'import, sinon une restauration perdrait l'historique des slugs
+disparus (le point de tout ce mécanisme).
+
+⚠️ **Colonnes `jsonb` chez Lucid : `@column()` nue ne suffit pas.** `headingPath` et `aliases`
+portent `prepare: (v) => JSON.stringify(v)` (avec gestion explicite du `null` pour `aliases`,
+nullable). Sans lui, le driver `pg` sérialise un tableau JS en littéral de tableau **Postgres**
+(`{"TLS"}`), pas en JSON, et l'insertion échoue (`22P02 invalid input syntax for type json`).
+Déjà documenté dans le `CLAUDE.md` du module `agents` (« ne pas confondre avec les `text[]` de
+veille/leitner, qui n'en veulent pas ») — piège classique pour la prochaine colonne `jsonb` du
+dépôt, ici comme ailleurs.
+
+### Capacités et navigation
+
+`leitner.courses.view` / `leitner.courses.write` (`capabilities.ts`) — **aucune ligne
+supplémentaire dans `start/capabilities.ts`**, qui importe tout le tableau `LEITNER_CAPABILITIES`
+d'un coup ; seule la déclaration locale suffit. Sixième onglet de `LeitnerTabs.vue`, entre
+Ingestion et Configuration.
+
+⚠️ **`leitner_course_sections` n'entre PAS dans `ownedSharedContentTable`** (le garde de
+suppression de compte) : seul `leitner_courses` y figure, même raison que `leitner_draft_cards`
+en est absent — sa visibilité se dérive de son parent, elle ne porte aucune propriété propre à
+vérifier.
+
 ## Pièges techniques
 
 - **`next_review` est une colonne `date`, `reviewed_at` un `timestamp`** : `today.toSQLDate()` pour
