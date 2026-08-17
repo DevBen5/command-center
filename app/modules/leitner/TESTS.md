@@ -83,6 +83,15 @@ Le backfill de `kind`, lui, n'a rien à prouver : le `default` de la colonne est
   `v-if`, donc avec la liste toujours montée — mutation vérifiée, elle rougit. Plus le compteur et
   « dont N ce mois-ci » visibles **sans** déplier, les pertes de l'année masquées à zéro, et l'état
   sans acquis qui explique au lieu d'afficher un zéro nu.
+- `app/modules/leitner/pages/__tests__/index.spec.ts` — **premier test de composant de cette
+  page** (CC-252), qui n'en avait aucun jusque-là (voir « Limites connues » plus bas — la
+  phrase y devient partiellement fausse : la surface couverte reste étroite). Trois choses :
+  « Je ne sais pas » surligne « À revoir » sans jamais appeler `router.post` (aucun test du
+  fichier ne l'appelle) ; « Approfondir » ouvre le panneau et y affiche un résultat mocké ;
+  et **le test qui compte** — sur une nouvelle RÉFÉRENCE de `dueCards` portant le MÊME id
+  (le cas `again` sur une file d'une seule carte), le surlignage forcé et le panneau
+  retombent à zéro. Un test dédié prouve aussi le masquage (pas la fermeture — la route est
+  couverte par `leitner_course_search.spec.ts`) sans `leitner.courses.view`.
 - `app/modules/leitner/components/__tests__/taxonomy_combobox.spec.ts` — l'invariant `filtering` :
   rouvrir la liste après avoir tapé remontre **toute** la taxonomie. ⚠️ Il ne prouve quelque chose
   que parce qu'il **tape d'abord** : `filtering` vaut déjà `false` au montage, donc ouvrir sans
@@ -585,6 +594,21 @@ extension) se fabrique en revanche à la volée : il n'y a pas de binaire à ver
   intacte), les **capacités** (`leitner.courses.view` sans `.write` refuse la création), et la
   **garde de suppression de compte** (un cours partagé bloque, un cours privé seul laisse
   supprimer et devient orphelin).
+
+## Le bouton « Je ne sais pas » et la recherche du corpus (CC-252)
+
+- `tests/unit/leitner_course_search.spec.ts` — `courseSearchQuery`, code pur : retire la
+  décoration Markdown (gras, code inline, tirets de liste), collapse les espaces, et surtout le
+  cas d'un recto réduit à de la seule décoration → chaîne vide (la garde qui évite un appel SQL
+  pour rien). Les accents ne sont PAS touchés, délibérément — c'est `plainto_tsquery('french', …)`
+  qui s'en charge côté Postgres, même doctrine que la recherche de la veille.
+- `tests/functional/modules/leitner_course_search.spec.ts` — `GET /:id/course-search` par les
+  routes. Le classement (la section dont le corps partage le vocabulaire du recto remonte en
+  tête), la capacité (`leitner.courses.view` manquante → 403), la visibilité (une section d'un
+  cours privé d'un autre compte n'apparaît jamais — même si le RECTO de la carte matche
+  parfaitement son contenu), la carte elle-même refusée si privée d'un autre compte (même garde
+  que `judge`/`review`), et une **mutation** : sans `whereNull('obsolete_at')`, une section tombée
+  remonterait alors qu'elle est censée être invisible de la recherche.
 
 ## Le LLM et sa liste blanche
 
