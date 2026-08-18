@@ -595,6 +595,40 @@ extension) se fabrique en revanche à la volée : il n'y a pas de binaire à ver
   **garde de suppression de compte** (un cours partagé bloque, un cours privé seul laisse
   supprimer et devient orphelin).
 
+## La provenance d'ingestion (CC-253)
+
+- `tests/unit/leitner_ingestion_service.spec.ts`, groupe « provenance des morceaux » —
+  `chunkCourse` rend désormais `{ texte, slugsDeSections }[]` : les quatre tests
+  antérieurs (forme des morceaux) lisent `.texte`, découpage strictement inchangé.
+  Quatre cas neufs : section unique, sections groupées (un morceau, plusieurs slugs),
+  section découpée (`splitOversized`, le même slug sur plusieurs morceaux), et **le
+  test qui compte** — le recouvrement recopié en tête d'un morceau n'apporte JAMAIS le
+  slug de la section précédente, même si son texte y est bien présent. Mutation
+  vérifiée à la main le 2026-08-18 : retirer le `currentSlugs = new Set()` avant le
+  reset fait rougir exactement ce dernier test (30 passent, 1 rougit).
+- `tests/functional/modules/leitner_card_sections.spec.ts` — trois angles :
+  - la **promotion** pose un lien `ingestion` quand l'ingestion a conservé son cours,
+    n'en pose aucun sinon, et le pose **même sur un doublon retrouvé** au catalogue
+    (la promotion est le point de validation, indépendamment de `created`) ;
+  - le **sélecteur manuel** de `/revision/settings` : au plus un lien `manuel` par
+    carte (remplacé, jamais dupliqué), sans jamais toucher un lien `ingestion`
+    existant de la même carte ; `courseSectionId: null` l'efface ; lier à une section
+    d'un cours privé d'un autre compte est refusé **en silence** (la carte se crée
+    quand même, seul le lien est absent) ;
+  - le **panneau de révision** (`LeitnerController#index`) : le lien explicite est
+    rendu en HTML (`renderMarkdown`, jamais la source Markdown brute), une section
+    devenue obsolète reste affichée en le disant, la provenance est **vide malgré un
+    lien en base** sans `leitner.courses.view` (gate serveur, pas seulement client),
+    et un lien vers un cours resté privé d'un autre compte (carte visible, cours pas)
+    n'est jamais exposé — cas limite inatteignable par l'UI actuelle, mais possible en
+    base, donc vérifié quand même.
+- `tests/functional/modules/leitner_backup.spec.ts` — `sections` sur chaque carte,
+  filtrée par la visibilité du COURS du lien (pas de la carte), toujours un tableau
+  (jamais omis, y compris vide) ; l'aller-retour couvre un lien `ingestion` vers une
+  section vivante et un lien `manuel` vers une section tombée, les deux doivent
+  survivre. **Pas de bump de `BACKUP_VERSION`** : champ strictement additif, même
+  précédent que les cinq colonnes de trace (CC-51).
+
 ## Le bouton « Je ne sais pas » et la recherche du corpus (CC-252)
 
 - `tests/unit/leitner_course_search.spec.ts` — `courseSearchQuery`, code pur : retire la

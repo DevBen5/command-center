@@ -3,7 +3,7 @@
 Route `/revision` (⚠️ **pas** `/leitner`) · pages Inertia `modules/leitner/{index, settings, stats,
 ingest, ingest_show, llm}` · tables `leitner_cards`, `leitner_card_progress`, `leitner_reviews`,
 `leitner_categories`, `leitner_themes`, `leitner_settings`, `leitner_ingestions`,
-`leitner_draft_cards`.
+`leitner_draft_cards`, `leitner_courses`, `leitner_course_sections`, `leitner_card_sections`.
 
 ## ⭐ Le contenu a un propriétaire, privé par défaut (CC-139)
 
@@ -195,11 +195,19 @@ services/leitner_ingestion_service.ts       découpage, appels LLM, TÂCHE DE FO
                                             de l'eau + `sweepInterruptedIngestions`
 services/leitner_pdf_service.ts             fichier → texte : octets magiques, unpdf, nettoyage, et
                                             les six refus
+services/leitner_card_sections_service.ts   la PROVENANCE (CC-253) : `linkIngestionSections`
+                                            (promotion), `setManualSection` (sélecteur), et
+                                            `provenanceSectionsFor` — filtrée sur la visibilité
+                                            du COURS du lien, jamais de la carte
 services/llm_client.ts                      /v1/chat/completions + sonde /v1/models — INJECTÉ
 models/leitner_card_progress.ts             (personne, carte) → boîte + échéance. ABSENCE =
                                             boîte 1, due aujourd'hui — jamais un trou
 models/leitner_settings.ts                  UNE seule ligne (id = 1) — réglage d'INSTALLATION
-models/leitner_draft_card.ts                une carte PROPOSÉE, rattachée à son ingestion
+models/leitner_draft_card.ts                une carte PROPOSÉE, rattachée à son ingestion —
+                                            porte `sectionSlugs` (CC-253), calculés par
+                                            `chunkCourse`, jamais retrouvés après coup
+models/leitner_card_section.ts              le lien carte ↔ section (CC-253) — ni owner_id ni
+                                            is_shared, se dérive des deux tables qu'il relie
 validators/leitner.ts                       … · courseIngestion (SANS fichier) · documentExtract
                                             (le seul à porter un fichier) · llmTest (LISTE BLANCHE)
 components/LeitnerScopeSearch.vue           la barre de recherche du choix — NE réutilise PAS
@@ -229,6 +237,9 @@ migrations/                                 cards PUIS reviews PUIS categories/t
                                             cards → ingestions ; PAS draft_cards)
                                             PUIS les marques de maîtrise (CC-260, UNE migration
                                             pour les 5 colonnes des DEUX tables)
+                                            PUIS courses/course_sections (CC-251) PUIS
+                                            section_slugs sur draft_cards PUIS card_sections
+                                            (CC-253, après course_sections ET cards)
                                             (FK : l'ordre du nom de fichier compte)
 ```
 
@@ -1957,6 +1968,123 @@ Ingestion et Configuration.
 suppression de compte) : seul `leitner_courses` y figure, même raison que `leitner_draft_cards`
 en est absent — sa visibilité se dérive de son parent, elle ne porte aucune propriété propre à
 vérifier.
+
+## La provenance d'ingestion : une carte connaît sa section (CC-253)
+
+Une carte générée à l'ingestion **sait** de quel morceau du cours elle vient — l'indice de la
+boucle d'ingestion, jusqu'ici jeté. `leitner_card_sections` (carte ↔ section, `origin: 'ingestion'
+| 'manuel'`) le conserve, et le panneau de révision l'affiche **avant** les résultats de recherche
+plein texte de CC-252 — un lien connu avec certitude, distingué d'une simple ressemblance.
+
+⚠️ **Ne porte PAS `owner_id`/`is_shared`, comme `leitner_draft_cards` et
+`leitner_course_sections`.** Ce n'est pas du contenu à soi : un lien entre deux contenus qui
+portent déjà chacun leur propriétaire (la carte, le cours de la section). Sa visibilité se
+**dérive des deux**, jamais dupliquée — voir `services/leitner_card_sections_service.ts`.
+
+⚠️ **`chunk_index` seul ne suffit pas — c'est le piège que ce lot devait fermer.** `chunkCourse`
+regroupe les petites sections (un morceau peut en couvrir six) et découpe les grosses
+(`splitOversized`, une section peut s'étaler sur plusieurs morceaux) ; chaque morceau commence en
+plus par la fin du précédent (`overlapOf`, 400 caractères) — du texte d'une AUTRE section en tête.
+`chunkCourse` rend donc `{ texte, slugsDeSections }[]` plutôt que `string[]` : les slugs sont
+calculés **à la construction du morceau**, jamais retrouvés après coup.
+
+- ⚠️ **Les slugs sont calculés sur EXACTEMENT le même texte que celui qui construit les sections
+  réellement persistées d'un cours** — `chunkCourse` appelle `splitCourseIntoSections` (le même
+  découpeur que `LeitnerCourseService`) sur son propre texte normalisé, jamais un texte recalculé
+  autrement. C'est ce qui garantit qu'un slug désigne toujours une ligne réelle de
+  `leitner_course_sections`, jamais une supposition. Les deux découpeurs (`splitBySections` de
+  l'ingestion, `splitCourseIntoSections` du corpus) partagent la même granularité de blocs — un
+  par titre, plus un préambule commun — sur un texte identique : ils s'alignent donc terme à
+  terme, appariés par INDEX. Un heading pathologique (`# ` sans titre après l'espace, que
+  `splitCourseIntoSections` ignore et que `splitBySections` traite comme une coupure quand même)
+  désaligne les deux listes ; l'appariement dégrade alors silencieusement vers `slugsDeSections:
+  []` pour les pièces concernées, plutôt que de planter ou de deviner.
+- ⚠️ **Le recouvrement en tête n'apporte JAMAIS le slug du morceau précédent — le test qui
+  compte.** Le préfixe recopié (`overlapOf`) est connu à la construction : `currentSlugs` repart à
+  vide à chaque nouveau morceau, seule une pièce NEUVE (jamais l'overlap) l'alimente. Un principe
+  énoncé en fin de section A et repris en tête du morceau qui commence la section B ne fait donc
+  jamais croire que ce morceau vient aussi de A.
+- **L'imprécision résiduelle se corrige d'elle-même**, et c'est voulu, pas approximatif : un
+  morceau ne regroupe des sections que parce qu'elles sont petites (donc le rattachement reste
+  fin), et une section découpée garde le même slug sur chacun de ses morceaux (le rattachement
+  reste exact, juste réparti).
+
+`leitner_draft_cards.section_slugs` (jsonb, nullable) porte ce calcul par brouillon — toujours un
+tableau côté application dès l'ingestion, même vide (aucune section rattachée) ou même quand
+l'ingestion n'a conservé aucun cours (`leitner_ingestions.leitner_course_id` nul) : c'est
+`linkIngestionSections`, à la **promotion**, qui décide s'il y a quelque chose à lier, jamais le
+calcul lui-même.
+
+### Les liens se posent à deux moments, jamais un troisième
+
+1. **La promotion** (`LeitnerIngestionService.accept`) — `linkIngestionSections(cardId, courseId,
+   slugs)` cherche les sections du cours par `(course_id, slug)`, **tombes comprises** (une
+   section obsolète reste une cible valide), et pose un lien `origin: 'ingestion'` par slug
+   trouvé. ⚠️ **Que la carte soit neuve ou un doublon retrouvé au catalogue** — la promotion EST
+   le point de validation humaine du module, indépendamment du fait que `createCardUnlessDuplicate`
+   ait ou non créé une ligne.
+2. **Le sélecteur manuel** de `/revision/settings` (`setManualSection`) — un `<select>` de plus
+   dans la modale de carte, un cours à la fois via `<optgroup>` (patron du sélecteur de thème).
+   Au plus **un** lien `origin: 'manuel'` par carte : `setManualSection` supprime l'ancien avant
+   d'en poser un nouveau, et ne touche **jamais** aux liens `ingestion` de la même carte — deux
+   origines, deux gestes distincts, jamais mélangés. `courseSectionId: null` efface sans reposer.
+   Lier une section d'un cours resté invisible de l'appelant est refusé **en silence** (la carte
+   se crée/s'édite quand même, seul le lien est absent) — même doctrine que `ensureTheme` sur la
+   taxonomie : on ne rattache jamais à ce qu'on ne peut pas soi-même parcourir.
+
+⚠️ **On ne demande RIEN au modèle.** Un champ « section » dans sa réponse serait un quatrième
+champ hallucinable — `parseLlmCards` recopie explicitement les quatre seuls champs
+`front`/`back`/`category`/`theme` avant validation, et **c'est cette recopie qui tient la
+garantie, pas le validateur**. La provenance d'ingestion est arithmétique, calculée par nous.
+
+### Le panneau de révision : le lien explicite, puis la recherche
+
+`LeitnerController#index` peuple `provenance` sur chaque carte due via `provenanceSectionsFor`,
+rendue en HTML (`renderMarkdown`, même patron que `frontHtml`/`backHtml`) — **avant** le panneau
+« Approfondir » de CC-252 dans `pages/index.vue`, les deux visuellement distincts (en-têtes
+séparés, jamais une liste commune). Une section devenue obsolète depuis reste affichée, badge
+« Obsolète » à l'appui (`leitner.coursShow.obsolete`, clé déjà existante) : le panneau le dit, il
+ne perd rien en silence — même doctrine que les pierres tombales de CC-251.
+
+⚠️ **Gate SERVEUR, pas seulement client — sur `LeitnerController#index` ET
+`LeitnerSettingsController#index`.** `provenance` porte le corps d'une section du corpus, exactement
+ce que `GET /:id/course-search` protège par `leitner.courses.view` ; la peupler sans vérifier la
+capacité enverrait ce contenu dans les props Inertia à quiconque a seulement `leitner.view`, que le
+panneau soit affiché ou masqué côté client. Les deux contrôleurs appellent
+`capabilityService.allows(auth.user!, 'leitner.courses.view')` avant de construire quoi que ce
+soit — masquer un `<select>` ou un panneau n'est jamais la garde, ici comme partout ailleurs.
+
+⚠️ **Filtré par la visibilité du COURS du lien, pas de la carte** — `provenanceSectionsFor` et
+l'export appellent tous deux `isVisible(courseSection.course, userId, isAdmin)`. Une carte peut
+être visible (promue par un admin sur l'ingestion privée d'un autre compte) tout en pointant vers
+un cours resté privé à ce compte : sans ce filtre, le panneau ou l'export d'un admin révélerait le
+contenu d'un cours qu'il ne peut voir par aucune autre voie. Cas limite inatteignable par l'UI
+actuelle (aucun geste ne crée cette situation aujourd'hui), mais possible en base — donc vérifié
+quand même dans `tests/functional/modules/leitner_card_sections.spec.ts`.
+
+### Export/import : additif, aucun bump
+
+Chaque carte exportée gagne `sections: { courseTitle, slug, origin }[]` — désignée par **nom**,
+jamais un id, même doctrine que la taxonomie (les séquences Postgres ne suivent pas un insert à id
+explicite). **Toujours un tableau, jamais omis même vide** — patron `reviews`, pas celui de
+`box5EnteredAt`/`masteredAt` (`omitNull`) : il n'y a ici aucune ambiguïté entre « vide » et
+« inconnu » à trancher.
+
+⚠️ **Strictement additif → PAS de bump de `BACKUP_VERSION`.** Précédent explicite : les cinq
+colonnes de trace d'une révision (CC-51) n'avaient pas bumpé non plus, à raison — un fichier
+antérieur reste intégralement lisible, seul un checkout d'avant ce lot perdrait le champ en
+silence. Le critère reste « le jour où un champ change de sens ou devient obligatoire ».
+
+⚠️ **L'import résout la provenance en TROISIÈME passe**, après que cartes ET cours ont tous deux
+été créés dans la même transaction — les sections d'un fichier arrivent après les cartes qui les
+référencent. Résolution par `(titre du cours, owner_id = importateur)` puis `slug`, jamais par un
+id repris du fichier. Seules les cartes **réellement créées dans cet import** y entrent (jamais une
+carte ignorée par déduplication) — même doctrine que ses révisions : « une carte ignorée n'est
+jamais retouchée ». Un cours ou un slug introuvable (fichier partiel, cours non inclus dans cet
+export) est ignoré en silence : le lien perdu est déjà l'imprécision que le ticket accepte, pas une
+erreur nouvelle. `leitner_backup.spec.ts` capture ce champ dans son `snapshot()` — sans lui, une
+colonne que cette fonction ne lit pas serait perdue par l'export sans qu'aucun test ne rougisse,
+exactement ce qui a laissé passer CC-51.
 
 ## Pièges techniques
 

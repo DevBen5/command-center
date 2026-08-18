@@ -765,10 +765,15 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
 - **Le seul `v-html` du dépôt passe par `renderMarkdown`, et rien d'autre** (CC-133,
   `app/core/shared/services/markdown_renderer.ts`). Le Markdown des cartes Leitner est rendu
   **côté serveur**, en prop dérivée (`frontHtml`/`backHtml`) ; la colonne reste la **source**.
-  **Cinq** `v-html` existent — recto et verso dans `leitner/pages/index.vue`, les deux champs de
-  l'aperçu de génération dans `leitner/pages/llm.vue`, et depuis CC-257 le panneau d'aperçu de
+  **Six** `v-html` existent — recto et verso dans `leitner/pages/index.vue`, les deux champs de
+  l'aperçu de génération dans `leitner/pages/llm.vue`, depuis CC-257 le panneau d'aperçu de
   saisie (`leitner/components/MarkdownPreviewPanel.vue`, mutualisé par les deux écrans qui
-  saisissent du contenu de carte) — et tous consomment cette brique.
+  saisissent du contenu de carte), et depuis CC-252 le corps d'une section du corpus
+  (`leitner/components/CourseSectionView.vue`, consommé par le panneau « Approfondir » et
+  depuis CC-253 par le lien de provenance explicite) — et tous consomment cette brique.
+  ⚠️ **Ce compte est passé de cinq à six le 2026-08-18 (CC-253) : le sixième (`CourseSectionView`)
+  existait déjà depuis CC-252 sans être compté ici — doc restée périmée un lot entier, corrigée en
+  la croisant.**
   ⚠️ **N'en pose pas un sixième sur autre chose que sa sortie** : le contenu n'est pas
   de confiance (ingestion LLM, import JSON, cartes communales depuis CC-121), et la veille détruit
   toujours le HTML de ses flux à l'ingestion précisément pour qu'un `v-html` ne puisse rien y
