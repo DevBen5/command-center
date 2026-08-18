@@ -57,6 +57,9 @@ function card(id = 1) {
       { grade: 'easy', box: 3, mastered: false, days: 4 },
     ],
     theme: null,
+    // La provenance (CC-253) — `[]` est l'état le plus courant, celui qu'aucune de ces
+    // trois assertions ne concerne. Un panneau vide ne change rien à leur objet.
+    provenance: [],
   }
 }
 

@@ -1,10 +1,15 @@
 import { inject } from '@adonisjs/core'
 import { DateTime } from 'luxon'
 import type { HttpContext } from '@adonisjs/core/http'
+import capabilityService from '#core/auth/services/capability_service'
 import { renderMarkdown } from '#core/shared/services/markdown_renderer'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
+import {
+  provenanceSectionsFor,
+  type ProvenanceSection,
+} from '#modules/leitner/services/leitner_card_sections_service'
 import { searchCourseSections } from '#modules/leitner/services/leitner_course_search_service'
 import LeitnerFluencyService from '#modules/leitner/services/leitner_fluency_service'
 import { gradeOutcomes } from '#modules/leitner/services/leitner_grade_outcomes'
@@ -154,6 +159,20 @@ export default class LeitnerController {
         : new Map<number, number>()
     const now = DateTime.now()
 
+    // ⚠️ **Gate SERVEUR, pas seulement client** (CC-253) : `provenance` porte le corps
+    // d'une section du corpus, exactement ce que `GET /:id/course-search` protège par
+    // `leitner.courses.view`. La peupler sans vérifier la capacité enverrait ce contenu
+    // dans les props Inertia à quiconque a seulement `leitner.view` — masquer le panneau
+    // côté client ne fermerait rien, comme partout ailleurs dans ce module.
+    const canViewCourses = await capabilityService.allows(auth.user!, 'leitner.courses.view')
+    const provenance = canViewCourses
+      ? await provenanceSectionsFor(
+          dueCards.map((card) => card.id),
+          userId,
+          isAdmin
+        )
+      : new Map<number, ProvenanceSection[]>()
+
     return inertia.render('modules/leitner/index', {
       view: 'session',
       scope: { label: resolved.label, finished },
@@ -179,6 +198,17 @@ export default class LeitnerController {
         // Le coût mesuré est sans commune mesure avec celui de la requête qui précède.
         frontHtml: renderMarkdown(card.front),
         backHtml: renderMarkdown(card.back),
+        // Le lien explicite de provenance (CC-253), rendu avant les résultats de
+        // recherche du panneau « Approfondir » — `[]` si la capacité manque, si la carte
+        // n'a aucun lien, ou si son(ses) cours restent invisibles de cette personne.
+        provenance: (provenance.get(card.id) ?? []).map((section) => ({
+          id: section.id,
+          courseTitle: section.courseTitle,
+          headingPath: section.headingPath,
+          bodyHtml: renderMarkdown(section.body),
+          aliases: section.aliases,
+          obsoleteAt: section.obsoleteAt,
+        })),
         // ⚠️ **Ce que chaque note fera, calculé par la règle elle-même** (CC-262) : la page
         // ne recopie plus ni le plafond des boîtes ni l'intervalle. Le mode d'échec que ça
         // ferme est un écran qui promet 30 jours pendant que la base en programme 90.

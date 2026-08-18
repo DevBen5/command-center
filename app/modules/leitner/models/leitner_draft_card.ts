@@ -37,6 +37,15 @@ export default class LeitnerDraftCard extends BaseModel {
   @column()
   declare theme: string | null
 
+  /**
+   * Les slugs de section que le morceau produisant ce brouillon couvre réellement
+   * (CC-253) — calculés à la construction (`chunkCourse`), recouvrement exclu. `null`
+   * sur les lignes antérieures à ce lot ; `[]` si le morceau ne recoupe aucune section
+   * connue (texte sans titre, ou appariement dégradé — voir `chunkCourse`).
+   */
+  @column({ prepare: (value: string[] | null) => (value === null ? null : JSON.stringify(value)) })
+  declare sectionSlugs: string[] | null
+
   @column()
   declare status: DraftStatus
 

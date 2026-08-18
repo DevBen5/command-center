@@ -7,6 +7,7 @@ import { createUserWith } from '#tests/helpers/users'
 import { boxOf, makeCard, nextReviewOf, setProgress } from '#tests/helpers/leitner'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
+import LeitnerCardSection from '#modules/leitner/models/leitner_card_section'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerCourse from '#modules/leitner/models/leitner_course'
 import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section'
@@ -148,6 +149,73 @@ test.group('Leitner / export JSON', (group) => {
     assert.notProperty(nonJugee, 'totalMs')
   })
 
+  /**
+   * La provenance (CC-253) : désignée par NOM (titre du cours + slug), jamais un id —
+   * même doctrine que la taxonomie. Filtrée sur la visibilité du COURS du lien : un
+   * lien vers un cours resté privé chez un autre compte ne doit jamais apparaître dans
+   * le fichier de quelqu'un d'autre, même si sa carte, elle, est visible.
+   */
+  test('porte la provenance, filtrée sur la visibilité du cours du lien', async ({
+    client,
+    assert,
+  }) => {
+    const user = await login()
+    const card = await seedCard(user)
+
+    const course = await LeitnerCourse.create({
+      title: 'Réseaux',
+      markdown: '# HTTP\n\nLes verbes.',
+      contentHash: 'empreinte-provenance',
+      source: 'paste',
+      ownerId: user.id,
+      isShared: false,
+    })
+    const section = await LeitnerCourseSection.create({
+      courseId: course.id,
+      slug: 'http',
+      headingPath: ['HTTP'],
+      body: 'Les verbes.',
+      aliases: null,
+      obsoleteAt: null,
+    })
+    await LeitnerCardSection.create({
+      leitnerCardId: card.id,
+      leitnerCourseSectionId: section.id,
+      origin: 'ingestion',
+    })
+
+    // Un second lien, vers un cours PRIVÉ d'un autre compte : jamais dans le fichier.
+    const someoneElse = await createUserWith(['leitner.cards.write'])
+    const hiddenCourse = await LeitnerCourse.create({
+      title: 'Cours privé',
+      markdown: '# Secret\n\nRien à voir.',
+      contentHash: 'empreinte-cachee',
+      source: 'paste',
+      ownerId: someoneElse.id,
+      isShared: false,
+    })
+    const hiddenSection = await LeitnerCourseSection.create({
+      courseId: hiddenCourse.id,
+      slug: 'secret',
+      headingPath: ['Secret'],
+      body: 'Rien à voir.',
+      aliases: null,
+      obsoleteAt: null,
+    })
+    await LeitnerCardSection.create({
+      leitnerCardId: card.id,
+      leitnerCourseSectionId: hiddenSection.id,
+      origin: 'manuel',
+    })
+
+    const response = await client.get('/revision/export').loginAs(user)
+    const [exported] = JSON.parse(response.text()).cards
+
+    assert.deepEqual(exported.sections, [
+      { courseTitle: 'Réseaux', slug: 'http', origin: 'ingestion' },
+    ])
+  })
+
   test("une carte non classée n'emporte ni catégorie ni thème", async ({ client, assert }) => {
     const user = await login()
     await makeCard('Orpheline', { back: 'Sans thème.' })
@@ -250,6 +318,11 @@ test.group('Leitner / import JSON', (group) => {
         reviews.where('user_id', user.id).orderBy('reviewed_at', 'asc').orderBy('id', 'asc')
       )
       .preload('progress', (progress) => progress.where('user_id', user.id))
+      // ⚠️ La provenance (CC-253) : sans elle ici, une colonne que cette fonction ne lit
+      // pas peut être perdue par l'export sans qu'aucun test ne rougisse — CC-51.
+      .preload('cardSections', (cs) =>
+        cs.orderBy('id', 'asc').preload('courseSection', (s) => s.preload('course'))
+      )
       .orderBy('front', 'asc')
 
     const categories = await LeitnerCategory.query().preload('themes').orderBy('name')
@@ -311,6 +384,11 @@ test.group('Leitner / import JSON', (group) => {
           kind: review.kind,
           boxBefore: review.boxBefore,
           boxAfter: review.boxAfter,
+        })),
+        sections: card.cardSections.map((link) => ({
+          courseTitle: link.courseSection.course.title,
+          slug: link.courseSection.slug,
+          origin: link.origin,
         })),
       })),
     }
@@ -420,7 +498,7 @@ test.group('Leitner / import JSON', (group) => {
       ownerId: user.id,
       isShared: true,
     })
-    await LeitnerCourseSection.create({
+    const http = await LeitnerCourseSection.create({
       courseId: course.id,
       slug: 'http',
       headingPath: ['HTTP'],
@@ -428,13 +506,26 @@ test.group('Leitner / import JSON', (group) => {
       aliases: null,
       obsoleteAt: null,
     })
-    await LeitnerCourseSection.create({
+    const tls = await LeitnerCourseSection.create({
       courseId: course.id,
       slug: 'tls',
       headingPath: ['TLS'],
       body: 'Le handshake — obsolète, mais conservé.',
       aliases: ['TLS', 'Transport Layer Security'],
       obsoleteAt: DateTime.fromISO('2026-07-15T00:00:00.000Z'),
+    })
+
+    // La provenance (CC-253) : une carte liée par l'ingestion à une section VIVANTE,
+    // une autre liée à la main à une section TOMBÉE — les deux doivent survivre.
+    await LeitnerCardSection.create({
+      leitnerCardId: revisee.id,
+      leitnerCourseSectionId: http.id,
+      origin: 'ingestion',
+    })
+    await LeitnerCardSection.create({
+      leitnerCardId: nonClassee.id,
+      leitnerCourseSectionId: tls.id,
+      origin: 'manuel',
     })
 
     const avant = await snapshot(user)

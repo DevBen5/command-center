@@ -79,6 +79,17 @@ interface Card {
   ownerId: number | null
   isShared: boolean
   mine: boolean
+  // Le lien manuel de provenance (CC-253) — `null` si aucun, ou si la capacité de
+  // consulter le corpus manque (le serveur ne l'a alors pas calculé).
+  manualCourseSectionId: number | null
+}
+
+/** Un cours du sélecteur manuel (CC-253) — section, jamais son contenu : c'est un choix,
+ *  pas une lecture (celle-ci reste sous `leitner.courses.view`, voir `cours_show.vue`). */
+interface CourseOption {
+  id: number
+  title: string
+  sections: Array<{ id: number; headingPath: string[] }>
 }
 
 interface Filters {
@@ -108,6 +119,9 @@ const props = defineProps<{
   filters: Filters
   importReport: ImportReport | null
   importErrors: string[] | null
+  // Le corpus pour le sélecteur manuel (CC-253) — `[]` si `leitner.courses.view` manque :
+  // le serveur ne l'envoie alors pas, masquer le `<select>` côté client ne fermerait rien.
+  courses: CourseOption[]
 }>()
 
 const BOXES = [1, 2, 3, 4, 5]
@@ -295,6 +309,10 @@ const cardForm = reactive({
   back: '',
   leitnerThemeId: null as number | null,
   isShared: false,
+  // Le lien manuel de provenance (CC-253) — `null` = aucun. Conservé entre deux
+  // créations en série (« Créer et enchaîner »), comme le thème : une série de cartes
+  // saisies depuis le même passage du cours vient souvent de la même section.
+  courseSectionId: null as number | null,
 })
 const saving = ref(false)
 const frontInput = ref<HTMLTextAreaElement | null>(null)
@@ -334,6 +352,11 @@ function openCreate(): void {
   cardForm.leitnerThemeId = filters.themeId
   // Privée par défaut (CC-139) : jamais pré-cochée.
   cardForm.isShared = false
+  // ⚠️ Remis à `null` ici, mais PAS dans le chemin « Créer et enchaîner » (qui ne
+  // rappelle pas `openCreate`) : une série de cartes saisies depuis le même passage
+  // du cours garde son lien, mais ouvrir un NOUVEAU formulaire ne doit jamais hériter
+  // du lien d'une carte éditée juste avant.
+  cardForm.courseSectionId = null
   modalOpen.value = true
   // Le formulaire vient de changer d'un bloc, sans le moindre événement de saisie : sans ça, un
   // panneau resté ouvert montrerait la carte d'avant à côté de champs vides (CC-257).
@@ -346,6 +369,7 @@ function openEdit(card: Card): void {
   cardForm.back = card.back
   cardForm.leitnerThemeId = card.theme?.id ?? null
   cardForm.isShared = card.isShared
+  cardForm.courseSectionId = card.manualCourseSectionId
   modalOpen.value = true
   preview.refresh()
 }
@@ -1253,6 +1277,24 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
             <span class="block text-[11.5px] text-txt-3">{{ t('leitner.settings.sharedHint') }}</span>
           </span>
         </label>
+
+        <!-- Le sélecteur manuel de provenance (CC-253) : au plus un lien `manuel` par
+             carte, indépendant des liens `ingestion` posés par la promotion — voir
+             `setManualSection`. Absent (courses = []) si `leitner.courses.view` manque. -->
+        <template v-if="courses.length > 0">
+          <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">{{ t('leitner.settings.courseSection') }}</label>
+          <select
+            v-model="cardForm.courseSectionId"
+            class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
+          >
+            <option :value="null">{{ t('leitner.settings.courseSectionNone') }}</option>
+            <optgroup v-for="course in courses" :key="course.id" :label="course.title">
+              <option v-for="section in course.sections" :key="section.id" :value="section.id">
+                {{ section.headingPath.length ? section.headingPath.join(' › ') : t('leitner.coursShow.introduction') }}
+              </option>
+            </optgroup>
+          </select>
+        </template>
       </div>
       <div class="flex shrink-0 items-center justify-end gap-2 border-t border-line px-5 py-4">
         <!-- ⚠️ Supprimer une carte depuis sa propre modale d'édition (CC-206) : c'est le cas

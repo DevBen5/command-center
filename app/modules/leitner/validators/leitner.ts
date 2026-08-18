@@ -20,6 +20,10 @@ export const cardValidator = vine.compile(
     // Absent = pas de changement à l'édition (le contrôleur ne l'applique que si
     // `!== undefined`) ; à la création, `?? false` dans le service : privé par défaut.
     isShared: vine.boolean().optional(),
+    // Le sélecteur manuel de provenance (CC-253) : `null` efface le lien `manuel`
+    // existant, un id le remplace. Absent = pas de changement, même doctrine que
+    // `isShared` — le contrôleur ne touche au lien que si `!== undefined`.
+    courseSectionId: vine.number().positive().nullable().optional(),
   })
 )
 
@@ -356,6 +360,19 @@ export const backupValidator = vine.compile(
               grade: vine.enum(['again', 'hard', 'good', 'easy'] as const),
               reviewedAt: vine.string().use(timestamp()),
               ...backupReviewTraceFields(),
+            })
+          )
+          .optional(),
+        // La provenance (CC-253) : désignée par NOM, comme le reste du fichier — jamais
+        // un id, pour la même raison que la taxonomie (les séquences Postgres ne
+        // suivent pas un insert à id explicite). Absent (fichier < CC-253, ou écrit à
+        // la main) : aucun lien à l'import, jamais une erreur.
+        sections: vine
+          .array(
+            vine.object({
+              courseTitle: vine.string().trim().minLength(1).maxLength(COURSE_TITLE_MAX_CHARS),
+              slug: vine.string().trim().minLength(1).maxLength(300),
+              origin: vine.enum(['ingestion', 'manuel'] as const).optional(),
             })
           )
           .optional(),

@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
+import LeitnerCardSection from '#modules/leitner/models/leitner_card_section'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 
@@ -47,6 +48,10 @@ export default class LeitnerCard extends BaseModel {
   /** Une ligne par personne l'ayant déjà notée — jamais une par carte. */
   @hasMany(() => LeitnerCardProgress)
   declare progress: HasMany<typeof LeitnerCardProgress>
+
+  /** Ses sections de provenance (CC-253) — voir `leitner_card_sections_service.ts`. */
+  @hasMany(() => LeitnerCardSection, { foreignKey: 'leitnerCardId' })
+  declare cardSections: HasMany<typeof LeitnerCardSection>
 
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime

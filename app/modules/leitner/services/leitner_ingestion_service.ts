@@ -5,6 +5,8 @@ import { DateTime } from 'luxon'
 import LeitnerDraftCard from '#modules/leitner/models/leitner_draft_card'
 import LeitnerIngestion, { type IngestionSource } from '#modules/leitner/models/leitner_ingestion'
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
+import { linkIngestionSections } from '#modules/leitner/services/leitner_card_sections_service'
+import { splitCourseIntoSections } from '#modules/leitner/services/leitner_course_sections'
 import { assertOwnedOrAdmin } from '#modules/leitner/services/leitner_visibility'
 import LlmClient, { type LlmMessage } from '#modules/leitner/services/llm_client'
 import { backupValidator, TITLE_MAX_CHARS } from '#modules/leitner/validators/leitner'
@@ -177,32 +179,68 @@ function overlapOf(chunk: string): string {
   return boundary === -1 ? tail : tail.slice(boundary + 1)
 }
 
+/** Un morceau à soumettre au LLM, et les slugs de section qu'il couvre réellement. */
+export interface CourseChunk {
+  texte: string
+  /**
+   * Les sections dont ce morceau contient un extrait GENUIN (jamais le seul
+   * recouvrement recopié en tête depuis le morceau précédent — voir le commentaire
+   * de la boucle ci-dessous). Peut couvrir plusieurs slugs (petites sections
+   * regroupées) ou le même slug que le morceau précédent (grosse section coupée).
+   */
+  slugsDeSections: string[]
+}
+
 /**
  * Le cours, en morceaux d'au plus `MAX_CHUNK_CHARS`, avec un léger recouvrement.
  * Les petites sections sont regroupées : dix titres de trois lignes ne valent pas
  * dix appels au LLM.
+ *
+ * ⚠️ **Les slugs sont calculés sur EXACTEMENT le même texte que celui qui construit
+ * les sections persistées d'un cours** (`splitCourseIntoSections`, appelée ici sur le
+ * même `normalized`) — c'est ce qui garantit qu'un slug désigne RÉELLEMENT une ligne
+ * de `leitner_course_sections`, jamais une supposition (CC-253). `splitBySections` et
+ * `splitCourseIntoSections` partagent la même granularité de découpe (un bloc par
+ * titre, plus un préambule commun) sur un texte identique : ils s'alignent donc terme
+ * à terme. Une divergence (heading pathologique, ex. `# ` sans titre après l'espace)
+ * dégrade sans planter — les pièces concernées perdent simplement leur slug.
  */
-export function chunkCourse(text: string): string[] {
+export function chunkCourse(text: string): CourseChunk[] {
   const normalized = text.replace(/\r\n?/g, '\n').trim()
   if (normalized === '') return []
 
-  const pieces = splitBySections(normalized).flatMap(splitOversized)
+  const rawSections = splitBySections(normalized)
+  const slugSections = splitCourseIntoSections(normalized)
+  const slugsByRawIndex =
+    rawSections.length === slugSections.length ? slugSections.map((s) => s.slug) : []
 
-  const chunks: string[] = []
+  const taggedPieces: { text: string; slug: string | null }[] = []
+  rawSections.forEach((raw, index) => {
+    const slug = slugsByRawIndex[index] ?? null
+    for (const piece of splitOversized(raw)) taggedPieces.push({ text: piece, slug })
+  })
+
+  const chunks: CourseChunk[] = []
   let current = ''
+  let currentSlugs = new Set<string>()
+  const addSlug = (slug: string | null) => {
+    if (slug) currentSlugs.add(slug)
+  }
 
-  for (const piece of pieces) {
+  for (const { text: piece, slug } of taggedPieces) {
     if (current === '') {
       current = piece
+      addSlug(slug)
       continue
     }
 
     if (current.length + piece.length + 2 <= MAX_CHUNK_CHARS) {
       current = `${current}\n\n${piece}`
+      addSlug(slug)
       continue
     }
 
-    chunks.push(current)
+    chunks.push({ texte: current, slugsDeSections: [...currentSlugs] })
     // Le morceau suivant reprend la fin du précédent : un principe à cheval sur la
     // coupure reste énonçable. Le doublon qui en découle part à la déduplication.
     // Le plafond reste le plafond : un recouvrement qui ne tient pas est abandonné.
@@ -211,9 +249,14 @@ export function chunkCourse(text: string): string[] {
       overlap !== '' && overlap.length + piece.length + 2 <= MAX_CHUNK_CHARS
         ? `${overlap}\n\n${piece}`
         : piece
+    // ⚠️ **Le recouvrement n'apporte JAMAIS le slug du morceau précédent** — c'est le
+    // test qui compte (CC-253) : `currentSlugs` repart à vide, seule la pièce NEUVE
+    // (jamais l'overlap recopié) alimente le morceau qui commence ici.
+    currentSlugs = new Set<string>()
+    addSlug(slug)
   }
 
-  if (current !== '') chunks.push(current)
+  if (current !== '') chunks.push({ texte: current, slugsDeSections: [...currentSlugs] })
   return chunks
 }
 
@@ -572,7 +615,7 @@ export default class LeitnerIngestionService {
    * dans `leitner_cards` sans relecture. C'est le prix d'une barre de progression
    * honnête et d'un compteur de cartes qui monte pour de vrai.
    */
-  async run(ingestion: LeitnerIngestion, chunks: string[]): Promise<void> {
+  async run(ingestion: LeitnerIngestion, chunks: CourseChunk[]): Promise<void> {
     ingestion.status = 'running'
     await ingestion.save()
 
@@ -583,7 +626,7 @@ export default class LeitnerIngestionService {
 
     try {
       for (const [index, chunk] of chunks.entries()) {
-        const batch = await this.extractCards(chunk, index + 1, chunks.length)
+        const batch = await this.extractCards(chunk.texte, index + 1, chunks.length)
         const fresh = keepNewDrafts(batch, seen)
 
         if (fresh.length > 0) {
@@ -595,6 +638,11 @@ export default class LeitnerIngestionService {
               category: draft.category,
               theme: draft.theme,
               status: 'pending' as const,
+              // La provenance (CC-253) : les sections que CE morceau couvre réellement,
+              // recouvrement exclu. Toujours écrit, même vide (aucune ligne trouvée, ou
+              // ingestion sans cours conservé) — `linkIngestionSections` filtre à la
+              // promotion, pas ici.
+              sectionSlugs: chunk.slugsDeSections,
             }))
           )
         }
@@ -723,6 +771,7 @@ export default class LeitnerIngestionService {
       .whereIn('id', draftIds)
       .where('status', 'pending')
       .orderBy('id', 'asc')
+      .preload('ingestion')
 
     for (const draft of drafts) {
       // Un thème appartient toujours à une catégorie : l'un sans l'autre est une
@@ -753,6 +802,15 @@ export default class LeitnerIngestionService {
 
       if (created) report.cardsCreated++
       else report.cardsSkipped++
+
+      // ⚠️ **Provenance (CC-253), que la carte soit neuve ou un doublon retrouvé** — la
+      // promotion EST le point de validation humaine, elle ne se refait pas si le
+      // catalogue avait déjà cette carte. Sans cours conservé (`leitnerCourseId` null,
+      // vérifié ICI puisque `linkIngestionSections` exige un id), ou sans slug calculé
+      // (`linkIngestionSections` gère alors seule la liste vide), rien à lier.
+      if (draft.ingestion.leitnerCourseId && draft.sectionSlugs && draft.sectionSlugs.length > 0) {
+        await linkIngestionSections(card.id, draft.ingestion.leitnerCourseId, draft.sectionSlugs)
+      }
     }
 
     return report

@@ -3,6 +3,9 @@ import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
+import LeitnerCardSection, {
+  type CardSectionOrigin,
+} from '#modules/leitner/models/leitner_card_section'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerCourse, { type CourseSource } from '#modules/leitner/models/leitner_course'
 import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section'
@@ -11,7 +14,7 @@ import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 import { hashCourseMarkdown } from '#modules/leitner/services/leitner_course_sections'
 import { DEFAULT_BOX } from '#modules/leitner/services/leitner_progress'
 import type { Grade, ReviewKind, Verdict } from '#modules/leitner/services/leitner_service'
-import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
+import { applyVisibility, isVisible } from '#modules/leitner/services/leitner_visibility'
 
 /**
  * Version du format d'échange. Un fichier qui déclare une autre version est
@@ -58,6 +61,11 @@ import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
  * que les trois bumps précédents (un champ existant qui change de sens) — mais un champ
  * absent d'un fichier v < 5 doit se lire « aucun cours », jamais planter l'import : voir
  * `courses` sur `backupValidator`, `.optional()`.
+ *
+ * ⚠️ **CC-253 n'ajoute PAS de sixième version.** Chaque carte gagne un champ `sections`
+ * strictement additif — précédent explicite : les cinq colonnes de trace (CC-51)
+ * n'avaient pas bumpé non plus. Son absence sur un fichier < CC-253 se lit « aucun
+ * lien de provenance connu », jamais une erreur.
  */
 export const BACKUP_VERSION = 5
 
@@ -142,6 +150,21 @@ export interface BackupCard {
   updatedAt: string
   reviews: BackupReview[]
   shared: boolean
+  /**
+   * La provenance (CC-253) — un lien par section, désignée par NOM (titre du cours +
+   * slug), jamais par id : même doctrine que la taxonomie, pour la même raison (les
+   * séquences Postgres ne suivent pas un insert à id explicite). Filtrée à l'export
+   * sur la visibilité du COURS, pas de la carte : un cours resté invisible de
+   * l'exportateur (carte promue par un admin sur l'ingestion privée d'un autre
+   * compte) ne fuite jamais son titre ni son contenu par cette voie.
+   */
+  sections: BackupCardSection[]
+}
+
+export interface BackupCardSection {
+  courseTitle: string
+  slug: string
+  origin: CardSectionOrigin
 }
 
 export interface BackupCategory {
@@ -226,6 +249,11 @@ export interface BackupCardInput {
     totalMs?: number | null
     boxBefore?: number | null
     boxAfter?: number | null
+  }[]
+  sections?: {
+    courseTitle: string
+    slug: string
+    origin?: CardSectionOrigin
   }[]
 }
 
@@ -370,6 +398,11 @@ export default class LeitnerBackupService {
         reviews.where('user_id', userId).orderBy('reviewed_at', 'asc').orderBy('id', 'asc')
       )
       .preload('progress', (progress) => progress.where('user_id', userId))
+      // La provenance (CC-253) : une carte peut porter plusieurs liens (chunk couvrant
+      // plusieurs sections). Triés par id — l'ordre de pose, comme les révisions.
+      .preload('cardSections', (cs) =>
+        cs.orderBy('id', 'asc').preload('courseSection', (s) => s.preload('course'))
+      )
       .orderBy('id', 'asc')
     applyVisibility(cardsQuery, 'leitner_cards', userId, isAdmin)
     const cards = await cardsQuery
@@ -445,6 +478,15 @@ export default class LeitnerBackupService {
             boxAfter: review.boxAfter,
           }),
         })),
+        // ⚠️ Filtré sur la visibilité du COURS du lien, pas de la carte : voir le
+        // commentaire de `BackupCard.sections`.
+        sections: card.cardSections
+          .filter((link) => isVisible(link.courseSection.course, userId, isAdmin))
+          .map((link) => ({
+            courseTitle: link.courseSection.course.title,
+            slug: link.courseSection.slug,
+            origin: link.origin,
+          })),
       })),
     }
   }
@@ -527,6 +569,12 @@ export default class LeitnerBackupService {
         seen.add(cardKey(card.front, card.leitnerThemeId))
       }
 
+      // La provenance (CC-253) se lie en TROISIÈME passe, une fois cartes ET cours
+      // créés — les sections d'un fichier v5 arrivent après les cartes qui les
+      // référencent. Seules les cartes réellement créées ICI y entrent : une carte
+      // ignorée (doublon) n'est jamais retouchée, mêmes révisions comprises.
+      const createdCards = new Map<BackupCardInput, LeitnerCard>()
+
       for (const card of backup.cards) {
         const themeId = await this.resolveTheme(card, taxonomy)
 
@@ -558,6 +606,7 @@ export default class LeitnerBackupService {
           { client: trx }
         )
         report.cardsCreated++
+        createdCards.set(card, created)
 
         // ⚠️ **La ligne n'est écrite que si le fichier dit autre chose que le défaut.**
         // Boîte 1 due aujourd'hui *est* l'absence de progression : la matérialiser pour
@@ -673,6 +722,36 @@ export default class LeitnerBackupService {
               aliases: section.aliases ?? null,
               obsoleteAt: section.obsoleteAt ? DateTime.fromISO(section.obsoleteAt) : null,
             },
+            { client: trx }
+          )
+        }
+      }
+
+      // Troisième passe : la provenance (CC-253), résolue par (titre du cours, slug) —
+      // désormais que cartes ET cours existent tous les deux. Un cours ou un slug
+      // introuvable (fichier partiel, ou cours non inclus dans cet export) est ignoré
+      // silencieusement : le lien perdu est déjà l'imprécision que le ticket accepte,
+      // pas une erreur nouvelle.
+      for (const card of backup.cards) {
+        const created = createdCards.get(card)
+        if (!created) continue
+
+        for (const link of card.sections ?? []) {
+          const course = await LeitnerCourse.query({ client: trx })
+            .where('owner_id', userId)
+            .where('title', link.courseTitle)
+            .first()
+          if (!course) continue
+
+          const section = await LeitnerCourseSection.query({ client: trx })
+            .where('course_id', course.id)
+            .where('slug', link.slug)
+            .first()
+          if (!section) continue
+
+          await LeitnerCardSection.firstOrCreate(
+            { leitnerCardId: created.id, leitnerCourseSectionId: section.id },
+            { origin: link.origin ?? 'ingestion' },
             { client: trx }
           )
         }

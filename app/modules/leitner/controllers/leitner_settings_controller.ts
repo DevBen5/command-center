@@ -3,14 +3,21 @@ import type { MultipartFile } from '@adonisjs/core/bodyparser'
 import type { HttpContext } from '@adonisjs/core/http'
 import { errors as vineErrors } from '@vinejs/vine'
 import { DateTime } from 'luxon'
+import capabilityService from '#core/auth/services/capability_service'
 import { renderMarkdown } from '#core/shared/services/markdown_renderer'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
+import LeitnerCourse from '#modules/leitner/models/leitner_course'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 import LeitnerBackupService, {
   BackupImportError,
   READABLE_BACKUP_VERSIONS,
 } from '#modules/leitner/services/leitner_backup_service'
+import {
+  provenanceSectionsFor,
+  setManualSection,
+  type ProvenanceSection,
+} from '#modules/leitner/services/leitner_card_sections_service'
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
 import { progressBox } from '#modules/leitner/services/leitner_progress'
 import LeitnerService from '#modules/leitner/services/leitner_service'
@@ -59,6 +66,25 @@ export default class LeitnerSettingsController {
     const total = await totalQuery
     const boxIntervals = await this.leitner.boxIntervals()
 
+    // ⚠️ **Gate SERVEUR** (CC-253), même raison que `LeitnerController#index` : le corpus
+    // n'est offert au sélecteur que si la capacité de le CONSULTER est réellement là —
+    // masquer le `<select>` côté client ne fermerait rien.
+    const canViewCourses = await capabilityService.allows(auth.user!, 'leitner.courses.view')
+
+    const coursesQuery = LeitnerCourse.query()
+      .preload('sections', (sections) => sections.whereNull('obsolete_at').orderBy('id', 'asc'))
+      .orderBy('title', 'asc')
+    applyVisibility(coursesQuery, 'leitner_courses', userId, isAdmin)
+    const courses = canViewCourses ? await coursesQuery : []
+
+    const manualSections = canViewCourses
+      ? await provenanceSectionsFor(
+          cards.map((card) => card.id),
+          userId,
+          isAdmin
+        )
+      : new Map<number, ProvenanceSection[]>()
+
     return inertia.render('modules/leitner/settings', {
       // ⚠️ `serialize()` ne rend pas les `$extras` : la boîte, qui vient de la jointure
       // de progression et non d'une colonne de la carte, doit être recopiée à la main.
@@ -71,11 +97,25 @@ export default class LeitnerSettingsController {
         // `owner_id`/`is_shared` sont déjà dans `serialize()` (colonnes du modèle) sous
         // `ownerId`/`isShared` — `mine` évite à la page de comparer un id à la main.
         mine: card.ownerId === userId,
+        // Le lien manuel de provenance (CC-253), pour préremplir le sélecteur à
+        // l'édition. `find` plutôt qu'un accès direct : une carte peut porter en plus
+        // des liens `ingestion`, jamais touchés par ce sélecteur.
+        manualCourseSectionId:
+          (manualSections.get(card.id) ?? []).find((section) => section.origin === 'manuel')?.id ??
+          null,
       })),
       categories,
       unclassifiedCount,
       totalCards: Number(total[0].$extras.total),
       boxIntervals,
+      courses: courses.map((course) => ({
+        id: course.id,
+        title: course.title,
+        sections: course.sections.map((section) => ({
+          id: section.id,
+          headingPath: section.headingPath,
+        })),
+      })),
       // Retour du dernier import, flashé par `importBackup` juste avant sa redirection.
       importReport: session.flashMessages.get('importReport') ?? null,
       importErrors: session.flashMessages.get('importErrors') ?? null,
@@ -232,7 +272,12 @@ export default class LeitnerSettingsController {
 
   async store({ auth, request, response }: HttpContext) {
     const payload = await request.validateUsing(cardValidator)
-    await this.service.createCard(payload, auth.user!.id, auth.user!.isAdmin)
+    const card = await this.service.createCard(payload, auth.user!.id, auth.user!.isAdmin)
+    // Le sélecteur manuel de provenance (CC-253) : absent = rien à lier, une carte
+    // neuve n'a de toute façon aucun lien existant à remplacer.
+    if (payload.courseSectionId !== undefined) {
+      await setManualSection(card, payload.courseSectionId, auth.user!.id, auth.user!.isAdmin)
+    }
     return response.redirect().back()
   }
 
@@ -240,6 +285,11 @@ export default class LeitnerSettingsController {
     const payload = await request.validateUsing(cardValidator)
     const card = await LeitnerCard.findOrFail(params.id)
     await this.service.updateCard(card, payload, auth.user!.id, auth.user!.isAdmin)
+    // ⚠️ Absent = pas de changement au lien manuel existant — même doctrine que
+    // `isShared` sur `updateCard`. `null` l'efface, un id le remplace.
+    if (payload.courseSectionId !== undefined) {
+      await setManualSection(card, payload.courseSectionId, auth.user!.id, auth.user!.isAdmin)
+    }
     return response.redirect().back()
   }
 
