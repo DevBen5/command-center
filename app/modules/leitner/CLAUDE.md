@@ -2037,6 +2037,32 @@ champ hallucinable — `parseLlmCards` recopie explicitement les quatre seuls ch
 `front`/`back`/`category`/`theme` avant validation, et **c'est cette recopie qui tient la
 garantie, pas le validateur**. La provenance d'ingestion est arithmétique, calculée par nous.
 
+### Les liens `ingestion` se montrent et se suppriment aussi (CC-272)
+
+Jusque-là, un lien `ingestion` n'était visible et modifiable que dans le panneau de révision, en
+lecture seule — CC-253 l'excluait explicitement du sélecteur manuel. `/revision/settings` les
+montre désormais dans une **zone distincte** de la modale d'édition (jamais fondue avec le slot
+`manuel`, même doctrine que les deux gestes du point 2 ci-dessus), avec un bouton de suppression
+par lien : `DELETE /revision/cards/:id/sections/:sectionId`, sous `leitner.cards.write`, qui
+n'agit que sur `origin = 'ingestion'` (`removeIngestionSection`, filtre en SQL — jamais une
+convention côté appelant). « Modifier » un lien `ingestion` n'a pas de geste dédié : on le
+supprime, puis on re-cible via le sélecteur manuel si besoin — un second `<select>` par ligne
+`ingestion` serait redondant avec le premier.
+
+⚠️ **Ce geste rend atteignable un doublon que CC-253 n'avait pas anticipé.**
+`leitner_card_sections` ne porte qu'une contrainte `unique(leitner_card_id,
+leitner_course_section_id)` — **sans** `origin` dans la clé (voir la migration). Cibler à la main,
+via le sélecteur manuel, une section qui porte déjà un lien `ingestion` de la même carte violait
+donc cette contrainte : un `INSERT` non catché, 500 brut. `setManualSection` résout désormais ce
+cas en **convertissant le lien existant en place** (`origin = 'manuel'`) plutôt qu'en dupliquant —
+un lien re-ciblé à la main n'est plus de la provenance d'ingestion, et son statut le dit plutôt que
+de mentir. Symétriquement, `removeIngestionSection` ne touche jamais un lien `manuel`.
+
+⚠️ **L'export/import n'a pas bougé, et c'est prouvé, pas supposé** — `sections: {courseTitle,
+slug, origin}[]` reste inchangé : un lien converti exporte son `origin` courant (`manuel`), un
+lien supprimé n'est simplement plus dans la liste. `tests/functional/modules/leitner_card_sections.spec.ts`
+couvre les deux par un aller-retour réel plutôt que par une affirmation.
+
 ### Le panneau de révision : le lien explicite, puis la recherche
 
 `LeitnerController#index` peuple `provenance` sur chaque carte due via `provenanceSectionsFor`,
