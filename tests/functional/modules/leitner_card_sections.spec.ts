@@ -310,11 +310,14 @@ test.group('Leitner / panneau de révision — provenance (CC-253)', (group) => 
     const [due] = dueCards
     assert.lengthOf(due.provenance, 1)
     const [provenance] = due.provenance as Array<{
+      courseId: number
       courseTitle: string
       bodyHtml: string
       obsoleteAt: string | null
     }>
     assert.equal(provenance.courseTitle, 'Réseaux')
+    // CC-273 : le lien « Voir dans le cours » a besoin du courseId, absent avant ce lot.
+    assert.equal(provenance.courseId, course.id)
     // Rendu SERVEUR (`renderMarkdown`) — jamais la source Markdown brute.
     assert.include(provenance.bodyHtml, '<em>verbes</em>')
     assert.isNull(provenance.obsoleteAt)

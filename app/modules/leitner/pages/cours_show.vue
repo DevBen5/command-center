@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Head, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
@@ -7,6 +7,7 @@ import ConfirmModal from '~/components/ConfirmModal.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
 import { useCan } from '../components/leitner_can'
 import { xsrfToken } from '../components/leitner_csrf'
+import { sectionAnchorId } from '../shared/course_section_link'
 
 defineOptions({ layout: AppLayout })
 
@@ -103,6 +104,22 @@ async function purgeTombstones(): Promise<void> {
   if (!confirmed) return
   router.post(`/revision/cours/${props.course.id}/purge`)
 }
+
+/*
+|------------------------------------------------------------------------------
+| Le défilement vers l'ancre (CC-273) — jamais le hash natif du navigateur
+|------------------------------------------------------------------------------
+| Le conteneur défilant est le panneau `overflow-y-auto` d'`AppLayout`, pas
+| `window` (même piège que CC-67) : le mécanisme natif de saut à `#ancre` ne
+| ferait rien de visible ici. `nextTick()` avant de chercher l'élément : sans
+| lui, on mesurerait un DOM que Vue n'a pas encore écrit (même piège que
+| `scrollTopKeepingAnchor`, CC-67).
+*/
+onMounted(async () => {
+  if (!window.location.hash) return
+  await nextTick()
+  document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ block: 'start' })
+})
 </script>
 
 <template>
@@ -177,6 +194,7 @@ async function purgeTombstones(): Promise<void> {
   <div class="flex flex-col gap-3">
     <div
       v-for="section in sections"
+      :id="sectionAnchorId(section.id)"
       :key="section.id"
       class="rounded-[14px] border p-4"
       :class="section.obsoleteAt ? 'border-line bg-panel/60 opacity-60' : 'border-line bg-panel'"

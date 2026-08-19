@@ -100,6 +100,9 @@
       "serverStatus": "Le serveur a répondu {status}."
     }
   },
+  "courseSectionView": {
+    "viewInCourse": "Voir dans le cours"
+  },
   "llm": {
     "crumb": "Configuration",
     "title": "Configuration du LLM",

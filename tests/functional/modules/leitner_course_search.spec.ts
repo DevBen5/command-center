@@ -31,7 +31,7 @@ test.group('Leitner / recherche du corpus — visibilité et classement (CC-252)
 
   test('la section la plus proche du recto revient en tête', async ({ client, assert }) => {
     const user = await writer()
-    await postCourse(
+    const created = await postCourse(
       client,
       {
         title: 'Réseaux',
@@ -40,14 +40,21 @@ test.group('Leitner / recherche du corpus — visibilité et classement (CC-252)
       },
       user
     )
+    const courseId = (created.body() as { course: { id: number } }).course.id
     const card = await makeCard('Que négocie le handshake TLS ?', { ownerId: user.id })
 
     const response = await client.get(`/revision/${card.id}/course-search`).loginAs(user)
     response.assertStatus(200)
 
-    const results = response.body().results as Array<{ courseTitle: string; headingPath: string[] }>
+    const results = response.body().results as Array<{
+      courseId: number
+      courseTitle: string
+      headingPath: string[]
+    }>
     assert.isAbove(results.length, 0)
     assert.deepEqual(results[0].headingPath, ['TLS'])
+    // CC-273 : le lien « Voir dans le cours » a besoin du courseId, absent avant ce lot.
+    assert.equal(results[0].courseId, courseId)
   })
 
   test('une section d’un cours privé d’un autre compte n’apparaît jamais', async ({
