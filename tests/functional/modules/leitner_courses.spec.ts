@@ -366,3 +366,47 @@ test.group('Leitner / corpus de cours — suppression de compte (CC-251)', (grou
     assert.isNull(course.ownerId)
   })
 })
+
+/**
+ * ⚠️ **Jamais `withGlobalTransaction()` ici non plus, et pour la même raison
+ * qu'`installation.spec.ts`** : la transaction globale route TOUTE requête — avec ou
+ * sans `{ client: trx }` explicite — sur la même connexion Postgres, donc elle rend
+ * invisible un `Model.create()` oublié hors de la transaction du service (il verrait
+ * quand même le cours fraîchement créé, puisque « fraîchement créé » et « lu » sont la
+ * même connexion). Avec une connexion séparée du pool, comme en production, une ligne
+ * insérée sans `{ client: trx }` pendant que la transaction du cours est encore ouverte
+ * ne voit pas ce cours et casse sur la contrainte de clé étrangère — exactement le bug
+ * mesuré en direct sur ce poste le 2026-08-19 (`#insertSections` créait ses sections
+ * sans passer le `trx` reçu par `db.transaction`).
+ */
+test.group('Leitner / corpus de cours — sections écrites dans la transaction du cours', (group) => {
+  group.each.setup(() => {
+    return async () => {
+      await LeitnerCourse.query().delete()
+      await User.query().delete()
+    }
+  })
+
+  test('un cours neuf voit ses sections créées malgré une connexion séparée', async ({
+    client,
+    assert,
+  }) => {
+    const user = await writer()
+    const response = await post(
+      client,
+      { title: 'Réseaux', markdown: '# TLS\n\nLe handshake.\n\n# HTTP\n\nLes en-têtes.' },
+      user
+    )
+    response.assertStatus(200)
+
+    const sections = await LeitnerCourseSection.query().where(
+      'course_id',
+      response.body().course.id
+    )
+    assert.lengthOf(sections, 2)
+    assert.sameMembers(
+      sections.map((s) => s.slug),
+      ['tls', 'http']
+    )
+  })
+})

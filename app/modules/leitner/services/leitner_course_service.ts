@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import LeitnerCourse, { type CourseSource } from '#modules/leitner/models/leitner_course'
 import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section'
 import {
@@ -28,17 +29,24 @@ export default class LeitnerCourseService {
    * Insère les sections d'un cours **fraîchement créé** — aucune pierre tombale possible
    * ici, il n'y a rien à remplacer.
    */
-  async #insertSections(courseId: number, markdown: string): Promise<void> {
+  async #insertSections(
+    courseId: number,
+    markdown: string,
+    trx: TransactionClientContract
+  ): Promise<void> {
     const sections = splitCourseIntoSections(markdown)
     for (const section of sections) {
-      await LeitnerCourseSection.create({
-        courseId,
-        slug: section.slug,
-        headingPath: section.headingPath,
-        body: section.body,
-        aliases: section.aliases,
-        obsoleteAt: null,
-      })
+      await LeitnerCourseSection.create(
+        {
+          courseId,
+          slug: section.slug,
+          headingPath: section.headingPath,
+          body: section.body,
+          aliases: section.aliases,
+          obsoleteAt: null,
+        },
+        { client: trx }
+      )
     }
   }
 
@@ -80,7 +88,7 @@ export default class LeitnerCourseService {
           },
           { client: trx }
         )
-        await this.#insertSections(created.id, input.markdown)
+        await this.#insertSections(created.id, input.markdown, trx)
         return created
       })
       return { status: 'created', course }

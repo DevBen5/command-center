@@ -290,6 +290,9 @@
       "empty": "Rien trouvé dans le corpus pour cette carte.",
       "error": "La recherche a échoué."
     },
+    "provenance": {
+      "title": "Cette carte vient de"
+    },
     "verdict": {
       "juste": "Juste",
       "partiel": "Partiellement juste",
@@ -417,6 +420,8 @@
     "back": "Verso",
     "theme": "Thème",
     "noThemesHint": "Aucun thème pour l'instant : la carte sera « non classée ». Vous pourrez la classer plus tard depuis cet écran.",
+    "courseSection": "Section source (optionnel)",
+    "courseSectionNone": "— Aucune —",
     "cancel": "Annuler",
     "createAndContinue": "Créer et enchaîner",
     "save": "Enregistrer",

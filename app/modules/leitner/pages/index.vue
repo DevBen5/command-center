@@ -53,6 +53,21 @@ interface LeitnerCard {
   // ramener dans 90 jours.
   outcomes: GradeOutcome[]
   theme: { id: number; name: string; category: { id: number; name: string } } | null
+  // Le lien de provenance explicite (CC-253) — d'où vient CETTE carte, calculé par
+  // l'ingestion ou posé à la main. `[]` si aucun lien, si la capacité manque, ou si
+  // ses cours restent invisibles : le serveur a déjà tranché, la page ne filtre rien.
+  provenance: CardProvenance[]
+}
+
+/** Une section liée explicitement à la carte — distincte des résultats de recherche. */
+interface CardProvenance {
+  id: number
+  courseTitle: string
+  headingPath: string[]
+  bodyHtml: string
+  aliases: string[] | null
+  /** Section tombée depuis (remplacement du cours) : le lien survit, le panneau le dit. */
+  obsoleteAt: string | null
 }
 
 /** Une section du corpus rendue par « Approfondir » (CC-252) — le même contenu que
@@ -847,6 +862,25 @@ function grade(g: Grade): void {
              de ce qu'elle était avant le juge. -->
         <div v-else class="text-[11.5px] text-txt-3">
           {{ t('leitner.index.judgeUnavailable') }}
+        </div>
+      </div>
+
+      <!-- Le lien de provenance explicite (CC-253) : « d'où vient cette carte », TOUJOURS
+           en tête, avant le panneau de recherche — les deux sont distingués par leur
+           propre en-tête, jamais mélangés dans une même liste. Le serveur a déjà tranché
+           la visibilité et la capacité ; rien à filtrer ici. -->
+      <div
+        v-if="revealed && canViewCourses && currentCard && currentCard.provenance.length > 0"
+        class="w-3/5 space-y-2 rounded-[10px] border border-line bg-bg-2 p-3 text-left"
+      >
+        <p class="text-[11px] font-medium tracking-wider text-txt-3 uppercase">
+          {{ t('leitner.index.provenance.title') }}
+        </p>
+        <div v-for="section in currentCard.provenance" :key="section.id" class="space-y-1">
+          <span v-if="section.obsoleteAt" class="rounded-md border border-line px-1.5 py-0.5 text-[11px] text-txt-3">
+            {{ t('leitner.coursShow.obsolete') }}
+          </span>
+          <CourseSectionView :section="{ ...section, headingPath: [section.courseTitle, ...section.headingPath] }" />
         </div>
       </div>
 

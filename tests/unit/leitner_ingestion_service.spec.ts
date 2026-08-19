@@ -182,7 +182,10 @@ test.group('LeitnerIngestionService / parsing de la réponse du LLM', () => {
 
 test.group('LeitnerIngestionService / découpage du cours', () => {
   test('un cours court tient en un seul morceau', ({ assert }) => {
-    assert.deepEqual(chunkCourse('# Titre\n\nUn paragraphe.'), ['# Titre\n\nUn paragraphe.'])
+    assert.deepEqual(
+      chunkCourse('# Titre\n\nUn paragraphe.').map((chunk) => chunk.texte),
+      ['# Titre\n\nUn paragraphe.']
+    )
   })
 
   test('un cours long est découpé, chaque morceau sous le plafond', ({ assert }) => {
@@ -191,7 +194,7 @@ test.group('LeitnerIngestionService / découpage du cours', () => {
     const chunks = chunkCourse([1, 2, 3, 4, 5, 6].map(section).join('\n\n'))
 
     assert.isAbove(chunks.length, 1)
-    for (const chunk of chunks) assert.isAtMost(chunk.length, MAX_CHUNK_CHARS)
+    for (const chunk of chunks) assert.isAtMost(chunk.texte.length, MAX_CHUNK_CHARS)
   })
 
   test('deux morceaux consécutifs se recouvrent', ({ assert }) => {
@@ -203,15 +206,77 @@ test.group('LeitnerIngestionService / découpage du cours', () => {
     assert.isAbove(chunks.length, 1)
     // La fin du premier morceau se retrouve en tête du second : un principe à cheval
     // sur la coupure reste énonçable d'un côté au moins.
-    const tail = chunks[0].slice(-80)
-    assert.include(chunks[1], tail)
+    const tail = chunks[0].texte.slice(-80)
+    assert.include(chunks[1].texte, tail)
   })
 
   test('un pavé sans respiration est tranché plutôt que rendu tel quel', ({ assert }) => {
     const chunks = chunkCourse('x'.repeat(MAX_CHUNK_CHARS * 2 + 500))
 
     assert.isAbove(chunks.length, 1)
-    for (const chunk of chunks) assert.isAtMost(chunk.length, MAX_CHUNK_CHARS)
+    for (const chunk of chunks) assert.isAtMost(chunk.texte.length, MAX_CHUNK_CHARS)
+  })
+})
+
+/*
+|------------------------------------------------------------------------------
+| La provenance (CC-253)
+|------------------------------------------------------------------------------
+| Les slugs sont calculés sur le MÊME texte que celui qui construit les sections
+| réellement persistées d'un cours (`splitCourseIntoSections`) : ils désignent donc
+| toujours une ligne réelle de `leitner_course_sections`, jamais une supposition.
+*/
+test.group('LeitnerIngestionService / provenance des morceaux', () => {
+  test('section unique : le morceau porte son seul slug', ({ assert }) => {
+    const chunks = chunkCourse('# TLS\n\nLe handshake.')
+
+    assert.lengthOf(chunks, 1)
+    assert.deepEqual(chunks[0].slugsDeSections, ['tls'])
+  })
+
+  test('sections groupées : un morceau couvre plusieurs slugs', ({ assert }) => {
+    const chunks = chunkCourse('# A\n\nUn.\n\n# B\n\nDeux.\n\n# C\n\nTrois.')
+
+    // Regroupées parce que petites (« dix titres de trois lignes ne valent pas dix
+    // appels au LLM ») : un seul morceau, qui les couvre toutes.
+    assert.lengthOf(chunks, 1)
+    assert.deepEqual(chunks[0].slugsDeSections, ['a', 'b', 'c'])
+  })
+
+  test('section découpée : le même slug s’étale sur plusieurs morceaux', ({ assert }) => {
+    const chunks = chunkCourse(`# Grand titre\n\n${'y'.repeat(MAX_CHUNK_CHARS * 2)}`)
+
+    assert.isAbove(chunks.length, 1)
+    // Chaque morceau contient bien un extrait GENUIN de la section (pas seulement le
+    // recouvrement) : `splitOversized` a produit plusieurs pièces du même slug.
+    for (const chunk of chunks) assert.deepEqual(chunk.slugsDeSections, ['grand-titre'])
+  })
+
+  /**
+   * ⚠️ **Le test qui compte** (CC-253) : le recouvrement recopié en tête du morceau
+   * suivant ne doit JAMAIS lui apporter le slug de la section précédente, même si le
+   * texte de ce recouvrement est bien présent dans `texte`.
+   */
+  test('le recouvrement en tête n’apporte jamais le slug de la section précédente', ({
+    assert,
+  }) => {
+    // Grand : assez gros pour former, seul, tout le premier morceau. Petit : assez
+    // gros pour que l'ajouter déborde le plafond et déclenche un nouveau morceau.
+    // ⚠️ Un seul `\n` entre les deux (pas de ligne blanche) : sinon la section
+    // « Grand » se termine par la ligne vide qui précède le titre suivant, et
+    // `overlapOf` coupe alors exactement sur ce blanc de fin — recouvrement vide,
+    // ce qui ne prouverait rien du tout.
+    const grand = `# Grand\n\n${'a'.repeat(5_000)}`
+    const petit = `# Petit\n\n${'b'.repeat(1_500)}`
+    const chunks = chunkCourse(`${grand}\n${petit}`)
+
+    assert.lengthOf(chunks, 2)
+    assert.deepEqual(chunks[0].slugsDeSections, ['grand'])
+    // Le texte du deuxième morceau PORTE bien la fin de « Grand » (recouvrement)...
+    assert.include(chunks[1].texte, 'a'.repeat(50))
+    // ...mais son slug ne le dit jamais : seul « petit », dont le morceau porte un
+    // extrait NEUF, y figure.
+    assert.deepEqual(chunks[1].slugsDeSections, ['petit'])
   })
 })
 
