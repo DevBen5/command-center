@@ -203,6 +203,7 @@ export default class LeitnerController {
         // n'a aucun lien, ou si son(ses) cours restent invisibles de cette personne.
         provenance: (provenance.get(card.id) ?? []).map((section) => ({
           id: section.id,
+          courseId: section.courseId,
           courseTitle: section.courseTitle,
           headingPath: section.headingPath,
           bodyHtml: renderMarkdown(section.body),
@@ -367,6 +368,7 @@ export default class LeitnerController {
     return response.json({
       results: sections.map((section) => ({
         id: section.id,
+        courseId: section.courseId,
         courseTitle: section.course.title,
         headingPath: section.headingPath,
         bodyHtml: renderMarkdown(section.body),

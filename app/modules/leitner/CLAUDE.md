@@ -2112,6 +2112,40 @@ erreur nouvelle. `leitner_backup.spec.ts` capture ce champ dans son `snapshot()`
 colonne que cette fonction ne lit pas serait perdue par l'export sans qu'aucun test ne rougisse,
 exactement ce qui a laissé passer CC-51.
 
+## Le lien vers la section du cours (CC-273)
+
+Provenance (CC-253) et Approfondir (CC-252) affichaient le corps de section **en HTML inline
+seulement**, sans jamais pointer vers `/revision/cours/:id`. Ce lot ajoute un lien « Voir dans le
+cours » — l'aperçu inline **reste**, le lien s'ajoute, il ne le remplace pas.
+
+⚠️ **Ancre par `id`, jamais par `slug`.** Le slug est un chemin de titres (`string(300)`, accents et
+espaces compris) qui **change** si l'auteur renomme un titre : un lien resterait syntaxiquement
+valide mais pointerait sur une ancre disparue. L'`id` est stable et déjà porté par les deux charges
+utiles (`provenanceSectionsFor`, `searchCourseSections`) — `shared/course_section_link.ts`
+(`courseSectionHref`, `sectionAnchorId`) est l'unique endroit qui construit `href="/revision/cours/
+<courseId>#section-<id>"`, consommé par `CourseSectionView.vue` — **le seul point de rendu des deux
+panneaux** (CC-253 § « un contenu, deux châssis »), donc le lien s'applique aux deux d'un geste.
+
+⚠️ **Le hash natif du navigateur NE DÉFILE PAS sur cette application, et c'est la même famille que
+CC-67.** Le conteneur défilant est le panneau `overflow-y-auto` d'`AppLayout`, jamais `window` : le
+mécanisme du navigateur qui saute à `#ancre` agit sur le **document**, il ne fait donc rien de
+visible ici. `cours_show.vue` lit `window.location.hash` lui-même au montage et appelle
+`scrollIntoView` à la main, après un `nextTick()` — sans lui, on mesurerait un DOM que Vue n'a pas
+encore écrit.
+
+⚠️ **`LeitnerCourseController.show` ne filtre pas `obsoleteAt`** : une section tombée reste
+consultable (badge « Obsolète »), donc un lien de provenance vers une section devenue obsolète
+atterrit toujours sur une ancre qui existe. Seule une section **purgée** (ligne supprimée) laisse
+une ancre absente — le lien reste valide, il ouvre le bon cours, seul le défilement échoue en
+silence (page ouverte en haut). Cas résiduel accepté, hors périmètre du ticket.
+
+⚠️ **Ce qu'aucun test ne peut prouver : le défilement lui-même.** jsdom ne fait aucun layout,
+`scrollIntoView` y est un stub. Seuls sont testés : le pur (`leitner_course_section_link.spec.ts`),
+le rendu du lien par `CourseSectionView` (`course_section_view.spec.ts`, l'`href` construit), et le
+`courseId` dans les deux payloads (`leitner_card_sections.spec.ts`, `leitner_course_search.spec.ts`,
+mutation vérifiée). L'arrivée sur la bonne section, dans un vrai navigateur, reste un passage
+navigateur du propriétaire.
+
 ## Pièges techniques
 
 - **`next_review` est une colonne `date`, `reviewed_at` un `timestamp`** : `today.toSQLDate()` pour
@@ -2174,3 +2208,7 @@ permanence :
   allumé. La suite vérifie qu'il y a du texte, pas qu'il veut dire quelque chose.
 - **Le piège Inertia de l'export** ne se voit qu'au clic dans un navigateur : au `curl` comme en test
   fonctionnel, la réponse paraît parfaite dans les deux cas.
+- **Le défilement vers l'ancre de section (CC-273)** — `scrollIntoView` manuel dans `cours_show.vue`
+  — n'est prouvable par aucun runner : jsdom ne fait aucun layout et n'exécute pas réellement
+  `scrollIntoView`. Seuls le pur (l'`href` construit) et la présence de `courseId` dans les payloads
+  sont testés ; l'arrivée sur la bonne section reste un passage navigateur.

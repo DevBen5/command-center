@@ -62,6 +62,7 @@ interface LeitnerCard {
 /** Une section liée explicitement à la carte — distincte des résultats de recherche. */
 interface CardProvenance {
   id: number
+  courseId: number
   courseTitle: string
   headingPath: string[]
   bodyHtml: string
@@ -74,6 +75,7 @@ interface CardProvenance {
  * `cours_show.vue`, prêt pour un autre châssis (CC-254). */
 interface CourseSearchResult {
   id: number
+  courseId: number
   courseTitle: string
   headingPath: string[]
   bodyHtml: string
