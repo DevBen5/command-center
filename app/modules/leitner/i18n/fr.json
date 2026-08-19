@@ -422,6 +422,8 @@
     "noThemesHint": "Aucun thème pour l'instant : la carte sera « non classée ». Vous pourrez la classer plus tard depuis cet écran.",
     "courseSection": "Section source (optionnel)",
     "courseSectionNone": "— Aucune —",
+    "ingestionSections": "Sections liées par ingestion",
+    "ingestionSectionsHint": "Posées automatiquement à la promotion de la carte. Supprimer un lien ne touche pas la carte ; le sélecteur ci-dessus reste le seul moyen d'en poser un manuellement.",
     "cancel": "Annuler",
     "createAndContinue": "Créer et enchaîner",
     "save": "Enregistrer",

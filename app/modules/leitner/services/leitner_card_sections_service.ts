@@ -48,6 +48,13 @@ export async function linkIngestionSections(
  * de la même carte ne sont jamais touchés : deux origines, deux gestes distincts.
  *
  * `courseSectionId: null` efface le lien manuel sans en reposer un.
+ *
+ * ⚠️ **La section ciblée peut déjà porter un lien `ingestion` (CC-272)** —
+ * `leitner_card_sections` n'a qu'une contrainte `unique(carte, section)`, sans
+ * `origin` dans la clé (voir la migration). Un simple `create()` y violerait la
+ * contrainte et lèverait un 500 non catché. Le lien existant est donc converti EN
+ * PLACE (`origin = 'manuel'`) plutôt que dupliqué : un lien re-ciblé à la main n'est
+ * plus de la provenance d'ingestion, et son statut doit le dire plutôt que mentir.
  */
 export async function setManualSection(
   card: LeitnerCard,
@@ -73,11 +80,45 @@ export async function setManualSection(
     .first()
   if (!section || !isVisible(section.course, userId, isAdmin)) return
 
+  const existing = await LeitnerCardSection.query()
+    .where('leitner_card_id', card.id)
+    .where('leitner_course_section_id', section.id)
+    .first()
+
+  if (existing) {
+    existing.origin = 'manuel'
+    await existing.save()
+    return
+  }
+
   await LeitnerCardSection.create({
     leitnerCardId: card.id,
     leitnerCourseSectionId: section.id,
     origin: 'manuel',
   })
+}
+
+/**
+ * Supprime UN lien `ingestion` de la carte donnée (CC-272) — jamais un lien
+ * `manuel`, quel que soit ce que le client envoie comme id de section : le filtre
+ * `origin = 'ingestion'` est dans la requête SQL, pas une convention côté appelant.
+ * Symétrique de `setManualSection`, qui ne touche jamais l'inverse.
+ *
+ * Idempotent : supprimer un lien déjà absent ne lève rien (0 ligne affectée).
+ */
+export async function removeIngestionSection(
+  card: LeitnerCard,
+  courseSectionId: number,
+  userId: number,
+  isAdmin: boolean
+): Promise<void> {
+  assertOwnedOrAdmin(card, userId, isAdmin)
+
+  await LeitnerCardSection.query()
+    .where('leitner_card_id', card.id)
+    .where('leitner_course_section_id', courseSectionId)
+    .where('origin', 'ingestion')
+    .delete()
 }
 
 /** Une section de provenance, telle qu'exposée au panneau de révision ou à l'export. */

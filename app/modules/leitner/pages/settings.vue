@@ -82,6 +82,15 @@ interface Card {
   // Le lien manuel de provenance (CC-253) — `null` si aucun, ou si la capacité de
   // consulter le corpus manque (le serveur ne l'a alors pas calculé).
   manualCourseSectionId: number | null
+  // Les liens `ingestion` de la même carte (CC-272) — jamais fondus avec le slot
+  // manuel ci-dessus : deux origines, deux gestes distincts. `[]` si la capacité de
+  // consulter le corpus manque, même raison que `manualCourseSectionId`.
+  ingestionSections: Array<{
+    id: number
+    courseTitle: string
+    headingPath: string[]
+    obsoleteAt: string | null
+  }>
 }
 
 /** Un cours du sélecteur manuel (CC-253) — section, jamais son contenu : c'est un choix,
@@ -387,6 +396,23 @@ async function deleteEditingCard(): Promise<void> {
   router.delete(`/revision/cards/${card.id}`, {
     preserveScroll: true,
     onSuccess: () => (modalOpen.value = false),
+  })
+}
+
+/**
+ * Supprime UN lien `ingestion` (CC-272), sans fermer la modale — il peut en rester
+ * d'autres. `editing` est un instantané pris à l'ouverture (`openEdit`) : après
+ * succès, on le resynchronise depuis `props.cards`, qu'Inertia vient de recharger.
+ */
+function removeIngestionSection(sectionId: number): void {
+  if (!editing.value) return
+  const cardId = editing.value.id
+  router.delete(`/revision/cards/${cardId}/sections/${sectionId}`, {
+    preserveScroll: true,
+    onSuccess: () => {
+      const updated = props.cards.find((c) => c.id === cardId)
+      if (updated) editing.value = updated
+    },
   })
 }
 
@@ -1277,6 +1303,34 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
             <span class="block text-[11.5px] text-txt-3">{{ t('leitner.settings.sharedHint') }}</span>
           </span>
         </label>
+
+        <!-- Les liens `ingestion` de la même carte (CC-272) — zone DISTINCTE du sélecteur
+             manuel ci-dessous : deux origines, deux gestes distincts, jamais fondus.
+             Édition seulement : une carte en création n'a encore aucun lien. -->
+        <template v-if="editing && editing.ingestionSections.length > 0">
+          <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">{{ t('leitner.settings.ingestionSections') }}</label>
+          <p class="text-[11px] text-txt-3">{{ t('leitner.settings.ingestionSectionsHint') }}</p>
+          <ul class="flex flex-col gap-1">
+            <li
+              v-for="section in editing.ingestionSections"
+              :key="section.id"
+              class="flex items-center justify-between gap-2 rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
+            >
+              <span>
+                {{ section.courseTitle }} ·
+                {{ section.headingPath.length ? section.headingPath.join(' › ') : t('leitner.coursShow.introduction') }}
+                <span v-if="section.obsoleteAt" class="ml-1 text-[10.5px] text-warn">{{ t('leitner.coursShow.obsolete') }}</span>
+              </span>
+              <button
+                type="button"
+                class="shrink-0 text-[11.5px] text-bad hover:underline"
+                @click="removeIngestionSection(section.id)"
+              >
+                {{ t('leitner.settings.delete') }}
+              </button>
+            </li>
+          </ul>
+        </template>
 
         <!-- Le sélecteur manuel de provenance (CC-253) : au plus un lien `manuel` par
              carte, indépendant des liens `ingestion` posés par la promotion — voir
