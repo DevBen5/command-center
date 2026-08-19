@@ -96,6 +96,11 @@ Le backfill de `kind`, lui, n'a rien à prouver : le `default` de la colonne est
   rouvrir la liste après avoir tapé remontre **toute** la taxonomie. ⚠️ Il ne prouve quelque chose
   que parce qu'il **tape d'abord** : `filtering` vaut déjà `false` au montage, donc ouvrir sans
   saisie passerait même si la remise à zéro disparaissait. C'est le piège de tout test de composant — voir le `CLAUDE.md` racine.
+- `app/modules/leitner/components/__tests__/course_section_view.spec.ts` — le lien « Voir dans le
+  cours » (CC-273) : l'`href` construit à partir de `courseId` et de l'`id` de la section, seul
+  comportement du composant qui ne soit pas déjà couvert ailleurs (le rendu du corps l'est côté
+  serveur). Le défilement vers l'ancre, lui, vit dans `cours_show.vue` et reste hors de portée de
+  Vitest — voir « Limites connues ».
 
 ⚠️ **`LeitnerScopeSearch.vue` n'a pas de test de composant** : seuls `LeitnerTabs`, `IngestionTitle`
 et `TaxonomyCombobox` sont couverts. Câbler celui-ci est possible et souhaitable ; en attendant, son
@@ -303,6 +308,8 @@ navigateur.
   sur `?scope=all`. Le cas est monté sur l'état qui armait l'exception cachée (une révision
   d'entretien notée `hard`, vérifiée par `lastGrade`) : le piège a disparu de l'écran **alors même
   que son armement est là**, ce qu'aucun test de la file normale ne pourrait dire.
+- `tests/unit/leitner_course_section_link.spec.ts` — le pur du lien vers une section (CC-273) :
+  `sectionAnchorId` et `courseSectionHref`, construits sur l'`id` de section, jamais le slug.
 - `tests/unit/leitner_scope_search.spec.ts` — le **filtrage de la barre de recherche**, dont
   `securite` qui trouve « Sécurité » (le test qui compte), le chemin `Catégorie · Thème`, et un
   paquet à 0 trouvé mais **non sélectionnable**. Du code pur : il ne voit ni le focus/blur, ni le
@@ -632,7 +639,10 @@ extension) se fabrique en revanche à la volée : il n'y a pas de binaire à ver
     lien en base** sans `leitner.courses.view` (gate serveur, pas seulement client),
     et un lien vers un cours resté privé d'un autre compte (carte visible, cours pas)
     n'est jamais exposé — cas limite inatteignable par l'UI actuelle, mais possible en
-    base, donc vérifié quand même.
+    base, donc vérifié quand même. Depuis CC-273, le premier test porte aussi
+    `courseId` — mutation vérifiée à la main le 2026-08-19 : retirer la ligne côté
+    contrôleur fait rougir ce test **et** celui de `leitner_course_search.spec.ts`
+    (2/22 sur les deux fichiers).
 - `tests/functional/modules/leitner_backup.spec.ts` — `sections` sur chaque carte,
   filtrée par la visibilité du COURS du lien (pas de la carte), toujours un tableau
   (jamais omis, y compris vide) ; l'aller-retour couvre un lien `ingestion` vers une
