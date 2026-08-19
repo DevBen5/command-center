@@ -417,6 +417,11 @@ router
           router
             .delete('/cards/:id', [LeitnerSettingsController, 'destroy'])
             .use(middleware.can('leitner.cards.write'))
+          // Supprime UN lien de provenance `ingestion` (CC-272) — jamais le lien `manuel`,
+          // qui reste géré par PUT /cards/:id. Voir `removeIngestionSection`.
+          router
+            .delete('/cards/:id/sections/:sectionId', [LeitnerSettingsController, 'destroySection'])
+            .use(middleware.can('leitner.cards.write'))
           router
             .post('/cards/delete', [LeitnerSettingsController, 'destroyMany'])
             .use(middleware.can('leitner.cards.write'))

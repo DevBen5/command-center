@@ -606,7 +606,7 @@ extension) se fabrique en revanche à la volée : il n'y a pas de binaire à ver
   slug de la section précédente, même si son texte y est bien présent. Mutation
   vérifiée à la main le 2026-08-18 : retirer le `currentSlugs = new Set()` avant le
   reset fait rougir exactement ce dernier test (30 passent, 1 rougit).
-- `tests/functional/modules/leitner_card_sections.spec.ts` — trois angles :
+- `tests/functional/modules/leitner_card_sections.spec.ts` — cinq angles :
   - la **promotion** pose un lien `ingestion` quand l'ingestion a conservé son cours,
     n'en pose aucun sinon, et le pose **même sur un doublon retrouvé** au catalogue
     (la promotion est le point de validation, indépendamment de `created`) ;
@@ -614,7 +614,18 @@ extension) se fabrique en revanche à la volée : il n'y a pas de binaire à ver
     carte (remplacé, jamais dupliqué), sans jamais toucher un lien `ingestion`
     existant de la même carte ; `courseSectionId: null` l'efface ; lier à une section
     d'un cours privé d'un autre compte est refusé **en silence** (la carte se crée
-    quand même, seul le lien est absent) ;
+    quand même, seul le lien est absent) ; **cibler une section déjà liée en
+    `ingestion` convertit le lien EN PLACE** (CC-272) plutôt que de violer la
+    contrainte `unique(carte, section)` (500 non catché avant le correctif) ;
+  - la **suppression d'un lien `ingestion`** (CC-272, `DELETE
+    /revision/cards/:id/sections/:sectionId`) : supprime le lien ciblé sans toucher un
+    lien `manuel` de la même carte, une requête sur un lien `manuel` sous cette route
+    ne supprime rien (le filtre `origin = 'ingestion'` est dans la requête SQL), et la
+    garde d'appartenance refuse sur la carte d'un autre compte (403) ;
+  - **provenance et export** (CC-272) : un lien converti en `manuel` exporte
+    `origin: 'manuel'`, un lien `ingestion` supprimé est absent de l'export — sans
+    aucun changement de code dans `leitner_backup_service.ts` (additif par
+    construction, prouvé plutôt que supposé) ;
   - le **panneau de révision** (`LeitnerController#index`) : le lien explicite est
     rendu en HTML (`renderMarkdown`, jamais la source Markdown brute), une section
     devenue obsolète reste affichée en le disant, la provenance est **vide malgré un

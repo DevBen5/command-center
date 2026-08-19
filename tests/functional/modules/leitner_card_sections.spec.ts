@@ -214,6 +214,39 @@ test.group('Leitner / sélecteur manuel de provenance (CC-253)', (group) => {
     assert.lengthOf(await LeitnerCardSection.query().where('leitner_card_id', card.id), 0)
   })
 
+  /**
+   * ⚠️ CC-272 : `leitner_card_sections` n'a qu'une contrainte `unique(carte, section)`,
+   * sans `origin` dans la clé (voir la migration). Avant le correctif, cibler à la
+   * main une section déjà liée en `ingestion` violait cette contrainte — 500 non
+   * catché. Le lien existant doit être converti EN PLACE, jamais dupliqué.
+   */
+  test('cibler une section déjà liée en `ingestion` convertit le lien en place, sans le dupliquer', async ({
+    client,
+    assert,
+  }) => {
+    const user = await login()
+    const card = await makeCard('Recto', { ownerId: user.id, isShared: false })
+    const section = await courseSection(user.id, false, 'deja-liee')
+    await LeitnerCardSection.create({
+      leitnerCardId: card.id,
+      leitnerCourseSectionId: section.id,
+      origin: 'ingestion',
+    })
+
+    const response = await client
+      .put(`/revision/cards/${card.id}`)
+      .json({ front: card.front, back: card.back, courseSectionId: section.id })
+      .loginAs(user)
+      .withCsrfToken()
+      .redirects(0)
+
+    response.assertStatus(302)
+    const links = await LeitnerCardSection.query().where('leitner_card_id', card.id)
+    assert.lengthOf(links, 1, 'un seul lien : converti, jamais dupliqué')
+    assert.equal(links[0].leitnerCourseSectionId, section.id)
+    assert.equal(links[0].origin, 'manuel')
+  })
+
   test('lier à une section d’un cours privé d’un autre compte est refusé, en silence', async ({
     client,
     assert,
@@ -392,5 +425,180 @@ test.group('Leitner / panneau de révision — provenance (CC-253)', (group) => 
 
     const { dueCards } = await props(client, user)
     assert.deepEqual(dueCards[0].provenance, [])
+  })
+})
+
+test.group('Leitner / suppression d’un lien de provenance (CC-272)', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+
+  async function courseSection(ownerId: number, isShared: boolean, slug = 'http') {
+    const course = await LeitnerCourse.create({
+      title: `Cours ${slug}`,
+      markdown: `# ${slug}\n\nContenu.`,
+      contentHash: `empreinte-destroy-${slug}-${ownerId}`,
+      source: 'paste',
+      ownerId,
+      isShared,
+    })
+    return LeitnerCourseSection.create({
+      courseId: course.id,
+      slug,
+      headingPath: [slug],
+      body: 'Contenu.',
+      aliases: null,
+      obsoleteAt: null,
+    })
+  }
+
+  test('supprime le lien `ingestion` ciblé, sans toucher un lien `manuel` de la même carte', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUserWith(['leitner.cards.write'])
+    const card = await makeCard('Recto', { ownerId: user.id, isShared: false })
+    const ingestionSection = await courseSection(user.id, false, 'ingestion')
+    const manualSection = await courseSection(user.id, false, 'manuel')
+    await LeitnerCardSection.create({
+      leitnerCardId: card.id,
+      leitnerCourseSectionId: ingestionSection.id,
+      origin: 'ingestion',
+    })
+    await LeitnerCardSection.create({
+      leitnerCardId: card.id,
+      leitnerCourseSectionId: manualSection.id,
+      origin: 'manuel',
+    })
+
+    await client
+      .delete(`/revision/cards/${card.id}/sections/${ingestionSection.id}`)
+      .loginAs(user)
+      .withCsrfToken()
+
+    const links = await LeitnerCardSection.query().where('leitner_card_id', card.id)
+    assert.lengthOf(links, 1)
+    assert.equal(links[0].origin, 'manuel')
+    assert.equal(links[0].leitnerCourseSectionId, manualSection.id)
+  })
+
+  test('une requête sur un lien `manuel`, sous cette route, ne supprime rien', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUserWith(['leitner.cards.write'])
+    const card = await makeCard('Recto', { ownerId: user.id, isShared: false })
+    const manualSection = await courseSection(user.id, false, 'manuel-seul')
+    await LeitnerCardSection.create({
+      leitnerCardId: card.id,
+      leitnerCourseSectionId: manualSection.id,
+      origin: 'manuel',
+    })
+
+    await client
+      .delete(`/revision/cards/${card.id}/sections/${manualSection.id}`)
+      .loginAs(user)
+      .withCsrfToken()
+
+    const links = await LeitnerCardSection.query().where('leitner_card_id', card.id)
+    assert.lengthOf(links, 1, 'le filtre `origin = ingestion` protège le lien manuel')
+    assert.equal(links[0].origin, 'manuel')
+  })
+
+  test('refuse sur la carte d’un autre compte', async ({ client, assert }) => {
+    const owner = await createUserWith(['leitner.cards.write'])
+    const stranger = await createUserWith(['leitner.cards.write'])
+    const card = await makeCard('Recto', { ownerId: owner.id, isShared: false })
+    const section = await courseSection(owner.id, false, 'protegee')
+    await LeitnerCardSection.create({
+      leitnerCardId: card.id,
+      leitnerCourseSectionId: section.id,
+      origin: 'ingestion',
+    })
+
+    const response = await client
+      .delete(`/revision/cards/${card.id}/sections/${section.id}`)
+      .loginAs(stranger)
+      .withCsrfToken()
+
+    response.assertStatus(403)
+    assert.lengthOf(await LeitnerCardSection.query().where('leitner_card_id', card.id), 1)
+  })
+})
+
+test.group('Leitner / provenance et export (CC-272)', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+
+  async function courseSection(ownerId: number, isShared: boolean, slug = 'http') {
+    const course = await LeitnerCourse.create({
+      title: `Cours ${slug}`,
+      markdown: `# ${slug}\n\nContenu.`,
+      contentHash: `empreinte-export-${slug}-${ownerId}`,
+      source: 'paste',
+      ownerId,
+      isShared,
+    })
+    return LeitnerCourseSection.create({
+      courseId: course.id,
+      slug,
+      headingPath: [slug],
+      body: 'Contenu.',
+      aliases: null,
+      obsoleteAt: null,
+    })
+  }
+
+  interface ExportedCard {
+    front: string
+    sections: Array<{ courseTitle: string; slug: string; origin: string }>
+  }
+
+  test('un lien converti en `manuel` (CC-272) exporte `origin: manuel`, sans changement de code d’export', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUserWith(['leitner.cards.write', 'leitner.backup'])
+    const card = await makeCard('Carte re-ciblée', { ownerId: user.id, isShared: false })
+    const section = await courseSection(user.id, false, 'reciblee')
+    await LeitnerCardSection.create({
+      leitnerCardId: card.id,
+      leitnerCourseSectionId: section.id,
+      origin: 'ingestion',
+    })
+
+    await client
+      .put(`/revision/cards/${card.id}`)
+      .json({ front: card.front, back: card.back, courseSectionId: section.id })
+      .loginAs(user)
+      .withCsrfToken()
+
+    const response = await client.get('/revision/export').loginAs(user)
+    const backup = JSON.parse(response.text())
+    const exported = backup.cards.find((c: ExportedCard) => c.front === 'Carte re-ciblée')
+    assert.lengthOf(exported.sections, 1)
+    assert.equal(exported.sections[0].origin, 'manuel')
+    assert.equal(exported.sections[0].slug, 'reciblee')
+  })
+
+  test('un lien `ingestion` supprimé (CC-272) est absent de l’export', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUserWith(['leitner.cards.write', 'leitner.backup'])
+    const card = await makeCard('Carte allégée', { ownerId: user.id, isShared: false })
+    const section = await courseSection(user.id, false, 'a-retirer')
+    await LeitnerCardSection.create({
+      leitnerCardId: card.id,
+      leitnerCourseSectionId: section.id,
+      origin: 'ingestion',
+    })
+
+    await client
+      .delete(`/revision/cards/${card.id}/sections/${section.id}`)
+      .loginAs(user)
+      .withCsrfToken()
+
+    const response = await client.get('/revision/export').loginAs(user)
+    const backup = JSON.parse(response.text())
+    const exported = backup.cards.find((c: ExportedCard) => c.front === 'Carte allégée')
+    assert.lengthOf(exported.sections, 0)
   })
 })

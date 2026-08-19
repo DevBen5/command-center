@@ -15,6 +15,7 @@ import LeitnerBackupService, {
 } from '#modules/leitner/services/leitner_backup_service'
 import {
   provenanceSectionsFor,
+  removeIngestionSection,
   setManualSection,
   type ProvenanceSection,
 } from '#modules/leitner/services/leitner_card_sections_service'
@@ -103,6 +104,16 @@ export default class LeitnerSettingsController {
         manualCourseSectionId:
           (manualSections.get(card.id) ?? []).find((section) => section.origin === 'manuel')?.id ??
           null,
+        // Les liens `ingestion` de la même carte (CC-272) — affichés à part, jamais
+        // fondus avec le slot manuel ci-dessus : deux origines, deux gestes distincts.
+        ingestionSections: (manualSections.get(card.id) ?? [])
+          .filter((section) => section.origin === 'ingestion')
+          .map((section) => ({
+            id: section.id,
+            courseTitle: section.courseTitle,
+            headingPath: section.headingPath,
+            obsoleteAt: section.obsoleteAt,
+          })),
       })),
       categories,
       unclassifiedCount,
@@ -296,6 +307,17 @@ export default class LeitnerSettingsController {
   async destroy({ auth, params, response }: HttpContext) {
     const card = await LeitnerCard.findOrFail(params.id)
     await this.service.deleteCards([card.id], auth.user!.id, auth.user!.isAdmin)
+    return response.redirect().back()
+  }
+
+  /**
+   * Supprime UN lien de provenance `ingestion` (CC-272) — jamais le lien `manuel`,
+   * qui reste géré par `store`/`update` via `setManualSection`. Voir
+   * `removeIngestionSection` pour la garde d'origine.
+   */
+  async destroySection({ auth, params, response }: HttpContext) {
+    const card = await LeitnerCard.findOrFail(params.id)
+    await removeIngestionSection(card, Number(params.sectionId), auth.user!.id, auth.user!.isAdmin)
     return response.redirect().back()
   }
 
