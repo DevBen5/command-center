@@ -6,6 +6,7 @@ import {
   dueInLabel,
   duration,
   fluencyMeasure,
+  soleCourseTitle,
   type FluencyState,
 } from '#modules/leitner/shared/review_page'
 
@@ -110,6 +111,32 @@ test.group('Leitner — libellés d’échéance', () => {
     // qu'`again` promet réellement — et c'est désormais un cas nominal, plus une boîte
     // inexistante.
     assert.equal(dueInLabel(0), "aujourd'hui")
+  })
+})
+
+/*
+|--------------------------------------------------------------------------
+| CC-274 — l'en-tête unique du panneau de provenance
+|--------------------------------------------------------------------------
+| La provenance vient quasi toujours d'un seul cours (un en-tête), mais rien ne le
+| garantit (un lien manuel + un lien d'ingestion vers deux cours différents) — d'où le
+| repli sur `null`, qui fait réapparaître le titre sur chaque ligne côté page.
+*/
+test.group('Leitner — le titre de cours unique de la provenance', () => {
+  test('un seul cours parmi les sections rend son titre', ({ assert }) => {
+    const sections = [{ courseTitle: 'Réseaux' }, { courseTitle: 'Réseaux' }]
+
+    assert.equal(soleCourseTitle(sections), 'Réseaux')
+  })
+
+  test('deux cours différents rendent null — pas de titre à choisir', ({ assert }) => {
+    const sections = [{ courseTitle: 'Réseaux' }, { courseTitle: 'Docker avancé' }]
+
+    assert.isNull(soleCourseTitle(sections))
+  })
+
+  test('aucune section rend null', ({ assert }) => {
+    assert.isNull(soleCourseTitle([]))
   })
 })
 

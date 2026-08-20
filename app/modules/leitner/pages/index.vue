@@ -18,6 +18,7 @@ import {
   gradeHint,
   gradeLabelKey,
   highlightedGrade as resolveHighlight,
+  soleCourseTitle,
   type GradeOutcome,
 } from '../shared/review_page.js'
 import type { MasteredCard } from '../shared/mastery_inventory.js'
@@ -65,21 +66,37 @@ interface LeitnerCard {
   provenance: CardProvenance[]
 }
 
-/** Une section liée explicitement à la carte — distincte des résultats de recherche. */
+/**
+ * Une section liée explicitement à la carte — distincte des résultats de recherche.
+ * ⚠️ **Ne porte plus `bodyHtml` depuis CC-274** : le contenu se charge au clic, via la
+ * même route que le glossaire (`GET /revision/cours/sections/:id`), dans la modale
+ * partagée `AppModal` + `CourseSectionView` — voir `sectionModalSection` plus bas.
+ */
 interface CardProvenance {
   id: number
   courseId: number
   courseTitle: string
   headingPath: string[]
-  bodyHtml: string
   aliases: string[] | null
   /** Section tombée depuis (remplacement du cours) : le lien survit, le panneau le dit. */
   obsoleteAt: string | null
 }
 
-/** Une section du corpus rendue par « Approfondir » (CC-252) — le même contenu que
- * `cours_show.vue`, prêt pour un autre châssis (CC-254). */
+/**
+ * Une section du corpus trouvée par « Approfondir » (CC-252) — même remarque que
+ * `CardProvenance` : depuis CC-274, ni l'une ni l'autre ne porte `bodyHtml`.
+ */
 interface CourseSearchResult {
+  id: number
+  courseId: number
+  courseTitle: string
+  headingPath: string[]
+  aliases: string[] | null
+}
+
+/** Le contenu complet d'UNE section, chargé au clic (glossaire, provenance, Approfondir —
+ * un seul point d'entrée depuis CC-274) via `GET /revision/cours/sections/:id`. */
+interface SectionContent {
   id: number
   courseId: number
   courseTitle: string
@@ -222,6 +239,17 @@ const latencyMs = ref<number | null>(null)
  */
 const forcedHighlight = ref<Grade | null>(null)
 
+/**
+ * Le lien de provenance (CC-253) vient quasi toujours d'un seul cours : un en-tête
+ * unique (« Vient de : X ») au-dessus des lignes, jamais le titre répété sur chacune —
+ * sauf dans le cas rare où deux liens de la même carte pointent vers deux cours
+ * différents (CC-274), où chaque ligne reprend son propre titre. `null` déclenche ce
+ * repli, `soleCourseTitle` est pure et prouvée (`leitner_review_page.spec.ts`).
+ */
+const provenanceCourseTitle = computed<string | null>(() =>
+  soleCourseTitle(currentCard.value?.provenance ?? [])
+)
+
 /*
 |----------------------------------------------------------------------------
 | Les mots-clés du recto (CC-254) : reconnaissance PURE, aucun balisage dans la carte
@@ -242,10 +270,38 @@ const frontTokens = computed<FrontToken[]>(() => {
   return tokenizeFront(card.front, canViewCourses.value ? (props.glossary ?? []) : [])
 })
 
-const glossaryModalOpen = ref(false)
-const glossaryModalSection = ref<CourseSearchResult | null>(null)
-const glossaryModalLoading = ref(false)
-const glossaryModalError = ref(false)
+/*
+|----------------------------------------------------------------------------
+| La modale de section : UNE instance, trois déclencheurs (CC-254 puis CC-274)
+|----------------------------------------------------------------------------
+| Un mot du glossaire, une ligne de provenance ou une ligne d'« Approfondir » ouvrent
+| tous la MÊME modale — jamais trois instances : le piège `Tab` d'`AppModal` suppose des
+| modales empilées FRÈRES dans le DOM, une seule instance le rend structurellement
+| impossible à violer ici.
+*/
+const sectionModalOpen = ref(false)
+const sectionModalSection = ref<SectionContent | null>(null)
+const sectionModalLoading = ref(false)
+const sectionModalError = ref(false)
+
+/** Charge et ouvre la modale sur une section, quel que soit le déclencheur. */
+async function openSectionModal(sectionId: number): Promise<void> {
+  sectionModalOpen.value = true
+  sectionModalSection.value = null
+  sectionModalError.value = false
+  sectionModalLoading.value = true
+  try {
+    const response = await fetch(`/revision/cours/sections/${sectionId}`, {
+      headers: { accept: 'application/json' },
+    })
+    if (!response.ok) throw new Error(String(response.status))
+    sectionModalSection.value = (await response.json()) as SectionContent
+  } catch {
+    sectionModalError.value = true
+  } finally {
+    sectionModalLoading.value = false
+  }
+}
 
 /**
  * Un mot souligné dans la question est cliquable AVANT d'avoir répondu — besoin légitime.
@@ -254,28 +310,21 @@ const glossaryModalError = ref(false)
  * (`firstInputAt === null`) porte déjà exactement la sémantique demandée : marque
  * l'interruption si on n'a encore rien tapé, ne fait rien sinon. Aucune condition à
  * dupliquer ici.
+ *
+ * ⚠️ **Provenance et Approfondir n'appellent PAS `markInterrupted()`** (CC-274) : les
+ * deux ne sont atteignables qu'après `revealed = true`, qui désactive immédiatement le
+ * champ de réponse (`:disabled="revealed"`) — `firstInputAt` est donc déjà scellé (posé
+ * ou définitivement `null`) avant que ces panneaux existent. Le cas que ce lot protège
+ * (lire une définition puis répondre) ne peut se produire que depuis le RECTO, avant
+ * `reveal()`.
  */
 async function openGlossaryTerm(sectionId: number): Promise<void> {
   markInterrupted()
-  glossaryModalOpen.value = true
-  glossaryModalSection.value = null
-  glossaryModalError.value = false
-  glossaryModalLoading.value = true
-  try {
-    const response = await fetch(`/revision/cours/sections/${sectionId}`, {
-      headers: { accept: 'application/json' },
-    })
-    if (!response.ok) throw new Error(String(response.status))
-    glossaryModalSection.value = (await response.json()) as CourseSearchResult
-  } catch {
-    glossaryModalError.value = true
-  } finally {
-    glossaryModalLoading.value = false
-  }
+  await openSectionModal(sectionId)
 }
 
-function closeGlossaryModal(): void {
-  glossaryModalOpen.value = false
+function closeSectionModal(): void {
+  sectionModalOpen.value = false
 }
 
 /*
@@ -290,7 +339,6 @@ const courseSearchOpen = ref(false)
 const courseResults = ref<CourseSearchResult[] | null>(null)
 const courseSearchLoading = ref(false)
 const courseSearchError = ref(false)
-const selectedSectionIndex = ref(0)
 
 /*
 |----------------------------------------------------------------------------
@@ -455,14 +503,14 @@ watch(
     courseResults.value = null
     courseSearchLoading.value = false
     courseSearchError.value = false
-    selectedSectionIndex.value = 0
-    // CC-254 : sans ce bloc, une modale de définition resterait ouverte sur la section de
-    // la carte PRÉCÉDENTE — même piège que le reste de cet état, y compris sur une file
-    // d'une seule carte où `again` renvoie le même id.
-    glossaryModalOpen.value = false
-    glossaryModalSection.value = null
-    glossaryModalLoading.value = false
-    glossaryModalError.value = false
+    // CC-254, étendu par CC-274 à la provenance et à Approfondir : sans ce bloc, la
+    // modale de section resterait ouverte sur la section de la carte PRÉCÉDENTE — même
+    // piège que le reste de cet état, y compris sur une file d'une seule carte où
+    // `again` renvoie le même id.
+    sectionModalOpen.value = false
+    sectionModalSection.value = null
+    sectionModalLoading.value = false
+    sectionModalError.value = false
   }
 )
 
@@ -598,7 +646,6 @@ async function ensureCourseResults(): Promise<void> {
     // Même garde que `reveal()` : la carte a pu changer pendant l'appel.
     if (currentCard.value?.id !== card.id) return
     courseResults.value = payload.results
-    selectedSectionIndex.value = 0
   } catch {
     if (currentCard.value?.id === card.id) courseSearchError.value = true
   } finally {
@@ -872,33 +919,34 @@ function grade(g: Grade): void {
         </template>
       </div>
 
-      <!-- La modale de définition (CC-254) : le même contenu que le panneau « Approfondir » et
-           la provenance (`CourseSectionView`), dans le chassis partagé `AppModal`
-           (CC-207/CC-209) — jamais une modale écrite à la main. -->
-      <AppModal v-if="glossaryModalOpen" v-slot="{ titleId }" @close="closeGlossaryModal()">
+      <!-- La modale de section : UNE instance, trois déclencheurs — le glossaire (CC-254),
+           la provenance et « Approfondir » (CC-274) — dans le chassis partagé `AppModal`
+           (CC-207/CC-209) et le contenu partagé `CourseSectionView` — jamais une modale
+           écrite à la main, jamais une seconde instance. -->
+      <AppModal v-if="sectionModalOpen" v-slot="{ titleId }" @close="closeSectionModal()">
         <div
           class="mt-16 max-h-[calc(100vh_-_8rem)] w-[560px] max-w-[90%] overflow-y-auto rounded-[14px] border border-line-2 bg-panel p-5 text-left shadow-2xl"
         >
-          <div v-if="glossaryModalLoading" class="text-[11.5px] text-txt-3">
-            {{ t('leitner.index.glossary.loading') }}
+          <div v-if="sectionModalLoading" class="text-[11.5px] text-txt-3">
+            {{ t('leitner.index.sectionModal.loading') }}
           </div>
-          <div v-else-if="glossaryModalError" class="text-[11.5px] text-bad">
-            {{ t('leitner.index.glossary.error') }}
+          <div v-else-if="sectionModalError" class="text-[11.5px] text-bad">
+            {{ t('leitner.index.sectionModal.error') }}
           </div>
           <CourseSectionView
-            v-else-if="glossaryModalSection"
+            v-else-if="sectionModalSection"
             :title-id="titleId"
             :section="{
-              ...glossaryModalSection,
-              headingPath: [glossaryModalSection.courseTitle, ...glossaryModalSection.headingPath],
+              ...sectionModalSection,
+              headingPath: [sectionModalSection.courseTitle, ...sectionModalSection.headingPath],
             }"
           />
           <button
             type="button"
             class="mt-3 text-[11.5px] text-txt-3 transition hover:text-txt"
-            @click="closeGlossaryModal()"
+            @click="closeSectionModal()"
           >
-            {{ t('leitner.index.glossary.close') }}
+            {{ t('leitner.index.sectionModal.close') }}
           </button>
         </div>
       </AppModal>
@@ -979,20 +1027,38 @@ function grade(g: Grade): void {
       <!-- Le lien de provenance explicite (CC-253) : « d'où vient cette carte », TOUJOURS
            en tête, avant le panneau de recherche — les deux sont distingués par leur
            propre en-tête, jamais mélangés dans une même liste. Le serveur a déjà tranché
-           la visibilité et la capacité ; rien à filtrer ici. -->
+           la visibilité et la capacité ; rien à filtrer ici.
+           ⚠️ **Liste compacte depuis CC-274** : plus de corps de section affiché d'office,
+           chaque ligne ouvre la modale partagée au clic (`openSectionModal`). En-tête
+           unique (« Vient de : X ») quand `provenanceCourseTitle` est non nul ; sinon
+           (cas rare, deux cours différents) le titre est répété sur chaque ligne. -->
       <div
         v-if="revealed && canViewCourses && currentCard && currentCard.provenance.length > 0"
-        class="w-3/5 space-y-2 rounded-[10px] border border-line bg-bg-2 p-3 text-left"
+        class="w-3/5 space-y-1 rounded-[10px] border border-line bg-bg-2 p-3 text-left"
       >
-        <p class="text-[11px] font-medium tracking-wider text-txt-3 uppercase">
-          {{ t('leitner.index.provenance.title') }}
+        <p v-if="provenanceCourseTitle" class="text-[11.5px] text-txt-3">
+          {{ t('leitner.index.provenance.from', { course: provenanceCourseTitle }) }}
         </p>
-        <div v-for="section in currentCard.provenance" :key="section.id" class="space-y-1">
-          <span v-if="section.obsoleteAt" class="rounded-md border border-line px-1.5 py-0.5 text-[11px] text-txt-3">
+        <button
+          v-for="section in currentCard.provenance"
+          :key="section.id"
+          type="button"
+          class="block w-full rounded-lg px-2 py-1.5 text-left text-[12px] text-txt-2 transition hover:bg-panel-2"
+          @click="openSectionModal(section.id)"
+        >
+          <span v-if="!provenanceCourseTitle" class="text-txt-3">{{ section.courseTitle }} · </span
+          >{{
+            section.headingPath.length
+              ? section.headingPath.join(' › ')
+              : t('leitner.coursShow.introduction')
+          }}
+          <span
+            v-if="section.obsoleteAt"
+            class="ml-1 rounded-md border border-line px-1 py-0.5 text-[10px] text-txt-3"
+          >
             {{ t('leitner.coursShow.obsolete') }}
           </span>
-          <CourseSectionView :section="{ ...section, headingPath: [section.courseTitle, ...section.headingPath] }" />
-        </div>
+        </button>
       </div>
 
       <!-- « Approfondir » (CC-252) : sur TOUTE carte dévoilée, réponse juste comprise —
@@ -1023,27 +1089,27 @@ function grade(g: Grade): void {
         <div v-else-if="!courseResults || courseResults.length === 0" class="text-[11.5px] text-txt-3">
           {{ t('leitner.index.coursePanel.empty') }}
         </div>
+        <!-- ⚠️ **Liste compacte depuis CC-274** : le titre de cours est répété sur
+             CHAQUE ligne, contrairement à la provenance — « Approfondir » cherche dans
+             tout le corpus et peut rendre des sections de cours différents (deux cours
+             peuvent chacun avoir une « Introduction »), donc c'est ici que le titre
+             désambiguïse réellement. Le clic ouvre la modale partagée, comme la
+             provenance et le glossaire. -->
         <template v-else>
-          <div v-if="courseResults.length > 1" class="mb-2 flex flex-wrap gap-1.5">
-            <button
-              v-for="(result, i) in courseResults"
-              :key="result.id"
-              type="button"
-              class="rounded-full border px-2.5 py-1 text-[11px] transition"
-              :class="
-                i === selectedSectionIndex
-                  ? 'border-accent bg-accent-soft text-txt'
-                  : 'border-line-2 text-txt-3 hover:border-accent'
-              "
-              @click="selectedSectionIndex = i"
-            >
-              {{ result.courseTitle }}
-            </button>
-          </div>
-          <CourseSectionView
-            v-if="courseResults[selectedSectionIndex]"
-            :section="courseResults[selectedSectionIndex]"
-          />
+          <button
+            v-for="result in courseResults"
+            :key="result.id"
+            type="button"
+            class="block w-full rounded-lg px-2 py-1.5 text-left text-[12px] text-txt-2 transition hover:bg-panel-2"
+            @click="openSectionModal(result.id)"
+          >
+            <span class="text-txt-3">{{ result.courseTitle }} · </span
+            >{{
+              result.headingPath.length
+                ? result.headingPath.join(' › ')
+                : t('leitner.coursShow.introduction')
+            }}
+          </button>
         </template>
       </div>
 
