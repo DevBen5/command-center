@@ -565,6 +565,13 @@ router
             .where('id', router.matchers.number())
             .use(middleware.can('leitner.courses.write'))
 
+          // Les mots-clés du recto (CC-254) : le contenu d'UNE section, pour la modale
+          // ouverte au clic sur un terme souligné. GET, donc pas de jeton CSRF.
+          router
+            .get('/cours/sections/:id', [LeitnerCourseController, 'sectionContent'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('leitner.courses.view'))
+
           // « Approfondir » (CC-252) : recherche plein texte du corpus, JSON nu, GET donc
           // pas de jeton CSRF. Sous `leitner.courses.view`, PAS `leitner.review` : c'est
           // une lecture du corpus, pas un geste de révision — la même distinction que
