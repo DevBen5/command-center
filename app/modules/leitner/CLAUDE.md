@@ -2069,12 +2069,18 @@ couvre les deux par un aller-retour réel plutôt que par une affirmation.
 
 ### Le panneau de révision : le lien explicite, puis la recherche
 
-`LeitnerController#index` peuple `provenance` sur chaque carte due via `provenanceSectionsFor`,
-rendue en HTML (`renderMarkdown`, même patron que `frontHtml`/`backHtml`) — **avant** le panneau
-« Approfondir » de CC-252 dans `pages/index.vue`, les deux visuellement distincts (en-têtes
-séparés, jamais une liste commune). Une section devenue obsolète depuis reste affichée, badge
-« Obsolète » à l'appui (`leitner.coursShow.obsolete`, clé déjà existante) : le panneau le dit, il
-ne perd rien en silence — même doctrine que les pierres tombales de CC-251.
+`LeitnerController#index` peuple `provenance` sur chaque carte due via `provenanceSectionsFor` —
+**avant** le panneau « Approfondir » de CC-252 dans `pages/index.vue`, les deux visuellement
+distincts (en-têtes séparés, jamais une liste commune). Une section devenue obsolète depuis reste
+affichée, badge « Obsolète » à l'appui (`leitner.coursShow.obsolete`, clé déjà existante) : le
+panneau le dit, il ne perd rien en silence — même doctrine que les pierres tombales de CC-251.
+
+⚠️ **Périmé depuis CC-274 (2026-08-20) : « rendue en HTML » ne tient plus.** Ce paragraphe décrivait
+le corps de section rendu **inline** (`renderMarkdown`, même patron que `frontHtml`/`backHtml`).
+Depuis CC-274, ni `provenance` ni la réponse de `courseSearch` ne portent plus `bodyHtml` — les deux
+panneaux sont des LISTES compactes, et le contenu ne se charge qu'au clic, dans une modale. Voir la
+section « Provenance et Approfondir deviennent des modales (CC-274) » plus bas pour le mécanisme
+actuel.
 
 ⚠️ **Gate SERVEUR, pas seulement client — sur `LeitnerController#index` ET
 `LeitnerSettingsController#index`.** `provenance` porte le corps d'une section du corpus, exactement
@@ -2227,10 +2233,52 @@ demandée — marque l'interruption si rien n'est encore tapé, ne fait rien sin
 écrirait une mesure de « rappel » qui n'en est pas une, et `thinking_ms` alimente la médiane de
 référence de la carte et de sa boîte (voir « Le timer fantôme » plus haut).
 
-⚠️ **Les quatre refs de la modale (`glossaryModalOpen/Section/Loading/Error`) entrent dans le
-`watch` sur la référence de `dueCards`**, même raison que le reste de l'état de cet écran : sur
-une file d'une seule carte, `again` renvoie la même carte, même id — sans ce reset une modale
-resterait ouverte sur la section de la tentative précédente.
+⚠️ **Les quatre refs de la modale entrent dans le `watch` sur la référence de `dueCards`**, même
+raison que le reste de l'état de cet écran : sur une file d'une seule carte, `again` renvoie la
+même carte, même id — sans ce reset une modale resterait ouverte sur la section de la tentative
+précédente.
+
+⚠️ **Renommées `sectionModalOpen/Section/Loading/Error` depuis CC-274 (2026-08-20)** — ce
+paragraphe les nommait `glossaryModalOpen/Section/Loading/Error`, avant que la même modale serve
+aussi la provenance et « Approfondir ». Voir la section suivante.
+
+## Provenance et Approfondir deviennent des modales (CC-274)
+
+Les deux panneaux qui affichaient le corps entier d'une section **en ligne** dans l'écran de
+révision — la provenance (CC-253) et « Approfondir » (CC-252) — deviennent des **listes
+compactes** : une ligne par section, portant son chemin de titres. Le clic ouvre la section dans
+la modale déjà posée par CC-254 pour le glossaire — **une seule instance**, réutilisée par les
+trois déclencheurs (`openSectionModal(sectionId)`, refs `sectionModal{Open,Section,Loading,Error}`)
+— jamais trois modales distinctes. `openGlossaryTerm()` reste le seul appelant de
+`markInterrupted()` avant de déléguer à `openSectionModal()`.
+
+⚠️ **Provenance et Approfondir n'appellent PAS `markInterrupted()`, et c'est délibéré — pas un
+oubli.** Le geste que CC-254 protège (lire une définition puis répondre, ce qui gonflerait
+`thinking_ms` d'un temps de lecture sans rapport avec le rappel) suppose d'ouvrir la modale
+**avant** `reveal()`, donc avant que le champ de réponse soit désactivé. Provenance et Approfondir
+sont gardés par `v-if="revealed && ..."` : `revealed` passe `true` en tout premier dans `reveal()`,
+avant le moindre `await`, et **désactive immédiatement** le champ (`:disabled="revealed"`). Au
+moment où ces deux panneaux existent, `firstInputAt` est donc déjà scellé — posé (on a tapé avant
+de dévoiler) ou définitivement `null` (on ne pourra plus jamais taper pour cette présentation, donc
+`thinkingMs` restera `null` par construction, voir `fluencyMeasure`). Le chemin que ce lot protège
+ailleurs ne peut structurellement pas se produire ici.
+
+**Provenance : en-tête unique, ou titre par ligne — jamais les deux.** `soleCourseTitle`
+(`shared/review_page.ts`, pur) rend le titre de cours si toutes les sections de provenance en
+partagent un seul, sinon `null`. Un en-tête (« Vient de : X ») s'affiche dans le premier cas ; dans
+le second (rare — un lien manuel et un lien d'ingestion pointant vers deux cours différents), le
+titre est répété sur chaque ligne, comme Approfondir (qui cherche dans **tout** le corpus et
+affiche donc systématiquement le titre par ligne, sans en-tête possible).
+
+⚠️ **Le panneau vide reste invisible, sans message — ce n'est pas un choix de ce lot, c'est
+l'état déjà en place.** `v-if="... currentCard.provenance.length > 0"` cachait déjà tout le bloc
+avant CC-274 ; aucun texte « aucune provenance connue » n'a jamais existé. Approfondir garde son
+message « Rien trouvé… » existant (`coursePanel.empty`), qui répond à un geste explicite de
+recherche — cas différent, pas retouché.
+
+`provenance` (`LeitnerController#index`) et la réponse de `courseSearch` ne portent plus `bodyHtml`
+— le contenu se charge au clic via `GET /revision/cours/sections/:id` (posée par CC-254). Aucun
+bump de format n'est en jeu : ces deux payloads ne sont pas l'export JSON.
 
 ## Pièges techniques
 

@@ -87,11 +87,20 @@ Le backfill de `kind`, lui, n'a rien à prouver : le `default` de la colonne est
   page** (CC-252), qui n'en avait aucun jusque-là (voir « Limites connues » plus bas — la
   phrase y devient partiellement fausse : la surface couverte reste étroite). Trois choses :
   « Je ne sais pas » surligne « À revoir » sans jamais appeler `router.post` (aucun test du
-  fichier ne l'appelle) ; « Approfondir » ouvre le panneau et y affiche un résultat mocké ;
-  et **le test qui compte** — sur une nouvelle RÉFÉRENCE de `dueCards` portant le MÊME id
-  (le cas `again` sur une file d'une seule carte), le surlignage forcé et le panneau
-  retombent à zéro. Un test dédié prouve aussi le masquage (pas la fermeture — la route est
-  couverte par `leitner_course_search.spec.ts`) sans `leitner.courses.view`.
+  fichier ne l'appelle) ; **depuis CC-274**, « Approfondir » ouvre le panneau et liste titre de
+  cours + chemin **sans afficher de contenu** (une seule requête `course-search`, le contenu
+  se charge au clic sur une ligne, testé séparément) ; et **le test qui compte** — sur une
+  nouvelle RÉFÉRENCE de `dueCards` portant le MÊME id (le cas `again` sur une file d'une seule
+  carte), le surlignage forcé et le panneau retombent à zéro. Un test dédié prouve aussi le
+  masquage (pas la fermeture — la route est couverte par `leitner_course_search.spec.ts`) sans
+  `leitner.courses.view`.
+- `app/modules/leitner/pages/__tests__/index.spec.ts`, describe « provenance en modale »
+  (CC-274) — l'en-tête unique (« Vient de : X ») quand toutes les sections viennent du même
+  cours, et son repli (aucun cas réel connu, mais possible en base) : titre répété sur chaque
+  ligne quand deux sections pointent vers deux cours différents ; cliquer une ligne fetch
+  `GET /cours/sections/:id` et ouvre la MÊME modale que le glossaire (`sectionModalOpen`,
+  jamais une seconde instance) ; provenance vide → panneau absent, sans message (état déjà
+  d'origine, pas un ajout de ce lot).
 - `app/modules/leitner/components/__tests__/taxonomy_combobox.spec.ts` — l'invariant `filtering` :
   rouvrir la liste après avoir tapé remontre **toute** la taxonomie. ⚠️ Il ne prouve quelque chose
   que parce qu'il **tape d'abord** : `filtering` vaut déjà `false` au montage, donc ouvrir sans
@@ -109,6 +118,11 @@ Le backfill de `kind`, lui, n'a rien à prouver : le `default` de la colonne est
   peut être inerte) ; une nouvelle référence de `dueCards` à même id ferme toute modale ouverte
   (même piège n°1 que le reste de l'écran) ; un recto malicieux (`<script>`) s'affiche en texte
   littéral, preuve qu'aucun `v-html` n'y est plus construit.
+  ⚠️ **Depuis CC-274, ces refs (`sectionModalOpen/Section/Loading/Error`) sont partagées par
+  trois déclencheurs**, pas seulement le glossaire — voir le describe « provenance en modale »
+  plus haut, qui prouve l'ouverture par un DEUXIÈME déclencheur sans dupliquer ce fichier.
+  `markInterrupted()` reste propre au glossaire (seul chemin atteignable AVANT `reveal()` — voir
+  le CLAUDE.md du module).
 
 ⚠️ **`LeitnerScopeSearch.vue` n'a pas de test de composant** : seuls `LeitnerTabs`, `IngestionTitle`
 et `TaxonomyCombobox` sont couverts. Câbler celui-ci est possible et souhaitable ; en attendant, son
@@ -646,12 +660,14 @@ extension) se fabrique en revanche à la volée : il n'y a pas de binaire à ver
     aucun changement de code dans `leitner_backup_service.ts` (additif par
     construction, prouvé plutôt que supposé) ;
   - le **panneau de révision** (`LeitnerController#index`) : le lien explicite est
-    rendu en HTML (`renderMarkdown`, jamais la source Markdown brute), une section
-    devenue obsolète reste affichée en le disant, la provenance est **vide malgré un
-    lien en base** sans `leitner.courses.view` (gate serveur, pas seulement client),
-    et un lien vers un cours resté privé d'un autre compte (carte visible, cours pas)
-    n'est jamais exposé — cas limite inatteignable par l'UI actuelle, mais possible en
-    base, donc vérifié quand même. Depuis CC-273, le premier test porte aussi
+    exposé (⚠️ **plus `bodyHtml` depuis CC-274** — `assert.notProperty`, le contenu se
+    charge au clic via `GET /cours/sections/:id`, testé côté page dans
+    `pages/__tests__/index.spec.ts`), une section devenue obsolète reste affichée en le
+    disant, la provenance est **vide malgré un lien en base** sans
+    `leitner.courses.view` (gate serveur, pas seulement client), et un lien vers un
+    cours resté privé d'un autre compte (carte visible, cours pas) n'est jamais exposé
+    — cas limite inatteignable par l'UI actuelle, mais possible en base, donc vérifié
+    quand même. Depuis CC-273, le premier test porte aussi
     `courseId` — mutation vérifiée à la main le 2026-08-19 : retirer la ligne côté
     contrôleur fait rougir ce test **et** celui de `leitner_course_search.spec.ts`
     (2/22 sur les deux fichiers).
@@ -676,10 +692,11 @@ extension) se fabrique en revanche à la volée : il n'y a pas de binaire à ver
   qui s'en charge côté Postgres, même doctrine que la recherche de la veille.
 - `tests/functional/modules/leitner_course_search.spec.ts` — `GET /:id/course-search` par les
   routes. Le classement (la section dont le corps partage le vocabulaire du recto remonte en
-  tête), la capacité (`leitner.courses.view` manquante → 403), la visibilité (une section d'un
-  cours privé d'un autre compte n'apparaît jamais — même si le RECTO de la carte matche
-  parfaitement son contenu), la carte elle-même refusée si privée d'un autre compte (même garde
-  que `judge`/`review`), et une **mutation** : sans `whereNull('obsolete_at')`, une section tombée
+  tête — ⚠️ **plus `bodyHtml` depuis CC-274**, `assert.notProperty` sur le premier résultat), la
+  capacité (`leitner.courses.view` manquante → 403), la visibilité (une section d'un cours privé
+  d'un autre compte n'apparaît jamais — même si le RECTO de la carte matche parfaitement son
+  contenu), la carte elle-même refusée si privée d'un autre compte (même garde que
+  `judge`/`review`), et une **mutation** : sans `whereNull('obsolete_at')`, une section tombée
   remonterait alors qu'elle est censée être invisible de la recherche.
 
 ## Le LLM et sa liste blanche
