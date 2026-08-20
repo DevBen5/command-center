@@ -24,6 +24,9 @@ defineProps<{
     bodyHtml: string
     aliases: string[] | null
   }
+  /** Posé par la modale de glossaire (CC-254) pour `aria-labelledby` — absent ailleurs, le
+   * chassis `AppModal` ne porte aucune structure interne. */
+  titleId?: string
 }>()
 
 const { t } = useI18n()
@@ -31,7 +34,7 @@ const { t } = useI18n()
 
 <template>
   <div class="flex items-center gap-2 text-[11px] text-txt-3">
-    <span>{{
+    <span :id="titleId">{{
       section.headingPath.length ? section.headingPath.join(' › ') : t('leitner.coursShow.introduction')
     }}</span>
     <span v-if="section.aliases?.length" class="rounded-md border border-line px-1.5 py-0.5">

@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
+import AppModal from '~/components/AppModal.vue'
 import CourseSectionView from '../components/CourseSectionView.vue'
 import LeitnerScopePicker from '../components/LeitnerScopePicker.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
@@ -20,6 +21,11 @@ import {
   type GradeOutcome,
 } from '../shared/review_page.js'
 import type { MasteredCard } from '../shared/mastery_inventory.js'
+import {
+  tokenizeFront,
+  type FrontToken,
+  type GlossaryTerm,
+} from '../shared/glossary_highlight.js'
 
 defineOptions({ layout: AppLayout })
 
@@ -134,6 +140,9 @@ const props = defineProps<{
   choices?: ScopeChoices
   scopeError?: string | null
   dueCards?: LeitnerCard[]
+  /** L'index de glossaire (CC-254) — `[]` sans `leitner.courses.view`, ou sur l'écran de
+   * choix. Termes et ids seulement : le contenu se charge au clic, dans la modale. */
+  glossary?: GlossaryTerm[]
   boxCounts: Record<number, number>
   /** La 6ᵉ case : les acquis, qui ont quitté la boîte 5 des compteurs (CC-261). */
   masteredCount: number
@@ -212,6 +221,62 @@ const latencyMs = ref<number | null>(null)
  * présélection.
  */
 const forcedHighlight = ref<Grade | null>(null)
+
+/*
+|----------------------------------------------------------------------------
+| Les mots-clés du recto (CC-254) : reconnaissance PURE, aucun balisage dans la carte
+|----------------------------------------------------------------------------
+| `frontTokens` tokenise `card.front` — le texte SOURCE, jamais `frontHtml` : « aucun
+| `v-html` sur un recto de carte » (le seul point de ce lot qui touche à la sécurité). Le
+| recto affiché ici perd donc le rendu Markdown qu'il avait via `frontHtml` — décision
+| assumée, validée explicitement (voir le commentaire de plan sur CC-254) ; le verso n'est
+| pas touché.
+|
+| ⚠️ `canViewCourses` est une DEUXIÈME garde, redondante avec le serveur qui envoie déjà
+| `glossary: []` sans la capacité — même patron que `provenance`/`courseResults` sur cette
+| page : masquer n'est pas fermer, mais rien n'empêche de le refaire ici aussi.
+*/
+const frontTokens = computed<FrontToken[]>(() => {
+  const card = currentCard.value
+  if (!card) return []
+  return tokenizeFront(card.front, canViewCourses.value ? (props.glossary ?? []) : [])
+})
+
+const glossaryModalOpen = ref(false)
+const glossaryModalSection = ref<CourseSearchResult | null>(null)
+const glossaryModalLoading = ref(false)
+const glossaryModalError = ref(false)
+
+/**
+ * Un mot souligné dans la question est cliquable AVANT d'avoir répondu — besoin légitime.
+ *
+ * ⚠️ **`markInterrupted()` en premier, et rien d'autre à écrire.** Sa garde
+ * (`firstInputAt === null`) porte déjà exactement la sémantique demandée : marque
+ * l'interruption si on n'a encore rien tapé, ne fait rien sinon. Aucune condition à
+ * dupliquer ici.
+ */
+async function openGlossaryTerm(sectionId: number): Promise<void> {
+  markInterrupted()
+  glossaryModalOpen.value = true
+  glossaryModalSection.value = null
+  glossaryModalError.value = false
+  glossaryModalLoading.value = true
+  try {
+    const response = await fetch(`/revision/cours/sections/${sectionId}`, {
+      headers: { accept: 'application/json' },
+    })
+    if (!response.ok) throw new Error(String(response.status))
+    glossaryModalSection.value = (await response.json()) as CourseSearchResult
+  } catch {
+    glossaryModalError.value = true
+  } finally {
+    glossaryModalLoading.value = false
+  }
+}
+
+function closeGlossaryModal(): void {
+  glossaryModalOpen.value = false
+}
 
 /*
 |----------------------------------------------------------------------------
@@ -391,6 +456,13 @@ watch(
     courseSearchLoading.value = false
     courseSearchError.value = false
     selectedSectionIndex.value = 0
+    // CC-254 : sans ce bloc, une modale de définition resterait ouverte sur la section de
+    // la carte PRÉCÉDENTE — même piège que le reste de cet état, y compris sur une file
+    // d'une seule carte où `again` renvoie le même id.
+    glossaryModalOpen.value = false
+    glossaryModalSection.value = null
+    glossaryModalLoading.value = false
+    glossaryModalError.value = false
   }
 )
 
@@ -779,20 +851,57 @@ function grade(g: Grade): void {
           {{ currentCard.theme.category.name }} · {{ currentCard.theme.name }}
         </span>
       </div>
-      <!-- ⚠️ Le PREMIER `v-html` du dépôt (CC-133), et il n'ouvre rien : le HTML vient de
-           `renderMarkdown` (`app/core/shared/services/markdown_renderer.ts`), côté serveur, et
-           n'est jamais construit ici. Ne rends **jamais** `currentCard.front` par cette voie —
-           c'est le Markdown source, et le contenu d'une carte n'est pas de confiance (ingestion
-           LLM, import JSON, cartes communales depuis CC-121).
-           `markdown` porte l'habillage ET le `text-align: left` sans lequel un bloc de code
-           serait centré, le conteneur étant `text-center`. Ce qui empêche une ligne de code
-           longue d'élargir la carte, c'est le couple `max-w-[420px]` ici + le `white-space:
-           pre-wrap` de `.markdown pre` : le bloc **se replie** dans la largeur disponible.
-           ⚠️ Il DÉFILAIT jusqu'au passage navigateur de CC-133 — lire une ligne de SQL y
-           demandait de la faire défiler à la main, dans une carte large de 60 %. Ne réintroduis
-           pas `white-space: pre` en croyant « préserver l'indentation » : `pre-wrap` la préserve
-           déjà, et c'est `pre` qui rendait `overflow-wrap` inerte. -->
-      <div class="markdown max-w-[420px] text-[19px] font-semibold" v-html="currentCard.frontHtml"></div>
+      <!-- Les mots-clés du recto (CC-254) : AUCUN `v-html` ici — la fonction rend des jetons,
+           Vue rend le texte en interpolation (échappé) et un `<button>` pour les termes
+           reconnus. ⚠️ Contrepartie assumée : ce recto perd le rendu Markdown que `frontHtml`
+           lui donnait (CC-133) — un `**gras**` s'affiche désormais littéralement. Le verso
+           n'est pas touché, et `frontHtml` reste calculé côté serveur pour ce qui le consomme
+           ailleurs. ⚠️ `text-left break-words` remplacent ce que `.markdown` donnait
+           gratuitement (`text-align: left` contre le `text-center` du conteneur parent,
+           `overflow-wrap: break-word` contre un mot trop long pour tenir dans la carte) —
+           les deux seules propriétés de cette feuille qui concernaient encore du texte brut. -->
+      <div class="max-w-[420px] text-left text-[19px] font-semibold break-words">
+        <template v-for="(token, i) in frontTokens" :key="i">
+          <button
+            v-if="token.sectionId !== null"
+            type="button"
+            class="border-0 bg-transparent p-0 underline decoration-dotted underline-offset-2 hover:text-accent focus-visible:text-accent"
+            @click="openGlossaryTerm(token.sectionId)"
+          >{{ token.texte }}</button>
+          <template v-else>{{ token.texte }}</template>
+        </template>
+      </div>
+
+      <!-- La modale de définition (CC-254) : le même contenu que le panneau « Approfondir » et
+           la provenance (`CourseSectionView`), dans le chassis partagé `AppModal`
+           (CC-207/CC-209) — jamais une modale écrite à la main. -->
+      <AppModal v-if="glossaryModalOpen" v-slot="{ titleId }" @close="closeGlossaryModal()">
+        <div
+          class="mt-16 max-h-[calc(100vh_-_8rem)] w-[560px] max-w-[90%] overflow-y-auto rounded-[14px] border border-line-2 bg-panel p-5 text-left shadow-2xl"
+        >
+          <div v-if="glossaryModalLoading" class="text-[11.5px] text-txt-3">
+            {{ t('leitner.index.glossary.loading') }}
+          </div>
+          <div v-else-if="glossaryModalError" class="text-[11.5px] text-bad">
+            {{ t('leitner.index.glossary.error') }}
+          </div>
+          <CourseSectionView
+            v-else-if="glossaryModalSection"
+            :title-id="titleId"
+            :section="{
+              ...glossaryModalSection,
+              headingPath: [glossaryModalSection.courseTitle, ...glossaryModalSection.headingPath],
+            }"
+          />
+          <button
+            type="button"
+            class="mt-3 text-[11.5px] text-txt-3 transition hover:text-txt"
+            @click="closeGlossaryModal()"
+          >
+            {{ t('leitner.index.glossary.close') }}
+          </button>
+        </div>
+      </AppModal>
 
       <!-- On répond AVANT de voir : le dévoilement vaut soumission. Le champ se
            verrouille dès qu'on a révélé — on ne peut pas lire puis écrire.

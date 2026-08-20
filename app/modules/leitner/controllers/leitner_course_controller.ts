@@ -158,4 +158,31 @@ export default class LeitnerCourseController {
     session.flash('coursNotice', { purged })
     return response.redirect().back()
   }
+
+  /**
+   * Le contenu d'UNE section, pour la modale de mots-clés du recto (CC-254). GET, donc pas
+   * de jeton CSRF ; la visibilité passe quand même par le cours parent, comme partout
+   * ailleurs dans ce module — `leitner_course_sections` n'a pas de propriétaire propre.
+   *
+   * ⚠️ **Ne filtre pas `obsoleteAt`**, même doctrine que `show()` : une section tombée reste
+   * consultable. Un terme du glossaire ne pointe jamais vers une tombe (l'index l'exclut),
+   * mais un cours peut être remplacé entre le rendu de la page et le clic — le lien reste
+   * valide plutôt que de lever une erreur sur une course résiduelle.
+   */
+  async sectionContent({ auth, params, response }: HttpContext) {
+    const section = await LeitnerCourseSection.query()
+      .where('id', params.id)
+      .preload('course')
+      .firstOrFail()
+    assertVisibleOrAdmin(section.course, auth.user!.id, auth.user!.isAdmin)
+
+    return response.json({
+      id: section.id,
+      courseId: section.courseId,
+      courseTitle: section.course.title,
+      headingPath: section.headingPath,
+      bodyHtml: renderMarkdown(section.body),
+      aliases: section.aliases,
+    })
+  }
 }

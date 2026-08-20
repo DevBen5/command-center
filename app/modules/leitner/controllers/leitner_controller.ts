@@ -12,6 +12,7 @@ import {
 } from '#modules/leitner/services/leitner_card_sections_service'
 import { searchCourseSections } from '#modules/leitner/services/leitner_course_search_service'
 import LeitnerFluencyService from '#modules/leitner/services/leitner_fluency_service'
+import { glossaryIndex } from '#modules/leitner/services/leitner_glossary_service'
 import { gradeOutcomes } from '#modules/leitner/services/leitner_grade_outcomes'
 import LeitnerJudgeService from '#modules/leitner/services/leitner_judge_service'
 import LeitnerMasteryService from '#modules/leitner/services/leitner_mastery_service'
@@ -172,6 +173,9 @@ export default class LeitnerController {
           isAdmin
         )
       : new Map<number, ProvenanceSection[]>()
+    // Les mots-clés du recto (CC-254) : masquer n'est pas fermer — sans la capacité, l'index
+    // reste vide et rien ne peut être souligné, la route de contenu refusant en plus.
+    const glossary = canViewCourses ? await glossaryIndex(userId, isAdmin) : []
 
     return inertia.render('modules/leitner/index', {
       view: 'session',
@@ -227,6 +231,7 @@ export default class LeitnerController {
           now,
         }),
       })),
+      glossary,
       // La grille des 5 boîtes suit le paquet : elle décrit ce qu'on révise.
       boxCounts: await service.boxCounts(userId, resolved.scope, isAdmin),
       masteredCount: await mastery.masteredCount(userId, resolved.scope, isAdmin),

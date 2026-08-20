@@ -23,7 +23,7 @@ const i18n = createI18n({
   messages: { fr: { leitner: fr } },
 })
 
-function mountView(overrides: Partial<{ id: number; courseId: number }> = {}) {
+function mountView(overrides: Partial<{ id: number; courseId: number; titleId: string }> = {}) {
   return mount(CourseSectionView, {
     props: {
       section: {
@@ -33,6 +33,7 @@ function mountView(overrides: Partial<{ id: number; courseId: number }> = {}) {
         bodyHtml: '<p>Le handshake négocie les clés.</p>',
         aliases: null,
       },
+      titleId: overrides.titleId,
     },
     global: { plugins: [i18n] },
   })
@@ -49,5 +50,12 @@ describe('CourseSectionView', () => {
     const wrapper = mountView({ courseId: 3, id: 99 })
     const link = wrapper.get('a')
     expect(link.attributes('href')).toBe('/revision/cours/3#section-99')
+  })
+
+  // CC-254 : la modale de glossaire a besoin de poser `aria-labelledby` sur un élément
+  // réel du contenu — le chassis `AppModal` n'en porte aucun lui-même.
+  test('titleId, quand fourni, est posé sur le titre de la section', () => {
+    const wrapper = mountView({ titleId: 'glossary-title-42' })
+    expect(wrapper.find('#glossary-title-42').text()).toBe('Réseaux › TLS')
   })
 })

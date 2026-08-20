@@ -199,6 +199,8 @@ services/leitner_card_sections_service.ts   la PROVENANCE (CC-253) : `linkIngest
                                             (promotion), `setManualSection` (sélecteur), et
                                             `provenanceSectionsFor` — filtrée sur la visibilité
                                             du COURS du lien, jamais de la carte
+services/leitner_glossary_service.ts        l'INDEX de glossaire (CC-254) : `glossaryIndex` —
+                                            filtré par visibilité, sections tombées exclues
 services/llm_client.ts                      /v1/chat/completions + sonde /v1/models — INJECTÉ
 models/leitner_card_progress.ts             (personne, carte) → boîte + échéance. ABSENCE =
                                             boîte 1, due aujourd'hui — jamais un trou
@@ -231,6 +233,8 @@ shared/mastery_inventory.ts                 PUR · le regroupement par mois, « 
 shared/draft_review.ts                      PUR · la relecture des brouillons d'ingest_show.vue
 shared/settings_page.ts                     PUR · scrollTopKeepingAnchor — le recalage du
                                             défilement après un import (CC-67)
+shared/glossary_highlight.ts                PUR · `tokenizeFront` (CC-254) — plus long d'abord,
+                                            jamais à l'intérieur d'un mot, AUCUN `v-html`
 migrations/                                 cards PUIS reviews PUIS categories/themes PUIS settings
                                             PUIS ingestions PUIS draft_cards PUIS card_progress
                                             PUIS owner_id/is_shared (CC-139, categories → themes →
@@ -2145,6 +2149,88 @@ le rendu du lien par `CourseSectionView` (`course_section_view.spec.ts`, l'`href
 `courseId` dans les deux payloads (`leitner_card_sections.spec.ts`, `leitner_course_search.spec.ts`,
 mutation vérifiée). L'arrivée sur la bonne section, dans un vrai navigateur, reste un passage
 navigateur du propriétaire.
+
+## Les mots-clés du recto (CC-254)
+
+Un terme que le corpus définit (`> notion: TLS, Transport Layer Security` sous un titre, CC-251)
+devient cliquable dans le recto d'une carte : le clic ouvre sa section dans une modale. **Aucun
+balisage dans la carte** — le glossaire se reconnaît tout seul contre le texte déjà écrit, ce qui
+fait souligner les cartes **déjà existantes** sans en rouvrir une seule.
+
+⚠️ **Conséquence directe, assumée : le recto perd le rendu Markdown que lui donnait CC-133.**
+`frontHtml` (rendu serveur, `v-html`) est remplacé par un rendu tokenisé de `front` (la source
+brute) — l'exigence « aucun `v-html` sur un recto de carte » (sécurité : le contenu d'une carte
+n'est pas de confiance, ingestion LLM/import JSON/cartes communales) ne laisse pas d'autre choix.
+Un `**gras**` dans une question s'affiche désormais littéralement. `frontHtml` reste calculé et
+envoyé par `LeitnerController#index` (`leitner_markdown.spec.ts` continue de le vérifier) — seul
+son usage dans CE bloc de `index.vue` a disparu ; le verso n'est pas touché. Voir le `CLAUDE.md`
+racine, section « Le seul `v-html` du dépôt », pour le compte à jour (cinq, plus le recto).
+
+⚠️ **Retirer la classe `.markdown` de ce conteneur perd deux propriétés qui restent utiles au
+texte brut, et ce n'est pas visible tant qu'on ne teste pas un recto long.** `.markdown` posait
+`text-align: left` (contre le `text-center` du conteneur parent) et `overflow-wrap: break-word`
+(contre un mot — URL, identifiant — trop long pour `max-w-[420px]`) : le conteneur du recto
+porte donc `text-left break-words` explicitement, deux utilitaires Tailwind natifs, à la place
+de ces deux règles précises.
+
+### Le tokeniseur — `shared/glossary_highlight.ts`, PUR
+
+`tokenizeFront(front, glossary) → { texte, sectionId | null }[]`. Trois règles, aucune
+négociable :
+
+- **`normalizeForSearch` est l'unique copie** (`components/leitner_scope_search.ts`), importée en
+  **relatif** — jamais l'alias `#modules/*`, qui casserait Vite (ce fichier est importé par
+  `pages/index.vue`, même piège documenté sur `shared/review_page.ts`).
+- **Plus long d'abord.** Deux termes qui se chevauchent (`Transport Layer` / `Layer Security` sur
+  « Transport Layer Security ») : le plus long trouvé à une position consomme sa portée, l'autre
+  n'est jamais retenté dessus. Comportement déterministe, testé, pas laissé au hasard.
+- **Jamais à l'intérieur d'un mot** — « TLSv1.3 » ne souligne jamais « TLS ». La frontière se
+  vérifie sur le caractère juste avant/après le candidat (`\p{L}\p{N}` Unicode), pas sur l'ASCII
+  seul, sinon « sécurité » ne matcherait jamais lui-même après normalisation.
+
+⚠️ **Aucun `v-html` dans le rendu.** La fonction rend des jetons ; `index.vue` les affiche en
+interpolation Vue (`{{ token.texte }}`, échappée) et un `<button>` pour les termes reconnus —
+construire du HTML à partir du texte d'une carte serait la seule injection réelle de ce lot.
+Prouvé par mutation : un recto portant `<script>` s'affiche en texte littéral
+(`pages/__tests__/index.spec.ts`).
+
+### L'index et la route — filtrés par visibilité, comme tout le reste du corpus
+
+`services/leitner_glossary_service.ts` (`glossaryIndex`) — même patron que
+`searchCourseSections` (CC-252) : jointure `leitner_courses`, `applyVisibility`, **sections
+tombées exclues** (`whereNull('obsolete_at')`) — la révision teste le vocabulaire du cours ACTUEL,
+pas ce que l'auteur a retiré. Servi par `LeitnerController#index` dans la branche `session`
+seulement, gardé par `canViewCourses` (déjà calculé pour la provenance) : `[]` sans
+`leitner.courses.view`.
+
+`GET /cours/sections/:id` (`LeitnerCourseController#sectionContent`) rend le contenu d'UNE
+section — GET, pas de jeton CSRF, visibilité vérifiée sur le cours parent
+(`assertVisibleOrAdmin`). ⚠️ **Masquer n'est pas fermer, les deux, comme partout ailleurs** :
+l'index vide empêche tout soulignement **et** la route refuse indépendamment, testé séparément.
+
+⚠️ **Ne filtre PAS `obsoleteAt`**, même doctrine que `LeitnerCourseController#show` : un terme du
+glossaire ne pointe jamais vers une tombe au moment du rendu (l'index l'exclut), mais un cours
+peut être remplacé entre le chargement de la page et le clic — la section tombée reste
+consultable plutôt que de lever une erreur sur ce résidu.
+
+### La modale et le chrono fantôme
+
+`CourseSectionView` (CC-253) est réutilisé tel quel — « un contenu, deux châssis » — dans
+`inertia/components/AppModal.vue` (CC-207/209), jamais une modale écrite à la main. Une prop
+optionnelle `titleId?: string` a été ajoutée pour poser `aria-labelledby` sur le titre réel de la
+section — absente ailleurs, elle ne change rien aux deux autres consommateurs.
+
+⚠️ **Ouvrir une définition avant la première frappe appelle `markInterrupted()`, et c'est TOUT ce
+qu'il y a à écrire.** Sa garde (`firstInputAt === null`) porte déjà exactement la sémantique
+demandée — marque l'interruption si rien n'est encore tapé, ne fait rien sinon. Aucune condition
+à dupliquer dans `openGlossaryTerm()`. Sans ce geste, lire une définition 40 s puis répondre
+écrirait une mesure de « rappel » qui n'en est pas une, et `thinking_ms` alimente la médiane de
+référence de la carte et de sa boîte (voir « Le timer fantôme » plus haut).
+
+⚠️ **Les quatre refs de la modale (`glossaryModalOpen/Section/Loading/Error`) entrent dans le
+`watch` sur la référence de `dueCards`**, même raison que le reste de l'état de cet écran : sur
+une file d'une seule carte, `again` renvoie la même carte, même id — sans ce reset une modale
+resterait ouverte sur la section de la tentative précédente.
 
 ## Pièges techniques
 

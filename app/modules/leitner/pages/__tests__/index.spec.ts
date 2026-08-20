@@ -69,6 +69,9 @@ function baseProps(dueCards = [card()]) {
     scope: { label: 'Tout', finished: false },
     queue: 'normal' as const,
     dueCards,
+    // Le glossaire (CC-254) — `[]` par défaut : aucune de ces trois assertions ne concerne
+    // le surlignage, et un glossaire vide ne change rien à leur objet.
+    glossary: [] as Array<{ term: string; sectionId: number }>,
     boxCounts: {},
     masteredCount: 0,
     boxIntervals: { 1: 1, 2: 2, 3: 4, 4: 7, 5: 30 },
@@ -219,5 +222,155 @@ describe('Leitner / index — « Je ne sais pas » et « Approfondir » (CC-252)
     // de présélection/panneau ne doit survivre.
     expect(wrapper.text()).not.toContain('Des clés et des algorithmes.')
     expect(buttonByText(wrapper, 'Approfondir')).toBeUndefined() // revealed = false : bouton absent
+  })
+})
+
+/**
+ * Les mots-clés du recto (CC-254) : le tokeniseur pur est prouvé dans
+ * `tests/unit/leitner_glossary_highlight.spec.ts` — ce qui reste hors de sa portée, et que ce
+ * fichier couvre :
+ *
+ * 1. Un terme reconnu du glossaire rend un `<button>` cliquable dans le recto.
+ * 2. Le cliquer ouvre la modale et charge le contenu de la section.
+ * 3. ⚠️ **Le test qui compte du lot** : ouvrir AVANT la première frappe marque
+ *    l'interruption (transmise au juge) ; ouvrir APRÈS ne la marque pas — les deux sens,
+ *    sinon la garde peut être inerte sans qu'aucun test ne le voie.
+ * 4. Le recto n'utilise plus aucun `v-html` : un terme malicieux dans `front` s'affiche en
+ *    texte littéral, jamais exécuté.
+ */
+describe('Leitner / index — mots-clés du recto (CC-254)', () => {
+  const GLOSSARY = [{ term: 'TLS', sectionId: 7 }]
+
+  function fetchMock(): ReturnType<typeof vi.fn> {
+    return vi.fn(async (url: string) => {
+      if (url.includes('/cours/sections/')) {
+        return {
+          ok: true,
+          json: async () => ({
+            id: 7,
+            courseId: 3,
+            courseTitle: 'Réseaux',
+            headingPath: ['TLS'],
+            bodyHtml: '<p>Le protocole TLS négocie des clés.</p>',
+            aliases: ['TLS', 'Transport Layer Security'],
+          }),
+        }
+      }
+      if (url.includes('/judge')) {
+        return {
+          ok: true,
+          json: async () => ({
+            verdict: null,
+            missing: '',
+            latencyMs: null,
+            suggestedGrade: null,
+            unavailable: false,
+          }),
+        }
+      }
+      return { ok: true, json: async () => ({ results: [] }) }
+    })
+  }
+
+  beforeEach(() => {
+    mockedPage.props.user = { ...FULL_CAPS }
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  test('un terme reconnu du glossaire est cliquable dans le recto', () => {
+    vi.stubGlobal('fetch', fetchMock())
+    const wrapper = mountIndex({ glossary: GLOSSARY })
+
+    expect(buttonByText(wrapper, 'TLS')).toBeDefined()
+  })
+
+  test('le clic ouvre la modale et affiche le contenu de la section', async () => {
+    vi.stubGlobal('fetch', fetchMock())
+    const wrapper = mountIndex({ glossary: GLOSSARY })
+
+    await buttonByText(wrapper, 'TLS')!.trigger('click')
+    await flushPromises()
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/revision/cours/sections/7',
+      expect.objectContaining({ headers: { accept: 'application/json' } })
+    )
+    expect(wrapper.text()).toContain('Le protocole TLS négocie des clés.')
+  })
+
+  test('ouvrir la définition AVANT la première frappe marque l’interruption transmise au juge', async () => {
+    vi.stubGlobal('fetch', fetchMock())
+    const wrapper = mountIndex({ glossary: GLOSSARY })
+
+    await buttonByText(wrapper, 'TLS')!.trigger('click')
+    await flushPromises()
+
+    await wrapper.find('textarea').setValue('Négocie des clés.')
+    await buttonByText(wrapper, 'verso masqué — cliquer pour révéler')!.trigger('click')
+    await flushPromises()
+
+    const judgeCall = vi
+      .mocked(globalThis.fetch)
+      .mock.calls.find(([url]) => String(url).includes('/judge'))!
+    const body = JSON.parse((judgeCall[1] as RequestInit).body as string)
+    expect(body.interrupted).toBe(true)
+  })
+
+  test('ouvrir la définition APRÈS la première frappe ne marque PAS l’interruption', async () => {
+    vi.stubGlobal('fetch', fetchMock())
+    const wrapper = mountIndex({ glossary: GLOSSARY })
+
+    await wrapper.find('textarea').setValue('Négocie des clés.')
+    await buttonByText(wrapper, 'TLS')!.trigger('click')
+    await flushPromises()
+    await buttonByText(wrapper, 'verso masqué — cliquer pour révéler')!.trigger('click')
+    await flushPromises()
+
+    const judgeCall = vi
+      .mocked(globalThis.fetch)
+      .mock.calls.find(([url]) => String(url).includes('/judge'))!
+    const body = JSON.parse((judgeCall[1] as RequestInit).body as string)
+    expect(body.interrupted).toBe(false)
+  })
+
+  test('le bouton « Fermer » referme la modale', async () => {
+    vi.stubGlobal('fetch', fetchMock())
+    const wrapper = mountIndex({ glossary: GLOSSARY })
+
+    await buttonByText(wrapper, 'TLS')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Le protocole TLS négocie des clés.')
+
+    await buttonByText(wrapper, 'Fermer')!.trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).not.toContain('Le protocole TLS négocie des clés.')
+  })
+
+  test('une nouvelle référence de dueCards, même id, ferme toute modale de glossaire ouverte', async () => {
+    vi.stubGlobal('fetch', fetchMock())
+    const wrapper = mountIndex({ glossary: GLOSSARY })
+
+    await buttonByText(wrapper, 'TLS')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Le protocole TLS négocie des clés.')
+
+    await wrapper.setProps({ dueCards: [card(1)] })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).not.toContain('Le protocole TLS négocie des clés.')
+  })
+
+  test('un recto malicieux s’affiche en texte littéral, jamais en HTML exécuté', () => {
+    vi.stubGlobal('fetch', fetchMock())
+    const malicious = card()
+    malicious.front = 'Que fait <script>alert(1)</script> ?'
+    const wrapper = mountIndex({ dueCards: [malicious], glossary: [] })
+
+    expect(wrapper.find('script').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Que fait <script>alert(1)</script> ?')
   })
 })

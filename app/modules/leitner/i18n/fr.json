@@ -296,6 +296,11 @@
     "provenance": {
       "title": "Cette carte vient de"
     },
+    "glossary": {
+      "loading": "Chargement…",
+      "error": "Impossible de charger cette définition.",
+      "close": "Fermer"
+    },
     "verdict": {
       "juste": "Juste",
       "partiel": "Partiellement juste",
