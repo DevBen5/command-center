@@ -193,7 +193,13 @@ describe('Leitner / index — « Je ne sais pas » et « Approfondir » (CC-252)
             ok: true,
             json: async () => ({
               results: [
-                { id: 42, courseId: 9, courseTitle: 'Réseaux', headingPath: ['TLS'], aliases: null },
+                {
+                  id: 42,
+                  courseId: 9,
+                  courseTitle: 'Réseaux',
+                  headingPath: ['TLS'],
+                  aliases: null,
+                },
               ],
             }),
           }
