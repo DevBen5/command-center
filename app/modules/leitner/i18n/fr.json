@@ -294,11 +294,11 @@
       "error": "La recherche a échoué."
     },
     "provenance": {
-      "title": "Cette carte vient de"
+      "from": "Vient de : {course}"
     },
-    "glossary": {
+    "sectionModal": {
       "loading": "Chargement…",
-      "error": "Impossible de charger cette définition.",
+      "error": "Impossible de charger cette section.",
       "close": "Fermer"
     },
     "verdict": {

@@ -148,7 +148,7 @@ describe('Leitner / index — « Je ne sais pas » et « Approfondir » (CC-252)
     expect(globalThis.fetch).not.toHaveBeenCalled()
   })
 
-  test('« Approfondir » ouvre le panneau et y affiche le résultat de la recherche', async () => {
+  test('« Approfondir » ouvre le panneau et liste titre de cours + chemin, sans afficher le contenu', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -157,9 +157,9 @@ describe('Leitner / index — « Je ne sais pas » et « Approfondir » (CC-252)
           results: [
             {
               id: 42,
+              courseId: 9,
               courseTitle: 'Réseaux',
               headingPath: ['TLS', 'Handshake'],
-              bodyHtml: '<p>Le protocole négocie des clés.</p>',
               aliases: null,
             },
           ],
@@ -177,7 +177,53 @@ describe('Leitner / index — « Je ne sais pas » et « Approfondir » (CC-252)
       '/revision/1/course-search',
       expect.objectContaining({ headers: { accept: 'application/json' } })
     )
+    // La ligne compacte (CC-274) : titre de cours + chemin, aucun corps affiché d'office.
+    expect(wrapper.text()).toContain('Réseaux')
     expect(wrapper.text()).toContain('TLS › Handshake')
+    // Une seule requête : le contenu ne se charge qu'au clic sur la ligne.
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+  })
+
+  test('cliquer une ligne d’Approfondir ouvre la modale et charge le contenu de la section', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/course-search')) {
+          return {
+            ok: true,
+            json: async () => ({
+              results: [
+                { id: 42, courseId: 9, courseTitle: 'Réseaux', headingPath: ['TLS'], aliases: null },
+              ],
+            }),
+          }
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            id: 42,
+            courseId: 9,
+            courseTitle: 'Réseaux',
+            headingPath: ['TLS'],
+            bodyHtml: '<p>Le protocole négocie des clés.</p>',
+            aliases: null,
+          }),
+        }
+      })
+    )
+    const wrapper = mountIndex()
+
+    await buttonByText(wrapper, 'verso masqué — cliquer pour révéler')!.trigger('click')
+    await flushPromises()
+    await buttonByText(wrapper, 'Approfondir')!.trigger('click')
+    await flushPromises()
+    await buttonByText(wrapper, 'Réseaux · TLS')!.trigger('click')
+    await flushPromises()
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/revision/cours/sections/42',
+      expect.objectContaining({ headers: { accept: 'application/json' } })
+    )
     expect(wrapper.text()).toContain('Le protocole négocie des clés.')
   })
 
@@ -195,13 +241,7 @@ describe('Leitner / index — « Je ne sais pas » et « Approfondir » (CC-252)
         ok: true,
         json: async () => ({
           results: [
-            {
-              id: 1,
-              courseTitle: 'Réseaux',
-              headingPath: ['TLS'],
-              bodyHtml: '<p>X</p>',
-              aliases: null,
-            },
+            { id: 1, courseId: 9, courseTitle: 'Réseaux', headingPath: ['TLS'], aliases: null },
           ],
         }),
       })
@@ -222,6 +262,107 @@ describe('Leitner / index — « Je ne sais pas » et « Approfondir » (CC-252)
     // de présélection/panneau ne doit survivre.
     expect(wrapper.text()).not.toContain('Des clés et des algorithmes.')
     expect(buttonByText(wrapper, 'Approfondir')).toBeUndefined() // revealed = false : bouton absent
+  })
+})
+
+/**
+ * La provenance en liste compacte (CC-274) : le lien explicite (CC-253) ne rend plus le
+ * corps de la section d'office, il liste ses sections et ouvre la modale partagée
+ * (`sectionModalOpen`, voir aussi le second `describe` plus bas) au clic.
+ */
+describe('Leitner / index — provenance en modale (CC-274)', () => {
+  beforeEach(() => {
+    mockedPage.props.user = { ...FULL_CAPS }
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function withProvenance(...sections: Array<{ courseTitle: string; headingPath: string[] }>) {
+    return {
+      ...card(),
+      provenance: sections.map((s, i) => ({
+        id: 100 + i,
+        courseId: 9,
+        courseTitle: s.courseTitle,
+        headingPath: s.headingPath,
+        aliases: null,
+        obsoleteAt: null,
+      })),
+    }
+  }
+
+  test('un seul cours : en-tête unique « Vient de », pas de titre répété par ligne', async () => {
+    const wrapper = mountIndex({
+      dueCards: [withProvenance({ courseTitle: 'Réseaux', headingPath: ['HTTP'] })],
+    })
+
+    await buttonByText(wrapper, 'verso masqué — cliquer pour révéler')!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Vient de : Réseaux')
+    // Le titre n'est pas répété une seconde fois sur la ligne elle-même.
+    expect(buttonByText(wrapper, 'Réseaux · HTTP')).toBeUndefined()
+    expect(buttonByText(wrapper, 'HTTP')).toBeDefined()
+  })
+
+  test('deux cours différents : pas d’en-tête, le titre est répété sur chaque ligne', async () => {
+    const wrapper = mountIndex({
+      dueCards: [
+        withProvenance(
+          { courseTitle: 'Réseaux', headingPath: ['HTTP'] },
+          { courseTitle: 'Docker avancé', headingPath: ['Volumes'] }
+        ),
+      ],
+    })
+
+    await buttonByText(wrapper, 'verso masqué — cliquer pour révéler')!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Vient de :')
+    expect(buttonByText(wrapper, 'Réseaux · HTTP')).toBeDefined()
+    expect(buttonByText(wrapper, 'Docker avancé · Volumes')).toBeDefined()
+  })
+
+  test('cliquer une ligne de provenance ouvre la modale et charge le contenu', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: 100,
+          courseId: 9,
+          courseTitle: 'Réseaux',
+          headingPath: ['HTTP'],
+          bodyHtml: '<p>Les verbes du protocole.</p>',
+          aliases: null,
+        }),
+      })
+    )
+    const wrapper = mountIndex({
+      dueCards: [withProvenance({ courseTitle: 'Réseaux', headingPath: ['HTTP'] })],
+    })
+
+    await buttonByText(wrapper, 'verso masqué — cliquer pour révéler')!.trigger('click')
+    await flushPromises()
+    await buttonByText(wrapper, 'HTTP')!.trigger('click')
+    await flushPromises()
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/revision/cours/sections/100',
+      expect.objectContaining({ headers: { accept: 'application/json' } })
+    )
+    expect(wrapper.text()).toContain('Les verbes du protocole.')
+  })
+
+  test('aucune provenance : le panneau reste absent, sans message vide', async () => {
+    const wrapper = mountIndex({ dueCards: [card()] }) // provenance: [] par défaut
+
+    await buttonByText(wrapper, 'verso masqué — cliquer pour révéler')!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Vient de')
   })
 })
 

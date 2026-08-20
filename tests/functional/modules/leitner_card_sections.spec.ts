@@ -278,7 +278,7 @@ test.group('Leitner / panneau de révision — provenance (CC-253)', (group) => 
     return response.inertiaProps as { dueCards: Array<{ id: number; provenance: unknown[] }> }
   }
 
-  test('le lien explicite est exposé, rendu en HTML, avant toute recherche', async ({
+  test('le lien explicite est exposé, sans le corps de la section (CC-274)', async ({
     client,
     assert,
   }) => {
@@ -310,16 +310,18 @@ test.group('Leitner / panneau de révision — provenance (CC-253)', (group) => 
     const [due] = dueCards
     assert.lengthOf(due.provenance, 1)
     const [provenance] = due.provenance as Array<{
+      id: number
       courseId: number
       courseTitle: string
-      bodyHtml: string
       obsoleteAt: string | null
     }>
     assert.equal(provenance.courseTitle, 'Réseaux')
     // CC-273 : le lien « Voir dans le cours » a besoin du courseId, absent avant ce lot.
     assert.equal(provenance.courseId, course.id)
-    // Rendu SERVEUR (`renderMarkdown`) — jamais la source Markdown brute.
-    assert.include(provenance.bodyHtml, '<em>verbes</em>')
+    // CC-274 : le contenu se charge au clic (`GET /cours/sections/:id`), plus dans cette
+    // charge utile — l'`id` de la section suffit à le demander.
+    assert.equal(provenance.id, section.id)
+    assert.notProperty(provenance, 'bodyHtml')
     assert.isNull(provenance.obsoleteAt)
   })
 

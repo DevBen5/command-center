@@ -55,6 +55,8 @@ test.group('Leitner / recherche du corpus — visibilité et classement (CC-252)
     assert.deepEqual(results[0].headingPath, ['TLS'])
     // CC-273 : le lien « Voir dans le cours » a besoin du courseId, absent avant ce lot.
     assert.equal(results[0].courseId, courseId)
+    // CC-274 : le contenu se charge au clic, dans la modale — plus dans cette réponse.
+    assert.notProperty(results[0], 'bodyHtml')
   })
 
   test('une section d’un cours privé d’un autre compte n’apparaît jamais', async ({

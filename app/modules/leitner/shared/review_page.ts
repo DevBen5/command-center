@@ -121,6 +121,19 @@ export function dueInLabel(days: number): string {
 }
 
 /**
+ * Le titre de cours unique parmi des sections de provenance, ou `null` si elles ne
+ * viennent pas toutes du même cours (CC-274). Sert à choisir entre un en-tête unique
+ * (« Vient de : X ») et un titre de cours répété sur chaque ligne — la provenance vient
+ * quasi toujours d'un seul cours, mais rien ne le garantit (lien manuel + lien
+ * d'ingestion pointant vers deux cours différents, par exemple).
+ */
+export function soleCourseTitle(sections: { courseTitle: string }[]): string | null {
+  if (sections.length === 0) return null
+  const titles = new Set(sections.map((section) => section.courseTitle))
+  return titles.size === 1 ? sections[0].courseTitle : null
+}
+
+/**
  * Ce que le serveur a calculé pour une note — voir `services/leitner_grade_outcomes.ts`,
  * qui **importe ce type d'ici**. La page ne recalcule rien : elle choisit une phrase.
  *

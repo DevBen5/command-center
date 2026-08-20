@@ -205,12 +205,13 @@ export default class LeitnerController {
         // Le lien explicite de provenance (CC-253), rendu avant les résultats de
         // recherche du panneau « Approfondir » — `[]` si la capacité manque, si la carte
         // n'a aucun lien, ou si son(ses) cours restent invisibles de cette personne.
+        // ⚠️ Ne porte plus `bodyHtml` depuis CC-274 : le contenu se charge au clic, via
+        // `GET /revision/cours/sections/:id`, dans la modale partagée avec le glossaire.
         provenance: (provenance.get(card.id) ?? []).map((section) => ({
           id: section.id,
           courseId: section.courseId,
           courseTitle: section.courseTitle,
           headingPath: section.headingPath,
-          bodyHtml: renderMarkdown(section.body),
           aliases: section.aliases,
           obsoleteAt: section.obsoleteAt,
         })),
@@ -370,13 +371,13 @@ export default class LeitnerController {
 
     const sections = await searchCourseSections(query, auth.user!.id, auth.user!.isAdmin)
 
+    // ⚠️ Ne porte plus `bodyHtml` depuis CC-274 : même raison que `provenance` ci-dessus.
     return response.json({
       results: sections.map((section) => ({
         id: section.id,
         courseId: section.courseId,
         courseTitle: section.course.title,
         headingPath: section.headingPath,
-        bodyHtml: renderMarkdown(section.body),
         aliases: section.aliases,
       })),
     })
