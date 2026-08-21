@@ -39,13 +39,22 @@ const i18n = createI18n({
   messages: { fr: { leitner: fr } },
 })
 
-/** Une carte due, révisable, avec ses quatre sorties calculées — comme le contrôleur les envoie. */
+/**
+ * Une carte due, révisable, avec ses quatre sorties calculées — comme le contrôleur les
+ * envoie. `frontNodes` (CC-276) est l'arbre DÉJÀ tokenisé par le serveur
+ * (`services/leitner_front_html.ts`) : un seul nœud de texte plein, sans terme reconnu —
+ * la forme la plus courante, celle qu'aucune des trois assertions de ce bloc ne concerne.
+ */
 function card(id = 1) {
   return {
     id,
-    front: 'Que négocie le handshake TLS ?',
     back: 'Des clés et des algorithmes.',
-    frontHtml: '<p>Que négocie le handshake TLS ?</p>',
+    frontNodes: [
+      {
+        type: 'text' as const,
+        tokens: [{ texte: 'Que négocie le handshake TLS ?', sectionId: null }],
+      },
+    ],
     backHtml: '<p>Des clés et des algorithmes.</p>',
     box: 1,
     lastGrade: null,
@@ -69,9 +78,6 @@ function baseProps(dueCards = [card()]) {
     scope: { label: 'Tout', finished: false },
     queue: 'normal' as const,
     dueCards,
-    // Le glossaire (CC-254) — `[]` par défaut : aucune de ces trois assertions ne concerne
-    // le surlignage, et un glossaire vide ne change rien à leur objet.
-    glossary: [] as Array<{ term: string; sectionId: number }>,
     boxCounts: {},
     masteredCount: 0,
     boxIntervals: { 1: 1, 2: 2, 3: 4, 4: 7, 5: 30 },
@@ -373,20 +379,45 @@ describe('Leitner / index — provenance en modale (CC-274)', () => {
 })
 
 /**
- * Les mots-clés du recto (CC-254) : le tokeniseur pur est prouvé dans
- * `tests/unit/leitner_glossary_highlight.spec.ts` — ce qui reste hors de sa portée, et que ce
- * fichier couvre :
+ * Les mots-clés du recto (CC-254, puis CC-276) : le tokeniseur pur est prouvé dans
+ * `tests/unit/leitner_glossary_highlight.spec.ts`, le reparcours HTML+glossaire côté
+ * serveur dans `tests/unit/leitner_front_html.spec.ts`. Ce fichier couvre ce qui reste
+ * hors de leur portée — le RENDU :
  *
- * 1. Un terme reconnu du glossaire rend un `<button>` cliquable dans le recto.
+ * 1. Un jeton cliquable dans `frontNodes` (tel que le serveur l'envoie, CC-276) rend un
+ *    `<button>` dans le recto.
  * 2. Le cliquer ouvre la modale et charge le contenu de la section.
  * 3. ⚠️ **Le test qui compte du lot** : ouvrir AVANT la première frappe marque
  *    l'interruption (transmise au juge) ; ouvrir APRÈS ne la marque pas — les deux sens,
  *    sinon la garde peut être inerte sans qu'aucun test ne le voie.
- * 4. Le recto n'utilise plus aucun `v-html` : un terme malicieux dans `front` s'affiche en
- *    texte littéral, jamais exécuté.
+ * 4. Le recto n'utilise plus aucun `v-html` : un nœud de texte hostile s'affiche en texte
+ *    littéral, jamais exécuté — la mutation qui compte pour CC-276 : si le rendu se
+ *    remettait à reconstruire une chaîne HTML à partir des jetons, ce test rougirait.
  */
-describe('Leitner / index — mots-clés du recto (CC-254)', () => {
-  const GLOSSARY = [{ term: 'TLS', sectionId: 7 }]
+describe('Leitner / index — mots-clés du recto (CC-254, CC-276)', () => {
+  /** Le recto tel que le serveur l'envoie (CC-276) : un `<p>` portant un jeton cliquable. */
+  function cardWithGlossaryTerm() {
+    return {
+      ...card(),
+      frontNodes: [
+        {
+          type: 'element' as const,
+          tag: 'p',
+          attrs: {},
+          children: [
+            {
+              type: 'text' as const,
+              tokens: [
+                { texte: 'Le protocole ', sectionId: null },
+                { texte: 'TLS', sectionId: 7 },
+                { texte: ' négocie.', sectionId: null },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+  }
 
   function fetchMock(): ReturnType<typeof vi.fn> {
     return vi.fn(async (url: string) => {
@@ -429,14 +460,14 @@ describe('Leitner / index — mots-clés du recto (CC-254)', () => {
 
   test('un terme reconnu du glossaire est cliquable dans le recto', () => {
     vi.stubGlobal('fetch', fetchMock())
-    const wrapper = mountIndex({ glossary: GLOSSARY })
+    const wrapper = mountIndex({ dueCards: [cardWithGlossaryTerm()] })
 
     expect(buttonByText(wrapper, 'TLS')).toBeDefined()
   })
 
   test('le clic ouvre la modale et affiche le contenu de la section', async () => {
     vi.stubGlobal('fetch', fetchMock())
-    const wrapper = mountIndex({ glossary: GLOSSARY })
+    const wrapper = mountIndex({ dueCards: [cardWithGlossaryTerm()] })
 
     await buttonByText(wrapper, 'TLS')!.trigger('click')
     await flushPromises()
@@ -450,7 +481,7 @@ describe('Leitner / index — mots-clés du recto (CC-254)', () => {
 
   test('ouvrir la définition AVANT la première frappe marque l’interruption transmise au juge', async () => {
     vi.stubGlobal('fetch', fetchMock())
-    const wrapper = mountIndex({ glossary: GLOSSARY })
+    const wrapper = mountIndex({ dueCards: [cardWithGlossaryTerm()] })
 
     await buttonByText(wrapper, 'TLS')!.trigger('click')
     await flushPromises()
@@ -468,7 +499,7 @@ describe('Leitner / index — mots-clés du recto (CC-254)', () => {
 
   test('ouvrir la définition APRÈS la première frappe ne marque PAS l’interruption', async () => {
     vi.stubGlobal('fetch', fetchMock())
-    const wrapper = mountIndex({ glossary: GLOSSARY })
+    const wrapper = mountIndex({ dueCards: [cardWithGlossaryTerm()] })
 
     await wrapper.find('textarea').setValue('Négocie des clés.')
     await buttonByText(wrapper, 'TLS')!.trigger('click')
@@ -485,7 +516,7 @@ describe('Leitner / index — mots-clés du recto (CC-254)', () => {
 
   test('le bouton « Fermer » referme la modale', async () => {
     vi.stubGlobal('fetch', fetchMock())
-    const wrapper = mountIndex({ glossary: GLOSSARY })
+    const wrapper = mountIndex({ dueCards: [cardWithGlossaryTerm()] })
 
     await buttonByText(wrapper, 'TLS')!.trigger('click')
     await flushPromises()
@@ -499,7 +530,7 @@ describe('Leitner / index — mots-clés du recto (CC-254)', () => {
 
   test('une nouvelle référence de dueCards, même id, ferme toute modale de glossaire ouverte', async () => {
     vi.stubGlobal('fetch', fetchMock())
-    const wrapper = mountIndex({ glossary: GLOSSARY })
+    const wrapper = mountIndex({ dueCards: [cardWithGlossaryTerm()] })
 
     await buttonByText(wrapper, 'TLS')!.trigger('click')
     await flushPromises()
@@ -513,9 +544,21 @@ describe('Leitner / index — mots-clés du recto (CC-254)', () => {
 
   test('un recto malicieux s’affiche en texte littéral, jamais en HTML exécuté', () => {
     vi.stubGlobal('fetch', fetchMock())
-    const malicious = card()
-    malicious.front = 'Que fait <script>alert(1)</script> ?'
-    const wrapper = mountIndex({ dueCards: [malicious], glossary: [] })
+    // Le serveur a déjà décodé le texte de la carte (`tokenizeFrontHtml` reparcourt du HTML
+    // assaini, où l'entité `&lt;script&gt;` redevient la chaîne littérale `<script>`) : c'est
+    // exactement ce que la page reçoit. La mutation qui compte est ICI, pas côté serveur — si
+    // `renderFrontNode`/`renderFrontNodes` se remettait à concaténer les jetons en une chaîne
+    // HTML rendue en `v-html`, ce test rougirait.
+    const malicious = {
+      ...card(),
+      frontNodes: [
+        {
+          type: 'text' as const,
+          tokens: [{ texte: 'Que fait <script>alert(1)</script> ?', sectionId: null }],
+        },
+      ],
+    }
+    const wrapper = mountIndex({ dueCards: [malicious] })
 
     expect(wrapper.find('script').exists()).toBe(false)
     expect(wrapper.text()).toContain('Que fait <script>alert(1)</script> ?')

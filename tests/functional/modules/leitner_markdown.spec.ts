@@ -3,6 +3,18 @@ import testUtils from '@adonisjs/core/services/test_utils'
 import { makeCard } from '#tests/helpers/leitner'
 import { createUserWith } from '#tests/helpers/users'
 
+/** Les tags de tous les éléments de l'arbre `frontNodes` (CC-276), toutes profondeurs. */
+function elementTags(nodes: any[]): string[] {
+  const tags: string[] = []
+  for (const node of nodes) {
+    if (node.type === 'element') {
+      tags.push(node.tag)
+      tags.push(...elementTags(node.children))
+    }
+  }
+  return tags
+}
+
 /**
  * Le rendu Markdown **par la route** (CC-133) — ce que l'unitaire de
  * `tests/unit/markdown_renderer.spec.ts` ne peut pas dire.
@@ -39,6 +51,9 @@ test.group('Leitner / le Markdown des cartes est rendu', (group) => {
     assert.include(card.frontHtml, '<strong>build</strong>')
     assert.include(card.backHtml, '<pre><code>docker build .')
 
+    // Le recto rendu ET souligné (CC-276) : le MÊME balisage, en arbre plutôt qu'en chaîne.
+    assert.include(elementTags(card.frontNodes), 'strong')
+
     // ⚠️ La colonne reste la source — c'est ce qui garde l'édition, l'export et le juge intacts.
     assert.equal(card.front, 'Commande de **build** ?')
     assert.equal(card.back, '```\ndocker build .\n```')
@@ -60,6 +75,10 @@ test.group('Leitner / le Markdown des cartes est rendu', (group) => {
     assert.notInclude(card.backHtml, '<script')
     assert.notInclude(card.backHtml, '<img')
     assert.notInclude(card.backHtml, 'exemple.fr')
+
+    // ⚠️ Le recto rendu ET souligné (CC-276) : `frontNodes` reparcourt le MÊME HTML assaini
+    // — aucun élément `img` ne peut en sortir, quoi que le recto contienne.
+    assert.notInclude(elementTags(card.frontNodes), 'img')
 
     // ⚠️ La source, elle, n'est PAS réécrite : la base garde ce qui a été saisi. C'est le rendu
     // qui protège, pas une destruction à l'écriture — l'inverse du choix de la veille

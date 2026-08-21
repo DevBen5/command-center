@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref, watch, type VNode } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
@@ -22,11 +22,7 @@ import {
   type GradeOutcome,
 } from '../shared/review_page.js'
 import type { MasteredCard } from '../shared/mastery_inventory.js'
-import {
-  tokenizeFront,
-  type FrontToken,
-  type GlossaryTerm,
-} from '../shared/glossary_highlight.js'
+import type { FrontNode, FrontToken } from '../shared/glossary_highlight.js'
 
 defineOptions({ layout: AppLayout })
 
@@ -38,13 +34,18 @@ type Verdict = 'juste' | 'partiel' | 'faux'
 
 interface LeitnerCard {
   id: number
-  // ⚠️ La **source** Markdown. Elle descend toujours (l'édition, l'export et le juge
-  // travaillent dessus), mais elle ne se rend jamais en `v-html` : ce sont
-  // `frontHtml`/`backHtml`, assainis côté serveur (CC-133), qui s'affichent.
-  front: string
+  // ⚠️ Le serveur envoie aussi `front`/`frontHtml` (colonne source, et le même rendu que le
+  // verso) — cette page ne les lit plus depuis CC-276, elle consomme `frontNodes` (voir
+  // plus bas). Les deux champs restent hors de cette interface : rien ici ne les utilise.
   back: string
-  frontHtml: string
   backHtml: string
+  // ⚠️ L'arbre du recto (CC-276) — `renderMarkdown(front)` déjà reparcouru et tokenisé
+  // CÔTÉ SERVEUR (`services/leitner_front_html.ts`) : balisage intact, nœuds de texte
+  // tokenisés contre le glossaire. La page le rejoue en éléments Vue RÉELS
+  // (`renderFrontNodes` plus bas) — jamais en `v-html`, jamais une chaîne HTML
+  // reconstruite ici : le texte d'une carte n'est pas de confiance (ingestion LLM, import
+  // JSON, cartes communales depuis CC-121).
+  frontNodes: FrontNode[]
   // ⚠️ La boîte de **celui qui révise**, pas de la carte (CC-119) : elle vient d'une
   // table de progression jointe côté serveur, et vaut 1 tant qu'il ne l'a jamais notée.
   box: number
@@ -157,9 +158,6 @@ const props = defineProps<{
   choices?: ScopeChoices
   scopeError?: string | null
   dueCards?: LeitnerCard[]
-  /** L'index de glossaire (CC-254) — `[]` sans `leitner.courses.view`, ou sur l'écran de
-   * choix. Termes et ids seulement : le contenu se charge au clic, dans la modale. */
-  glossary?: GlossaryTerm[]
   boxCounts: Record<number, number>
   /** La 6ᵉ case : les acquis, qui ont quitté la boîte 5 des compteurs (CC-261). */
   masteredCount: number
@@ -252,23 +250,64 @@ const provenanceCourseTitle = computed<string | null>(() =>
 
 /*
 |----------------------------------------------------------------------------
-| Les mots-clés du recto (CC-254) : reconnaissance PURE, aucun balisage dans la carte
+| Le recto rendu ET souligné (CC-276) : le SERVEUR a déjà reparcouru le HTML assaini et
+| tokenisé ses nœuds de texte contre le glossaire (`services/leitner_front_html.ts`,
+| `frontNodes`) — jamais un texte source ici, jamais une chaîne HTML reconstruite. Cette
+| page ne fait que rejouer l'arbre reçu en éléments Vue RÉELS, via `h()`, jamais en
+| `v-html` : un `tag` vient toujours du HTML déjà assaini par `renderMarkdown` côté
+| serveur (liste blanche de `markdown_renderer.ts`, inchangée), jamais du texte d'une
+| carte — c'est cette liste blanche, pas un filtre client, qui reste la seule frontière
+| de sécurité.
 |----------------------------------------------------------------------------
-| `frontTokens` tokenise `card.front` — le texte SOURCE, jamais `frontHtml` : « aucun
-| `v-html` sur un recto de carte » (le seul point de ce lot qui touche à la sécurité). Le
-| recto affiché ici perd donc le rendu Markdown qu'il avait via `frontHtml` — décision
-| assumée, validée explicitement (voir le commentaire de plan sur CC-254) ; le verso n'est
-| pas touché.
-|
-| ⚠️ `canViewCourses` est une DEUXIÈME garde, redondante avec le serveur qui envoie déjà
-| `glossary: []` sans la capacité — même patron que `provenance`/`courseResults` sur cette
-| page : masquer n'est pas fermer, mais rien n'empêche de le refaire ici aussi.
+| Un terme à cheval sur deux nœuds de texte (`**TLS** négocie` → « TLS » dans un
+| `<strong>`) n'est jamais reconnu : limite ACCEPTÉE, tranchée côté serveur
+| (`shared/glossary_highlight.ts`), pas rattrapable ici sans reconstruire le texte —
+| exactement ce que ce lot évite.
 */
-const frontTokens = computed<FrontToken[]>(() => {
-  const card = currentCard.value
-  if (!card) return []
-  return tokenizeFront(card.front, canViewCourses.value ? (props.glossary ?? []) : [])
-})
+const frontNodes = computed<FrontNode[]>(() => currentCard.value?.frontNodes ?? [])
+
+/**
+ * ⚠️ `keyPrefix` porte le CHEMIN complet dans l'arbre (`"0-2-1"`), pas la seule position
+ * locale : un jeton cliquable est généré à l'intérieur d'un nœud de texte, et deux nœuds de
+ * texte frères (de part et d'autre d'un `<em>`, par exemple) repartiraient chacun de l'index
+ * 0 sans ce préfixe — deux `<button>` avec la même clé dans le même tableau d'enfants.
+ */
+function renderFrontTextTokens(tokens: FrontToken[], keyPrefix: string): (VNode | string)[] {
+  return tokens.map((token, i) => {
+    if (token.sectionId === null) return token.texte
+    const sectionId = token.sectionId
+    return h(
+      'button',
+      {
+        key: `${keyPrefix}-${i}`,
+        type: 'button',
+        class:
+          'border-0 bg-transparent p-0 underline decoration-dotted underline-offset-2 hover:text-accent focus-visible:text-accent',
+        onClick: () => openGlossaryTerm(sectionId),
+      },
+      token.texte
+    )
+  })
+}
+
+function renderFrontNode(node: FrontNode, keyPrefix: string): VNode | (VNode | string)[] {
+  if (node.type === 'text') return renderFrontTextTokens(node.tokens, keyPrefix)
+  return h(
+    node.tag,
+    { key: keyPrefix, ...node.attrs },
+    node.children.flatMap((child, i) => {
+      const rendered = renderFrontNode(child, `${keyPrefix}-${i}`)
+      return Array.isArray(rendered) ? rendered : [rendered]
+    })
+  )
+}
+
+function renderFrontNodes(nodes: FrontNode[]): (VNode | string)[] {
+  return nodes.flatMap((node, i) => {
+    const rendered = renderFrontNode(node, String(i))
+    return Array.isArray(rendered) ? rendered : [rendered]
+  })
+}
 
 /*
 |----------------------------------------------------------------------------
@@ -898,25 +937,14 @@ function grade(g: Grade): void {
           {{ currentCard.theme.category.name }} · {{ currentCard.theme.name }}
         </span>
       </div>
-      <!-- Les mots-clés du recto (CC-254) : AUCUN `v-html` ici — la fonction rend des jetons,
-           Vue rend le texte en interpolation (échappé) et un `<button>` pour les termes
-           reconnus. ⚠️ Contrepartie assumée : ce recto perd le rendu Markdown que `frontHtml`
-           lui donnait (CC-133) — un `**gras**` s'affiche désormais littéralement. Le verso
-           n'est pas touché, et `frontHtml` reste calculé côté serveur pour ce qui le consomme
-           ailleurs. ⚠️ `text-left break-words` remplacent ce que `.markdown` donnait
-           gratuitement (`text-align: left` contre le `text-center` du conteneur parent,
-           `overflow-wrap: break-word` contre un mot trop long pour tenir dans la carte) —
-           les deux seules propriétés de cette feuille qui concernaient encore du texte brut. -->
-      <div class="max-w-[420px] text-left text-[19px] font-semibold break-words">
-        <template v-for="(token, i) in frontTokens" :key="i">
-          <button
-            v-if="token.sectionId !== null"
-            type="button"
-            class="border-0 bg-transparent p-0 underline decoration-dotted underline-offset-2 hover:text-accent focus-visible:text-accent"
-            @click="openGlossaryTerm(token.sectionId)"
-          >{{ token.texte }}</button>
-          <template v-else>{{ token.texte }}</template>
-        </template>
+      <!-- Le recto rendu ET souligné (CC-276) : `frontNodes` vient du serveur déjà tokenisé,
+           `renderFrontNodes` le rejoue en éléments Vue réels (`h()`) — AUCUN `v-html`, ici
+           comme nulle part ailleurs sur ce recto. `.markdown` restaure le gras, les listes et
+           les blocs de code (CC-133) que CC-254 avait dû sacrifier pour souligner sans
+           `v-html` ; `max-w-[420px]` et `text-[19px] font-semibold` restent propres à cet
+           écran (la taille et l'emphase de la question), pas à `.markdown`. -->
+      <div class="markdown max-w-[420px] text-[19px] font-semibold">
+        <component :is="() => renderFrontNodes(frontNodes)" />
       </div>
 
       <!-- La modale de section : UNE instance, trois déclencheurs — le glossaire (CC-254),

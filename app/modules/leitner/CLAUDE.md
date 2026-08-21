@@ -201,6 +201,9 @@ services/leitner_card_sections_service.ts   la PROVENANCE (CC-253) : `linkIngest
                                             du COURS du lien, jamais de la carte
 services/leitner_glossary_service.ts        l'INDEX de glossaire (CC-254) : `glossaryIndex` —
                                             filtré par visibilité, sections tombées exclues
+services/leitner_front_html.ts              le recto rendu ET souligné (CC-276) : reparcourt le
+                                            HTML assaini de `renderMarkdown(front)`, tokenise ses
+                                            nœuds de texte — PUR, jamais un second rendu Markdown
 services/llm_client.ts                      /v1/chat/completions + sonde /v1/models — INJECTÉ
 models/leitner_card_progress.ts             (personne, carte) → boîte + échéance. ABSENCE =
                                             boîte 1, due aujourd'hui — jamais un trou
@@ -234,7 +237,9 @@ shared/draft_review.ts                      PUR · la relecture des brouillons d
 shared/settings_page.ts                     PUR · scrollTopKeepingAnchor — le recalage du
                                             défilement après un import (CC-67)
 shared/glossary_highlight.ts                PUR · `tokenizeFront` (CC-254) — plus long d'abord,
-                                            jamais à l'intérieur d'un mot, AUCUN `v-html`
+                                            jamais à l'intérieur d'un mot, AUCUN `v-html` ; porte
+                                            aussi le type `FrontNode` (CC-276), le seul appelant
+                                            de `tokenizeFront` est désormais le SERVEUR
 migrations/                                 cards PUIS reviews PUIS categories/themes PUIS settings
                                             PUIS ingestions PUIS draft_cards PUIS card_progress
                                             PUIS owner_id/is_shared (CC-139, categories → themes →
@@ -2156,37 +2161,67 @@ le rendu du lien par `CourseSectionView` (`course_section_view.spec.ts`, l'`href
 mutation vérifiée). L'arrivée sur la bonne section, dans un vrai navigateur, reste un passage
 navigateur du propriétaire.
 
-## Les mots-clés du recto (CC-254)
+## Les mots-clés du recto (CC-254), et son rendu Markdown restauré (CC-276)
 
 Un terme que le corpus définit (`> notion: TLS, Transport Layer Security` sous un titre, CC-251)
 devient cliquable dans le recto d'une carte : le clic ouvre sa section dans une modale. **Aucun
 balisage dans la carte** — le glossaire se reconnaît tout seul contre le texte déjà écrit, ce qui
 fait souligner les cartes **déjà existantes** sans en rouvrir une seule.
 
-⚠️ **Conséquence directe, assumée : le recto perd le rendu Markdown que lui donnait CC-133.**
-`frontHtml` (rendu serveur, `v-html`) est remplacé par un rendu tokenisé de `front` (la source
-brute) — l'exigence « aucun `v-html` sur un recto de carte » (sécurité : le contenu d'une carte
-n'est pas de confiance, ingestion LLM/import JSON/cartes communales) ne laisse pas d'autre choix.
-Un `**gras**` dans une question s'affiche désormais littéralement. `frontHtml` reste calculé et
-envoyé par `LeitnerController#index` (`leitner_markdown.spec.ts` continue de le vérifier) — seul
-son usage dans CE bloc de `index.vue` a disparu ; le verso n'est pas touché. Voir le `CLAUDE.md`
-racine, section « Le seul `v-html` du dépôt », pour le compte à jour (cinq, plus le recto).
+⚠️ **Périmé depuis CC-276 : le paragraphe qui suivait ici disait que le recto perdait son rendu
+Markdown.** C'était le prix que CC-254 payait pour souligner sans `v-html` : `frontHtml` restait
+calculé mais n'était plus consommé par ce bloc, et un `**gras**` s'affichait littéralement. CC-276
+paie ce prix autrement — voir plus bas — et le recto a retrouvé son gras, ses listes et ses blocs
+de code **sans** réintroduire de `v-html`. Voir le `CLAUDE.md` racine, section « Le seul `v-html`
+du dépôt », pour le compte à jour (toujours cinq, le recto en reste exclu).
 
-⚠️ **Retirer la classe `.markdown` de ce conteneur perd deux propriétés qui restent utiles au
-texte brut, et ce n'est pas visible tant qu'on ne teste pas un recto long.** `.markdown` posait
-`text-align: left` (contre le `text-center` du conteneur parent) et `overflow-wrap: break-word`
-(contre un mot — URL, identifiant — trop long pour `max-w-[420px]`) : le conteneur du recto
-porte donc `text-left break-words` explicitement, deux utilitaires Tailwind natifs, à la place
-de ces deux règles précises.
+### CC-276 : tokeniser les nœuds de texte du HTML déjà assaini, pas le texte source
 
-### Le tokeniseur — `shared/glossary_highlight.ts`, PUR
+Le déplacement tient en une phrase : la tokenisation contre le glossaire s'est déplacée du
+**client** (sur `front`, la source Markdown) vers le **serveur** (sur le HTML déjà assaini par
+`renderMarkdown(front)` — la même brique que le verso, inchangée). `frontHtml` est reparcouru
+NŒUD DE TEXTE PAR NŒUD DE TEXTE — jamais le balisage, jamais un attribut — et chaque nœud de texte
+tokenisé par `tokenizeFront` (inchangée elle aussi). La page reçoit une PROP DÉJÀ CALCULÉE
+(`frontNodes`, un arbre) et la rejoue en éléments Vue réels via `h()` (`renderFrontNode`/
+`renderFrontNodes` dans `pages/index.vue`) — **jamais en `v-html`, jamais une chaîne HTML
+reconstruite côté page**. Un `tag` de cet arbre vient toujours de la liste blanche de
+`markdown_renderer.ts` (jamais du texte d'une carte) : c'est elle, inchangée, qui reste l'unique
+frontière de sécurité — le reparcours ne fait que la re-sérialiser en arbre plutôt qu'en chaîne.
+
+⚠️ **`htmlparser2` est déclaré en dépendance DIRECTE (`package.json`) depuis ce lot, et c'est un
+choix délibéré, pas un oubli de nettoyage.** Il était déjà présent sur le disque — dépendance
+propre de `sanitize-html` (`node_modules/sanitize-html/package.json`), zéro octet neuf téléchargé
+— mais y importer directement sans le déclarer aurait été un import « fantôme » : rien ne garantit
+qu'il reste résolu au même endroit d'une réinstallation à l'autre tant qu'il n'est pas dans NOTRE
+arbre de dépendances déclaré. Le déclarer coûte une ligne de `package.json`, zéro paquet de plus.
+
+- **`services/leitner_front_html.ts`** (`tokenizeFrontHtml(html, glossary) → FrontNode[]`) — la
+  fonction PURE qui fait ce reparcours. Elle ne sait rien du Markdown (l'appelant lui passe du
+  HTML déjà rendu) : `LeitnerController#index` calcule `renderMarkdown(card.front)` **une seule
+  fois**, l'utilise pour `frontHtml` (inchangé, toujours envoyé, toujours consommé ailleurs —
+  `llm.vue`, les aperçus de saisie) **et** pour `tokenizeFrontHtml`, jamais un second
+  `renderMarkdown`.
+- **`FrontNode`/`FrontElementNode`/`FrontTextNode`** vivent dans `shared/glossary_highlight.ts`,
+  aux côtés de `FrontToken` — un nœud `element` porte `tag`+`attrs`+`children` (le balisage
+  intact), un nœud `text` porte les jetons (comme avant CC-276). Ce fichier reste PUR ; ces types
+  n'y ajoutent aucune logique. `pages/index.vue` les importe en RELATIF (comme avant), mais
+  n'importe plus `tokenizeFront` lui-même — la fonction n'est plus appelée QUE côté serveur.
+- ⚠️ **Un terme ne s'annonce jamais dans un `<code>`/`<pre>`** : le reparcours passe un glossaire
+  vide aux nœuds de texte sous ces tags. On n'annote pas du code.
+- ⚠️ **La limite du terme à cheval sur deux nœuds de texte N'A PAS CHANGÉ, et ne pouvait pas
+  changer** — c'est la MÊME limite que CC-254 acceptait déjà sur le texte source, juste déplacée
+  sur le HTML : `**TLS** négocie` avec un terme composé « TLS négocie » ne se souligne toujours
+  pas, « TLS » vivant dans un `<strong>` séparé du reste. Reconstruire le texte complet pour la
+  rattraper romprait l'alignement avec le balisage réel — exactement ce que ce lot évite.
+
+### Le tokeniseur — `shared/glossary_highlight.ts`, PUR, inchangé
 
 `tokenizeFront(front, glossary) → { texte, sectionId | null }[]`. Trois règles, aucune
 négociable :
 
 - **`normalizeForSearch` est l'unique copie** (`components/leitner_scope_search.ts`), importée en
-  **relatif** — jamais l'alias `#modules/*`, qui casserait Vite (ce fichier est importé par
-  `pages/index.vue`, même piège documenté sur `shared/review_page.ts`).
+  **relatif** — jamais l'alias `#modules/*`, qui casserait Vite si ce fichier redevenait un jour
+  importé par une page (même piège documenté sur `shared/review_page.ts`).
 - **Plus long d'abord.** Deux termes qui se chevauchent (`Transport Layer` / `Layer Security` sur
   « Transport Layer Security ») : le plus long trouvé à une position consomme sa portée, l'autre
   n'est jamais retenté dessus. Comportement déterministe, testé, pas laissé au hasard.
@@ -2194,11 +2229,13 @@ négociable :
   vérifie sur le caractère juste avant/après le candidat (`\p{L}\p{N}` Unicode), pas sur l'ASCII
   seul, sinon « sécurité » ne matcherait jamais lui-même après normalisation.
 
-⚠️ **Aucun `v-html` dans le rendu.** La fonction rend des jetons ; `index.vue` les affiche en
-interpolation Vue (`{{ token.texte }}`, échappée) et un `<button>` pour les termes reconnus —
-construire du HTML à partir du texte d'une carte serait la seule injection réelle de ce lot.
-Prouvé par mutation : un recto portant `<script>` s'affiche en texte littéral
-(`pages/__tests__/index.spec.ts`).
+⚠️ **Aucun `v-html` dans le rendu, toujours.** `renderFrontNode`/`renderFrontNodes` (`pages/
+index.vue`) rejouent l'arbre en `h(tag, attrs, children)` pour un nœud `element`, en interpolation
+Vue échappée (ou un `<button>` pour un jeton reconnu) pour un nœud `text` — construire une chaîne
+HTML à partir du texte d'une carte serait la seule injection réelle de ce lot, exactement comme en
+CC-254. Prouvé par mutation, aux DEUX bouts : côté serveur, un recto hostile ne produit jamais
+d'élément `script` (`tests/unit/leitner_front_html.spec.ts`) ; côté page, si le rendu se remettait
+à concaténer les jetons en `v-html`, `pages/__tests__/index.spec.ts` rougirait (vérifié à la main).
 
 ### L'index et la route — filtrés par visibilité, comme tout le reste du corpus
 

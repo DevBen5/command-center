@@ -5,11 +5,24 @@ import { makeCard } from '#tests/helpers/leitner'
 import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section'
 
 /**
- * Les mots-clés du recto (CC-254) — l'index de glossaire (`glossary` sur `/revision`) et la
+ * Les mots-clés du recto (CC-254) — l'index de glossaire, consommé côté serveur depuis
+ * CC-276 (`frontNodes` sur `/revision`, plus aucun `glossary` brut envoyé au client), et la
  * route de contenu (`GET /cours/sections/:id`). Le tokeniseur pur est prouvé dans
- * `tests/unit/leitner_glossary_highlight.spec.ts` ; ce fichier prouve ce qu'il ne peut pas
- * dire : la visibilité contre la base, la capacité, l'exclusion des tombes.
+ * `tests/unit/leitner_glossary_highlight.spec.ts`, le reparcours HTML+glossaire dans
+ * `tests/unit/leitner_front_html.spec.ts` ; ce fichier prouve ce qu'aucun des deux ne peut
+ * dire : la visibilité contre la base, la capacité, l'exclusion des tombes — observées à
+ * travers le jeton cliquable (ou son absence) que le recto d'une carte due reçoit vraiment.
  */
+
+/** Les jetons (texte + sectionId) de tout `frontNodes`, toutes profondeurs. */
+function frontTokens(nodes: any[]): Array<{ texte: string; sectionId: number | null }> {
+  const tokens: Array<{ texte: string; sectionId: number | null }> = []
+  for (const node of nodes) {
+    if (node.type === 'text') tokens.push(...node.tokens)
+    else tokens.push(...frontTokens(node.children))
+  }
+  return tokens
+}
 function reader() {
   // `leitner.view` : sans elle, `GET /revision` répond 403 avant même d'atteindre l'index de
   // glossaire — la garde est sur la ROUTE de révision, distincte de `leitner.courses.view`.
@@ -34,48 +47,55 @@ const COURSE_MARKDOWN =
 test.group('Leitner / glossaire — index et contenu (CC-254)', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
-  test('un terme d’un cours visible entre dans l’index de la session', async ({
+  test('un terme d’un cours visible produit un jeton cliquable dans le recto d’une carte due', async ({
     client,
     assert,
   }) => {
     const user = await writer()
     await postCourse(client, { title: 'Réseaux', markdown: COURSE_MARKDOWN }, user)
-    await makeCard('Peu importe', { ownerId: user.id })
+    await makeCard('Le protocole TLS est robuste.', { ownerId: user.id })
 
     const response = await client.get('/revision?scope=all').loginAs(user).withInertia()
-    const props = response.inertiaProps as Record<string, unknown>
-    const glossary = props.glossary as Array<{ term: string; sectionId: number }>
+    const props = response.inertiaProps as Record<string, any>
+    const tokens = frontTokens(props.dueCards[0].frontNodes)
 
-    assert.isTrue(glossary.some((entry) => entry.term === 'TLS'))
+    assert.isTrue(tokens.some((t) => t.texte === 'TLS' && t.sectionId !== null))
   })
 
-  test('mutation : un terme d’un cours privé d’un autre compte n’entre jamais dans l’index', async ({
+  test('mutation : un terme d’un cours privé d’un autre compte ne rend jamais de jeton cliquable', async ({
     client,
     assert,
   }) => {
     const owner = await writer()
     const stranger = await reader()
     await postCourse(client, { title: 'Privé', markdown: COURSE_MARKDOWN }, owner)
-    await makeCard('Peu importe', { ownerId: stranger.id })
+    await makeCard('Le protocole TLS est robuste.', { ownerId: stranger.id })
 
     const response = await client.get('/revision?scope=all').loginAs(stranger).withInertia()
-    const props = response.inertiaProps as Record<string, unknown>
-    const glossary = props.glossary as Array<{ term: string }>
+    const props = response.inertiaProps as Record<string, any>
+    const tokens = frontTokens(props.dueCards[0].frontNodes)
 
-    assert.isFalse(glossary.some((entry) => entry.term === 'TLS'))
+    assert.isFalse(tokens.some((t) => t.sectionId !== null))
   })
 
-  test('sans leitner.courses.view, l’index reste vide', async ({ client, assert }) => {
+  test('sans leitner.courses.view, aucun jeton du recto n’est cliquable', async ({
+    client,
+    assert,
+  }) => {
     const user = await createUserWith(['leitner.view', 'leitner.review'])
-    await makeCard('Peu importe', { ownerId: user.id })
+    await makeCard('Le protocole TLS est robuste.', { ownerId: user.id })
 
     const response = await client.get('/revision?scope=all').loginAs(user).withInertia()
-    const props = response.inertiaProps as Record<string, unknown>
+    const props = response.inertiaProps as Record<string, any>
+    const tokens = frontTokens(props.dueCards[0].frontNodes)
 
-    assert.deepEqual(props.glossary, [])
+    assert.isFalse(tokens.some((t) => t.sectionId !== null))
   })
 
-  test('mutation : une section tombée n’entre jamais dans l’index', async ({ client, assert }) => {
+  test('mutation : une section tombée ne rend plus de jeton cliquable', async ({
+    client,
+    assert,
+  }) => {
     const user = await writer()
     const created = await postCourse(client, { title: 'Réseaux', markdown: COURSE_MARKDOWN }, user)
     const courseId = (created.body() as { course: { id: number } }).course.id
@@ -94,12 +114,12 @@ test.group('Leitner / glossaire — index et contenu (CC-254)', (group) => {
       .firstOrFail()
     assert.isNotNull(tombstone.obsoleteAt, 'préalable : la section est bien tombée')
 
-    await makeCard('Peu importe', { ownerId: user.id })
+    await makeCard('Le protocole TLS est robuste.', { ownerId: user.id })
     const response = await client.get('/revision?scope=all').loginAs(user).withInertia()
-    const props = response.inertiaProps as Record<string, unknown>
-    const glossary = props.glossary as Array<{ term: string }>
+    const props = response.inertiaProps as Record<string, any>
+    const tokens = frontTokens(props.dueCards[0].frontNodes)
 
-    assert.isFalse(glossary.some((entry) => entry.term === 'TLS'))
+    assert.isFalse(tokens.some((t) => t.sectionId !== null))
   })
 
   test('GET /cours/sections/:id rend le contenu d’une section visible', async ({

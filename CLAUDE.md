@@ -773,11 +773,19 @@ les props passées à `mount()`, un test qui se trompe échoue à l'exécution. 
   depuis CC-253 par le lien de provenance explicite) — et tous consomment cette brique.
   ⚠️ **Ce compte est passé de six à cinq le 2026-08-19 (CC-254) : le recto d'`index.vue` est
   désormais tokenisé (`shared/glossary_highlight.ts`), rendu en interpolation Vue échappée, plus
-  jamais en `v-html` — seul le verso de cet écran continue de passer par `renderMarkdown`. Ce
-  n'est pas une régression de sécurité (l'échappement Vue couvre le recto tout aussi bien), c'est
-  une régression de RENDU : le Markdown du recto (gras, code) s'affiche désormais littéralement,
-  contrepartie assumée de « aucun `v-html` sur un recto de carte » (voir le `CLAUDE.md` de
-  Leitner, section « Les mots-clés du recto »).**
+  jamais en `v-html` — seul le verso de cet écran continue de passer par `renderMarkdown` en
+  `v-html`. Le compte à cinq **reste vrai depuis** : la ligne suivante est corrigée, pas le
+  compte.**
+  ⚠️ **Périmé depuis CC-276 (2026-08-21) : le recto ne s'affiche plus « littéralement ».** CC-254
+  avait payé le renoncement au `v-html` par la perte du rendu Markdown du recto (gras, code
+  affichés tels quels) — CC-276 restitue ce rendu SANS `v-html` : le serveur reparcourt le HTML
+  déjà assaini (le même `renderMarkdown`, toujours la seule fabrique) et tokenise ses nœuds de
+  TEXTE ; la page rejoue l'arbre reçu en éléments Vue réels via `h()` (`renderFrontNode`/
+  `renderFrontNodes`, `leitner/pages/index.vue`). Le compte reste à **cinq** — ce n'est ni un
+  sixième `v-html`, ni un retour au sixième d'avant CC-254 : un `tag` de cet arbre vient toujours
+  de la liste blanche de `markdown_renderer.ts`, jamais du texte d'une carte. Voir le `CLAUDE.md`
+  de Leitner, section « Les mots-clés du recto (CC-254), et son rendu Markdown restauré
+  (CC-276) ».
   ⚠️ **N'en pose pas un sixième sur autre chose que sa sortie** : le contenu n'est pas
   de confiance (ingestion LLM, import JSON, cartes communales depuis CC-121), et la veille détruit
   toujours le HTML de ses flux à l'ingestion précisément pour qu'un `v-html` ne puisse rien y

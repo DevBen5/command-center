@@ -12,6 +12,7 @@ import {
 } from '#modules/leitner/services/leitner_card_sections_service'
 import { searchCourseSections } from '#modules/leitner/services/leitner_course_search_service'
 import LeitnerFluencyService from '#modules/leitner/services/leitner_fluency_service'
+import { tokenizeFrontHtml } from '#modules/leitner/services/leitner_front_html'
 import { glossaryIndex } from '#modules/leitner/services/leitner_glossary_service'
 import { gradeOutcomes } from '#modules/leitner/services/leitner_grade_outcomes'
 import LeitnerJudgeService from '#modules/leitner/services/leitner_judge_service'
@@ -181,58 +182,64 @@ export default class LeitnerController {
       view: 'session',
       scope: { label: resolved.label, finished },
       queue,
-      dueCards: dueCards.map((card) => ({
-        ...card.serialize(),
-        // ⚠️ La boîte vient de la jointure de progression, pas d'une colonne de la carte :
-        // `serialize()` ne rend pas les `$extras`, elle doit être recopiée ici.
-        box: progressBox(card),
-        lastGrade: lastGrades.get(card.id) ?? null,
-        // L'état **avant** la note : c'est lui qui distingue « reste boîte 5 » de « sort
-        // des acquis » sous le bouton « À revoir ». Toujours `true` dans la file
-        // d'entretien, toujours `false` dans la file normale — les deux sont disjointes,
-        // et le dire par carte évite à la page de le déduire de la file.
-        mastered: (card.progress[0]?.masteredAt ?? null) !== null,
-        // Le Markdown rendu (CC-133). **La colonne reste la source** : `front`/`back` partent
-        // aussi, et ce sont eux que lisent l'édition, l'export et le juge.
-        //
+      dueCards: dueCards.map((card) => {
         // ⚠️ Le rendu est fait pour **toute** la file alors que la page n'affiche que
         // `dueCards[0]`. C'est un choix : une prop qui ne porterait le HTML que sur la première
         // carte serait un piège pour le prochain écran qui itère la file — un `v-html` sur
         // `undefined` n'affiche **rien**, sans erreur ni log, et `tsc` ne lit pas les `.vue`.
         // Le coût mesuré est sans commune mesure avec celui de la requête qui précède.
-        frontHtml: renderMarkdown(card.front),
-        backHtml: renderMarkdown(card.back),
-        // Le lien explicite de provenance (CC-253), rendu avant les résultats de
-        // recherche du panneau « Approfondir » — `[]` si la capacité manque, si la carte
-        // n'a aucun lien, ou si son(ses) cours restent invisibles de cette personne.
-        // ⚠️ Ne porte plus `bodyHtml` depuis CC-274 : le contenu se charge au clic, via
-        // `GET /revision/cours/sections/:id`, dans la modale partagée avec le glossaire.
-        provenance: (provenance.get(card.id) ?? []).map((section) => ({
-          id: section.id,
-          courseId: section.courseId,
-          courseTitle: section.courseTitle,
-          headingPath: section.headingPath,
-          aliases: section.aliases,
-          obsoleteAt: section.obsoleteAt,
-        })),
-        // ⚠️ **Ce que chaque note fera, calculé par la règle elle-même** (CC-262) : la page
-        // ne recopie plus ni le plafond des boîtes ni l'intervalle. Le mode d'échec que ça
-        // ferme est un écran qui promet 30 jours pendant que la base en programme 90.
-        outcomes: gradeOutcomes({
+        const frontHtml = renderMarkdown(card.front)
+        return {
+          ...card.serialize(),
+          // ⚠️ La boîte vient de la jointure de progression, pas d'une colonne de la carte :
+          // `serialize()` ne rend pas les `$extras`, elle doit être recopiée ici.
           box: progressBox(card),
           lastGrade: lastGrades.get(card.id) ?? null,
-          mastery: {
-            // ⚠️ `?? null` pour la même raison que dans `review()` : une carte jamais notée
-            // n'a pas de ligne de progression, et `undefined` ne se compare pas à `null`.
-            box5EnteredAt: card.progress[0]?.box5EnteredAt ?? null,
-            masteredAt: card.progress[0]?.masteredAt ?? null,
-          },
-          maintenanceRank: ranks.get(card.id) ?? 0,
-          boxIntervals,
-          now,
-        }),
-      })),
-      glossary,
+          // L'état **avant** la note : c'est lui qui distingue « reste boîte 5 » de « sort
+          // des acquis » sous le bouton « À revoir ». Toujours `true` dans la file
+          // d'entretien, toujours `false` dans la file normale — les deux sont disjointes,
+          // et le dire par carte évite à la page de le déduire de la file.
+          mastered: (card.progress[0]?.masteredAt ?? null) !== null,
+          // Le Markdown rendu (CC-133). **La colonne reste la source** : `front`/`back` partent
+          // aussi, et ce sont eux que lisent l'édition, l'export et le juge.
+          frontHtml,
+          backHtml: renderMarkdown(card.back),
+          // ⚠️ **Le recto rendu ET souligné (CC-276)** : un reparcours du MÊME `frontHtml`
+          // (jamais un second `renderMarkdown`), qui tokenise ses nœuds de texte contre le
+          // glossaire — `[]` sans `leitner.courses.view`, comme avant. La page rejoue cet
+          // arbre en éléments Vue réels, jamais en `v-html` (`services/leitner_front_html.ts`).
+          frontNodes: tokenizeFrontHtml(frontHtml, glossary),
+          // Le lien explicite de provenance (CC-253), rendu avant les résultats de
+          // recherche du panneau « Approfondir » — `[]` si la capacité manque, si la carte
+          // n'a aucun lien, ou si son(ses) cours restent invisibles de cette personne.
+          // ⚠️ Ne porte plus `bodyHtml` depuis CC-274 : le contenu se charge au clic, via
+          // `GET /revision/cours/sections/:id`, dans la modale partagée avec le glossaire.
+          provenance: (provenance.get(card.id) ?? []).map((section) => ({
+            id: section.id,
+            courseId: section.courseId,
+            courseTitle: section.courseTitle,
+            headingPath: section.headingPath,
+            aliases: section.aliases,
+            obsoleteAt: section.obsoleteAt,
+          })),
+          // ⚠️ **Ce que chaque note fera, calculé par la règle elle-même** (CC-262) : la page
+          // ne recopie plus ni le plafond des boîtes ni l'intervalle. Le mode d'échec que ça
+          // ferme est un écran qui promet 30 jours pendant que la base en programme 90.
+          outcomes: gradeOutcomes({
+            box: progressBox(card),
+            lastGrade: lastGrades.get(card.id) ?? null,
+            mastery: {
+              // ⚠️ `?? null` pour la même raison que dans `review()` : une carte jamais notée
+              // n'a pas de ligne de progression, et `undefined` ne se compare pas à `null`.
+              box5EnteredAt: card.progress[0]?.box5EnteredAt ?? null,
+              masteredAt: card.progress[0]?.masteredAt ?? null,
+            },
+            maintenanceRank: ranks.get(card.id) ?? 0,
+            boxIntervals,
+            now,
+          }),
+        }
+      }),
       // La grille des 5 boîtes suit le paquet : elle décrit ce qu'on révise.
       boxCounts: await service.boxCounts(userId, resolved.scope, isAdmin),
       masteredCount: await mastery.masteredCount(userId, resolved.scope, isAdmin),
