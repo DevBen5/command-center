@@ -336,6 +336,13 @@ navigateur.
   (CC-254), code pur : accents et casse, **plus long d'abord**, refus **à l'intérieur d'un mot**
   (« TLSv1.3 » ne souligne pas « TLS »), deux termes qui se chevauchent (le premier trouvé
   consomme sa portée, le second n'est pas retenté), glossaire vide, recto sans aucun terme.
+- `tests/unit/leitner_front_html.spec.ts` — le recto rendu ET souligné (CC-276) :
+  `tokenizeFrontHtml` reparcourt le HTML déjà assaini par `renderMarkdown` et tokenise ses
+  nœuds de texte. Balisage intact (gras, liste, bloc de code), un terme dans `<pre>`/`<code>`
+  n'est jamais souligné, un attribut (`href`) n'est jamais scanné tandis que le texte du même
+  lien l'est, la limite acceptée du terme composé à cheval sur deux nœuds de texte, un recto
+  vide rend `[]`. Mutation : un recto hostile (`<script>`) ne produit jamais d'élément — le
+  texte reste littéral dans un jeton.
 - `tests/unit/leitner_scope_search.spec.ts` — le **filtrage de la barre de recherche**, dont
   `securite` qui trouve « Sécurité » (le test qui compte), le chemin `Catégorie · Thème`, et un
   paquet à 0 trouvé mais **non sélectionnable**. Du code pur : il ne voit ni le focus/blur, ni le
@@ -671,11 +678,13 @@ extension) se fabrique en revanche à la volée : il n'y a pas de binaire à ver
     `courseId` — mutation vérifiée à la main le 2026-08-19 : retirer la ligne côté
     contrôleur fait rougir ce test **et** celui de `leitner_course_search.spec.ts`
     (2/22 sur les deux fichiers).
-- `tests/functional/modules/leitner_glossary.spec.ts` — les mots-clés du recto (CC-254) : l'index
-  de glossaire sur `/revision` (un terme d'un cours visible y entre, `[]` sans
+- `tests/functional/modules/leitner_glossary.spec.ts` — les mots-clés du recto (CC-254, puis
+  CC-276) : l'index de glossaire observé à travers `frontNodes` d'une carte due sur `/revision`
+  (un terme d'un cours visible y devient un jeton cliquable, aucun jeton cliquable sans
   `leitner.courses.view`, mutation : un terme d'un cours privé d'un autre compte ou d'une section
-  tombée n'y entre jamais) et `GET /cours/sections/:id` (contenu rendu, 403 sans la capacité, 403
-  sur un cours privé d'un autre compte malgré la capacité).
+  tombée n'y devient jamais cliquable — plus de `props.glossary` brut depuis CC-276) et
+  `GET /cours/sections/:id` (contenu rendu, 403 sans la capacité, 403 sur un cours privé d'un autre
+  compte malgré la capacité).
 - `tests/functional/modules/leitner_backup.spec.ts` — `sections` sur chaque carte,
   filtrée par la visibilité du COURS du lien (pas de la carte), toujours un tableau
   (jamais omis, y compris vide) ; l'aller-retour couvre un lien `ingestion` vers une
