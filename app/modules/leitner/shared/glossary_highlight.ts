@@ -11,6 +11,12 @@
  * court-circuit du juge.
  *
  * Ce fichier est **pur** : ni base, ni horloge, ni DOM, ni Vue.
+ *
+ * ⚠️ **Depuis CC-276, `tokenizeFront` n'est plus appelée QUE côté serveur** — par
+ * `services/leitner_front_html.ts`, qui reparcourt le HTML assaini de `renderMarkdown(front)`
+ * nœud de texte par nœud de texte (le Markdown du recto est de nouveau rendu ; voir ce fichier
+ * pour le pourquoi). Ce fichier-ci ne change pas de rôle : il reste le tokeniseur pur, réutilisé
+ * tel quel, plus jamais importé côté page que pour ses TYPES (`FrontNode`, `FrontToken`).
  */
 import { normalizeForSearch } from '../components/leitner_scope_search.js'
 
@@ -25,6 +31,27 @@ export interface FrontToken {
   texte: string
   sectionId: number | null
 }
+
+/**
+ * L'arbre du recto (CC-276) — ce que `services/leitner_front_html.ts` construit en
+ * reparcourant le HTML assaini de `renderMarkdown(front)`, et ce que `pages/index.vue`
+ * rejoue en éléments Vue réels (jamais en `v-html`). Un nœud `element` porte le balisage
+ * intact (tag + attributs whitelistés par `markdown_renderer.ts`) ; un nœud `text` porte
+ * les jetons du glossaire, comme avant CC-276.
+ */
+export interface FrontElementNode {
+  type: 'element'
+  tag: string
+  attrs: Record<string, string>
+  children: FrontNode[]
+}
+
+export interface FrontTextNode {
+  type: 'text'
+  tokens: FrontToken[]
+}
+
+export type FrontNode = FrontElementNode | FrontTextNode
 
 function isWordChar(char: string | undefined): boolean {
   return char !== undefined && /[\p{L}\p{N}]/u.test(char)
