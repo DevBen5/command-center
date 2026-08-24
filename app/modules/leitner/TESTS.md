@@ -49,11 +49,8 @@ Le backfill de `kind`, lui, n'a rien à prouver : le `default` de la colonne est
 
 - `app/modules/leitner/components/__tests__/leitner_tabs.spec.ts` — l'onglet actif : query string,
   slash final, `/revision/ingest/42`, et surtout **un seul** onglet allumé (`/revision` étant
-  préfixe des cinq autres, depuis le 6ᵉ onglet « Cours » de CC-251).
-- `app/modules/leitner/components/__tests__/course_conflict_dialog.spec.ts` — le dialogue à 3
-  issues du corpus de cours (CC-251) : chaque bouton (`replace`/`createSecond`/`cancel`) émet
-  l'événement attendu, et lui seul, plus le clic hors du panneau (fermeture du chassis `AppModal`)
-  qui vaut aussi `cancel`.
+  préfixe des quatre autres — cinq onglets depuis que « Cours » a quitté la barre pour sa propre
+  destination `/corpus`, CC-275).
 - `app/modules/leitner/components/__tests__/ingestion_title.spec.ts` — les deux gardes de `save()` :
   titre vide et titre inchangé n'envoient **aucune** requête.
 - `app/modules/leitner/components/__tests__/markdown_preview.spec.ts` — l'aperçu du rendu
@@ -93,12 +90,12 @@ Le backfill de `kind`, lui, n'a rien à prouver : le `default` de la colonne est
   nouvelle RÉFÉRENCE de `dueCards` portant le MÊME id (le cas `again` sur une file d'une seule
   carte), le surlignage forcé et le panneau retombent à zéro. Un test dédié prouve aussi le
   masquage (pas la fermeture — la route est couverte par `leitner_course_search.spec.ts`) sans
-  `leitner.courses.view`.
+  `corpus.view`.
 - `app/modules/leitner/pages/__tests__/index.spec.ts`, describe « provenance en modale »
   (CC-274) — l'en-tête unique (« Vient de : X ») quand toutes les sections viennent du même
   cours, et son repli (aucun cas réel connu, mais possible en base) : titre répété sur chaque
   ligne quand deux sections pointent vers deux cours différents ; cliquer une ligne fetch
-  `GET /cours/sections/:id` et ouvre la MÊME modale que le glossaire (`sectionModalOpen`,
+  `GET /corpus/sections/:id` et ouvre la MÊME modale que le glossaire (`sectionModalOpen`,
   jamais une seconde instance) ; provenance vide → panneau absent, sans message (état déjà
   d'origine, pas un ajout de ce lot).
 - `app/modules/leitner/components/__tests__/taxonomy_combobox.spec.ts` — l'invariant `filtering` :
@@ -108,7 +105,7 @@ Le backfill de `kind`, lui, n'a rien à prouver : le `default` de la colonne est
 - `app/modules/leitner/components/__tests__/course_section_view.spec.ts` — le lien « Voir dans le
   cours » (CC-273) : l'`href` construit à partir de `courseId` et de l'`id` de la section, seul
   comportement du composant qui ne soit pas déjà couvert ailleurs (le rendu du corps l'est côté
-  serveur). Le défilement vers l'ancre, lui, vit dans `cours_show.vue` et reste hors de portée de
+  serveur). Le défilement vers l'ancre, lui, vit dans `corpus/pages/show.vue` et reste hors de portée de
   Vitest — voir « Limites connues ». Depuis CC-254, prouve aussi que `titleId` (optionnel, posé
   par la modale de glossaire) atterrit sur le titre de la section.
 - `app/modules/leitner/pages/__tests__/index.spec.ts`, second `describe` (CC-254) — les mots-clés
@@ -330,8 +327,6 @@ navigateur.
   sur `?scope=all`. Le cas est monté sur l'état qui armait l'exception cachée (une révision
   d'entretien notée `hard`, vérifiée par `lastGrade`) : le piège a disparu de l'écran **alors même
   que son armement est là**, ce qu'aucun test de la file normale ne pourrait dire.
-- `tests/unit/leitner_course_section_link.spec.ts` — le pur du lien vers une section (CC-273) :
-  `sectionAnchorId` et `courseSectionHref`, construits sur l'`id` de section, jamais le slug.
 - `tests/unit/leitner_glossary_highlight.spec.ts` — le tokeniseur des mots-clés du recto
   (CC-254), code pur : accents et casse, **plus long d'abord**, refus **à l'intérieur d'un mot**
   (« TLSv1.3 » ne souligne pas « TLS »), deux termes qui se chevauchent (le premier trouvé
@@ -610,30 +605,9 @@ peut le refuser), `protege.pdf` (RC4, mot de passe `secret`). Ne les fabrique pa
 **ne les télécharge jamais**. Un fichier qui n'est pas un vrai PDF (tronqué, mentant sur son
 extension) se fabrique en revanche à la volée : il n'y a pas de binaire à versionner.
 
-## Le corpus de cours (CC-251)
-
-- `tests/unit/leitner_course_sections.spec.ts` — le découpeur pur (`splitCourseIntoSections`) et
-  l'empreinte (`hashCourseMarkdown`). Le test qui compte : **aucun chevauchement**, chaque section
-  ne porte que son propre contenu, contrairement à `chunkCourse` (ingestion) qui, lui, chevauche
-  exprès. Plus l'accumulation du chemin de titres (un titre de niveau 2 ferme tout ce qui est de
-  niveau ≥ 2 sous lui, jamais ses ancêtres), le préambule sans titre → `introduction` (et une
-  préambule vide ne produit **aucune** section fantôme), la désambiguïsation d'homonymes par
-  suffixe numérique (`resume`, `resume-2`) — dans un même chemin de parenté **et** entre deux
-  chemins différents —, la stabilité du slug quand seul le corps change, la slugification
-  (accents, ponctuation), le glossaire `> notion: X, Y` (présent et absent), et l'égalité/
-  différence de l'empreinte SHA-256 (normalisation CRLF→LF comprise).
-- `tests/functional/modules/leitner_courses.spec.ts` — le cycle de vie d'un cours **par les
-  routes**. Trois groupes : la **déduplication**, avec ses deux détections distinctes (même
-  empreinte → rattachement silencieux, même titre → les 3 issues du dialogue de conflit —
-  remplacer, créer un second avec suffixe `" (2)"`, annuler sans rien écrire —, scopée par
-  propriétaire) ; les **pierres tombales**, où le test qui compte est la mutation vérifiée qu'un
-  slug disparu du markdown remplaçant se voit poser `obsolete_at` sur la **même ligne** (jamais
-  recréée), qu'un slug qui réapparaît ressuscite (`obsolete_at = null`) sans doublon, et que la
-  purge ne supprime que les lignes tombées ; la **visibilité** (privé invisible + 403 à la
-  consultation, partagé visible, écriture refusée à un non-propriétaire avec la base laissée
-  intacte), les **capacités** (`leitner.courses.view` sans `.write` refuse la création), et la
-  **garde de suppression de compte** (un cours partagé bloque, un cours privé seul laisse
-  supprimer et devient orphelin).
+⚠️ **Le corpus de cours (CC-251) a quitté ce module pour `app/modules/corpus/` (CC-275)** — son
+découpage pur, son cycle de vie par les routes et ses tests de compte (`leitner_course_sections`,
+`corpus_courses`) sont désormais indexés dans `app/modules/corpus/TESTS.md`.
 
 ## La provenance d'ingestion (CC-253)
 
@@ -668,10 +642,10 @@ extension) se fabrique en revanche à la volée : il n'y a pas de binaire à ver
     construction, prouvé plutôt que supposé) ;
   - le **panneau de révision** (`LeitnerController#index`) : le lien explicite est
     exposé (⚠️ **plus `bodyHtml` depuis CC-274** — `assert.notProperty`, le contenu se
-    charge au clic via `GET /cours/sections/:id`, testé côté page dans
+    charge au clic via `GET /corpus/sections/:id`, testé côté page dans
     `pages/__tests__/index.spec.ts`), une section devenue obsolète reste affichée en le
     disant, la provenance est **vide malgré un lien en base** sans
-    `leitner.courses.view` (gate serveur, pas seulement client), et un lien vers un
+    `corpus.view` (gate serveur, pas seulement client), et un lien vers un
     cours resté privé d'un autre compte (carte visible, cours pas) n'est jamais exposé
     — cas limite inatteignable par l'UI actuelle, mais possible en base, donc vérifié
     quand même. Depuis CC-273, le premier test porte aussi
@@ -681,16 +655,26 @@ extension) se fabrique en revanche à la volée : il n'y a pas de binaire à ver
 - `tests/functional/modules/leitner_glossary.spec.ts` — les mots-clés du recto (CC-254, puis
   CC-276) : l'index de glossaire observé à travers `frontNodes` d'une carte due sur `/revision`
   (un terme d'un cours visible y devient un jeton cliquable, aucun jeton cliquable sans
-  `leitner.courses.view`, mutation : un terme d'un cours privé d'un autre compte ou d'une section
+  `corpus.view`, mutation : un terme d'un cours privé d'un autre compte ou d'une section
   tombée n'y devient jamais cliquable — plus de `props.glossary` brut depuis CC-276) et
-  `GET /cours/sections/:id` (contenu rendu, 403 sans la capacité, 403 sur un cours privé d'un autre
+  `GET /corpus/sections/:id` (contenu rendu, 403 sans la capacité, 403 sur un cours privé d'un autre
   compte malgré la capacité).
+  ⚠️ **Depuis CC-275, le groupe « révision sans le module corpus »** (fin du fichier) prouve le
+  chemin `isModuleEnabled('corpus')` : `enabledModules.delete('corpus')` (patron
+  `dashboard_scope.spec.ts`), un compte qui porte quand même `corpus.view` (grant orphelin
+  possible), et `/revision?scope=all` rend la carte normalement — recto Markdown intact,
+  provenance vide, aucun jeton cliquable, aucune requête SQL vers `leitner_course_sections`.
 - `tests/functional/modules/leitner_backup.spec.ts` — `sections` sur chaque carte,
   filtrée par la visibilité du COURS du lien (pas de la carte), toujours un tableau
   (jamais omis, y compris vide) ; l'aller-retour couvre un lien `ingestion` vers une
   section vivante et un lien `manuel` vers une section tombée, les deux doivent
   survivre. **Pas de bump de `BACKUP_VERSION`** : champ strictement additif, même
   précédent que les cinq colonnes de trace (CC-51).
+  ⚠️ **Depuis CC-275, le groupe « export-import sans le module corpus »** (fin du fichier) prouve
+  le pendant : `enabledModules.delete('corpus')` (patron `dashboard_scope.spec.ts`) puis un export
+  rend `courses: []`/`sections: []` par carte, et un import d'un fichier qui porte des cours les
+  compte dans `coursesSkipped` sans jamais planter — la garde `isModuleEnabled('corpus')` posée
+  dans `leitner_backup_service.ts`.
 
 ## Le bouton « Je ne sais pas » et la recherche du corpus (CC-252)
 
@@ -702,7 +686,7 @@ extension) se fabrique en revanche à la volée : il n'y a pas de binaire à ver
 - `tests/functional/modules/leitner_course_search.spec.ts` — `GET /:id/course-search` par les
   routes. Le classement (la section dont le corps partage le vocabulaire du recto remonte en
   tête — ⚠️ **plus `bodyHtml` depuis CC-274**, `assert.notProperty` sur le premier résultat), la
-  capacité (`leitner.courses.view` manquante → 403), la visibilité (une section d'un cours privé
+  capacité (`corpus.view` manquante → 403), la visibilité (une section d'un cours privé
   d'un autre compte n'apparaît jamais — même si le RECTO de la carte matche parfaitement son
   contenu), la carte elle-même refusée si privée d'un autre compte (même garde que
   `judge`/`review`), et une **mutation** : sans `whereNull('obsolete_at')`, une section tombée

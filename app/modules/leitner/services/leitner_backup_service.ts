@@ -7,14 +7,15 @@ import LeitnerCardSection, {
   type CardSectionOrigin,
 } from '#modules/leitner/models/leitner_card_section'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
-import LeitnerCourse, { type CourseSource } from '#modules/leitner/models/leitner_course'
-import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
-import { hashCourseMarkdown } from '#modules/leitner/services/leitner_course_sections'
 import { DEFAULT_BOX } from '#modules/leitner/services/leitner_progress'
 import type { Grade, ReviewKind, Verdict } from '#modules/leitner/services/leitner_service'
-import { applyVisibility, isVisible } from '#modules/leitner/services/leitner_visibility'
+import { applyVisibility, isVisible } from '#core/shared/services/visibility'
+import { isModuleEnabled } from '#config/modules'
+import LeitnerCourse, { type CourseSource } from '#modules/corpus/models/leitner_course'
+import LeitnerCourseSection from '#modules/corpus/models/leitner_course_section'
+import { hashCourseMarkdown } from '#modules/corpus/services/leitner_course_sections'
 
 /**
  * Version du format d'échange. Un fichier qui déclare une autre version est
@@ -380,6 +381,13 @@ export default class LeitnerBackupService {
    * fuite la plus large que ce lot corrige.
    */
   async export(userId: number, isAdmin: boolean = false): Promise<Backup> {
+    // ⚠️ **`isModuleEnabled('corpus')` gouverne tout ce fichier qui touche `leitner_courses`/
+    // `leitner_course_sections` (CC-275)** : ces tables n'existent que si le module corpus,
+    // détachable séparément de Leitner, est actif. Sans cette garde, un export sur une
+    // installation Leitner sans corpus planterait en SQL sur une table absente plutôt que de
+    // rendre un fichier valide avec `sections: []` par carte et `courses: []`.
+    const corpusAvailable = isModuleEnabled('corpus')
+
     const categoriesQuery = LeitnerCategory.query()
       .preload('themes', (themes) => {
         applyVisibility(themes, 'leitner_themes', userId, isAdmin)
@@ -398,21 +406,28 @@ export default class LeitnerBackupService {
         reviews.where('user_id', userId).orderBy('reviewed_at', 'asc').orderBy('id', 'asc')
       )
       .preload('progress', (progress) => progress.where('user_id', userId))
-      // La provenance (CC-253) : une carte peut porter plusieurs liens (chunk couvrant
-      // plusieurs sections). Triés par id — l'ordre de pose, comme les révisions.
-      .preload('cardSections', (cs) =>
+      .orderBy('id', 'asc')
+    // La provenance (CC-253) : une carte peut porter plusieurs liens (chunk couvrant
+    // plusieurs sections). Triés par id — l'ordre de pose, comme les révisions. Seulement
+    // si corpus est actif : la relation traverse `leitner_course_sections`.
+    if (corpusAvailable) {
+      cardsQuery.preload('cardSections', (cs) =>
         cs.orderBy('id', 'asc').preload('courseSection', (s) => s.preload('course'))
       )
-      .orderBy('id', 'asc')
+    }
     applyVisibility(cardsQuery, 'leitner_cards', userId, isAdmin)
     const cards = await cardsQuery
 
     // Sections exportées telles quelles, tombes comprises (voir `BackupCourseSection`).
-    const coursesQuery = LeitnerCourse.query()
-      .preload('sections', (sections) => sections.orderBy('id', 'asc'))
-      .orderBy('id', 'asc')
-    applyVisibility(coursesQuery, 'leitner_courses', userId, isAdmin)
-    const courses = await coursesQuery
+    const courses = corpusAvailable
+      ? await (() => {
+          const coursesQuery = LeitnerCourse.query()
+            .preload('sections', (sections) => sections.orderBy('id', 'asc'))
+            .orderBy('id', 'asc')
+          applyVisibility(coursesQuery, 'leitner_courses', userId, isAdmin)
+          return coursesQuery
+        })()
+      : []
 
     return {
       version: BACKUP_VERSION,
@@ -479,14 +494,17 @@ export default class LeitnerBackupService {
           }),
         })),
         // ⚠️ Filtré sur la visibilité du COURS du lien, pas de la carte : voir le
-        // commentaire de `BackupCard.sections`.
-        sections: card.cardSections
-          .filter((link) => isVisible(link.courseSection.course, userId, isAdmin))
-          .map((link) => ({
-            courseTitle: link.courseSection.course.title,
-            slug: link.courseSection.slug,
-            origin: link.origin,
-          })),
+        // commentaire de `BackupCard.sections`. `[]` sans corpus actif — `cardSections`
+        // n'est alors même pas préchargée (voir `corpusAvailable` plus haut).
+        sections: corpusAvailable
+          ? card.cardSections
+              .filter((link) => isVisible(link.courseSection.course, userId, isAdmin))
+              .map((link) => ({
+                courseTitle: link.courseSection.course.title,
+                slug: link.courseSection.slug,
+                origin: link.origin,
+              }))
+          : [],
       })),
     }
   }
@@ -547,6 +565,7 @@ export default class LeitnerBackupService {
     // Une seule fois : la taxonomie créée en chemin suit la même règle que les cartes,
     // faute d'un champ `shared` par catégorie/thème dans le fichier.
     const defaultShared = resolveShared(backup.version, undefined)
+    const corpusAvailable = isModuleEnabled('corpus')
 
     return db.transaction(async (trx) => {
       const taxonomy = await this.loadTaxonomy(trx, report, userId, isAdmin, defaultShared)
@@ -679,82 +698,92 @@ export default class LeitnerBackupService {
       // comprises, faute d'être une `BackupImportError`. Ignorer silencieusement suit
       // la même doctrine que le reste de l'import : « n'ajoute que ce qui manque »,
       // jamais de remplacement.
-      const seenCourseHashes = new Set<string>()
-      const seenCourseTitles = new Set<string>()
-      for (const course of await LeitnerCourse.query({ client: trx }).where('owner_id', userId)) {
-        seenCourseHashes.add(course.contentHash)
-        seenCourseTitles.add(course.title)
-      }
-
-      for (const course of backup.courses ?? []) {
-        const contentHash = hashCourseMarkdown(course.markdown)
-        if (seenCourseHashes.has(contentHash) || seenCourseTitles.has(course.title)) {
-          report.coursesSkipped++
-          continue
+      //
+      // ⚠️ **`corpusAvailable` gouverne tout ce bloc, CC-275** : sans le module corpus,
+      // `leitner_courses`/`leitner_course_sections` n'existent pas — écrire dedans
+      // planterait en SQL. Un fichier qui porte des cours voit alors `coursesSkipped`
+      // compter chacun d'eux : signalé dans le rapport, jamais silencieux, plutôt qu'un
+      // « rien à importer » trompeur sur un fichier qui portait réellement du contenu.
+      if (corpusAvailable) {
+        const seenCourseHashes = new Set<string>()
+        const seenCourseTitles = new Set<string>()
+        for (const course of await LeitnerCourse.query({ client: trx }).where('owner_id', userId)) {
+          seenCourseHashes.add(course.contentHash)
+          seenCourseTitles.add(course.title)
         }
-        seenCourseHashes.add(contentHash)
-        seenCourseTitles.add(course.title)
 
-        const createdCourse = await LeitnerCourse.create(
-          {
-            title: course.title,
-            markdown: course.markdown,
-            contentHash,
-            source: course.source ?? 'paste',
-            ownerId: userId,
-            isShared: resolveShared(backup.version, course.shared),
-            ...(course.createdAt ? { createdAt: DateTime.fromISO(course.createdAt) } : {}),
-            ...(course.updatedAt ? { updatedAt: DateTime.fromISO(course.updatedAt) } : {}),
-          },
-          { client: trx }
-        )
-        report.coursesCreated++
+        for (const course of backup.courses ?? []) {
+          const contentHash = hashCourseMarkdown(course.markdown)
+          if (seenCourseHashes.has(contentHash) || seenCourseTitles.has(course.title)) {
+            report.coursesSkipped++
+            continue
+          }
+          seenCourseHashes.add(contentHash)
+          seenCourseTitles.add(course.title)
 
-        // Sections réinsérées TELLES QUELLES — tombes comprises — jamais re-découpées
-        // du markdown : c'est ce qui préserve l'historique des slugs disparus.
-        for (const section of course.sections ?? []) {
-          await LeitnerCourseSection.create(
+          const createdCourse = await LeitnerCourse.create(
             {
-              courseId: createdCourse.id,
-              slug: section.slug,
-              headingPath: section.headingPath ?? [],
-              body: section.body,
-              aliases: section.aliases ?? null,
-              obsoleteAt: section.obsoleteAt ? DateTime.fromISO(section.obsoleteAt) : null,
+              title: course.title,
+              markdown: course.markdown,
+              contentHash,
+              source: course.source ?? 'paste',
+              ownerId: userId,
+              isShared: resolveShared(backup.version, course.shared),
+              ...(course.createdAt ? { createdAt: DateTime.fromISO(course.createdAt) } : {}),
+              ...(course.updatedAt ? { updatedAt: DateTime.fromISO(course.updatedAt) } : {}),
             },
             { client: trx }
           )
+          report.coursesCreated++
+
+          // Sections réinsérées TELLES QUELLES — tombes comprises — jamais re-découpées
+          // du markdown : c'est ce qui préserve l'historique des slugs disparus.
+          for (const section of course.sections ?? []) {
+            await LeitnerCourseSection.create(
+              {
+                courseId: createdCourse.id,
+                slug: section.slug,
+                headingPath: section.headingPath ?? [],
+                body: section.body,
+                aliases: section.aliases ?? null,
+                obsoleteAt: section.obsoleteAt ? DateTime.fromISO(section.obsoleteAt) : null,
+              },
+              { client: trx }
+            )
+          }
         }
-      }
 
-      // Troisième passe : la provenance (CC-253), résolue par (titre du cours, slug) —
-      // désormais que cartes ET cours existent tous les deux. Un cours ou un slug
-      // introuvable (fichier partiel, ou cours non inclus dans cet export) est ignoré
-      // silencieusement : le lien perdu est déjà l'imprécision que le ticket accepte,
-      // pas une erreur nouvelle.
-      for (const card of backup.cards) {
-        const created = createdCards.get(card)
-        if (!created) continue
+        // Troisième passe : la provenance (CC-253), résolue par (titre du cours, slug) —
+        // désormais que cartes ET cours existent tous les deux. Un cours ou un slug
+        // introuvable (fichier partiel, ou cours non inclus dans cet export) est ignoré
+        // silencieusement : le lien perdu est déjà l'imprécision que le ticket accepte,
+        // pas une erreur nouvelle.
+        for (const card of backup.cards) {
+          const created = createdCards.get(card)
+          if (!created) continue
 
-        for (const link of card.sections ?? []) {
-          const course = await LeitnerCourse.query({ client: trx })
-            .where('owner_id', userId)
-            .where('title', link.courseTitle)
-            .first()
-          if (!course) continue
+          for (const link of card.sections ?? []) {
+            const course = await LeitnerCourse.query({ client: trx })
+              .where('owner_id', userId)
+              .where('title', link.courseTitle)
+              .first()
+            if (!course) continue
 
-          const section = await LeitnerCourseSection.query({ client: trx })
-            .where('course_id', course.id)
-            .where('slug', link.slug)
-            .first()
-          if (!section) continue
+            const section = await LeitnerCourseSection.query({ client: trx })
+              .where('course_id', course.id)
+              .where('slug', link.slug)
+              .first()
+            if (!section) continue
 
-          await LeitnerCardSection.firstOrCreate(
-            { leitnerCardId: created.id, leitnerCourseSectionId: section.id },
-            { origin: link.origin ?? 'ingestion' },
-            { client: trx }
-          )
+            await LeitnerCardSection.firstOrCreate(
+              { leitnerCardId: created.id, leitnerCourseSectionId: section.id },
+              { origin: link.origin ?? 'ingestion' },
+              { client: trx }
+            )
+          }
         }
+      } else {
+        report.coursesSkipped += (backup.courses ?? []).length
       }
 
       return report

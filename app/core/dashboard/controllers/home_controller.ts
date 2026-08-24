@@ -5,7 +5,7 @@ import Agent from '#modules/agents/models/agent'
 import VeilleItem from '#modules/veille/models/veille_item'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import { joinProgress, whereDue } from '#modules/leitner/services/leitner_progress'
-import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
+import { applyVisibility } from '#core/shared/services/visibility'
 import { capabilitiesFor } from '#core/auth/services/capability_service'
 import modules from '#config/modules'
 

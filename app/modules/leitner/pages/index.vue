@@ -70,7 +70,7 @@ interface LeitnerCard {
 /**
  * Une section liée explicitement à la carte — distincte des résultats de recherche.
  * ⚠️ **Ne porte plus `bodyHtml` depuis CC-274** : le contenu se charge au clic, via la
- * même route que le glossaire (`GET /revision/cours/sections/:id`), dans la modale
+ * même route que le glossaire (`GET /corpus/sections/:id`), dans la modale
  * partagée `AppModal` + `CourseSectionView` — voir `sectionModalSection` plus bas.
  */
 interface CardProvenance {
@@ -96,7 +96,7 @@ interface CourseSearchResult {
 }
 
 /** Le contenu complet d'UNE section, chargé au clic (glossaire, provenance, Approfondir —
- * un seul point d'entrée depuis CC-274) via `GET /revision/cours/sections/:id`. */
+ * un seul point d'entrée depuis CC-274) via `GET /corpus/sections/:id`. */
 interface SectionContent {
   id: number
   courseId: number
@@ -197,11 +197,11 @@ const { can } = useCan()
 const canReview = computed(() => can('leitner.review'))
 /**
  * ⚠️ **Masquer n'est pas fermer** (même remarque que `canReview`) : la vraie garde est
- * `middleware.can('leitner.courses.view')` sur `GET /:id/course-search`. Un compte sans
+ * `middleware.can('corpus.view')` sur `GET /:id/course-search`. Un compte sans
  * cette capacité ne voit ni « Approfondir » ni le panneau — la carte reste révisable
  * normalement, seule la porte vers le corpus se ferme.
  */
-const canViewCourses = computed(() => can('leitner.courses.view'))
+const canViewCourses = computed(() => can('corpus.view'))
 
 const currentCard = computed(() => props.dueCards?.[0] ?? null)
 const revealed = ref(false)
@@ -330,7 +330,7 @@ async function openSectionModal(sectionId: number): Promise<void> {
   sectionModalError.value = false
   sectionModalLoading.value = true
   try {
-    const response = await fetch(`/revision/cours/sections/${sectionId}`, {
+    const response = await fetch(`/corpus/sections/${sectionId}`, {
       headers: { accept: 'application/json' },
     })
     if (!response.ok) throw new Error(String(response.status))
@@ -1091,7 +1091,7 @@ function grade(g: Grade): void {
 
       <!-- « Approfondir » (CC-252) : sur TOUTE carte dévoilée, réponse juste comprise —
            la révision est aussi une porte vers la matière, pas seulement un test raté.
-           Masqué sans `leitner.courses.view` : la route répond 403, les deux gardes. -->
+           Masqué sans `corpus.view` : la route répond 403, les deux gardes. -->
       <button
         v-if="revealed && canViewCourses"
         type="button"

@@ -121,7 +121,9 @@ describe('Fil d’Ariane — les clés existent réellement', () => {
     // ⚠️ **`coffre` y est bien qu'il n'ait aucune destination** (CC-178) : le rideau lui retire son
     // entrée de barre latérale, pas ses écrans. Ses deux pages ont un fil d'Ariane comme les
     // autres — simplement enraciné sur l'accueil, `destinations[0]`, et non sur une entrée à lui.
-    expect(modules.map((m) => m.name).sort()).toEqual(['coffre', 'leitner', 'veille'])
+    // ⚠️ **`corpus` depuis CC-275** : extrait de Leitner, ses deux pages (`index`, `show`) portent
+    // chacune `crumb`/`title` dans `app/modules/corpus/i18n/fr.json`.
+    expect(modules.map((m) => m.name).sort()).toEqual(['coffre', 'corpus', 'leitner', 'veille'])
   })
 
   test('chaque page de ces modules porte un crumb ou un title', () => {

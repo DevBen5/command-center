@@ -23,7 +23,7 @@ import {
   selectWithBox,
   whereBoxAtMost,
 } from '#modules/leitner/services/leitner_progress'
-import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
+import { applyVisibility } from '#core/shared/services/visibility'
 import {
   SESSION_GAP_MINUTES,
   groupIntoSessions,

@@ -13,7 +13,7 @@ const i18n = createI18n({
   legacy: false,
   locale: 'fr',
   fallbackLocale: 'fr',
-  messages: { fr: { leitner: fr } },
+  messages: { fr: { corpus: fr } },
 })
 
 function monter() {
@@ -23,7 +23,7 @@ function monter() {
   })
 }
 
-describe('Leitner / CourseConflictDialog', () => {
+describe('Corpus / CourseConflictDialog', () => {
   test('affiche le titre du cours existant', () => {
     expect(monter().text()).toContain('Réseaux')
   })

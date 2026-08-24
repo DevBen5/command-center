@@ -2,8 +2,8 @@ import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCardSection, {
   type CardSectionOrigin,
 } from '#modules/leitner/models/leitner_card_section'
-import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section'
-import { assertOwnedOrAdmin, isVisible } from '#modules/leitner/services/leitner_visibility'
+import LeitnerCourseSection from '#modules/corpus/models/leitner_course_section'
+import { assertOwnedOrAdmin, isVisible } from '#core/shared/services/visibility'
 
 /**
  * Les liens carte ↔ section (CC-253) : posés à la promotion d'une ingestion (`ingestion`,

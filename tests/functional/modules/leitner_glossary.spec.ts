@@ -1,13 +1,14 @@
 import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
+import enabledModules from '#config/modules'
 import { createUserWith } from '#tests/helpers/users'
 import { makeCard } from '#tests/helpers/leitner'
-import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section'
+import LeitnerCourseSection from '#modules/corpus/models/leitner_course_section'
 
 /**
  * Les mots-clés du recto (CC-254) — l'index de glossaire, consommé côté serveur depuis
  * CC-276 (`frontNodes` sur `/revision`, plus aucun `glossary` brut envoyé au client), et la
- * route de contenu (`GET /cours/sections/:id`). Le tokeniseur pur est prouvé dans
+ * route de contenu (`GET /corpus/sections/:id`). Le tokeniseur pur est prouvé dans
  * `tests/unit/leitner_glossary_highlight.spec.ts`, le reparcours HTML+glossaire dans
  * `tests/unit/leitner_front_html.spec.ts` ; ce fichier prouve ce qu'aucun des deux ne peut
  * dire : la visibilité contre la base, la capacité, l'exclusion des tombes — observées à
@@ -25,16 +26,16 @@ function frontTokens(nodes: any[]): Array<{ texte: string; sectionId: number | n
 }
 function reader() {
   // `leitner.view` : sans elle, `GET /revision` répond 403 avant même d'atteindre l'index de
-  // glossaire — la garde est sur la ROUTE de révision, distincte de `leitner.courses.view`.
-  return createUserWith(['leitner.view', 'leitner.courses.view'])
+  // glossaire — la garde est sur la ROUTE de révision, distincte de `corpus.view`.
+  return createUserWith(['leitner.view', 'corpus.view'])
 }
 function writer() {
-  return createUserWith(['leitner.view', 'leitner.courses.view', 'leitner.courses.write'])
+  return createUserWith(['leitner.view', 'corpus.view', 'corpus.write'])
 }
 
 function postCourse(client: any, body: object, user: unknown) {
   return client
-    .post('/revision/cours')
+    .post('/corpus')
     .json(body)
     .header('accept', 'application/json')
     .loginAs(user)
@@ -78,10 +79,7 @@ test.group('Leitner / glossaire — index et contenu (CC-254)', (group) => {
     assert.isFalse(tokens.some((t) => t.sectionId !== null))
   })
 
-  test('sans leitner.courses.view, aucun jeton du recto n’est cliquable', async ({
-    client,
-    assert,
-  }) => {
+  test('sans corpus.view, aucun jeton du recto n’est cliquable', async ({ client, assert }) => {
     const user = await createUserWith(['leitner.view', 'leitner.review'])
     await makeCard('Le protocole TLS est robuste.', { ownerId: user.id })
 
@@ -102,7 +100,7 @@ test.group('Leitner / glossaire — index et contenu (CC-254)', (group) => {
 
     // Remplace : TLS disparaît du markdown, la section devient une pierre tombale.
     await client
-      .put(`/revision/cours/${courseId}`)
+      .put(`/corpus/${courseId}`)
       .json({ markdown: '# DNS\n\nLa résolution de noms.' })
       .header('accept', 'application/json')
       .loginAs(user)
@@ -122,7 +120,7 @@ test.group('Leitner / glossaire — index et contenu (CC-254)', (group) => {
     assert.isFalse(tokens.some((t) => t.sectionId !== null))
   })
 
-  test('GET /cours/sections/:id rend le contenu d’une section visible', async ({
+  test('GET /corpus/sections/:id rend le contenu d’une section visible', async ({
     client,
     assert,
   }) => {
@@ -135,7 +133,7 @@ test.group('Leitner / glossaire — index et contenu (CC-254)', (group) => {
       .firstOrFail()
 
     const response = await client
-      .get(`/revision/cours/sections/${section.id}`)
+      .get(`/corpus/sections/${section.id}`)
       .loginAs(user)
       .header('accept', 'application/json')
     response.assertStatus(200)
@@ -146,7 +144,7 @@ test.group('Leitner / glossaire — index et contenu (CC-254)', (group) => {
     assert.include(body.bodyHtml, 'négocie des clés')
   })
 
-  test('sans leitner.courses.view, la route refuse', async ({ client }) => {
+  test('sans corpus.view, la route refuse', async ({ client }) => {
     const owner = await writer()
     const stranger = await createUserWith(['leitner.review'])
     const created = await postCourse(client, { title: 'Réseaux', markdown: COURSE_MARKDOWN }, owner)
@@ -154,7 +152,7 @@ test.group('Leitner / glossaire — index et contenu (CC-254)', (group) => {
     const section = await LeitnerCourseSection.query().where('course_id', courseId).firstOrFail()
 
     const response = await client
-      .get(`/revision/cours/sections/${section.id}`)
+      .get(`/corpus/sections/${section.id}`)
       .loginAs(stranger)
       .header('accept', 'application/json')
     response.assertStatus(403)
@@ -170,9 +168,47 @@ test.group('Leitner / glossaire — index et contenu (CC-254)', (group) => {
     const section = await LeitnerCourseSection.query().where('course_id', courseId).firstOrFail()
 
     const response = await client
-      .get(`/revision/cours/sections/${section.id}`)
+      .get(`/corpus/sections/${section.id}`)
       .loginAs(stranger)
       .header('accept', 'application/json')
     response.assertStatus(403)
+  })
+})
+
+/**
+ * `/revision` sans le module corpus (CC-275) : même un compte qui porte `corpus.view`
+ * (grant orphelin possible — rien ne le retire automatiquement, voir `capabilities.ts`)
+ * ne doit jamais déclencher une requête SQL vers `leitner_course_sections`, absente.
+ * Patron `enabledModules.delete/add` de `dashboard_scope.spec.ts` (CC-137) — c'est la
+ * seule façon d'éprouver ce chemin sans redémarrer le process, `.env.test` activant tous
+ * les modules connus ensemble par doctrine.
+ */
+test.group('Leitner / révision sans le module corpus (CC-275)', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+  group.each.setup(() => {
+    enabledModules.delete('corpus')
+    return () => {
+      enabledModules.add('corpus')
+    }
+  })
+
+  test('une carte due se rend normalement : recto Markdown intact, aucun jeton cliquable', async ({
+    client,
+    assert,
+  }) => {
+    // `corpus.view` accordée quand même : la garde doit être `isModuleEnabled('corpus')`,
+    // pas seulement l'absence de la capacité — sans quoi ce test passerait par coïncidence.
+    const user = await createUserWith(['leitner.view', 'leitner.review', 'corpus.view'])
+    await makeCard('Le protocole **TLS** est robuste.', { ownerId: user.id })
+
+    const response = await client.get('/revision?scope=all').loginAs(user).withInertia()
+    response.assertStatus(200)
+
+    const props = response.inertiaProps as Record<string, any>
+    const tokens = frontTokens(props.dueCards[0].frontNodes)
+    // Le recto garde son rendu Markdown (CC-276) — seul le soulignement disparaît.
+    assert.isTrue(tokens.some((t) => t.texte === 'TLS'))
+    assert.isFalse(tokens.some((t) => t.sectionId !== null))
+    assert.deepEqual(props.dueCards[0].provenance, [])
   })
 })

@@ -3,7 +3,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerMasteryService from '#modules/leitner/services/leitner_mastery_service'
 import LeitnerStatsService from '#modules/leitner/services/leitner_stats_service'
-import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
+import { applyVisibility } from '#core/shared/services/visibility'
 import { masteredShare, masteredThisMonth } from '#modules/leitner/shared/mastery_inventory'
 
 /**

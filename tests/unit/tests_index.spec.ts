@@ -17,11 +17,13 @@ import { fileURLToPath } from 'node:url'
  * La qualité d'une entrée n'est pas automatisable, et prétendre le contraire serait pire que de
  * ne rien faire.
  *
- * ⚠️ **Seuls les modules qui ont un `TESTS.md` sont couverts** — veille et leitner. `services` et
- * `agents` n'en ont pas, donc `app/modules/services/pages/__tests__/index.spec.ts` n'est indexé
- * nulle part et cette garde ne le dit pas. Étendre la règle à un module sans index reviendrait à
- * exiger d'en créer un : un élargissement à assumer, pas à découvrir au premier rouge. Le jour où
- * un module écrit son `TESTS.md`, il entre seul dans les trois assertions ci-dessous.
+ * ⚠️ **Seuls les modules qui ont un `TESTS.md` sont couverts** — veille, leitner et, depuis
+ * CC-275, corpus. `services` et `agents` n'en ont pas, donc
+ * `app/modules/services/pages/__tests__/index.spec.ts` n'est indexé nulle part et cette garde ne
+ * le dit pas. Étendre la règle à un module sans index reviendrait à exiger d'en créer un : un
+ * élargissement à assumer, pas à découvrir au premier rouge. Le jour où un module écrit son
+ * `TESTS.md`, il entre seul dans les trois assertions ci-dessous — `modulesIndexes()` le
+ * découvre sur le disque, jamais une liste en dur ici.
  *
  * ⚠️ `app/core/**` et `inertia/**` sont hors périmètre pour la même raison, et parce qu'aucune
  * convention de préfixe n'y rattache une spec à quoi que ce soit : les balayer à moitié donnerait
@@ -73,6 +75,10 @@ const SPECS_TRANSVERSES = [
   // l'importer depuis un module détachable (leçon CC-180). La ranger sous un préfixe `leitner_`
   // dirait l'inverse de ce que le lot a décidé.
   'tests/unit/markdown_renderer.spec.ts', // Markdown → HTML assaini, core/shared (CC-133)
+  // ⚠️ Même raison exactement que markdown_renderer.spec.ts juste au-dessus : le lien vers une
+  // section de cours (CC-273) a suivi `course_section_link.ts` dans `core/shared` quand le corpus
+  // s'est détaché de Leitner (CC-275) — deux consommateurs de part et d'autre de la frontière.
+  'tests/unit/course_section_link.spec.ts',
   'tests/unit/modules_config.spec.ts', // MODULES, config/modules.ts (CC-137)
   'tests/unit/tests_index.spec.ts', // ce fichier
   'tests/unit/totp.spec.ts', // le second facteur du noyau (CC-114)

@@ -8,6 +8,7 @@ import AppModal from '~/components/AppModal.vue'
 import {
   Bot,
   Box,
+  BookOpen,
   Layers,
   LayoutDashboard,
   Rss,
@@ -81,6 +82,7 @@ const NAV_ICONS: Record<string, Component> = {
   agents: Bot,
   veille: Rss,
   revision: Layers,
+  corpus: BookOpen,
 }
 
 /**

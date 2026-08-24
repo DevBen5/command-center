@@ -52,6 +52,11 @@ if (modules.has('leitner')) {
   registry.register('leitner', LEITNER_DESTINATIONS)
 }
 
+if (modules.has('corpus')) {
+  const { CORPUS_DESTINATIONS } = await import('#modules/corpus/destinations')
+  registry.register('corpus', CORPUS_DESTINATIONS)
+}
+
 /*
 | ⚠️ **`coffre` est ABSENT de ce fichier, et c'est le rideau — pas un oubli** (CC-178).
 |

@@ -26,7 +26,7 @@ vi.mock('@inertiajs/vue3', () => ({
   usePage: () => mockedPage,
 }))
 
-const FULL_CAPS = { isAdmin: false, capabilities: ['leitner.review', 'leitner.courses.view'] }
+const FULL_CAPS = { isAdmin: false, capabilities: ['leitner.review', 'corpus.view'] }
 const mockedPage: { url: string; props: { user: { isAdmin: boolean; capabilities: string[] } } } = {
   url: '/revision',
   props: { user: { ...FULL_CAPS } },
@@ -141,7 +141,7 @@ describe('Leitner / index — « Je ne sais pas » et « Approfondir » (CC-252)
     expect(router.post).not.toHaveBeenCalled()
   })
 
-  test('masquée sans `leitner.courses.view`, « Approfondir » n’apparaît pas — même après « Je ne sais pas »', async () => {
+  test('masquée sans `corpus.view`, « Approfondir » n’apparaît pas — même après « Je ne sais pas »', async () => {
     mockedPage.props.user = { isAdmin: false, capabilities: ['leitner.review'] }
     const wrapper = mountIndex()
 
@@ -233,7 +233,7 @@ describe('Leitner / index — « Je ne sais pas » et « Approfondir » (CC-252)
     await flushPromises()
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      '/revision/cours/sections/42',
+      '/corpus/sections/42',
       expect.objectContaining({ headers: { accept: 'application/json' } })
     )
     expect(wrapper.text()).toContain('Le protocole négocie des clés.')
@@ -362,7 +362,7 @@ describe('Leitner / index — provenance en modale (CC-274)', () => {
     await flushPromises()
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      '/revision/cours/sections/100',
+      '/corpus/sections/100',
       expect.objectContaining({ headers: { accept: 'application/json' } })
     )
     expect(wrapper.text()).toContain('Les verbes du protocole.')
@@ -421,7 +421,7 @@ describe('Leitner / index — mots-clés du recto (CC-254, CC-276)', () => {
 
   function fetchMock(): ReturnType<typeof vi.fn> {
     return vi.fn(async (url: string) => {
-      if (url.includes('/cours/sections/')) {
+      if (url.includes('/corpus/sections/')) {
         return {
           ok: true,
           json: async () => ({
@@ -473,7 +473,7 @@ describe('Leitner / index — mots-clés du recto (CC-254, CC-276)', () => {
     await flushPromises()
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      '/revision/cours/sections/7',
+      '/corpus/sections/7',
       expect.objectContaining({ headers: { accept: 'application/json' } })
     )
     expect(wrapper.text()).toContain('Le protocole TLS négocie des clés.')

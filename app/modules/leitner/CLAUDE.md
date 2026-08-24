@@ -1890,7 +1890,23 @@ erreurs flashées au lieu d'un 422.
 
 ## Le corpus de cours (CC-251)
 
-Cinq écrans devient **six** : `/revision/cours` (liste + ajout) et `/revision/cours/:id`
+⚠️ **Périmé depuis CC-275 (2026-08-24) sur un point structurel : le corpus a quitté ce module.**
+Tables, modèles, services, contrôleur, pages et validateurs vivent désormais dans
+`app/modules/corpus/` — module détachable **séparé**, avec son propre `capabilities.ts`
+(`corpus.view`/`corpus.write`, remplaçant `leitner.courses.view`/`.write`) et sa propre
+destination top-level (`/corpus`, hors de `LeitnerTabs`). Les URLs et noms de capacité
+ci-dessous ont été corrigés pour rester exacts, mais **cette section entière décrit un
+découpage de fichiers qui n'est plus le bon** — elle documente encore ce que fait le corpus,
+pas où il vit ni comment il coexiste avec Leitner quand l'un des deux est absent. Ce qui reste
+réellement côté Leitner après l'extraction : la table `leitner_card_sections` (le lien
+carte↔section, FK molle vers `leitner_course_sections`), la colonne
+`leitner_ingestions.leitner_course_id` (FK molle vers `leitner_courses`), le composant
+`CourseSectionView.vue`, et `shared/glossary_highlight.ts` — voir le `CLAUDE.md` racine,
+section « Distribution », et `app/modules/corpus/TESTS.md`. **Une réécriture complète de
+cette section, scindée entre les deux modules, reste à faire** — non tentée dans ce lot faute
+de budget, signalée plutôt que laissée fausse en silence.
+
+Cinq écrans devient **six** : `/corpus` (liste + ajout) et `/corpus/:id`
 (consultation, remplacement, suppression). Deux tables neuves, `leitner_courses` (le markdown
 source, `owner_id`/`is_shared` comme les autres tables de **contenu**) et
 `leitner_course_sections` (le découpage, **sans** `owner_id`/`is_shared` — sa visibilité se
@@ -1902,7 +1918,7 @@ fichier en texte ; le formulaire poste toujours `markdown` en JSON, exactement c
 de l'ingestion : c'est le client qui annonce l'origine, le dégât est cosmétique.
 
 ⚠️ **Toute route qui porte du markdown en corps de requête rend du JSON nu, jamais une
-redirection Inertia classique** (`POST /cours`, `POST /cours/conflict`, `PUT /cours/:id`).
+redirection Inertia classique** (`POST /corpus`, `POST /corpus/conflict`, `PUT /corpus/:id`).
 Raison : le store de session est `cookie` (CC-78), et un échec de validation flasherait le
 markdown entier dedans à la racine du bagage — la faille que CC-179 a fermée sur le coffre,
 rejouée ici sur un contenu potentiellement long. `destroy`/`purge`, qui ne portent aucun texte,
@@ -1968,7 +1984,7 @@ dépôt, ici comme ailleurs.
 
 ### Capacités et navigation
 
-`leitner.courses.view` / `leitner.courses.write` (`capabilities.ts`) — **aucune ligne
+`corpus.view` / `corpus.write` (`capabilities.ts`) — **aucune ligne
 supplémentaire dans `start/capabilities.ts`**, qui importe tout le tableau `LEITNER_CAPABILITIES`
 d'un coup ; seule la déclaration locale suffit. Sixième onglet de `LeitnerTabs.vue`, entre
 Ingestion et Configuration.
@@ -2089,10 +2105,10 @@ actuel.
 
 ⚠️ **Gate SERVEUR, pas seulement client — sur `LeitnerController#index` ET
 `LeitnerSettingsController#index`.** `provenance` porte le corps d'une section du corpus, exactement
-ce que `GET /:id/course-search` protège par `leitner.courses.view` ; la peupler sans vérifier la
+ce que `GET /:id/course-search` protège par `corpus.view` ; la peupler sans vérifier la
 capacité enverrait ce contenu dans les props Inertia à quiconque a seulement `leitner.view`, que le
 panneau soit affiché ou masqué côté client. Les deux contrôleurs appellent
-`capabilityService.allows(auth.user!, 'leitner.courses.view')` avant de construire quoi que ce
+`capabilityService.allows(auth.user!, 'corpus.view')` avant de construire quoi que ce
 soit — masquer un `<select>` ou un panneau n'est jamais la garde, ici comme partout ailleurs.
 
 ⚠️ **Filtré par la visibilité du COURS du lien, pas de la carte** — `provenanceSectionsFor` et
@@ -2130,14 +2146,14 @@ exactement ce qui a laissé passer CC-51.
 ## Le lien vers la section du cours (CC-273)
 
 Provenance (CC-253) et Approfondir (CC-252) affichaient le corps de section **en HTML inline
-seulement**, sans jamais pointer vers `/revision/cours/:id`. Ce lot ajoute un lien « Voir dans le
+seulement**, sans jamais pointer vers `/corpus/:id`. Ce lot ajoute un lien « Voir dans le
 cours » — l'aperçu inline **reste**, le lien s'ajoute, il ne le remplace pas.
 
 ⚠️ **Ancre par `id`, jamais par `slug`.** Le slug est un chemin de titres (`string(300)`, accents et
 espaces compris) qui **change** si l'auteur renomme un titre : un lien resterait syntaxiquement
 valide mais pointerait sur une ancre disparue. L'`id` est stable et déjà porté par les deux charges
 utiles (`provenanceSectionsFor`, `searchCourseSections`) — `shared/course_section_link.ts`
-(`courseSectionHref`, `sectionAnchorId`) est l'unique endroit qui construit `href="/revision/cours/
+(`courseSectionHref`, `sectionAnchorId`) est l'unique endroit qui construit `href="/corpus/
 <courseId>#section-<id>"`, consommé par `CourseSectionView.vue` — **le seul point de rendu des deux
 panneaux** (CC-253 § « un contenu, deux châssis »), donc le lien s'applique aux deux d'un geste.
 
@@ -2244,9 +2260,9 @@ d'élément `script` (`tests/unit/leitner_front_html.spec.ts`) ; côté page, si
 tombées exclues** (`whereNull('obsolete_at')`) — la révision teste le vocabulaire du cours ACTUEL,
 pas ce que l'auteur a retiré. Servi par `LeitnerController#index` dans la branche `session`
 seulement, gardé par `canViewCourses` (déjà calculé pour la provenance) : `[]` sans
-`leitner.courses.view`.
+`corpus.view`.
 
-`GET /cours/sections/:id` (`LeitnerCourseController#sectionContent`) rend le contenu d'UNE
+`GET /corpus/sections/:id` (`LeitnerCourseController#sectionContent`) rend le contenu d'UNE
 section — GET, pas de jeton CSRF, visibilité vérifiée sur le cours parent
 (`assertVisibleOrAdmin`). ⚠️ **Masquer n'est pas fermer, les deux, comme partout ailleurs** :
 l'index vide empêche tout soulignement **et** la route refuse indépendamment, testé séparément.
@@ -2314,7 +2330,7 @@ message « Rien trouvé… » existant (`coursePanel.empty`), qui répond à un 
 recherche — cas différent, pas retouché.
 
 `provenance` (`LeitnerController#index`) et la réponse de `courseSearch` ne portent plus `bodyHtml`
-— le contenu se charge au clic via `GET /revision/cours/sections/:id` (posée par CC-254). Aucun
+— le contenu se charge au clic via `GET /corpus/sections/:id` (posée par CC-254). Aucun
 bump de format n'est en jeu : ces deux payloads ne sont pas l'export JSON.
 
 ## Pièges techniques

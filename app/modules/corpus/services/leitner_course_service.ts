@@ -1,12 +1,13 @@
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
-import LeitnerCourse, { type CourseSource } from '#modules/leitner/models/leitner_course'
-import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section'
+import { isModuleEnabled } from '#config/modules'
+import LeitnerCourse, { type CourseSource } from '#modules/corpus/models/leitner_course'
+import LeitnerCourseSection from '#modules/corpus/models/leitner_course_section'
 import {
   hashCourseMarkdown,
   splitCourseIntoSections,
-} from '#modules/leitner/services/leitner_course_sections'
+} from '#modules/corpus/services/leitner_course_sections'
 
 /**
  * Le corpus de cours (CC-251) : dédup à deux détections, remplacement avec pierres
@@ -239,18 +240,58 @@ export default class LeitnerCourseService {
     })
   }
 
-  /** Cascade réelle sur les sections — aucune carte de provenance n'existe encore. */
+  /**
+   * Cascade réelle sur les sections (même module, FK CASCADE intacte). Le ménage sur
+   * `leitner_card_sections`/`leitner_ingestions.leitner_course_id` (CC-275) est explicite
+   * ici : depuis l'extraction du corpus en module détachable, ces deux colonnes portent
+   * des références MOLLES vers `leitner_courses`/`leitner_course_sections` — plus de FK
+   * cross-module, donc plus de CASCADE/SET NULL automatique côté Postgres. SQL brut
+   * paramétré, jamais un import de modèle Leitner : seul le nom de table traverse la
+   * frontière, gardé par `isModuleEnabled('leitner')` comme le reste des points de
+   * couplage hors module (voir `admin_users_controller.ts`).
+   */
   async destroy(courseId: number): Promise<void> {
-    const course = await LeitnerCourse.findOrFail(courseId)
-    await course.delete()
+    await db.transaction(async (trx) => {
+      if (isModuleEnabled('leitner')) {
+        await trx.rawQuery(
+          `delete from leitner_card_sections where leitner_course_section_id in (
+             select id from leitner_course_sections where course_id = ?
+           )`,
+          [courseId]
+        )
+        await trx.rawQuery(
+          'update leitner_ingestions set leitner_course_id = null where leitner_course_id = ?',
+          [courseId]
+        )
+      }
+
+      const course = await LeitnerCourse.findOrFail(courseId, { client: trx })
+      await course.useTransaction(trx).delete()
+    })
   }
 
-  /** Geste manuel : supprime physiquement les pierres tombales d'un cours. */
+  /**
+   * Geste manuel : supprime physiquement les pierres tombales d'un cours. Même ménage
+   * que `destroy` sur `leitner_card_sections` — une section purgée physiquement ne doit
+   * pas laisser de lien fantôme derrière elle (`leitner_ingestions` n'est jamais concerné
+   * ici : le lien qu'il porte est au niveau du COURS, pas de la section).
+   */
   async purgeTombstones(courseId: number): Promise<number> {
-    return LeitnerCourseSection.query()
-      .where('course_id', courseId)
-      .whereNotNull('obsolete_at')
-      .delete()
-      .then((result) => Number(result[0] ?? 0))
+    return db.transaction(async (trx) => {
+      if (isModuleEnabled('leitner')) {
+        await trx.rawQuery(
+          `delete from leitner_card_sections where leitner_course_section_id in (
+             select id from leitner_course_sections where course_id = ? and obsolete_at is not null
+           )`,
+          [courseId]
+        )
+      }
+
+      const result = await LeitnerCourseSection.query({ client: trx })
+        .where('course_id', courseId)
+        .whereNotNull('obsolete_at')
+        .delete()
+      return Number(result[0] ?? 0)
+    })
   }
 }

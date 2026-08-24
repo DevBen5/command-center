@@ -8,7 +8,7 @@ import {
   selectWithBox,
   whereMastered,
 } from '#modules/leitner/services/leitner_progress'
-import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
+import { applyVisibility } from '#core/shared/services/visibility'
 import { UNCLASSIFIED_LABEL } from '#modules/leitner/services/leitner_weakness'
 import type { MasteredCard } from '#modules/leitner/shared/mastery_inventory'
 
