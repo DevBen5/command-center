@@ -36,6 +36,11 @@ if (modules.has('leitner')) {
   registry.register('leitner', LEITNER_CAPABILITIES)
 }
 
+if (modules.has('corpus')) {
+  const { CORPUS_CAPABILITIES } = await import('#modules/corpus/capabilities')
+  registry.register('corpus', CORPUS_CAPABILITIES)
+}
+
 // ⚠️ **Le coffre enregistre bien ses capacités** (CC-178), contrairement à ce qu'on pourrait
 // déduire de son absence de `start/navigation.ts` : le rideau ne concerne que la **navigation**.
 // Sans cette ligne, ses routes citeraient des capacités inconnues du registre — donc fermées à

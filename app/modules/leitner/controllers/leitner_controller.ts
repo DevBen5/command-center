@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import type { HttpContext } from '@adonisjs/core/http'
 import capabilityService from '#core/auth/services/capability_service'
 import { renderMarkdown } from '#core/shared/services/markdown_renderer'
+import { isModuleEnabled } from '#config/modules'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
@@ -10,10 +11,10 @@ import {
   provenanceSectionsFor,
   type ProvenanceSection,
 } from '#modules/leitner/services/leitner_card_sections_service'
-import { searchCourseSections } from '#modules/leitner/services/leitner_course_search_service'
+import { searchCourseSections } from '#modules/corpus/services/leitner_course_search_service'
 import LeitnerFluencyService from '#modules/leitner/services/leitner_fluency_service'
 import { tokenizeFrontHtml } from '#modules/leitner/services/leitner_front_html'
-import { glossaryIndex } from '#modules/leitner/services/leitner_glossary_service'
+import { glossaryIndex } from '#modules/corpus/services/leitner_glossary_service'
 import { gradeOutcomes } from '#modules/leitner/services/leitner_grade_outcomes'
 import LeitnerJudgeService from '#modules/leitner/services/leitner_judge_service'
 import LeitnerMasteryService from '#modules/leitner/services/leitner_mastery_service'
@@ -22,7 +23,7 @@ import LeitnerService, {
   type ScopeInput,
   type ScopeRefusal,
 } from '#modules/leitner/services/leitner_service'
-import { applyVisibility, assertVisibleOrAdmin } from '#modules/leitner/services/leitner_visibility'
+import { applyVisibility, assertVisibleOrAdmin } from '#core/shared/services/visibility'
 import { courseSearchQuery } from '#modules/leitner/shared/course_search'
 import {
   maintenanceDueCount,
@@ -162,11 +163,19 @@ export default class LeitnerController {
     const now = DateTime.now()
 
     // ⚠️ **Gate SERVEUR, pas seulement client** (CC-253) : `provenance` porte le corps
-    // d'une section du corpus, exactement ce que `GET /:id/course-search` protège par
-    // `leitner.courses.view`. La peupler sans vérifier la capacité enverrait ce contenu
-    // dans les props Inertia à quiconque a seulement `leitner.view` — masquer le panneau
-    // côté client ne fermerait rien, comme partout ailleurs dans ce module.
-    const canViewCourses = await capabilityService.allows(auth.user!, 'leitner.courses.view')
+    // d'une section du corpus, exactement ce que `GET /corpus/:id/sections/...` protège
+    // par `corpus.view`. La peupler sans vérifier la capacité enverrait ce contenu dans
+    // les props Inertia à quiconque a seulement `leitner.view` — masquer le panneau côté
+    // client ne fermerait rien, comme partout ailleurs dans ce module.
+    //
+    // ⚠️ **`isModuleEnabled('corpus')` en plus de la capacité, depuis CC-275** — ce
+    // n'était pas nécessaire avant : une capacité absente du registre suffisait par
+    // coïncidence (module toujours présent dans le même dépôt que Leitner). Depuis que
+    // corpus est un module détachable séparé, un rôle pourrait porter `corpus.view` sans
+    // que le module soit installé — sans cette garde, l'appel plus bas tomberait en SQL
+    // sur une table absente plutôt que de répondre par un panneau vide.
+    const canViewCourses =
+      isModuleEnabled('corpus') && (await capabilityService.allows(auth.user!, 'corpus.view'))
     const provenance = canViewCourses
       ? await provenanceSectionsFor(
           dueCards.map((card) => card.id),
@@ -206,14 +215,14 @@ export default class LeitnerController {
           backHtml: renderMarkdown(card.back),
           // ⚠️ **Le recto rendu ET souligné (CC-276)** : un reparcours du MÊME `frontHtml`
           // (jamais un second `renderMarkdown`), qui tokenise ses nœuds de texte contre le
-          // glossaire — `[]` sans `leitner.courses.view`, comme avant. La page rejoue cet
+          // glossaire — `[]` sans `corpus.view`, comme avant. La page rejoue cet
           // arbre en éléments Vue réels, jamais en `v-html` (`services/leitner_front_html.ts`).
           frontNodes: tokenizeFrontHtml(frontHtml, glossary),
           // Le lien explicite de provenance (CC-253), rendu avant les résultats de
           // recherche du panneau « Approfondir » — `[]` si la capacité manque, si la carte
           // n'a aucun lien, ou si son(ses) cours restent invisibles de cette personne.
           // ⚠️ Ne porte plus `bodyHtml` depuis CC-274 : le contenu se charge au clic, via
-          // `GET /revision/cours/sections/:id`, dans la modale partagée avec le glossaire.
+          // `GET /corpus/sections/:id`, dans la modale partagée avec le glossaire.
           provenance: (provenance.get(card.id) ?? []).map((section) => ({
             id: section.id,
             courseId: section.courseId,
@@ -361,7 +370,7 @@ export default class LeitnerController {
    * par recherche plein texte Postgres — instantané, aucun LLM, aucune écriture.
    *
    * ⚠️ **`assertVisibleOrAdmin` sur la CARTE, même garde que `judge()`/`review()`** : la
-   * capacité `leitner.courses.view` ouvre la route, mais rien n'empêcherait sinon de
+   * capacité `corpus.view` ouvre la route, mais rien n'empêcherait sinon de
    * sonder le contenu d'une carte privée d'un autre compte par son id — la requête FTS
    * elle-même est construite depuis `card.front`, jamais reçu du client.
    *

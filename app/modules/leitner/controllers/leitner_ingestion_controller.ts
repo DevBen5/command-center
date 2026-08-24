@@ -1,10 +1,11 @@
 import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
 import { renderMarkdown } from '#core/shared/services/markdown_renderer'
+import { isModuleEnabled } from '#config/modules'
 import LeitnerDraftCard from '#modules/leitner/models/leitner_draft_card'
 import LeitnerIngestion from '#modules/leitner/models/leitner_ingestion'
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
-import LeitnerCourseService from '#modules/leitner/services/leitner_course_service'
+import LeitnerCourseService from '#modules/corpus/services/leitner_course_service'
 import LeitnerIngestionService, {
   MAX_COURSE_CHARS,
   deduceTitle,
@@ -16,7 +17,7 @@ import {
   applyVisibility,
   assertVisibleOrAdmin,
   assertOwnedOrAdmin,
-} from '#modules/leitner/services/leitner_visibility'
+} from '#core/shared/services/visibility'
 import {
   cardPreviewValidator,
   courseIngestionValidator,
@@ -93,6 +94,11 @@ export default class LeitnerIngestionController {
       ingestions: rows,
       maxChars: MAX_COURSE_CHARS,
       titleMaxChars: TITLE_MAX_CHARS,
+      // ⚠️ CC-275 : la case « conserver ce cours » n'a de sens que si le module corpus,
+      // détachable séparément de Leitner, est actif — masquer côté client ne suffit pas
+      // (voir le garde serveur plus bas), mais évite de proposer une case cochable qui
+      // ne ferait rien.
+      corpusAvailable: isModuleEnabled('corpus'),
       // Retours de la dernière action, flashés avant la redirection : Inertia ne
       // partage automatiquement que les erreurs de validation.
       ingestErrors: session.flashMessages.get('ingestErrors') ?? null,
@@ -206,8 +212,13 @@ export default class LeitnerIngestionController {
     // « Conserver ce cours » (CC-251) : le cours est créé AVANT le lancement du LLM,
     // pour qu'une ingestion `failed` laisse le cours intact. Aucun dialogue de conflit
     // n'est possible ici (flux asynchrone) — voir `LeitnerCourseService.createOrAttachSilently`.
+    // ⚠️ `isModuleEnabled('corpus')` en plus du drapeau du formulaire (CC-275) : sans
+    // corpus, `LeitnerCourseService` écrirait dans une table absente. Le formulaire ne
+    // propose plus la case à cocher dans ce cas (voir `ingest.vue`) ; côté serveur, un
+    // `saveCourse: true` reçu quand même (formulaire resté ouvert, `curl` délibéré) est
+    // ignoré — l'ingestion continue sans cours conservé, jamais une 500.
     let leitnerCourseId: number | null = null
-    if (payload.saveCourse) {
+    if (payload.saveCourse && isModuleEnabled('corpus')) {
       const course = await this.courses.createOrAttachSilently(auth.user!.id, {
         title,
         markdown: text,

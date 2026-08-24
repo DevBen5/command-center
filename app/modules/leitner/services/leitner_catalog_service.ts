@@ -4,7 +4,7 @@ import LeitnerCategory from '#modules/leitner/models/leitner_category'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 import { joinProgress, selectWithBox, whereBox } from '#modules/leitner/services/leitner_progress'
 import { ALL_CARDS, applyScope, type CardScope } from '#modules/leitner/services/leitner_scope'
-import { applyVisibility, assertOwnedOrAdmin } from '#modules/leitner/services/leitner_visibility'
+import { applyVisibility, assertOwnedOrAdmin } from '#core/shared/services/visibility'
 
 export interface CardFilters {
   search?: string

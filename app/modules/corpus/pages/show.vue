@@ -4,10 +4,9 @@ import { useI18n } from 'vue-i18n'
 import { Head, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import ConfirmModal from '~/components/ConfirmModal.vue'
-import LeitnerTabs from '../components/LeitnerTabs.vue'
-import { useCan } from '../components/leitner_can'
-import { xsrfToken } from '../components/leitner_csrf'
-import { sectionAnchorId } from '../shared/course_section_link'
+import { useCan } from '../shared/can'
+import { xsrfToken } from '../shared/csrf'
+import { sectionAnchorId } from '../../../core/shared/services/course_section_link'
 
 defineOptions({ layout: AppLayout })
 
@@ -65,7 +64,7 @@ async function saveReplace(): Promise<void> {
   saveError.value = null
 
   try {
-    const response = await fetch(`/revision/cours/${props.course.id}`, {
+    const response = await fetch(`/corpus/${props.course.id}`, {
       method: 'PUT',
       headers: {
         'content-type': 'application/json',
@@ -77,7 +76,7 @@ async function saveReplace(): Promise<void> {
     const payload = (await response.json().catch(() => null)) as { error?: string } | null
 
     if (!response.ok) {
-      saveError.value = payload?.error ?? t('leitner.coursShow.errors.serverStatus', { status: response.status })
+      saveError.value = payload?.error ?? t('corpus.coursShow.errors.serverStatus', { status: response.status })
       return
     }
 
@@ -92,17 +91,17 @@ async function saveReplace(): Promise<void> {
 
 async function destroyCourse(): Promise<void> {
   const confirmed = await confirmModal.value?.ask(
-    t('leitner.coursShow.confirmDelete', { title: props.course.title }),
+    t('corpus.coursShow.confirmDelete', { title: props.course.title }),
     { danger: true }
   )
   if (!confirmed) return
-  router.delete(`/revision/cours/${props.course.id}`)
+  router.delete(`/corpus/${props.course.id}`)
 }
 
 async function purgeTombstones(): Promise<void> {
-  const confirmed = await confirmModal.value?.ask(t('leitner.coursShow.confirmPurge'), { danger: true })
+  const confirmed = await confirmModal.value?.ask(t('corpus.coursShow.confirmPurge'), { danger: true })
   if (!confirmed) return
-  router.post(`/revision/cours/${props.course.id}/purge`)
+  router.post(`/corpus/${props.course.id}/purge`)
 }
 
 /*
@@ -125,13 +124,11 @@ onMounted(async () => {
 <template>
   <Head :title="course.title" />
 
-  <LeitnerTabs />
-
   <div class="mb-4 flex items-start justify-between gap-3">
     <div>
       <div class="text-[18px] font-bold">{{ course.title }}</div>
       <div v-if="!course.mine" class="text-[11.5px] text-txt-3">
-        {{ t('leitner.coursShow.notMineHint') }}
+        {{ t('corpus.coursShow.notMineHint') }}
       </div>
     </div>
     <div v-if="canWrite" class="flex shrink-0 items-center gap-2">
@@ -141,21 +138,21 @@ onMounted(async () => {
         class="rounded-[10px] border border-line-2 bg-panel-2 px-3 py-1.5 text-[12px] transition hover:border-accent"
         @click="purgeTombstones"
       >
-        {{ t('leitner.coursShow.purgeTombstones') }}
+        {{ t('corpus.coursShow.purgeTombstones') }}
       </button>
       <button
         type="button"
         class="rounded-[10px] border border-line-2 bg-panel-2 px-3 py-1.5 text-[12px] transition hover:border-accent"
         @click="startEdit"
       >
-        {{ t('leitner.coursShow.replace') }}
+        {{ t('corpus.coursShow.replace') }}
       </button>
       <button
         type="button"
         class="rounded-[10px] border border-bad px-3 py-1.5 text-[12px] text-bad transition hover:bg-bad hover:text-white"
         @click="destroyCourse"
       >
-        {{ t('leitner.coursShow.delete') }}
+        {{ t('corpus.coursShow.delete') }}
       </button>
     </div>
   </div>
@@ -163,7 +160,7 @@ onMounted(async () => {
   <!-- Remplacement du contenu -->
   <div v-if="editing" class="mb-4 rounded-[14px] border border-line bg-panel p-4">
     <div class="mb-2 text-[11px] tracking-[.1em] text-txt-3 uppercase">
-      {{ t('leitner.coursShow.replace') }}
+      {{ t('corpus.coursShow.replace') }}
     </div>
     <textarea
       v-model="editableMarkdown"
@@ -178,14 +175,14 @@ onMounted(async () => {
         :disabled="saving || !editableMarkdown.trim()"
         @click="saveReplace"
       >
-        {{ saving ? t('leitner.coursShow.saving') : t('leitner.coursShow.save') }}
+        {{ saving ? t('corpus.coursShow.saving') : t('corpus.coursShow.save') }}
       </button>
       <button
         type="button"
         class="rounded-[10px] border border-line-2 bg-panel-2 px-3.5 py-2 text-[12.5px] transition hover:border-accent"
         @click="editing = false"
       >
-        {{ t('leitner.coursShow.cancel') }}
+        {{ t('corpus.coursShow.cancel') }}
       </button>
     </div>
   </div>
@@ -200,12 +197,12 @@ onMounted(async () => {
       :class="section.obsoleteAt ? 'border-line bg-panel/60 opacity-60' : 'border-line bg-panel'"
     >
       <div class="mb-1 flex items-center gap-2 text-[11px] text-txt-3">
-        <span>{{ section.headingPath.length ? section.headingPath.join(' › ') : t('leitner.coursShow.introduction') }}</span>
+        <span>{{ section.headingPath.length ? section.headingPath.join(' › ') : t('corpus.coursShow.introduction') }}</span>
         <span v-if="section.obsoleteAt" class="rounded-md border border-line px-1.5 py-0.5 text-warn">
-          {{ t('leitner.coursShow.obsolete') }}
+          {{ t('corpus.coursShow.obsolete') }}
         </span>
         <span v-if="section.aliases?.length" class="rounded-md border border-line px-1.5 py-0.5">
-          {{ t('leitner.coursShow.glossary') }} · {{ section.aliases.join(', ') }}
+          {{ t('corpus.coursShow.glossary') }} · {{ section.aliases.join(', ') }}
         </span>
       </div>
       <!-- Le HTML vient de `renderMarkdown`, côté serveur — jamais construit ici. -->
@@ -213,7 +210,7 @@ onMounted(async () => {
     </div>
 
     <p v-if="!sections.length" class="text-[11.5px] text-txt-3">
-      {{ t('leitner.coursShow.empty') }}
+      {{ t('corpus.coursShow.empty') }}
     </p>
   </div>
 

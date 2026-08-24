@@ -4,8 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { Head, Link, router } from '@inertiajs/vue3'
 import AppLayout from '~/layouts/AppLayout.vue'
 import CourseConflictDialog from '../components/CourseConflictDialog.vue'
-import LeitnerTabs from '../components/LeitnerTabs.vue'
-import { xsrfToken } from '../components/leitner_csrf'
+import { xsrfToken } from '../shared/csrf'
 
 defineOptions({ layout: AppLayout })
 
@@ -25,9 +24,9 @@ interface Course {
 const props = defineProps<{ courses: Course[] }>()
 
 const SOURCE_LABELS = computed<Record<Source, string>>(() => ({
-  paste: t('leitner.cours.source.paste'),
-  file: t('leitner.cours.source.file'),
-  ingest: t('leitner.cours.source.ingest'),
+  paste: t('corpus.cours.source.paste'),
+  file: t('corpus.cours.source.file'),
+  ingest: t('corpus.cours.source.ingest'),
 }))
 
 function formatDate(iso: string): string {
@@ -101,7 +100,7 @@ async function submitCourse(): Promise<void> {
   submitError.value = null
 
   try {
-    const response = await postJson('/revision/cours', {
+    const response = await postJson('/corpus', {
       title: title.value.trim(),
       markdown: markdown.value,
       source: source.value,
@@ -114,7 +113,7 @@ async function submitCourse(): Promise<void> {
     } | null
 
     if (!response.ok) {
-      submitError.value = payload?.error ?? t('leitner.cours.errors.serverStatus', { status: response.status })
+      submitError.value = payload?.error ?? t('corpus.cours.errors.serverStatus', { status: response.status })
       return
     }
 
@@ -123,7 +122,7 @@ async function submitCourse(): Promise<void> {
       return
     }
 
-    if (payload?.course) router.visit(`/revision/cours/${payload.course.id}`)
+    if (payload?.course) router.visit(`/corpus/${payload.course.id}`)
   } finally {
     submitting.value = false
   }
@@ -139,7 +138,7 @@ async function resolveConflict(resolution: 'replace' | 'createSecond' | 'cancel'
 
   submitting.value = true
   try {
-    const response = await postJson('/revision/cours/conflict', {
+    const response = await postJson('/corpus/conflict', {
       existingId: conflict.value.existingId,
       resolution,
       title: title.value.trim(),
@@ -153,12 +152,12 @@ async function resolveConflict(resolution: 'replace' | 'createSecond' | 'cancel'
     } | null
 
     if (!response.ok) {
-      submitError.value = payload?.error ?? t('leitner.cours.errors.serverStatus', { status: response.status })
+      submitError.value = payload?.error ?? t('corpus.cours.errors.serverStatus', { status: response.status })
       return
     }
 
     conflict.value = null
-    if (payload?.course) router.visit(`/revision/cours/${payload.course.id}`)
+    if (payload?.course) router.visit(`/corpus/${payload.course.id}`)
   } finally {
     submitting.value = false
   }
@@ -166,18 +165,16 @@ async function resolveConflict(resolution: 'replace' | 'createSecond' | 'cancel'
 
 function openCourse(event: MouseEvent, id: number): void {
   if ((event.target as HTMLElement).closest('a')) return
-  router.get(`/revision/cours/${id}`)
+  router.get(`/corpus/${id}`)
 }
 </script>
 
 <template>
-  <Head :title="t('leitner.cours.title')" />
-
-  <LeitnerTabs />
+  <Head :title="t('corpus.cours.title')" />
 
   <div class="mb-4">
-    <div class="text-[18px] font-bold">{{ t('leitner.cours.title') }}</div>
-    <div class="text-[12.5px] text-txt-2">{{ t('leitner.cours.intro') }}</div>
+    <div class="text-[18px] font-bold">{{ t('corpus.cours.title') }}</div>
+    <div class="text-[12.5px] text-txt-2">{{ t('corpus.cours.intro') }}</div>
   </div>
 
   <div class="grid grid-cols-[1fr_360px] items-start gap-4">
@@ -186,7 +183,7 @@ function openCourse(event: MouseEvent, id: number): void {
       @submit.prevent="submitCourse"
     >
       <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase" for="course-title">
-        {{ t('leitner.cours.form.titleLabel') }}
+        {{ t('corpus.cours.form.titleLabel') }}
       </label>
       <input
         id="course-title"
@@ -196,7 +193,7 @@ function openCourse(event: MouseEvent, id: number): void {
 
       <div class="mt-2 flex items-center gap-2">
         <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase" for="course-markdown">
-          {{ t('leitner.cours.form.markdownLabel') }}
+          {{ t('corpus.cours.form.markdownLabel') }}
         </label>
         <button
           v-if="source === 'file'"
@@ -204,19 +201,19 @@ function openCourse(event: MouseEvent, id: number): void {
           class="text-[11px] text-txt-3 transition hover:text-accent"
           @click="clearFile"
         >
-          {{ t('leitner.cours.form.clear') }}
+          {{ t('corpus.cours.form.clear') }}
         </button>
       </div>
       <textarea
         id="course-markdown"
         v-model="markdown"
         rows="12"
-        :placeholder="t('leitner.cours.form.markdownPlaceholder')"
+        :placeholder="t('corpus.cours.form.markdownPlaceholder')"
         class="resize-y rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] outline-none focus:border-accent"
       />
 
       <div class="flex items-center gap-3">
-        <span class="ml-auto text-[11.5px] text-txt-3">{{ t('leitner.cours.form.fileHint') }}</span>
+        <span class="ml-auto text-[11.5px] text-txt-3">{{ t('corpus.cours.form.fileHint') }}</span>
         <input
           ref="fileInput"
           type="file"
@@ -233,17 +230,17 @@ function openCourse(event: MouseEvent, id: number): void {
         class="mt-1 self-start rounded-[10px] border border-accent bg-accent px-3.5 py-2 text-[12.5px] text-white transition hover:opacity-90 disabled:opacity-50"
         :disabled="!canSubmit"
       >
-        {{ submitting ? t('leitner.cours.form.submitting') : t('leitner.cours.form.submit') }}
+        {{ submitting ? t('corpus.cours.form.submitting') : t('corpus.cours.form.submit') }}
       </button>
     </form>
 
     <div class="rounded-[14px] border border-line bg-panel p-4">
       <div class="mb-2 text-[11px] tracking-[.1em] text-txt-3 uppercase">
-        {{ t('leitner.cours.list.title') }}
+        {{ t('corpus.cours.list.title') }}
       </div>
 
       <p v-if="!props.courses.length" class="text-[11.5px] text-txt-3">
-        {{ t('leitner.cours.list.empty') }}
+        {{ t('corpus.cours.list.empty') }}
       </p>
 
       <div
@@ -252,14 +249,14 @@ function openCourse(event: MouseEvent, id: number): void {
         class="mt-1 cursor-pointer rounded-md border border-line bg-panel-2 px-2.5 py-2 transition hover:border-accent"
         @click="openCourse($event, course.id)"
       >
-        <Link :href="`/revision/cours/${course.id}`" class="text-[12.5px] font-medium hover:text-accent">
+        <Link :href="`/corpus/${course.id}`" class="text-[12.5px] font-medium hover:text-accent">
           {{ course.title }}
         </Link>
         <div class="mt-1 flex items-center gap-2 text-[11px] text-txt-3">
           <span class="rounded-md border border-line px-1.5 py-0.5">
             {{ SOURCE_LABELS[course.source] }}
           </span>
-          <span v-if="course.isShared" class="text-ok">{{ t('leitner.cours.list.shared') }}</span>
+          <span v-if="course.isShared" class="text-ok">{{ t('corpus.cours.list.shared') }}</span>
           <span class="ml-auto">{{ formatDate(course.createdAt) }}</span>
         </div>
       </div>

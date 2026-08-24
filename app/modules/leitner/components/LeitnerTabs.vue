@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { Link, usePage } from '@inertiajs/vue3'
 import { useCan } from './leitner_can'
 
-// Les six écrans du module, en une barre unique. Chaque onglet porte la capacité qui
+// Les cinq écrans du module, en une barre unique. Chaque onglet porte la capacité qui
 // ouvre son écran : un invité en lecture seule ne voit ni Ingestion ni Configuration —
 // il naviguerait sinon vers un refus (CC-72).
 //
@@ -13,12 +13,16 @@ import { useCan } from './leitner_can'
 //
 // ⚠️ L'onglet actif se décide par `startsWith` (plus bas) : n'ajoute jamais un href
 // qui soit le préfixe d'un autre, les deux s'allumeraient ensemble.
+//
+// ⚠️ **L'onglet « Cours » a quitté cette barre pour sa propre entrée de navigation
+// top-level (CC-275)** : le corpus est désormais un module détachable séparé, atteignable
+// via `/corpus`, indépendant de `/revision`. Le lien « Voir dans le cours » du panneau de
+// provenance y mène directement.
 const TABS = [
   { href: '/revision', label: 'Révision', cap: 'leitner.view' },
   { href: '/revision/settings', label: 'Cartes', cap: 'leitner.view' },
   { href: '/revision/stats', label: 'Stats', cap: 'leitner.stats.view' },
   { href: '/revision/ingest', label: 'Ingestion', cap: 'leitner.ingest' },
-  { href: '/revision/cours', label: 'Cours', cap: 'leitner.courses.view' },
   { href: '/revision/llm', label: 'Configuration', cap: 'leitner.llm' },
 ] as const
 

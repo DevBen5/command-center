@@ -5,9 +5,10 @@ import { errors as vineErrors } from '@vinejs/vine'
 import { DateTime } from 'luxon'
 import capabilityService from '#core/auth/services/capability_service'
 import { renderMarkdown } from '#core/shared/services/markdown_renderer'
+import { isModuleEnabled } from '#config/modules'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
-import LeitnerCourse from '#modules/leitner/models/leitner_course'
+import LeitnerCourse from '#modules/corpus/models/leitner_course'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 import LeitnerBackupService, {
   BackupImportError,
@@ -22,7 +23,7 @@ import {
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
 import { progressBox } from '#modules/leitner/services/leitner_progress'
 import LeitnerService from '#modules/leitner/services/leitner_service'
-import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
+import { applyVisibility } from '#core/shared/services/visibility'
 import {
   backupImportValidator,
   backupValidator,
@@ -69,8 +70,10 @@ export default class LeitnerSettingsController {
 
     // ⚠️ **Gate SERVEUR** (CC-253), même raison que `LeitnerController#index` : le corpus
     // n'est offert au sélecteur que si la capacité de le CONSULTER est réellement là —
-    // masquer le `<select>` côté client ne fermerait rien.
-    const canViewCourses = await capabilityService.allows(auth.user!, 'leitner.courses.view')
+    // masquer le `<select>` côté client ne fermerait rien. `isModuleEnabled('corpus')`
+    // en plus de la capacité depuis CC-275 — même raison que `LeitnerController#index`.
+    const canViewCourses =
+      isModuleEnabled('corpus') && (await capabilityService.allows(auth.user!, 'corpus.view'))
 
     const coursesQuery = LeitnerCourse.query()
       .preload('sections', (sections) => sections.whereNull('obsolete_at').orderBy('id', 'asc'))

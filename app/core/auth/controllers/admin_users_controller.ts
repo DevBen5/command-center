@@ -9,6 +9,7 @@ import invitationService from '#core/auth/services/invitation_service'
 import twoFactor from '#core/auth/services/two_factor_service'
 import modules from '#config/modules'
 import { ownedSharedContentTable } from '#modules/leitner/services/leitner_account_deletion_guard'
+import { ownedSharedCorpusContentTable } from '#modules/corpus/services/course_account_deletion_guard'
 import {
   createUserValidator,
   updateUserValidator,
@@ -218,6 +219,11 @@ export default class AdminUsersController {
     // ⚠️ `modules.has(...)`, pas `isModuleEnabled` importé séparément — même patron que
     // `HomeController`/`NavStatsService` (CLAUDE.md racine, point 7) : un module éteint
     // n'a pas sa migration jouée, la requête planterait sur une table absente.
+    //
+    // ⚠️ Deux blocs INDÉPENDANTS depuis CC-275 (Leitner et corpus détachés l'un de
+    // l'autre) — jamais un seul `modules.has('leitner')` enveloppant les deux vérifications,
+    // sans quoi un compte avec du contenu corpus partagé se supprimerait sans garde sur
+    // une installation Leitner désactivée, ou l'inverse.
     if (modules.has('leitner')) {
       const blockingTable = await ownedSharedContentTable(user.id)
       if (blockingTable) {
@@ -226,6 +232,18 @@ export default class AdminUsersController {
             `Ce compte possède encore du contenu Leitner partagé (${blockingTable}). ` +
             `Décochez « Partagé » sur ce contenu — le propriétaire ou un administrateur ` +
             `peut le faire depuis /revision/settings — avant de supprimer le compte.`,
+        })
+      }
+    }
+
+    if (modules.has('corpus')) {
+      const blockingTable = await ownedSharedCorpusContentTable(user.id)
+      if (blockingTable) {
+        return response.badRequest({
+          error:
+            `Ce compte possède encore du contenu de corpus partagé (${blockingTable}). ` +
+            `Décochez « Partagé » sur ce contenu — le propriétaire ou un administrateur ` +
+            `peut le faire depuis /corpus — avant de supprimer le compte.`,
         })
       }
     }

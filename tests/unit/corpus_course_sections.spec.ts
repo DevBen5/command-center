@@ -2,7 +2,7 @@ import { test } from '@japa/runner'
 import {
   hashCourseMarkdown,
   splitCourseIntoSections,
-} from '#modules/leitner/services/leitner_course_sections'
+} from '#modules/corpus/services/leitner_course_sections'
 
 /**
  * Le découpage d'un cours en sections est **du code pur**, comme la déduction du titre
@@ -12,7 +12,7 @@ import {
  * ⚠️ Ce n'est PAS `chunkCourse` (`leitner_ingestion_service.spec.ts`) — pas de
  * recouvrement à vérifier ici, mais l'inverse : que deux sections ne se répètent jamais.
  */
-test.group('Leitner / découpage d’un cours en sections', () => {
+test.group('Corpus / découpage d’un cours en sections', () => {
   test('sans recouvrement : chaque section porte SON corps, pas celui du voisin', ({ assert }) => {
     const sections = splitCourseIntoSections('# TLS\n\nLe handshake.\n\n# HTTP\n\nLes verbes.')
 
@@ -106,7 +106,7 @@ test.group('Leitner / découpage d’un cours en sections', () => {
   })
 })
 
-test.group('Leitner / empreinte de dédup d’un cours', () => {
+test.group('Corpus / empreinte de dédup d’un cours', () => {
   test('deux textes identiques donnent la même empreinte', ({ assert }) => {
     assert.equal(
       hashCourseMarkdown('# TLS\n\nLe détail.'),

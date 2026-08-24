@@ -3,14 +3,15 @@ import { test } from '@japa/runner'
 import type { ApiClient } from '@japa/api-client'
 import testUtils from '@adonisjs/core/services/test_utils'
 import type User from '#core/auth/models/user'
+import enabledModules from '#config/modules'
 import { createUserWith } from '#tests/helpers/users'
 import { boxOf, makeCard, nextReviewOf, setProgress } from '#tests/helpers/leitner'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCardProgress from '#modules/leitner/models/leitner_card_progress'
 import LeitnerCardSection from '#modules/leitner/models/leitner_card_section'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
-import LeitnerCourse from '#modules/leitner/models/leitner_course'
-import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section'
+import LeitnerCourse from '#modules/corpus/models/leitner_course'
+import LeitnerCourseSection from '#modules/corpus/models/leitner_course_section'
 import LeitnerReview from '#modules/leitner/models/leitner_review'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 import type { ImportReport } from '#modules/leitner/services/leitner_backup_service'
@@ -1131,5 +1132,83 @@ test.group('Leitner / import JSON', (group) => {
     // La taxonomie créée en chemin est annulée elle aussi.
     assert.lengthOf(await LeitnerCategory.all(), 0)
     assert.isNotEmpty(response.flashMessages().importErrors)
+  })
+})
+
+/**
+ * Export/import sans le module corpus (CC-275) : `leitner_courses`/`leitner_course_sections`
+ * n'existent alors pas, et l'export/import ne doit jamais y toucher — sinon une installation
+ * Leitner sans corpus planterait en SQL sur une table absente au premier export ou import.
+ * Patron `enabledModules.delete/add` de `dashboard_scope.spec.ts` (CC-137).
+ */
+test.group('Leitner / export-import sans le module corpus (CC-275)', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+  group.each.setup(() => {
+    enabledModules.delete('corpus')
+    return () => {
+      enabledModules.add('corpus')
+    }
+  })
+
+  async function login() {
+    return createUserWith(['leitner.backup'])
+  }
+
+  function upload(client: ApiClient, user: User, content: string | object) {
+    const body = typeof content === 'string' ? content : JSON.stringify(content)
+
+    return client
+      .post('/revision/import')
+      .file('file', Buffer.from(body, 'utf-8'), { filename: 'sauvegarde.json' })
+      .loginAs(user)
+      .withCsrfToken()
+      .redirects(0)
+  }
+
+  test('export sans corpus actif : `courses: []`, `sections: []` par carte, jamais de 500', async ({
+    client,
+    assert,
+  }) => {
+    const user = await login()
+    await makeCard('Une carte sans corpus', { ownerId: user.id })
+
+    const response = await client.get('/revision/export').loginAs(user)
+    response.assertStatus(200)
+
+    const backup = JSON.parse(response.text())
+    assert.deepEqual(backup.courses, [])
+    const [card] = backup.cards
+    assert.deepEqual(card.sections, [])
+  })
+
+  test('import d’un fichier qui porte des cours, sans corpus actif : ignorés, comptés, jamais de 500', async ({
+    client,
+    assert,
+  }) => {
+    const user = await login()
+
+    const response = await upload(client, user, {
+      version: 5,
+      cards: [{ front: 'Recto sans corpus', back: 'Verso' }],
+      courses: [
+        {
+          title: 'Cours ignoré',
+          markdown: '# Titre\n\nContenu.',
+          sections: [{ slug: 'titre', headingPath: ['Titre'], body: 'Contenu.' }],
+        },
+      ],
+    })
+
+    response.assertStatus(302)
+    assert.isUndefined(response.flashMessages().importErrors)
+    const report = response.flashMessages().importReport as ImportReport
+    // Ignoré et COMPTÉ — signalé dans le rapport, jamais un « rien à importer » trompeur
+    // sur un fichier qui portait réellement un cours.
+    assert.equal(report.coursesCreated, 0)
+    assert.equal(report.coursesSkipped, 1)
+
+    // La carte, elle, est bien créée : seul le corpus est indisponible.
+    const card = await LeitnerCard.findBy('front', 'Recto sans corpus')
+    assert.isNotNull(card)
   })
 })

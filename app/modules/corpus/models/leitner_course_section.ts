@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import { BaseModel, column, belongsTo } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
-import LeitnerCourse from '#modules/leitner/models/leitner_course'
+import LeitnerCourse from '#modules/corpus/models/leitner_course'
 
 /**
  * Une section d'un cours, découpée par titres (CC-251) — sans recouvrement, contrairement
@@ -47,7 +47,7 @@ export default class LeitnerCourseSection extends BaseModel {
   /**
    * Pierre tombale : posée quand le slug a disparu au remplacement du markdown. Le
    * texte survit toujours — jamais de suppression physique d'une section vivante.
-   * Purge = geste manuel, depuis `/revision/cours`.
+   * Purge = geste manuel, depuis `/corpus`.
    */
   @column.dateTime()
   declare obsoleteAt: DateTime | null

@@ -7,8 +7,8 @@ import { createUserWith } from '#tests/helpers/users'
 import { makeCard } from '#tests/helpers/leitner'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCardSection from '#modules/leitner/models/leitner_card_section'
-import LeitnerCourse from '#modules/leitner/models/leitner_course'
-import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section'
+import LeitnerCourse from '#modules/corpus/models/leitner_course'
+import LeitnerCourseSection from '#modules/corpus/models/leitner_course_section'
 import LeitnerDraftCard from '#modules/leitner/models/leitner_draft_card'
 import { ingestionJobs } from '#modules/leitner/services/leitner_ingestion_service'
 import LlmClient, { type LlmMessage } from '#modules/leitner/services/llm_client'
@@ -282,7 +282,7 @@ test.group('Leitner / panneau de révision — provenance (CC-253)', (group) => 
     client,
     assert,
   }) => {
-    const user = await createUserWith(['leitner.view', 'leitner.review', 'leitner.courses.view'])
+    const user = await createUserWith(['leitner.view', 'leitner.review', 'corpus.view'])
     const course = await LeitnerCourse.create({
       title: 'Réseaux',
       markdown: '# HTTP\n\nLes verbes.',
@@ -318,7 +318,7 @@ test.group('Leitner / panneau de révision — provenance (CC-253)', (group) => 
     assert.equal(provenance.courseTitle, 'Réseaux')
     // CC-273 : le lien « Voir dans le cours » a besoin du courseId, absent avant ce lot.
     assert.equal(provenance.courseId, course.id)
-    // CC-274 : le contenu se charge au clic (`GET /cours/sections/:id`), plus dans cette
+    // CC-274 : le contenu se charge au clic (`GET /corpus/sections/:id`), plus dans cette
     // charge utile — l'`id` de la section suffit à le demander.
     assert.equal(provenance.id, section.id)
     assert.notProperty(provenance, 'bodyHtml')
@@ -326,7 +326,7 @@ test.group('Leitner / panneau de révision — provenance (CC-253)', (group) => 
   })
 
   test('une section devenue obsolète reste affichée, en le disant', async ({ client, assert }) => {
-    const user = await createUserWith(['leitner.view', 'leitner.review', 'leitner.courses.view'])
+    const user = await createUserWith(['leitner.view', 'leitner.review', 'corpus.view'])
     const course = await LeitnerCourse.create({
       title: 'Réseaux',
       markdown: '# TLS\n\nLe handshake.',
@@ -358,7 +358,7 @@ test.group('Leitner / panneau de révision — provenance (CC-253)', (group) => 
     assert.isNotNull(provenance.obsoleteAt)
   })
 
-  test('sans `leitner.courses.view`, la provenance est vide malgré un lien en base', async ({
+  test('sans `corpus.view`, la provenance est vide malgré un lien en base', async ({
     client,
     assert,
   }) => {
@@ -400,7 +400,7 @@ test.group('Leitner / panneau de révision — provenance (CC-253)', (group) => 
     client,
     assert,
   }) => {
-    const user = await createUserWith(['leitner.view', 'leitner.review', 'leitner.courses.view'])
+    const user = await createUserWith(['leitner.view', 'leitner.review', 'corpus.view'])
     const stranger = await createUserWith(['leitner.view'])
     const hiddenCourse = await LeitnerCourse.create({
       title: 'Cours privé',

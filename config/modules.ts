@@ -13,7 +13,14 @@ import env from '#start/env'
  * `.env.example`** — une installation tierce qui suit le README n'en hérite pas. Il doit pourtant
  * y être déclaré, sans quoi `parseModules` ferait échouer le démarrage de qui l'active.
  */
-export const KNOWN_MODULES = ['services', 'agents', 'veille', 'leitner', 'coffre'] as const
+export const KNOWN_MODULES = [
+  'services',
+  'agents',
+  'veille',
+  'leitner',
+  'corpus',
+  'coffre',
+] as const
 
 export type ModuleName = (typeof KNOWN_MODULES)[number]
 
@@ -55,6 +62,7 @@ const MODULE_MIGRATION_PATHS: Record<ModuleName, string> = {
   agents: 'app/modules/agents/migrations',
   veille: 'app/modules/veille/migrations',
   leitner: 'app/modules/leitner/migrations',
+  corpus: 'app/modules/corpus/migrations',
   coffre: 'app/modules/coffre/migrations',
 }
 

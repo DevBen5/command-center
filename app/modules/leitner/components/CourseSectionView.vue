@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { Link } from '@inertiajs/vue3'
-import { courseSectionHref } from '../shared/course_section_link'
+import { courseSectionHref } from '../../../core/shared/services/course_section_link'
 
 /**
  * Le contenu d'une section de cours — un contenu, deux châssis (CC-252/CC-254). Ce lot

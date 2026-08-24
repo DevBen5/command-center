@@ -1,6 +1,5 @@
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
-import LeitnerCourse from '#modules/leitner/models/leitner_course'
 import LeitnerIngestion from '#modules/leitner/models/leitner_ingestion'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 
@@ -14,6 +13,12 @@ import LeitnerTheme from '#modules/leitner/models/leitner_theme'
  * ⚠️ **Aucune impasse** : le propriétaire (ou un admin, qui peut éditer n'importe quel
  * contenu) peut décocher « Partagé » avant de supprimer le compte. Ce garde n'a donc pas
  * besoin d'une fonctionnalité de transfert de propriété pour rester résoluble.
+ *
+ * ⚠️ **`leitner_courses` n'est PLUS vérifié ici depuis CC-275** — le corpus est un module
+ * détachable séparé, avec son propre garde (`corpus/services/course_account_deletion_guard.ts`),
+ * appelé indépendamment par `AdminUsersController#destroy` sous `modules.has('corpus')`. Les
+ * deux gardes existent désormais parce que les deux modules sont désormais indépendants l'un
+ * de l'autre — pas une régression de couverture.
  */
 export async function ownedSharedContentTable(userId: number): Promise<string | null> {
   const checks: Array<[string, () => Promise<boolean>]> = [
@@ -44,12 +49,6 @@ export async function ownedSharedContentTable(userId: number): Promise<string | 
           .where('owner_id', userId)
           .where('is_shared', true)
           .first()) !== null,
-    ],
-    [
-      'leitner_courses',
-      async () =>
-        (await LeitnerCourse.query().where('owner_id', userId).where('is_shared', true).first()) !==
-        null,
     ],
   ]
 

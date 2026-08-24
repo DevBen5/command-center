@@ -25,7 +25,7 @@ export default class extends BaseSchema {
       // SHA-256 hex du markdown normalisé (fins de ligne, bords) — voir
       // `leitner_course_sections.ts#hashCourseMarkdown`.
       table.string('content_hash', 64).notNullable()
-      // D'où vient le cours : collé/téléversé sur `/revision/cours`, ou créé depuis
+      // D'où vient le cours : collé/téléversé sur `/corpus`, ou créé depuis
       // la case « conserver » de `/revision/ingest`.
       table.string('source', 16).notNullable()
 

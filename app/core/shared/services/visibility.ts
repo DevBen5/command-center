@@ -9,6 +9,12 @@ import ForbiddenException from '#core/shared/exceptions/forbidden_exception'
  * utilisateur ») sur `leitner_cards`, `leitner_categories`, `leitner_themes` et
  * `leitner_ingestions` : ces quatre tables portent désormais `owner_id` + `is_shared`.
  * Voir `app/modules/leitner/CLAUDE.md`.
+ *
+ * ⚠️ **Logée dans `core/shared` depuis CC-275, pas dans Leitner.** Déjà générique avant
+ * ce déplacement (`table: string` en paramètre, aucun nom de table en dur) : quand le
+ * module `corpus` s'est détaché avec ses propres tables `owner_id`/`is_shared`
+ * (`leitner_courses`), il en avait besoin exactement comme Leitner — patron CC-133/CC-180
+ * (brique neutre dans le noyau, jamais dans un module détachable qu'un autre importerait).
  */
 
 /**

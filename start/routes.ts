@@ -49,7 +49,7 @@ const LeitnerIngestionController = () =>
 const LeitnerLlmController = () => import('#modules/leitner/controllers/leitner_llm_controller')
 const LeitnerStatsController = () => import('#modules/leitner/controllers/leitner_stats_controller')
 const LeitnerCourseController = () =>
-  import('#modules/leitner/controllers/leitner_course_controller')
+  import('#modules/corpus/controllers/leitner_course_controller')
 const CoffreDoorController = () => import('#modules/coffre/controllers/coffre_door_controller')
 const CoffreController = () => import('#modules/coffre/controllers/coffre_controller')
 const CoffreMediaController = () => import('#modules/coffre/controllers/coffre_media_controller')
@@ -531,55 +531,20 @@ router
             .post('/llm/test', [LeitnerLlmController, 'test'])
             .use(middleware.can('leitner.llm'))
 
-          // Le corpus de cours (CC-251). Déclaré AVANT `/:id/judge` et `/:id/review` :
-          // ces deux-là n'ont pas de `where(number)`, même raison que le commentaire
-          // déjà posé sur `/ingest`.
-          //
-          // ⚠️ `store`/`resolveConflict`/`update` rendent du JSON nu, jamais une
-          // redirection Inertia : le store de session est `cookie` (CC-78), et flasher
-          // le markdown entier d'un cours dedans rejouerait la faille que CC-179 a
-          // fermée sur le coffre.
-          router
-            .get('/cours', [LeitnerCourseController, 'index'])
-            .use(middleware.can('leitner.courses.view'))
-          router
-            .post('/cours', [LeitnerCourseController, 'store'])
-            .use(middleware.can('leitner.courses.write'))
-          router
-            .post('/cours/conflict', [LeitnerCourseController, 'resolveConflict'])
-            .use(middleware.can('leitner.courses.write'))
-          router
-            .get('/cours/:id', [LeitnerCourseController, 'show'])
-            .where('id', router.matchers.number())
-            .use(middleware.can('leitner.courses.view'))
-          router
-            .put('/cours/:id', [LeitnerCourseController, 'update'])
-            .where('id', router.matchers.number())
-            .use(middleware.can('leitner.courses.write'))
-          router
-            .delete('/cours/:id', [LeitnerCourseController, 'destroy'])
-            .where('id', router.matchers.number())
-            .use(middleware.can('leitner.courses.write'))
-          router
-            .post('/cours/:id/purge', [LeitnerCourseController, 'purge'])
-            .where('id', router.matchers.number())
-            .use(middleware.can('leitner.courses.write'))
-
-          // Les mots-clés du recto (CC-254) : le contenu d'UNE section, pour la modale
-          // ouverte au clic sur un terme souligné. GET, donc pas de jeton CSRF.
-          router
-            .get('/cours/sections/:id', [LeitnerCourseController, 'sectionContent'])
-            .where('id', router.matchers.number())
-            .use(middleware.can('leitner.courses.view'))
-
           // « Approfondir » (CC-252) : recherche plein texte du corpus, JSON nu, GET donc
-          // pas de jeton CSRF. Sous `leitner.courses.view`, PAS `leitner.review` : c'est
-          // une lecture du corpus, pas un geste de révision — la même distinction que
-          // `/cours` ci-dessus.
-          router
-            .get('/:id/course-search', [LeitnerController, 'courseSearch'])
-            .where('id', router.matchers.number())
-            .use(middleware.can('leitner.courses.view'))
+          // pas de jeton CSRF. Sous `corpus.view`, PAS `leitner.review` : c'est une lecture
+          // du corpus, pas un geste de révision.
+          //
+          // ⚠️ Route LEITNER (`LeitnerController`, id de carte) qui lit le corpus — le
+          // pont (CC-275) : gardée en plus par `modules.has('corpus')`, imbriquée, sans
+          // quoi elle existerait sur une installation Leitner sans corpus et planterait
+          // en SQL sur une table absente au premier appel plutôt que de répondre 404.
+          if (modules.has('corpus')) {
+            router
+              .get('/:id/course-search', [LeitnerController, 'courseSearch'])
+              .where('id', router.matchers.number())
+              .use(middleware.can('corpus.view'))
+          }
 
           // La réponse écrite → un verdict, AVANT le dévoilement du verso. JSON nu (la
           // page l'appelle en fetch, donc avec `x-xsrf-token`), et elle n'écrit RIEN :
@@ -600,6 +565,54 @@ router
             .use(middleware.can('leitner.review'))
         })
         .prefix('/revision')
+    }
+
+    /*
+    |------------------------------------------------------------------
+    | Corpus — le corpus de cours, détaché de Leitner (CC-275)
+    |------------------------------------------------------------------
+    |
+    | ⚠️ Module désactivable indépendamment de `leitner` : sans `corpus` dans `MODULES`,
+    | tout `/corpus/*` n'existe pas — 404, pas 403. Le pont que Leitner en tire (provenance,
+    | glossaire, « Approfondir ») est gardé séparément, côté route Leitner ci-dessus.
+    |
+    | ⚠️ `store`/`resolveConflict`/`update` rendent du JSON nu, jamais une redirection
+    | Inertia : le store de session est `cookie` (CC-78), et flasher le markdown entier
+    | d'un cours dedans rejouerait la faille que CC-179 a fermée sur le coffre.
+    */
+    if (modules.has('corpus')) {
+      router
+        .group(() => {
+          router.get('/', [LeitnerCourseController, 'index']).use(middleware.can('corpus.view'))
+          router.post('/', [LeitnerCourseController, 'store']).use(middleware.can('corpus.write'))
+          router
+            .post('/conflict', [LeitnerCourseController, 'resolveConflict'])
+            .use(middleware.can('corpus.write'))
+          router
+            .get('/:id', [LeitnerCourseController, 'show'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('corpus.view'))
+          router
+            .put('/:id', [LeitnerCourseController, 'update'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('corpus.write'))
+          router
+            .delete('/:id', [LeitnerCourseController, 'destroy'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('corpus.write'))
+          router
+            .post('/:id/purge', [LeitnerCourseController, 'purge'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('corpus.write'))
+
+          // Les mots-clés du recto Leitner (CC-254) : le contenu d'UNE section, pour la
+          // modale ouverte au clic sur un terme souligné. GET, donc pas de jeton CSRF.
+          router
+            .get('/sections/:id', [LeitnerCourseController, 'sectionContent'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('corpus.view'))
+        })
+        .prefix('/corpus')
     }
 
     /*

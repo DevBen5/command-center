@@ -2,7 +2,7 @@ import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { createUserWith } from '#tests/helpers/users'
 import { makeCard } from '#tests/helpers/leitner'
-import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section'
+import LeitnerCourseSection from '#modules/corpus/models/leitner_course_section'
 
 /**
  * « Approfondir » (CC-252) — la route `GET /:id/course-search`, par les routes. La
@@ -11,15 +11,15 @@ import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section
  * capacité, l'exclusion des tombes et le classement.
  */
 function reader() {
-  return createUserWith(['leitner.courses.view'])
+  return createUserWith(['corpus.view'])
 }
 function writer() {
-  return createUserWith(['leitner.courses.view', 'leitner.courses.write'])
+  return createUserWith(['corpus.view', 'corpus.write'])
 }
 
 function postCourse(client: any, body: object, user: unknown) {
   return client
-    .post('/revision/cours')
+    .post('/corpus')
     .json(body)
     .header('accept', 'application/json')
     .loginAs(user)
@@ -79,7 +79,7 @@ test.group('Leitner / recherche du corpus — visibilité et classement (CC-252)
     assert.lengthOf(results, 0)
   })
 
-  test('sans leitner.courses.view, la route refuse', async ({ client }) => {
+  test('sans corpus.view, la route refuse', async ({ client }) => {
     const user = await createUserWith(['leitner.review'])
     const card = await makeCard('Peu importe', { ownerId: user.id })
 
@@ -109,7 +109,7 @@ test.group('Leitner / recherche du corpus — visibilité et classement (CC-252)
     const courseId = created.body().course.id as number
     // Remplace : TLS disparaît du markdown, la section devient une pierre tombale.
     await client
-      .put(`/revision/cours/${courseId}`)
+      .put(`/corpus/${courseId}`)
       .json({ markdown: '# DNS\n\nLa résolution de noms.' })
       .header('accept', 'application/json')
       .loginAs(user)

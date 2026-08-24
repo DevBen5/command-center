@@ -1,5 +1,5 @@
-import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section'
-import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
+import LeitnerCourseSection from '#modules/corpus/models/leitner_course_section'
+import { applyVisibility } from '#core/shared/services/visibility'
 
 /** Un terme du glossaire, tel qu'exposé à `pages/index.vue` (CC-254). */
 export interface GlossaryTerm {

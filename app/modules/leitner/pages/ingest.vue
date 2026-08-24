@@ -34,6 +34,9 @@ const props = defineProps<{
   maxChars: number
   titleMaxChars: number
   ingestErrors: string[] | null
+  // ⚠️ CC-275 : le module corpus est détachable séparément de Leitner — sans lui, la
+  // case « conserver ce cours » n'a rien à cocher.
+  corpusAvailable: boolean
 }>()
 
 const STATUS_LABELS = computed<Record<Ingestion['status'], string>>(() => ({
@@ -130,7 +133,10 @@ const submitting = ref(false)
 
 // « Conserver ce cours dans la base » (CC-251) — cochée par défaut : le cours est créé
 // AVANT le lancement du LLM, donc une ingestion `failed` laisse le cours intact.
-const saveCourse = ref(true)
+// ⚠️ `false` d'emblée sans corpus (CC-275) : la case n'est même pas affichée, mais
+// `saveCourse` reste posté avec le formulaire — jamais `true` par défaut sur un module
+// absent.
+const saveCourse = ref(props.corpusAvailable)
 
 /*
 |------------------------------------------------------------------------------
@@ -358,7 +364,7 @@ function submitCourse(): void {
           {{ t('leitner.ingest.form.pdfHint') }}
         </p>
 
-        <label class="flex items-center gap-1.5 text-[11.5px] text-txt-2">
+        <label v-if="corpusAvailable" class="flex items-center gap-1.5 text-[11.5px] text-txt-2">
           <input v-model="saveCourse" type="checkbox" class="accent-accent" />
           {{ t('leitner.ingest.form.saveCourse') }}
         </label>

@@ -2,26 +2,26 @@ import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
 import User from '#core/auth/models/user'
 import { createAdmin, createUserWith } from '#tests/helpers/users'
-import LeitnerCourse from '#modules/leitner/models/leitner_course'
-import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section'
+import LeitnerCourse from '#modules/corpus/models/leitner_course'
+import LeitnerCourseSection from '#modules/corpus/models/leitner_course_section'
 
 /**
  * Le corpus de cours (CC-251) — par les routes. La partie **pure** (découpage, slug,
- * glossaire, empreinte) se prouve dans `tests/unit/leitner_course_sections.spec.ts` ;
+ * glossaire, empreinte) se prouve dans `tests/unit/corpus_course_sections.spec.ts` ;
  * ce fichier prouve ce qu'elle ne peut pas dire : la dédup contre la base, la doctrine
  * des pierres tombales à travers une vraie transaction, la visibilité, et la garde de
  * suppression de compte.
  */
 function reader() {
-  return createUserWith(['leitner.courses.view'])
+  return createUserWith(['corpus.view'])
 }
 function writer() {
-  return createUserWith(['leitner.courses.view', 'leitner.courses.write'])
+  return createUserWith(['corpus.view', 'corpus.write'])
 }
 
 function post(client: any, body: object, user: unknown) {
   return client
-    .post('/revision/cours')
+    .post('/corpus')
     .json(body)
     .header('accept', 'application/json')
     .loginAs(user)
@@ -29,7 +29,7 @@ function post(client: any, body: object, user: unknown) {
 }
 function conflict(client: any, body: object, user: unknown) {
   return client
-    .post('/revision/cours/conflict')
+    .post('/corpus/conflict')
     .json(body)
     .header('accept', 'application/json')
     .loginAs(user)
@@ -37,14 +37,14 @@ function conflict(client: any, body: object, user: unknown) {
 }
 function put(client: any, id: number, body: object, user: unknown) {
   return client
-    .put(`/revision/cours/${id}`)
+    .put(`/corpus/${id}`)
     .json(body)
     .header('accept', 'application/json')
     .loginAs(user)
     .withCsrfToken()
 }
 
-test.group('Leitner / corpus de cours — dédup (CC-251)', (group) => {
+test.group('Corpus — dédup (CC-251)', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   test('même empreinte exactement : rattaché à l’existant, rien créé', async ({
@@ -158,7 +158,7 @@ test.group('Leitner / corpus de cours — dédup (CC-251)', (group) => {
   })
 })
 
-test.group('Leitner / corpus de cours — pierres tombales (CC-251)', (group) => {
+test.group('Corpus — pierres tombales (CC-251)', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   test('slug retrouvé, slug neuf, slug disparu — le report exact', async ({ client, assert }) => {
@@ -250,7 +250,7 @@ test.group('Leitner / corpus de cours — pierres tombales (CC-251)', (group) =>
     await put(client, id, { markdown: '# HTTP\n\nDeux.' }, user) // TLS tombe
 
     const purge = await client
-      .post(`/revision/cours/${id}/purge`)
+      .post(`/corpus/${id}/purge`)
       .loginAs(user)
       .withCsrfToken()
       .redirects(0)
@@ -262,7 +262,7 @@ test.group('Leitner / corpus de cours — pierres tombales (CC-251)', (group) =>
   })
 })
 
-test.group('Leitner / corpus de cours — visibilité (CC-251)', (group) => {
+test.group('Corpus — visibilité (CC-251)', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   test('un cours privé d’un autre compte est invisible', async ({ client, assert }) => {
@@ -271,11 +271,11 @@ test.group('Leitner / corpus de cours — visibilité (CC-251)', (group) => {
     const created = await post(client, { title: 'Privé', markdown: '# TLS\n\nUn.' }, owner)
     const id = created.body().course.id
 
-    const list = await client.get('/revision/cours').loginAs(stranger).withInertia()
+    const list = await client.get('/corpus').loginAs(stranger).withInertia()
     const props = list.inertiaProps as { courses: { id: number }[] }
     assert.isFalse(props.courses.some((c) => c.id === id))
 
-    const show = await client.get(`/revision/cours/${id}`).loginAs(stranger).redirects(0)
+    const show = await client.get(`/corpus/${id}`).loginAs(stranger).redirects(0)
     show.assertStatus(403)
   })
 
@@ -291,7 +291,7 @@ test.group('Leitner / corpus de cours — visibilité (CC-251)', (group) => {
     course.isShared = true
     await course.save()
 
-    const list = await client.get('/revision/cours').loginAs(stranger).withInertia()
+    const list = await client.get('/corpus').loginAs(stranger).withInertia()
     const props = list.inertiaProps as { courses: { id: number }[] }
     assert.isTrue(props.courses.some((c) => c.id === course.id))
   })
@@ -306,7 +306,7 @@ test.group('Leitner / corpus de cours — visibilité (CC-251)', (group) => {
     update.assertStatus(403)
 
     const destroy = await client
-      .delete(`/revision/cours/${id}`)
+      .delete(`/corpus/${id}`)
       .loginAs(stranger)
       .withCsrfToken()
       .redirects(0)
@@ -317,7 +317,7 @@ test.group('Leitner / corpus de cours — visibilité (CC-251)', (group) => {
   })
 })
 
-test.group('Leitner / corpus de cours — capacités', (group) => {
+test.group('Corpus — capacités', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   test('un lecteur ne peut pas créer de cours', async ({ client }) => {
@@ -327,7 +327,7 @@ test.group('Leitner / corpus de cours — capacités', (group) => {
   })
 })
 
-test.group('Leitner / corpus de cours — suppression de compte (CC-251)', (group) => {
+test.group('Corpus — suppression de compte (CC-251)', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
   test('refuse de supprimer un compte qui possède encore un cours partagé', async ({
@@ -379,7 +379,7 @@ test.group('Leitner / corpus de cours — suppression de compte (CC-251)', (grou
  * mesuré en direct sur ce poste le 2026-08-19 (`#insertSections` créait ses sections
  * sans passer le `trx` reçu par `db.transaction`).
  */
-test.group('Leitner / corpus de cours — sections écrites dans la transaction du cours', (group) => {
+test.group('Corpus — sections écrites dans la transaction du cours', (group) => {
   group.each.setup(() => {
     return async () => {
       await LeitnerCourse.query().delete()

@@ -1,18 +1,18 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import { renderMarkdown } from '#core/shared/services/markdown_renderer'
-import LeitnerCourse from '#modules/leitner/models/leitner_course'
-import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section'
-import LeitnerCourseService from '#modules/leitner/services/leitner_course_service'
+import LeitnerCourse from '#modules/corpus/models/leitner_course'
+import LeitnerCourseSection from '#modules/corpus/models/leitner_course_section'
+import LeitnerCourseService from '#modules/corpus/services/leitner_course_service'
 import {
   applyVisibility,
   assertOwnedOrAdmin,
   assertVisibleOrAdmin,
-} from '#modules/leitner/services/leitner_visibility'
+} from '#core/shared/services/visibility'
 import {
   courseConflictValidator,
   courseCreateValidator,
   courseReplaceValidator,
-} from '#modules/leitner/validators/leitner'
+} from '#modules/corpus/validators/corpus'
 
 /**
  * Le corpus de cours (CC-251). ⚠️ **Toute route qui porte du markdown en corps de
@@ -37,7 +37,7 @@ export default class LeitnerCourseController {
     applyVisibility(query, 'leitner_courses', userId, isAdmin)
     const courses = await query
 
-    return inertia.render('modules/leitner/cours', {
+    return inertia.render('modules/corpus/index', {
       courses: courses.map((course) => ({
         id: course.id,
         title: course.title,
@@ -103,7 +103,7 @@ export default class LeitnerCourseController {
       .where('course_id', course.id)
       .orderBy('id', 'asc')
 
-    return inertia.render('modules/leitner/cours_show', {
+    return inertia.render('modules/corpus/show', {
       course: {
         id: course.id,
         title: course.title,
@@ -147,7 +147,7 @@ export default class LeitnerCourseController {
     const course = await LeitnerCourse.findOrFail(params.id)
     assertOwnedOrAdmin(course, auth.user!.id, auth.user!.isAdmin)
     await this.courses.destroy(course.id)
-    return response.redirect().toPath('/revision/cours')
+    return response.redirect().toPath('/corpus')
   }
 
   /** Purge manuelle des pierres tombales — aucun texte en jeu, redirection classique. */

@@ -29,6 +29,7 @@ const DESTINATION_PAR_MODULE: Record<ModuleName, string | null> = {
   agents: 'agents → /agents',
   veille: 'veille → /veille',
   leitner: 'revision → /revision',
+  corpus: 'corpus → /corpus',
   coffre: null,
 }
 

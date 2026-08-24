@@ -38,7 +38,7 @@ export default class extends BaseSchema {
       // n'entre pas au glossaire — elle reste consultable normalement.
       table.jsonb('aliases').nullable()
       // Pierre tombale : posée quand le slug disparaît au remplacement du markdown,
-      // le texte est CONSERVÉ. Purge = geste manuel depuis `/revision/cours`.
+      // le texte est CONSERVÉ. Purge = geste manuel depuis `/corpus`.
       table.timestamp('obsolete_at').nullable()
 
       table.timestamp('created_at').notNullable()

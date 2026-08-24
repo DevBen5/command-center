@@ -14,10 +14,17 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  * Deux valeurs produites par ce lot : `ingestion` (promotion d'un brouillon,
  * `LeitnerIngestionService.accept`) et `manuel` (sélecteur de `/revision/settings`).
  *
- * FK en `CASCADE` des deux côtés : ni une carte ni une section ne portent de trace
- * fantôme après leur suppression. Une section OBSOLÈTE (pierre tombale) garde ses
- * liens — seule sa suppression PHYSIQUE (purge, ou cours entier supprimé) emporte le
- * lien avec elle.
+ * FK en `CASCADE` côté carte : une carte supprimée ne porte jamais de trace fantôme.
+ * Une section OBSOLÈTE (pierre tombale) garde ses liens — seule sa suppression PHYSIQUE
+ * (purge, ou cours entier supprimé) doit emporter le lien avec elle.
+ *
+ * ⚠️ **Édité pour CC-275 : plus de FK côté section.** Le corpus vit désormais dans le
+ * module optionnel `corpus` ; une FK vers `leitner_course_sections` ferait échouer cette
+ * migration au démarrage sur une installation Leitner sans corpus. La colonne reste,
+ * référence molle : le ménage (suppression des liens à la purge d'une section ou d'un
+ * cours) vit dans `LeitnerCourseService`, côté corpus, gardé par `isModuleEnabled('leitner')`.
+ * Sur la base de dev, `1786600000013_drop_card_sections_course_fk.ts` retire la contrainte
+ * déjà posée — cette édition ne fait que garder une base neuve de ne jamais la recréer.
  */
 export default class extends BaseSchema {
   protected tableName = 'leitner_card_sections'
@@ -34,13 +41,7 @@ export default class extends BaseSchema {
         .inTable('leitner_cards')
         .onDelete('CASCADE')
 
-      table
-        .integer('leitner_course_section_id')
-        .unsigned()
-        .notNullable()
-        .references('id')
-        .inTable('leitner_course_sections')
-        .onDelete('CASCADE')
+      table.integer('leitner_course_section_id').unsigned().notNullable()
 
       table.string('origin', 16).notNullable()
 

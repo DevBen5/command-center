@@ -1,5 +1,5 @@
-import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section'
-import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
+import LeitnerCourseSection from '#modules/corpus/models/leitner_course_section'
+import { applyVisibility } from '#core/shared/services/visibility'
 
 /**
  * La recherche plein texte du corpus de cours (CC-252) — un seul endroit, un seul
@@ -13,7 +13,7 @@ import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
  *
  * ⚠️ **Les sections tombées (`obsolete_at` non nul) sont EXCLUES** — décision tranchée du
  * ticket : la révision teste la mémoire sur le cours ACTUEL de l'auteur, pas sur ce qu'il
- * a retiré. Elles restent consultables depuis `/revision/cours/:id`.
+ * a retiré. Elles restent consultables depuis `/corpus/:id`.
  */
 export async function searchCourseSections(query: string, userId: number, isAdmin: boolean) {
   const sections = LeitnerCourseSection.query()

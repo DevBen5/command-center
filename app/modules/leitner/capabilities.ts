@@ -56,12 +56,13 @@
  *   à ce que ce commentaire a dit jusqu'à CC-121 : depuis la v2 (CC-119) `export(userId)`
  *   filtre `reviews` et `progress` sur `user_id`, le fichier ne porte que la progression et
  *   l'historique de celui qui exporte.
- * - `leitner.courses.view` — consulter le corpus de cours (`/revision/cours`). Séparée de
- *   `view` sur le patron de `stats.view` : on peut vouloir montrer les cours sans le
- *   catalogue de cartes, ou l'inverse.
- * - `leitner.courses.write` — ajouter, remplacer, supprimer un cours. Séparée de
- *   `courses.view` sur le patron de `taxonomy.write`/`cards.write` : deux gestes
- *   distincts, l'un de lecture, l'autre d'écriture sur du contenu.
+ * ⚠️ **`leitner.courses.view`/`leitner.courses.write` ont quitté ce registre pour
+ * `corpus.view`/`corpus.write` (CC-275)** — le corpus de cours est désormais un module
+ * détachable séparé, avec son propre `capabilities.ts`. Tout rôle qui portait l'ancienne
+ * capacité en base la perd silencieusement (ligne `role_capabilities` désormais inerte,
+ * doctrine déjà documentée sur la migration de cette table : une capacité retirée
+ * disparaît avec son module) — à re-accorder à la main sous le nouveau nom depuis
+ * `/admin/roles`.
  */
 export const LEITNER_CAPABILITIES = [
   'leitner.view',
@@ -73,6 +74,4 @@ export const LEITNER_CAPABILITIES = [
   'leitner.ingest',
   'leitner.llm',
   'leitner.backup',
-  'leitner.courses.view',
-  'leitner.courses.write',
 ] as const

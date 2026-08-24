@@ -61,6 +61,7 @@ test.group('Core / modules activables (CC-137)', () => {
       'app/modules/agents/migrations',
       'app/modules/veille/migrations',
       'app/modules/leitner/migrations',
+      'app/modules/corpus/migrations',
       'app/modules/coffre/migrations',
     ])
   })

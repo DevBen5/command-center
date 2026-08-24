@@ -94,7 +94,7 @@ interface Card {
 }
 
 /** Un cours du sélecteur manuel (CC-253) — section, jamais son contenu : c'est un choix,
- *  pas une lecture (celle-ci reste sous `leitner.courses.view`, voir `cours_show.vue`). */
+ *  pas une lecture (celle-ci reste sous `corpus.view`, voir `cours_show.vue`). */
 interface CourseOption {
   id: number
   title: string
@@ -128,7 +128,7 @@ const props = defineProps<{
   filters: Filters
   importReport: ImportReport | null
   importErrors: string[] | null
-  // Le corpus pour le sélecteur manuel (CC-253) — `[]` si `leitner.courses.view` manque :
+  // Le corpus pour le sélecteur manuel (CC-253) — `[]` si `corpus.view` manque :
   // le serveur ne l'envoie alors pas, masquer le `<select>` côté client ne fermerait rien.
   courses: CourseOption[]
 }>()
@@ -1334,7 +1334,7 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
 
         <!-- Le sélecteur manuel de provenance (CC-253) : au plus un lien `manuel` par
              carte, indépendant des liens `ingestion` posés par la promotion — voir
-             `setManualSection`. Absent (courses = []) si `leitner.courses.view` manque. -->
+             `setManualSection`. Absent (courses = []) si `corpus.view` manque. -->
         <template v-if="courses.length > 0">
           <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">{{ t('leitner.settings.courseSection') }}</label>
           <select

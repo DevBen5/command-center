@@ -24,7 +24,7 @@ import {
   whereNotMastered,
 } from '#modules/leitner/services/leitner_progress'
 import { ALL_CARDS, applyScope, type CardScope } from '#modules/leitner/services/leitner_scope'
-import { applyVisibility } from '#modules/leitner/services/leitner_visibility'
+import { applyVisibility } from '#core/shared/services/visibility'
 
 // Intervalle (en jours) avant la prochaine révision, selon la boîte **atteinte**
 // (donc après mouvement). Ce ne sont que les valeurs de départ : les intervalles

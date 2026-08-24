@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
-import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section'
+import LeitnerCourseSection from '#modules/corpus/models/leitner_course_section'
 
 /** D'où vient le lien : la promotion d'un brouillon d'ingestion, ou un geste manuel. */
 export type CardSectionOrigin = 'ingestion' | 'manuel'

@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
 import type { HasMany } from '@adonisjs/lucid/types/relations'
-import LeitnerCourseSection from '#modules/leitner/models/leitner_course_section'
+import LeitnerCourseSection from '#modules/corpus/models/leitner_course_section'
 
-/** D'où vient un cours : collé/téléversé sur `/revision/cours`, ou né d'une ingestion. */
+/** D'où vient un cours : collé/téléversé sur `/corpus`, ou né d'une ingestion. */
 export type CourseSource = 'paste' | 'file' | 'ingest'
 
 /**
