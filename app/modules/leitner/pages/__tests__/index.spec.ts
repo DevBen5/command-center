@@ -421,7 +421,7 @@ describe('Leitner / index — mots-clés du recto (CC-254, CC-276)', () => {
 
   function fetchMock(): ReturnType<typeof vi.fn> {
     return vi.fn(async (url: string) => {
-      if (url.includes('/cours/sections/')) {
+      if (url.includes('/corpus/sections/')) {
         return {
           ok: true,
           json: async () => ({
