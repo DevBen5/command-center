@@ -84,18 +84,19 @@ test.group('Corpus / découpage d’un cours en sections', () => {
     assert.equal(sections[0].slug, 'securite-les-bases')
   })
 
-  test('la ligne `> notion:` range la section au glossaire, avec ses alias', ({ assert }) => {
+  test('l’ancienne ligne de déclaration reste du texte, sans créer d’alias', ({ assert }) => {
     const sections = splitCourseIntoSections(
       '# TLS\n\n> notion: TLS, Transport Layer Security\n\nLe détail.'
     )
 
-    assert.deepEqual(sections[0].aliases, ['TLS', 'Transport Layer Security'])
+    assert.include(sections[0].body, '> notion: TLS, Transport Layer Security')
+    assert.notProperty(sections[0], 'aliases')
   })
 
-  test('sans la ligne `> notion:`, une section reste hors glossaire', ({ assert }) => {
+  test('une section ordinaire ne porte aucun alias de glossaire', ({ assert }) => {
     const sections = splitCourseIntoSections('# TLS\n\nLe détail, sans glossaire.')
 
-    assert.isNull(sections[0].aliases)
+    assert.notProperty(sections[0], 'aliases')
   })
 
   test('un cours sans aucun titre reste une seule section', ({ assert }) => {

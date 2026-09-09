@@ -2,7 +2,12 @@ import { DateTime } from 'luxon'
 import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
-import LeitnerCourseSection from '#modules/corpus/models/leitner_course_section'
+import type LeitnerCourseSection from '#modules/corpus/models/leitner_course_section'
+import { isModuleEnabled } from '#config/modules'
+const corpusModel = isModuleEnabled('corpus')
+  ? await import('#modules/corpus/models/leitner_course_section')
+  : null
+const CorpusSection = corpusModel?.default
 
 /** D'où vient le lien : la promotion d'un brouillon d'ingestion, ou un geste manuel. */
 export type CardSectionOrigin = 'ingestion' | 'manuel'
@@ -30,7 +35,13 @@ export default class LeitnerCardSection extends BaseModel {
   @belongsTo(() => LeitnerCard, { foreignKey: 'leitnerCardId' })
   declare card: BelongsTo<typeof LeitnerCard>
 
-  @belongsTo(() => LeitnerCourseSection, { foreignKey: 'leitnerCourseSectionId' })
+  @belongsTo(
+    () => {
+      if (!CorpusSection) throw new Error('Corpus désactivé : relation indisponible')
+      return CorpusSection
+    },
+    { foreignKey: 'leitnerCourseSectionId' }
+  )
   declare courseSection: BelongsTo<typeof LeitnerCourseSection>
 
   @column.dateTime({ autoCreate: true })

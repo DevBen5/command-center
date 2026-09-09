@@ -11,7 +11,15 @@ import { sectionAnchorId } from '../../../core/shared/services/course_section_li
 defineOptions({ layout: AppLayout })
 
 const { t } = useI18n()
-const { isAdmin } = useCan()
+const { can, isAdmin } = useCan()
+
+function promoteSection(section: Section) {
+  const selected = window.getSelection()?.toString().trim() ?? ''
+  router.get('/corpus/glossaire', {
+    sectionId: section.id,
+    ...(selected ? { term: selected } : {}),
+  })
+}
 
 interface Course {
   id: number
@@ -28,7 +36,6 @@ interface Section {
   slug: string
   headingPath: string[]
   bodyHtml: string
-  aliases: string[] | null
   obsoleteAt: string | null
 }
 
@@ -76,7 +83,8 @@ async function saveReplace(): Promise<void> {
     const payload = (await response.json().catch(() => null)) as { error?: string } | null
 
     if (!response.ok) {
-      saveError.value = payload?.error ?? t('corpus.coursShow.errors.serverStatus', { status: response.status })
+      saveError.value =
+        payload?.error ?? t('corpus.coursShow.errors.serverStatus', { status: response.status })
       return
     }
 
@@ -99,7 +107,9 @@ async function destroyCourse(): Promise<void> {
 }
 
 async function purgeTombstones(): Promise<void> {
-  const confirmed = await confirmModal.value?.ask(t('corpus.coursShow.confirmPurge'), { danger: true })
+  const confirmed = await confirmModal.value?.ask(t('corpus.coursShow.confirmPurge'), {
+    danger: true,
+  })
   if (!confirmed) return
   router.post(`/corpus/${props.course.id}/purge`)
 }
@@ -197,16 +207,28 @@ onMounted(async () => {
       :class="section.obsoleteAt ? 'border-line bg-panel/60 opacity-60' : 'border-line bg-panel'"
     >
       <div class="mb-1 flex items-center gap-2 text-[11px] text-txt-3">
-        <span>{{ section.headingPath.length ? section.headingPath.join(' › ') : t('corpus.coursShow.introduction') }}</span>
-        <span v-if="section.obsoleteAt" class="rounded-md border border-line px-1.5 py-0.5 text-warn">
+        <span>{{
+          section.headingPath.length
+            ? section.headingPath.join(' › ')
+            : t('corpus.coursShow.introduction')
+        }}</span>
+        <span
+          v-if="section.obsoleteAt"
+          class="rounded-md border border-line px-1.5 py-0.5 text-warn"
+        >
           {{ t('corpus.coursShow.obsolete') }}
-        </span>
-        <span v-if="section.aliases?.length" class="rounded-md border border-line px-1.5 py-0.5">
-          {{ t('corpus.coursShow.glossary') }} · {{ section.aliases.join(', ') }}
         </span>
       </div>
       <!-- Le HTML vient de `renderMarkdown`, côté serveur — jamais construit ici. -->
       <div class="markdown text-[13px]" v-html="section.bodyHtml"></div>
+      <button
+        v-if="can('corpus.write') && !section.obsoleteAt"
+        type="button"
+        class="mt-3 text-sm text-accent"
+        @click="promoteSection(section)"
+      >
+        {{ t('corpus.glossary.promote') }}
+      </button>
     </div>
 
     <p v-if="!sections.length" class="text-[11.5px] text-txt-3">

@@ -2,7 +2,7 @@ import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCardSection, {
   type CardSectionOrigin,
 } from '#modules/leitner/models/leitner_card_section'
-import LeitnerCourseSection from '#modules/corpus/models/leitner_course_section'
+import { isModuleEnabled } from '#config/modules'
 import { assertOwnedOrAdmin, isVisible } from '#core/shared/services/visibility'
 
 /**
@@ -29,6 +29,9 @@ export async function linkIngestionSections(
   slugs: string[]
 ): Promise<void> {
   if (slugs.length === 0) return
+  if (!isModuleEnabled('corpus')) return
+  const { default: LeitnerCourseSection } =
+    await import('#modules/corpus/models/leitner_course_section')
 
   const sections = await LeitnerCourseSection.query()
     .where('course_id', courseId)
@@ -63,6 +66,7 @@ export async function setManualSection(
   isAdmin: boolean
 ): Promise<void> {
   assertOwnedOrAdmin(card, userId, isAdmin)
+  if (!isModuleEnabled('corpus')) return
 
   await LeitnerCardSection.query()
     .where('leitner_card_id', card.id)
@@ -70,6 +74,9 @@ export async function setManualSection(
     .delete()
 
   if (courseSectionId === null) return
+  if (!isModuleEnabled('corpus')) return
+  const { default: LeitnerCourseSection } =
+    await import('#modules/corpus/models/leitner_course_section')
 
   // ⚠️ La section doit être VISIBLE de qui pose le lien — même garde que le catalogue
   // sur la taxonomie (`ensureTheme`) : lier une carte à une section qu'on ne peut même
@@ -129,7 +136,6 @@ export interface ProvenanceSection {
   slug: string
   headingPath: string[]
   body: string
-  aliases: string[] | null
   obsoleteAt: string | null
   origin: CardSectionOrigin
 }
@@ -149,6 +155,7 @@ export async function provenanceSectionsFor(
   isAdmin: boolean
 ): Promise<Map<number, ProvenanceSection[]>> {
   const map = new Map<number, ProvenanceSection[]>()
+  if (!isModuleEnabled('corpus')) return map
   if (cardIds.length === 0) return map
 
   const links = await LeitnerCardSection.query()
@@ -168,7 +175,6 @@ export async function provenanceSectionsFor(
       slug: link.courseSection.slug,
       headingPath: link.courseSection.headingPath,
       body: link.courseSection.body,
-      aliases: link.courseSection.aliases,
       obsoleteAt: link.courseSection.obsoleteAt?.toISO() ?? null,
       origin: link.origin,
     })

@@ -20,6 +20,7 @@
   "imports": {
     "#modules/*": "./app/modules/*.js",
     "#core/*": "./app/core/*.js",
+    "#bridges/*": "./app/bridges/*.js",
     "#providers/*": "./providers/*.js",
     "#commands/*": "./commands/*.js",
     "#tests/*": "./tests/*.js",

@@ -8,7 +8,6 @@ import { renderMarkdown } from '#core/shared/services/markdown_renderer'
 import { isModuleEnabled } from '#config/modules'
 import LeitnerCard from '#modules/leitner/models/leitner_card'
 import LeitnerCategory from '#modules/leitner/models/leitner_category'
-import LeitnerCourse from '#modules/corpus/models/leitner_course'
 import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 import LeitnerBackupService, {
   BackupImportError,
@@ -75,11 +74,18 @@ export default class LeitnerSettingsController {
     const canViewCourses =
       isModuleEnabled('corpus') && (await capabilityService.allows(auth.user!, 'corpus.view'))
 
-    const coursesQuery = LeitnerCourse.query()
-      .preload('sections', (sections) => sections.whereNull('obsolete_at').orderBy('id', 'asc'))
-      .orderBy('title', 'asc')
-    applyVisibility(coursesQuery, 'leitner_courses', userId, isAdmin)
-    const courses = canViewCourses ? await coursesQuery : []
+    const courses = canViewCourses
+      ? await (async () => {
+          const { default: LeitnerCourse } = await import('#modules/corpus/models/leitner_course')
+          const query = LeitnerCourse.query()
+            .preload('sections', (sections) =>
+              sections.whereNull('obsolete_at').orderBy('id', 'asc')
+            )
+            .orderBy('title', 'asc')
+          applyVisibility(query, 'leitner_courses', userId, isAdmin)
+          return query
+        })()
+      : []
 
     const manualSections = canViewCourses
       ? await provenanceSectionsFor(
@@ -90,6 +96,9 @@ export default class LeitnerSettingsController {
       : new Map<number, ProvenanceSection[]>()
 
     return inertia.render('modules/leitner/settings', {
+      corpusAvailable: isModuleEnabled('corpus'),
+      canPromoteGlossary:
+        isModuleEnabled('corpus') && (await capabilityService.allows(auth.user!, 'corpus.write')),
       // ⚠️ `serialize()` ne rend pas les `$extras` : la boîte, qui vient de la jointure
       // de progression et non d'une colonne de la carte, doit être recopiée à la main.
       cards: cards.map((card) => ({

@@ -1,14 +1,16 @@
 # Tests — module corpus
 
-Extrait de Leitner en module détachable séparé (CC-275). Voir `app/modules/leitner/CLAUDE.md`,
-section « Le corpus de cours (CC-251) », pour l'historique du contenu ; ce fichier ne référence
+- `tests/functional/modules/corpus_glossary.spec.ts` — CRUD autonome, partage explicite, visibilité des sections, HTML assaini et suppression de l’index (CC-277).
+
+Extrait de Leitner en module détachable séparé (CC-275). Voir `app/modules/corpus/CLAUDE.md`
+pour le contrat actuel ; ce fichier ne référence
 que ce qui, depuis CC-275, vit physiquement dans `app/modules/corpus/`.
 
 ⚠️ **Lu par `tests/unit/tests_index.spec.ts` (CC-112)** : toute spec citée ici doit exister sur le
 disque, et toute spec de `tests/` préfixée `corpus_` ou de `app/modules/corpus/**` doit être citée
 ici — les deux sens sont vérifiés, jamais un seul.
 
-⚠️ **Trois fichiers de test seulement, et c'est le périmètre réel du module tel qu'extrait** — le
+⚠️ **Quatre fichiers de test depuis CC-277** — le
 reste de la couverture du corpus de cours (recherche « Approfondir », glossaire du recto, provenance
 d'ingestion) exerce des routes qui sont **restées côté Leitner** (le pont) et reste donc indexé dans
 `app/modules/leitner/TESTS.md`, pas ici. Ne duplique pas ces entrées.
@@ -23,7 +25,7 @@ d'ingestion) exerce des routes qui sont **restées côté Leitner** (le pont) et
   `introduction` (et un préambule vide ne produit **aucune** section fantôme), la désambiguïsation
   d'homonymes par suffixe numérique (`resume`, `resume-2`) — dans un même chemin de parenté **et**
   entre deux chemins différents —, la stabilité du slug quand seul le corps change, la
-  slugification (accents, ponctuation), le glossaire `> notion: X, Y` (présent et absent), et
+  slugification (accents, ponctuation), l'absence de déclaration par l'ancienne syntaxe, et
   l'égalité/différence de l'empreinte SHA-256 (normalisation CRLF→LF comprise).
 
 ## Le cycle de vie d'un cours, par les routes
@@ -68,13 +70,13 @@ d'ingestion) exerce des routes qui sont **restées côté Leitner** (le pont) et
   de l'extraction — voir le `CLAUDE.md` racine, « Le seul `v-html` du dépôt », et la décision
   CC-275 sur ce point).
 
-## Limites connues — ne les fais pas passer pour couvertes
+## Vérifications navigateur et modules séparés (CC-277)
 
-- **Aucun navigateur n'a affiché `/corpus`** (liste, page de détail, dialogue de conflit) depuis
-  l'extraction — même limite déjà actée côté Leitner avant CC-275. Le cycle de vie est prouvé par
-  les routes ; l'allure de l'écran, le rendu du markdown, et le défilement vers l'ancre de section
-  restent un passage navigateur pour le propriétaire.
-- **Le contrat de détachabilité** (le module fonctionne seul, Leitner fonctionne sans lui) n'est
-  prouvé par AUCUN test automatisé — `.env.test` active tous les modules connus ensemble
-  (doctrine CC-137). Il se prouve en faisant tourner un vrai serveur avec `MODULES` réduit, dans
-  les deux sens — voir le compte rendu de livraison de CC-275.
+- Chromium a exercé la création, l'édition, le partage, la suppression et la promotion
+  d'une sélection de section ; côté Leitner, le surlignage, la définition et la promotion de carte.
+- Deux serveurs ont tourné avec `MODULES=corpus` puis `MODULES=leitner`, sur des bases
+  séparées où les tables de l'autre module étaient réellement absentes. Création Corpus seule,
+  révision/catalogue/export/import Leitner seuls et routes du pont absentes ont été vérifiés.
+- Ces passages sont distincts de `npm test`, qui active tous les modules ensemble.
+  Le dialogue de conflit de cours et le défilement précis vers une ancre n'ont pas été rejoués
+  au navigateur dans CC-277 ; ce ne sont pas des fonctionnalités modifiées par ce ticket.

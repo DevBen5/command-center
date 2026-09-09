@@ -1,4 +1,26 @@
 {
+  "glossary": {
+    "promote": "Mettre le texte sélectionné au glossaire",
+    "title": "Glossaire",
+    "description": "Tes termes, leurs alias et leurs définitions. Privés tant que tu ne les partages pas.",
+    "add": "Ajouter un terme",
+    "edit": "Modifier",
+    "delete": "Supprimer",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "term": "Terme",
+    "aliases": "Alias, séparés par des virgules",
+    "definition": "Définition Markdown",
+    "section": "Section de cours facultative",
+    "noSection": "Aucune section",
+    "share": "Partager ce terme",
+    "private": "Privé",
+    "shared": "Partagé",
+    "search": "Rechercher dans le glossaire",
+    "empty": "Aucun terme trouvé.",
+    "error": "Enregistrement impossible. Vérifie les champs ou réessaie.",
+    "saved": "Terme enregistré."
+  },
   "index": {
     "crumb": "Corpus",
     "title": "Corpus de cours"

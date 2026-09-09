@@ -7,7 +7,8 @@ import vine from '@vinejs/vine'
  * même raison que `PREVIEW_MAX_CHARS`/`MEASURE_MAX_MS` côté Leitner — une seule déclaration,
  * jamais recopiée (CC-275, déplacée avec le corpus depuis `leitner/validators/leitner.ts`).
  */
-export const COURSE_TITLE_MAX_CHARS = 200
+import { COURSE_TITLE_MAX_CHARS } from '#core/shared/constants/course'
+export { COURSE_TITLE_MAX_CHARS }
 
 /**
  * Ajout d'un cours : du markdown, et rien d'autre. ⚠️ **Un fichier `.md` n'est PAS
@@ -45,3 +46,15 @@ export const courseReplaceValidator = vine.compile(
     markdown: vine.string().trim().minLength(1),
   })
 )
+
+export const glossaryTermCreateValidator = vine.compile(
+  vine.object({
+    term: vine.string().trim().minLength(1).maxLength(200),
+    aliases: vine.array(vine.string().trim().minLength(1).maxLength(200)).optional(),
+    definition: vine.string().trim().minLength(1),
+    sectionId: vine.number().withoutDecimals().positive().nullable().optional(),
+    isShared: vine.boolean().optional(),
+  })
+)
+
+export const glossaryTermUpdateValidator = glossaryTermCreateValidator

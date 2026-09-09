@@ -13,9 +13,9 @@ import { DEFAULT_BOX } from '#modules/leitner/services/leitner_progress'
 import type { Grade, ReviewKind, Verdict } from '#modules/leitner/services/leitner_service'
 import { applyVisibility, isVisible } from '#core/shared/services/visibility'
 import { isModuleEnabled } from '#config/modules'
-import LeitnerCourse, { type CourseSource } from '#modules/corpus/models/leitner_course'
-import LeitnerCourseSection from '#modules/corpus/models/leitner_course_section'
-import { hashCourseMarkdown } from '#modules/corpus/services/leitner_course_sections'
+import type { BackupGlossaryTerm } from '#bridges/leitner_corpus/glossary_backup'
+import type { CourseSource } from '#modules/corpus/models/leitner_course'
+import { hashCourseMarkdown } from '#core/shared/services/course_sections'
 
 /**
  * Version du format d'échange. Un fichier qui déclare une autre version est
@@ -68,7 +68,8 @@ import { hashCourseMarkdown } from '#modules/corpus/services/leitner_course_sect
  * n'avaient pas bumpé non plus. Son absence sur un fichier < CC-253 se lit « aucun
  * lien de provenance connu », jamais une erreur.
  */
-export const BACKUP_VERSION = 5
+// CC-277 : les termes sont du contenu ; les anciens lecteurs doivent refuser v6.
+export const BACKUP_VERSION = 6
 
 /**
  * Les versions qu'un import accepte, et la seule raison de la liste : **refuser v1/v2
@@ -77,7 +78,7 @@ export const BACKUP_VERSION = 5
  * CC-139), il le reste après import (`shared: true`, voir `resolveShared`). C'est
  * exactement le choix que fait le backfill de la migration sur le contenu déjà en base.
  */
-export const READABLE_BACKUP_VERSIONS = [1, 2, 3, 4, 5]
+export const READABLE_BACKUP_VERSIONS = [1, 2, 3, 4, 5, 6]
 
 /**
  * Une révision : sa note, son horodatage, et **la trace de ce qui l'a précédée**.
@@ -183,8 +184,6 @@ export interface BackupCourseSection {
   slug: string
   headingPath: string[]
   body: string
-  /** `undefined` = hors glossaire, même sens que sur le modèle. */
-  aliases?: string[]
   obsoleteAt?: string
 }
 
@@ -199,6 +198,8 @@ export interface BackupCourse {
 }
 
 export interface Backup {
+  glossaryTerms: BackupGlossaryTerm[]
+  glossarySupported: boolean
   version: number
   exportedAt: string
   categories: BackupCategory[]
@@ -222,6 +223,7 @@ export interface BackupCourseInput {
     slug: string
     headingPath?: string[]
     body: string
+    /** Lecture v1–v5 uniquement : converti en GlossaryTerm, jamais exporté sur une section v6. */
     aliases?: string[]
     obsoleteAt?: string | null
   }[]
@@ -259,6 +261,7 @@ export interface BackupCardInput {
 }
 
 export interface BackupInput {
+  glossaryTerms?: BackupGlossaryTerm[]
   version?: number
   categories?: { name: string; themes?: string[] }[]
   cards: BackupCardInput[]
@@ -266,6 +269,10 @@ export interface BackupInput {
 }
 
 export interface ImportReport {
+  termsCreated: number
+  termsSkipped: number
+  termLinksLost: number
+  glossarySupported: boolean
   cardsCreated: number
   /** Cartes ignorées : leur recto existait déjà sous ce thème. */
   cardsSkipped: number
@@ -420,7 +427,8 @@ export default class LeitnerBackupService {
 
     // Sections exportées telles quelles, tombes comprises (voir `BackupCourseSection`).
     const courses = corpusAvailable
-      ? await (() => {
+      ? await (async () => {
+          const { default: LeitnerCourse } = await import('#modules/corpus/models/leitner_course')
           const coursesQuery = LeitnerCourse.query()
             .preload('sections', (sections) => sections.orderBy('id', 'asc'))
             .orderBy('id', 'asc')
@@ -429,8 +437,13 @@ export default class LeitnerBackupService {
         })()
       : []
 
+    const glossaryBridge = corpusAvailable
+      ? await import('#bridges/leitner_corpus/glossary_backup')
+      : null
     return {
       version: BACKUP_VERSION,
+      glossarySupported: corpusAvailable,
+      glossaryTerms: glossaryBridge ? await glossaryBridge.exportTerms(userId, isAdmin) : [],
       exportedAt: DateTime.now().toISO()!,
       categories: categories.map((category) => ({
         name: category.name,
@@ -447,7 +460,6 @@ export default class LeitnerBackupService {
           slug: section.slug,
           headingPath: section.headingPath,
           body: section.body,
-          ...omitNull({ aliases: section.aliases }),
           ...omitNull({ obsoleteAt: section.obsoleteAt?.toISO() ?? null }),
         })),
       })),
@@ -553,6 +565,10 @@ export default class LeitnerBackupService {
     isAdmin: boolean = false
   ): Promise<ImportReport> {
     const report: ImportReport = {
+      termsCreated: 0,
+      termsSkipped: 0,
+      termLinksLost: 0,
+      glossarySupported: isModuleEnabled('corpus'),
       cardsCreated: 0,
       cardsSkipped: 0,
       categoriesCreated: 0,
@@ -706,6 +722,9 @@ export default class LeitnerBackupService {
       // « rien à importer » trompeur sur un fichier qui portait réellement du contenu.
       if (corpusAvailable) {
         const seenCourseHashes = new Set<string>()
+        const { default: LeitnerCourse } = await import('#modules/corpus/models/leitner_course')
+        const { default: LeitnerCourseSection } =
+          await import('#modules/corpus/models/leitner_course_section')
         const seenCourseTitles = new Set<string>()
         for (const course of await LeitnerCourse.query({ client: trx }).where('owner_id', userId)) {
           seenCourseHashes.add(course.contentHash)
@@ -745,7 +764,6 @@ export default class LeitnerBackupService {
                 slug: section.slug,
                 headingPath: section.headingPath ?? [],
                 body: section.body,
-                aliases: section.aliases ?? null,
                 obsoleteAt: section.obsoleteAt ? DateTime.fromISO(section.obsoleteAt) : null,
               },
               { client: trx }
@@ -786,6 +804,32 @@ export default class LeitnerBackupService {
         report.coursesSkipped += (backup.courses ?? []).length
       }
 
+      // Les anciens fichiers v5 sont migrés à la lecture : aucune définition perdue.
+      const legacyTerms: BackupGlossaryTerm[] =
+        (backup.version ?? BACKUP_VERSION) < 6
+          ? (backup.courses ?? []).flatMap((course) =>
+              (course.sections ?? []).flatMap((section) =>
+                section.aliases?.length
+                  ? [
+                      {
+                        term: section.aliases[0],
+                        aliases: section.aliases.slice(1),
+                        definition: section.body,
+                        shared: course.shared ?? false,
+                        section: { courseTitle: course.title, slug: section.slug },
+                      },
+                    ]
+                  : []
+              )
+            )
+          : []
+      const terms = [...(backup.glossaryTerms ?? []), ...legacyTerms]
+      if (corpusAvailable) {
+        const glossaryBridge = await import('#bridges/leitner_corpus/glossary_backup')
+        Object.assign(report, await glossaryBridge.importTerms(terms, userId, trx))
+      } else {
+        report.termsSkipped = terms.length
+      }
       return report
     })
   }

@@ -9,7 +9,7 @@ import { MEASURE_MAX_MS } from '#modules/leitner/shared/review_page'
 import { PREVIEW_MAX_CHARS } from '#modules/leitner/shared/card_preview'
 // La borne du titre d'un cours vit chez corpus (CC-275) — sa table, sa colonne,
 // `backupValidator` la consomme comme il consomme les bornes ci-dessus.
-import { COURSE_TITLE_MAX_CHARS } from '#modules/corpus/validators/corpus'
+import { COURSE_TITLE_MAX_CHARS } from '#core/shared/constants/course'
 
 /**
  * Création / édition d'une carte. `leitnerThemeId` est optionnel : une carte
@@ -321,6 +321,26 @@ function backupReviewTraceFields() {
  */
 export const backupValidator = vine.compile(
   vine.object({
+    glossaryTerms: vine
+      .array(
+        vine.object({
+          term: vine.string().trim().minLength(1).maxLength(200),
+          aliases: vine.array(vine.string().trim().minLength(1).maxLength(200)).optional(),
+          definition: vine.string().trim().minLength(1),
+          createdAt: vine.string().use(timestamp()).optional(),
+          updatedAt: vine.string().use(timestamp()).optional(),
+          shared: vine.boolean().optional(),
+          section: vine
+            .object({
+              courseTitle: vine.string().trim().minLength(1).maxLength(200),
+              courseHash: vine.string().trim().minLength(1).maxLength(64).optional(),
+              slug: vine.string().trim().minLength(1).maxLength(300),
+            })
+            .nullable()
+            .optional(),
+        })
+      )
+      .optional(),
     version: vine.number().withoutDecimals().optional(),
     exportedAt: vine.string().optional(),
     categories: vine
@@ -395,6 +415,7 @@ export const backupValidator = vine.compile(
                 slug: vine.string().trim().minLength(1).maxLength(300),
                 headingPath: vine.array(vine.string().trim()).optional(),
                 body: vine.string(),
+                // Compatibilité des fichiers v5 : convertis en termes par l'import.
                 aliases: vine.array(vine.string().trim()).optional(),
                 obsoleteAt: vine.string().use(timestamp()).nullable().optional(),
               })

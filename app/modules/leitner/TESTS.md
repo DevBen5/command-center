@@ -1,11 +1,15 @@
 # Leitner — ce que couvre la suite
 
+- `tests/functional/modules/leitner_glossary_promotion.spec.ts` — création privée depuis une carte possédée, refus sans corpus.write et sur carte étrangère (CC-277).
+- `tests/functional/modules/leitner_glossary_backup.spec.ts` — export visible v6, restauration des définitions et alias, lien perdu conservant le terme et Corpus désactivé (CC-277).
+- `app/modules/leitner/components/__tests__/glossary_promotion_button.spec.ts` — préremplissage, correction, POST JSON, succès et refus serveur (CC-277).
+
 Sorti de `CLAUDE.md` pour ne pas être chargé à chaque fois qu'on touche au module. À lire **avant de
 modifier un test**, pas avant de modifier le module. Les règles qui doivent rester présentes en
 permanence sont dans `CLAUDE.md`, section « Tests ».
 
 ⚠️ **Les fabriques du module vivent dans `tests/helpers/leitner.ts`, et `makeCard` ne pose AUCUNE
-progression.** C'est délibéré : une carte neuve n'a pas de ligne, l'absence *est* « boîte 1, due
+progression.** C'est délibéré : une carte neuve n'a pas de ligne, l'absence _est_ « boîte 1, due
 aujourd'hui » pour tout le monde. Un helper qui en sèmerait une par commodité ferait passer au vert
 des tests qui ne prouvent alors plus rien du cas réel — celui d'un compte qui découvre le paquet.
 Pour un autre état, il faut dire **pour qui** : `setProgress(userId, cardId, …)`, et les lectures
@@ -38,7 +42,7 @@ témoin hors boîte 5 reste `NULL`, aucun `mastered_at` inventé. ⚠️ **Et le
 même vérification sur un `where box = 4` muté rend 0 correcte / 2 sans horloge — sans quoi elle
 n'aurait rien prouvé. Base restaurée depuis le dump ensuite.
 
-⚠️ **Ce que ça ne dit toujours pas** : que `updated_at` soit une bonne *approximation* de l'entrée
+⚠️ **Ce que ça ne dit toujours pas** : que `updated_at` soit une bonne _approximation_ de l'entrée
 en boîte 5 sur du contenu réel. C'est une limite de conception, assumée et écrite dans la migration
 — aucune vérification ne peut la lever.
 
@@ -67,7 +71,7 @@ Le backfill de `kind`, lui, n'a rien à prouver : le `default` de la colonne est
   Il monte aussi `MarkdownPreviewPanel` pour une **subtilité de Vue** que rien d'autre
   n'attraperait : le composable rend un objet plat portant des `ref`, qui voyage en **prop** — les
   props n'étant que superficiellement réactives, ça s'écrit `preview.open.value`, et un
-  `preview.open` nu (l'écriture qui *paraît* juste, puisque Vue déballe partout ailleurs) rendrait
+  `preview.open` nu (l'écriture qui _paraît_ juste, puisque Vue déballe partout ailleurs) rendrait
   un objet toujours truthy : le panneau s'afficherait **en permanence, y compris replié**, avec
   les trois gates au vert. Le montage porte en prime l'assertion sur la classe `markdown` **au
   rendu**, là où `leitner_card_preview.spec.ts` ne peut la lire que dans la source.
@@ -209,14 +213,14 @@ navigateur.
 - `tests/unit/leitner_service.spec.ts`, groupe « régime d'entretien » — ce que le pur ne peut pas
   dire : que l'échelle est **branchée**, et sur l'intervalle lu **en base** (à `box5Days = 365`, le
   premier palier ne peut plus valoir 90). ⚠️ **Le test qui porte l'arbitrage du lot** est celui de
-  la note qui *acquiert* la maîtrise : elle porte `kind: 'normal'` et repart pourtant à **90 j** —
+  la note qui _acquiert_ la maîtrise : elle porte `kind: 'normal'` et repart pourtant à **90 j** —
   l'échéance suit la file où la carte **va**, jamais celle d'où elle vient (le pendant inverse de
   `kind`). Gaté sur `kind`, on lirait 30, et une carte tout juste maîtrisée reviendrait au rythme
   d'avant dans une file que rien n'affiche encore. ⚠️ **Le test qui attrape une dérive du rang d'un
   cran est la séquence complète** (90 → 180 → 365 → 365), et c'est le seul : le rang se compte
   **avant** l'insertion de la note courante, et la note d'acquisition occupe le palier 0 — d'où le
   `>=` et non le `>` qu'on écrirait spontanément, `mastered_at` et son `reviewed_at` étant deux
-  `DateTime.now()` distincts dont l'écart de quelques microsecondes serait sinon *load-bearing*.
+  `DateTime.now()` distincts dont l'écart de quelques microsecondes serait sinon _load-bearing_.
   ⚠️ **Et ce `>=` est INERTE aujourd'hui — mesuré, pas déduit** : le remplacer par `>` laisse la
   suite entièrement **verte**, l'écart de microsecondes suffisant à compter la note d'acquisition.
 - `tests/unit/leitner_grade_outcomes.spec.ts` — **ce que chaque note va faire** (CC-262), code pur :
@@ -263,7 +267,7 @@ navigateur.
   entretien, où l'ancien `suggestedGrade ?? 'easy'` surlignait **du vide**, sans erreur ni log.
   Le test tient les deux mondes (en file normale, la suggestion gagne toujours et le repli reste
   `easy`) ; **mutation vérifiée le 2026-08-16** — rétablir `suggested ?? 'easy'` le fait rougir.
-  Il tient aussi que le **libellé** se décide sur l'état *avant* la note : lu sur `outcome.mastered`,
+  Il tient aussi que le **libellé** se décide sur l'état _avant_ la note : lu sur `outcome.mastered`,
   « Je l'ai perdu » se rebaptiserait « À revoir » sur la carte même où la distinction compte.
   Ce qu'il achète a été mesuré autrement, en simulant le refactor qu'il anticipe (un seul
   `DateTime.now()` pour la marque **et** pour `reviewed_at`) : dans ce monde-là, `>=` reste vert et
@@ -272,7 +276,7 @@ navigateur.
   Plus les deux dé-maîtrises (`again` en entretien efface `mastered_at` et **laisse `box` à 5** ;
   le 2ᵉ `hard` d'affilée efface **et** renvoie en boîte 1 avec l'intervalle de sa nouvelle boîte) et
   la carte **ré-acquise**, qui repart au premier palier — sans la borne `reviewed_at >=
-  mastered_at`, elle repartirait droit au palier d'un an alors qu'on vient de constater qu'elle
+mastered_at`, elle repartirait droit au palier d'un an alors qu'on vient de constater qu'elle
   n'est plus sue.
 - `tests/functional/modules/leitner_intervals.spec.ts` — les intervalles **lus en base**, pas dans
   la constante. Le test qui porte le lot enchaîne les deux moitiés dans la **même** exécution :
@@ -296,7 +300,7 @@ navigateur.
   normale même due**, la file d'entretien la rend **et elle seule**, une maîtrisée pas encore due
   n'est dans **aucune** des deux, et une carte jamais notée ne tombe pas dans l'entretien (le
   pendant, qui vaut autant : `mastered_at` est nul par la jointure externe). Plus l'ordre de la
-  file d'entretien — ⚠️ **toutes ses cartes étant en boîte 5, un tri par boîte y serait *inerte* et
+  file d'entretien — ⚠️ **toutes ses cartes étant en boîte 5, un tri par boîte y serait _inerte_ et
   passerait inaperçu** : ce qui l'attrape est l'ordre par retard —, le paquet, le cloisonnement, le
   compte de l'écran de choix et la tuile « boîte 5 ». ⚠️ **Ce fichier n'éprouve que deux des quatre
   consommateurs de `whereDue`** ; c'est voulu — si retirer l'exclusion ne faisait rougir que lui,
@@ -319,7 +323,7 @@ navigateur.
   plus, un `again` d'entretien qui sort la carte des acquis **et** la fait compter comme perdue,
   « perdue » qui compte des **cartes** et non des accidents, le catalogue qui **marque sans
   filtrer** (`?box=5` liste encore l'acquise pendant que la tuile annonce 0 — décidé, pas oublié),
-  et le cloisonnement **à deux cloisons** : visibilité du contenu (CC-139) *et* `user_id` de la
+  et le cloisonnement **à deux cloisons** : visibilité du contenu (CC-139) _et_ `user_id` de la
   progression (CC-119), retirer l'une des deux laisse le test rouge.
   ⚠️ **Depuis CC-265 il porte aussi les deux mondes PAR LES PROPS RÉELLES** — l'unitaire prouve que
   `gradeOutcomes` sait rendre deux sorties, celui-ci prouve que c'est bien ce que l'écran **reçoit**,
@@ -406,7 +410,7 @@ navigateur.
 - `tests/unit/leitner_judge_service.spec.ts` — le **juge de la réponse écrite**, test qui compte du
   lot : le court-circuit (l'assertion qui porte le test est `calls.length === 0`, pas le verdict :
   c'est l'**absence d'appel** qui est l'objet), les accents, la réponse vide qui ne juge rien, le
-  mapping verdict → bouton, et surtout **le repli** — serveur éteint *et* sortie illisible, sans
+  mapping verdict → bouton, et surtout **le repli** — serveur éteint _et_ sortie illisible, sans
   jamais lever.
 - `tests/unit/leitner_llm_client.spec.ts` — ce qui part **réellement sur le fil** (`fetch` remplacé,
   aucun réseau) : `0.2` par défaut, `0` quand le juge le demande. Le faux client enregistre les
@@ -425,7 +429,7 @@ navigateur.
   ⚠️ **`dueLabel(intervalles, boîte)` a été RETIRÉE par CC-262**, remplacée par `dueInLabel(jours)` :
   depuis l'échelle d'entretien, l'échéance d'une note ne se déduit plus d'une boîte — une carte
   acquise revient dans 90, 180 ou 365 jours **en restant boîte 5**. Une fonction qui prend une boîte
-  ne *peut pas* dire cette échéance-là. Son cas « 0 » disait « dans 0 j » et dit maintenant
+  ne _peut pas_ dire cette échéance-là. Son cas « 0 » disait « dans 0 j » et dit maintenant
   « aujourd'hui », qui est ce qu'`again` promet réellement — et c'est devenu un cas **nominal**,
   plus une boîte inexistante.
 
@@ -470,7 +474,7 @@ navigateur.
   et les deux marques font rougir l'aller-retour, chacune séparément. Depuis CC-251, le format est
   en **v5** : le `snapshot()` porte aussi les **cours** (`courses`, sections ordonnées par id,
   tombes comprises), l'aller-retour en sème un avec deux sections (une vivante, une tombée avec
-  `obsoleteAt` et des alias) et la base vidée détruit aussi `leitner_courses` — sans quoi la
+  `obsoleteAt`) et la base vidée détruit aussi `leitner_courses` — sans quoi la
   comparaison serait verte en n'éprouvant aucun cours. Deux tests dédiés couvrent le format
   existant : **un fichier v4 sans clé `courses`** importe toujours 0 cours, et un **fichier v5
   écrit à la main** (avec une section tombée) réinsère les sections **telles quelles**, jamais
@@ -502,10 +506,10 @@ toucher, le résultat n'est pas celui qu'on attend.
   rend une carte **vide** à l'écran (`v-html` sur `undefined` n'affiche rien, sans erreur, et
   `tsc` ne lit pas les `.vue`). Trois tests : la file de révision porte le HTML **et** la source
   (⚠️ l'assertion sur la source est celle qui compte — l'édition, l'export, la dédup `(recto,
-  thème)` et le prompt du juge travaillent tous dessus, et un contrôleur qui remplacerait `front`
+thème)` et le prompt du juge travaillent tous dessus, et un contrôleur qui remplacerait `front`
   par son HTML les casserait tous les quatre d'un geste) ; une carte hostile ressort assainie
   jusque dans les props, **sans** que la base soit réécrite ; et **les écrans de liste ne
-  reçoivent aucun HTML** — c'est le pendant, et il vaut autant, le recto y étant une *clé*
+  reçoivent aucun HTML** — c'est le pendant, et il vaut autant, le recto y étant une _clé_
   (`cardLink`, `confirmDeleteCard`).
 - `tests/functional/modules/leitner_llm.spec.ts` porte depuis CC-133 le seul cas du module où le
   HTML voyage dans un **JSON** (`fetch`) et non dans une prop Inertia : l'aperçu de génération.
@@ -552,7 +556,7 @@ toucher, le résultat n'est pas celui qu'on attend.
   aucun mécanisme d'avancement.
   ⚠️ **Chaque tour navigue vers `response.headers().location`, jamais vers une URL écrite dans le
   test** : la session se déroule par ce que le serveur renvoie, donc le `withQs()` (piège n° 1 du
-  module) est éprouvé à *chaque* note. Vérifié en le retirant — le test rougit en nommant l'écran
+  module) est éprouvé à _chaque_ note. Vérifié en le retirant — le test rougit en nommant l'écran
   de choix (`expected 'choice' to equal 'session'`), et c'est pour ça que `view` est lu **avant**
   `dueCards` : sans cette ligne, l'échec serait un accès à `undefined`.
   Deux gardes du montage, sans lesquelles il passerait au vert sans rien prouver : le compte dû
@@ -563,9 +567,9 @@ toucher, le résultat n'est pas celui qu'on attend.
   faux client qui lève** — la réponse étant le verso exact, un verdict `juste` dit du même coup
   qu'aucun appel n'est parti vers un LM Studio réellement allumé.
 - `tests/functional/modules/leitner_readonly.spec.ts` — le pendant : ce que les capacités
-  **ferment**, en **deux** profils, et il faut les deux. Le *lecteur strict* de CC-72 (`view` +
+  **ferment**, en **deux** profils, et il faut les deux. Le _lecteur strict_ de CC-72 (`view` +
   `stats.view`) prouve que `leitner.review` ferme encore — sans ce groupe plus rien ne le dirait,
-  le profil courant la portant désormais. L'*invité* de CC-121 prouve que la révision n'ouvre **rien
+  le profil courant la portant désormais. L'_invité_ de CC-121 prouve que la révision n'ouvre **rien
   d'autre** : contenu, taxonomie, intervalles, ingestion, LLM, export **et import**.
   ⚠️ **L'assertion qui compte n'est jamais le 403, c'est l'état de la base après le refus.** Les
   tests sont **tous côté serveur** : masquer un bouton n'est pas un droit, un `curl` muni d'un
@@ -586,13 +590,13 @@ toucher, le résultat n'est pas celui qu'on attend.
 - `tests/unit/leitner_ingestion_service.spec.ts` et
   `tests/functional/modules/leitner_ingest.spec.ts` — parsing, découpage, déduplication, promotion,
   échecs du LLM, **contre un faux client** ; plus l'**asynchrone** : le POST rend la main avant le
-  modèle (le faux client est *retenu* le temps de le vérifier), un échec laisse `failed` avec son
+  modèle (le faux client est _retenu_ le temps de le vérifier), un échec laisse `failed` avec son
   message et jamais `running`, et un travail orphelin est bien balayé.
 - `tests/unit/leitner_ingestion_title.spec.ts` — la **déduction du titre**, code pur, donc le test
   qui compte de ce lot.
 - `tests/unit/leitner_draft_review.spec.ts` — les prédicats de relecture des brouillons, dont le
   pendant exact du piège `isScheduleDirty` de veille : la base stocke `null` là où la copie éditable
-  manipule `''`, et comparer les deux valeurs brutes laisserait *Enregistrer* allumé en permanence
+  manipule `''`, et comparer les deux valeurs brutes laisserait _Enregistrer_ allumé en permanence
   sur tout brouillon non classé.
 - `tests/unit/leitner_pdf_service.spec.ts` — l'extraction et **ses six refus, un par un** (les
   confondre est la faute que ce lot évite), plus le nettoyage. Le fonctionnel vérifie que la route
@@ -632,7 +636,7 @@ découpage pur, son cycle de vie par les routes et ses tests de compte (`leitner
     `ingestion` convertit le lien EN PLACE** (CC-272) plutôt que de violer la
     contrainte `unique(carte, section)` (500 non catché avant le correctif) ;
   - la **suppression d'un lien `ingestion`** (CC-272, `DELETE
-    /revision/cards/:id/sections/:sectionId`) : supprime le lien ciblé sans toucher un
+/revision/cards/:id/sections/:sectionId`) : supprime le lien ciblé sans toucher un
     lien `manuel` de la même carte, une requête sur un lien `manuel` sous cette route
     ne supprime rien (le filtre `origin = 'ingestion'` est dans la requête SQL), et la
     garde d'appartenance refuse sur la carte d'un autre compte (403) ;
@@ -654,9 +658,9 @@ découpage pur, son cycle de vie par les routes et ses tests de compte (`leitner
     (2/22 sur les deux fichiers).
 - `tests/functional/modules/leitner_glossary.spec.ts` — les mots-clés du recto (CC-254, puis
   CC-276) : l'index de glossaire observé à travers `frontNodes` d'une carte due sur `/revision`
-  (un terme d'un cours visible y devient un jeton cliquable, aucun jeton cliquable sans
-  `corpus.view`, mutation : un terme d'un cours privé d'un autre compte ou d'une section
-  tombée n'y devient jamais cliquable — plus de `props.glossary` brut depuis CC-276) et
+  (un terme visible y devient un jeton cliquable, aucun jeton cliquable sans
+  `corpus.view`, aucun terme privé d'un autre compte ; depuis CC-277, une section
+  tombée ne supprime pas son terme autonome — plus de `props.glossary` brut depuis CC-276) et
   `GET /corpus/sections/:id` (contenu rendu, 403 sans la capacité, 403 sur un cours privé d'un autre
   compte malgré la capacité).
   ⚠️ **Depuis CC-275, le groupe « révision sans le module corpus »** (fin du fichier) prouve le
@@ -697,7 +701,7 @@ découpage pur, son cycle de vie par les routes et ses tests de compte (`leitner
 - `tests/unit/leitner_llm_url.spec.ts` — la **liste blanche SSRF**, le test qui compte.
 - `tests/unit/leitner_llm_redirect.spec.ts` — ce qui la **complète** : un `302` depuis un hôte
   autorisé n'est pas suivi. L'assertion qui porte le test est le **compteur de requêtes de la cible**
-  (`hits === 0`), pas l'erreur : la cible rend une réponse *valide*, donc un test qui n'asserterait
+  (`hits === 0`), pas l'erreur : la cible rend une réponse _valide_, donc un test qui n'asserterait
   que « ça lève » passerait à tort. C'est le seul test du dépôt qui fasse émettre au vrai client une
   requête (deux serveurs jetables sur `127.0.0.1:0`, fermés en teardown — sans quoi
   `forceExit: false` fige `npm test`).
