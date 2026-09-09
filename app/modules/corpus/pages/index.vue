@@ -70,7 +70,9 @@ function clearFile(): void {
   if (fileInput.value) fileInput.value.value = ''
 }
 
-const canSubmit = computed(() => !submitting.value && title.value.trim().length > 0 && markdown.value.trim().length > 0)
+const canSubmit = computed(
+  () => !submitting.value && title.value.trim().length > 0 && markdown.value.trim().length > 0
+)
 
 /*
 |------------------------------------------------------------------------------
@@ -113,7 +115,8 @@ async function submitCourse(): Promise<void> {
     } | null
 
     if (!response.ok) {
-      submitError.value = payload?.error ?? t('corpus.cours.errors.serverStatus', { status: response.status })
+      submitError.value =
+        payload?.error ?? t('corpus.cours.errors.serverStatus', { status: response.status })
       return
     }
 
@@ -152,7 +155,8 @@ async function resolveConflict(resolution: 'replace' | 'createSecond' | 'cancel'
     } | null
 
     if (!response.ok) {
-      submitError.value = payload?.error ?? t('corpus.cours.errors.serverStatus', { status: response.status })
+      submitError.value =
+        payload?.error ?? t('corpus.cours.errors.serverStatus', { status: response.status })
       return
     }
 
@@ -170,6 +174,10 @@ function openCourse(event: MouseEvent, id: number): void {
 </script>
 
 <template>
+  <nav class="mb-4 flex gap-4 border-b border-line pb-3">
+    <Link href="/corpus" aria-current="page">{{ t('corpus.index.title') }}</Link>
+    <Link href="/corpus/glossaire">{{ t('corpus.glossary.title') }}</Link>
+  </nav>
   <Head :title="t('corpus.cours.title')" />
 
   <div class="mb-4">

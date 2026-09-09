@@ -11,10 +11,8 @@ import {
   provenanceSectionsFor,
   type ProvenanceSection,
 } from '#modules/leitner/services/leitner_card_sections_service'
-import { searchCourseSections } from '#modules/corpus/services/leitner_course_search_service'
 import LeitnerFluencyService from '#modules/leitner/services/leitner_fluency_service'
 import { tokenizeFrontHtml } from '#modules/leitner/services/leitner_front_html'
-import { glossaryIndex } from '#modules/corpus/services/leitner_glossary_service'
 import { gradeOutcomes } from '#modules/leitner/services/leitner_grade_outcomes'
 import LeitnerJudgeService from '#modules/leitner/services/leitner_judge_service'
 import LeitnerMasteryService from '#modules/leitner/services/leitner_mastery_service'
@@ -185,10 +183,14 @@ export default class LeitnerController {
       : new Map<number, ProvenanceSection[]>()
     // Les mots-clés du recto (CC-254) : masquer n'est pas fermer — sans la capacité, l'index
     // reste vide et rien ne peut être souligné, la route de contenu refusant en plus.
-    const glossary = canViewCourses ? await glossaryIndex(userId, isAdmin) : []
+    const glossaryBridge = canViewCourses
+      ? await import('#bridges/leitner_corpus/glossary_index')
+      : null
+    const glossary = glossaryBridge ? await glossaryBridge.glossaryIndex(userId, isAdmin) : []
 
     return inertia.render('modules/leitner/index', {
       view: 'session',
+      corpusAvailable: isModuleEnabled('corpus'),
       scope: { label: resolved.label, finished },
       queue,
       dueCards: dueCards.map((card) => {
@@ -228,7 +230,6 @@ export default class LeitnerController {
             courseId: section.courseId,
             courseTitle: section.courseTitle,
             headingPath: section.headingPath,
-            aliases: section.aliases,
             obsoleteAt: section.obsoleteAt,
           })),
           // ⚠️ **Ce que chaque note fera, calculé par la règle elle-même** (CC-262) : la page
@@ -379,6 +380,9 @@ export default class LeitnerController {
    * évite l'aller-retour pour rien plutôt que de laisser Postgres trancher.
    */
   async courseSearch({ auth, params, response }: HttpContext) {
+    if (!isModuleEnabled('corpus')) return response.notFound()
+    const { searchCourseSections } =
+      await import('#modules/corpus/services/leitner_course_search_service')
     const card = await LeitnerCard.findOrFail(params.id)
     assertVisibleOrAdmin(card, auth.user!.id, auth.user!.isAdmin)
 
@@ -394,7 +398,6 @@ export default class LeitnerController {
         courseId: section.courseId,
         courseTitle: section.course.title,
         headingPath: section.headingPath,
-        aliases: section.aliases,
       })),
     })
   }

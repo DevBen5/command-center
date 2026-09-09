@@ -43,7 +43,6 @@ export default class LeitnerCourseService {
           slug: section.slug,
           headingPath: section.headingPath,
           body: section.body,
-          aliases: section.aliases,
           obsoleteAt: null,
         },
         { client: trx }
@@ -204,7 +203,6 @@ export default class LeitnerCourseService {
         if (existing) {
           existing.headingPath = section.headingPath
           existing.body = section.body
-          existing.aliases = section.aliases
           existing.obsoleteAt = null
           await existing.useTransaction(trx).save()
         } else {
@@ -214,7 +212,6 @@ export default class LeitnerCourseService {
               slug: section.slug,
               headingPath: section.headingPath,
               body: section.body,
-              aliases: section.aliases,
               obsoleteAt: null,
             },
             { client: trx }

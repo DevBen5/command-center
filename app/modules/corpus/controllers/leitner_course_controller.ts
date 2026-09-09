@@ -118,7 +118,6 @@ export default class LeitnerCourseController {
         slug: section.slug,
         headingPath: section.headingPath,
         bodyHtml: renderMarkdown(section.body),
-        aliases: section.aliases,
         obsoleteAt: section.obsoleteAt?.toISO() ?? null,
       })),
     })
@@ -182,7 +181,6 @@ export default class LeitnerCourseController {
       courseTitle: section.course.title,
       headingPath: section.headingPath,
       bodyHtml: renderMarkdown(section.body),
-      aliases: section.aliases,
     })
   }
 }

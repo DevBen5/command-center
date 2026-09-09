@@ -9,7 +9,6 @@ import invitationService from '#core/auth/services/invitation_service'
 import twoFactor from '#core/auth/services/two_factor_service'
 import modules from '#config/modules'
 import { ownedSharedContentTable } from '#modules/leitner/services/leitner_account_deletion_guard'
-import { ownedSharedCorpusContentTable } from '#modules/corpus/services/course_account_deletion_guard'
 import {
   createUserValidator,
   updateUserValidator,
@@ -237,6 +236,8 @@ export default class AdminUsersController {
     }
 
     if (modules.has('corpus')) {
+      const { ownedSharedCorpusContentTable } =
+        await import('#modules/corpus/services/course_account_deletion_guard')
       const blockingTable = await ownedSharedCorpusContentTable(user.id)
       if (blockingTable) {
         return response.badRequest({

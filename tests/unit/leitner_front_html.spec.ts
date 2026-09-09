@@ -51,10 +51,10 @@ test.group('Leitner / le recto rendu et souligné (CC-276)', () => {
   })
 
   test('un terme dans un bloc de code n’est jamais souligné', ({ assert }) => {
-    const glossary: GlossaryTerm[] = [{ term: 'TLS', sectionId: 7 }]
+    const glossary: GlossaryTerm[] = [{ term: 'TLS', termId: 7 }]
     const nodes = tokenizeFrontHtml(html('```\nTLS\n```'), glossary)
 
-    const tokens: Array<{ texte: string; sectionId: number | null }> = []
+    const tokens: Array<{ texte: string; termId: number | null }> = []
     function collectTokens(list: typeof nodes) {
       for (const node of list) {
         if (node.type === 'text') tokens.push(...node.tokens)
@@ -64,27 +64,27 @@ test.group('Leitner / le recto rendu et souligné (CC-276)', () => {
     collectTokens(nodes)
 
     assert.isTrue(tokens.some((t) => t.texte.includes('TLS')))
-    assert.isFalse(tokens.some((t) => t.sectionId !== null))
+    assert.isFalse(tokens.some((t) => t.termId !== null))
   })
 
   test('un terme reconnu hors code devient un jeton cliquable, balisage préservé', ({ assert }) => {
-    const glossary: GlossaryTerm[] = [{ term: 'TLS', sectionId: 7 }]
+    const glossary: GlossaryTerm[] = [{ term: 'TLS', termId: 7 }]
     const nodes = tokenizeFrontHtml(html('**protocole TLS** négocie.'), glossary)
 
-    // <p> > <strong> > texte contenant le jeton TLS avec sectionId 7
+    // <p> > <strong> > texte contenant le jeton TLS avec termId 7
     const paragraph = asElement(nodes[0])
     const strong = asElement(paragraph.children[0])
     const textNode = strong.children[0]
     assert.isNotNull(textNode)
     assert.equal(textNode!.type, 'text')
     const tokens = textNode!.type === 'text' ? textNode.tokens : []
-    assert.isTrue(tokens.some((t) => t.texte === 'TLS' && t.sectionId === 7))
+    assert.isTrue(tokens.some((t) => t.texte === 'TLS' && t.termId === 7))
   })
 
   test('un attribut n’est jamais scanné : le href d’un lien reste intact, son texte se souligne', ({
     assert,
   }) => {
-    const glossary: GlossaryTerm[] = [{ term: 'TLS', sectionId: 7 }]
+    const glossary: GlossaryTerm[] = [{ term: 'TLS', termId: 7 }]
     const nodes = tokenizeFrontHtml(html('[TLS](https://exemple.fr/tls)'), glossary)
 
     const paragraph = asElement(nodes.find((n) => n.type === 'element' && n.tag === 'p'))
@@ -96,16 +96,16 @@ test.group('Leitner / le recto rendu et souligné (CC-276)', () => {
     assert.isNotNull(anchorText)
     assert.equal(anchorText!.type, 'text')
     const tokens = anchorText!.type === 'text' ? anchorText.tokens : []
-    assert.isTrue(tokens.some((t) => t.texte === 'TLS' && t.sectionId === 7))
+    assert.isTrue(tokens.some((t) => t.texte === 'TLS' && t.termId === 7))
   })
 
   test('limite acceptée : un terme composé à cheval sur deux nœuds n’est pas reconnu', ({
     assert,
   }) => {
-    const glossary: GlossaryTerm[] = [{ term: 'TLS négocie', sectionId: 7 }]
+    const glossary: GlossaryTerm[] = [{ term: 'TLS négocie', termId: 7 }]
     const nodes = tokenizeFrontHtml(html('**TLS** négocie'), glossary)
 
-    const tokens: Array<{ texte: string; sectionId: number | null }> = []
+    const tokens: Array<{ texte: string; termId: number | null }> = []
     function collectTokens(list: typeof nodes) {
       for (const node of list) {
         if (node.type === 'text') tokens.push(...node.tokens)
@@ -114,7 +114,7 @@ test.group('Leitner / le recto rendu et souligné (CC-276)', () => {
     }
     collectTokens(nodes)
 
-    assert.isFalse(tokens.some((t) => t.sectionId !== null))
+    assert.isFalse(tokens.some((t) => t.termId !== null))
   })
 
   test('mutation : un recto hostile ne devient jamais un élément exécutable', ({ assert }) => {

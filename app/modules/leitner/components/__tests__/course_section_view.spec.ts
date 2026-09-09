@@ -31,7 +31,6 @@ function mountView(overrides: Partial<{ id: number; courseId: number; titleId: s
         courseId: overrides.courseId ?? 5,
         headingPath: ['Réseaux', 'TLS'],
         bodyHtml: '<p>Le handshake négocie les clés.</p>',
-        aliases: null,
       },
       titleId: overrides.titleId,
     },

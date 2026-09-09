@@ -4,6 +4,7 @@ import enabledModules from '#config/modules'
 import { createUserWith } from '#tests/helpers/users'
 import { makeCard } from '#tests/helpers/leitner'
 import LeitnerCourseSection from '#modules/corpus/models/leitner_course_section'
+import GlossaryTerm from '#modules/corpus/models/glossary_term'
 
 /**
  * Les mots-clés du recto (CC-254) — l'index de glossaire, consommé côté serveur depuis
@@ -15,9 +16,9 @@ import LeitnerCourseSection from '#modules/corpus/models/leitner_course_section'
  * travers le jeton cliquable (ou son absence) que le recto d'une carte due reçoit vraiment.
  */
 
-/** Les jetons (texte + sectionId) de tout `frontNodes`, toutes profondeurs. */
-function frontTokens(nodes: any[]): Array<{ texte: string; sectionId: number | null }> {
-  const tokens: Array<{ texte: string; sectionId: number | null }> = []
+/** Les jetons (texte + termId) de tout `frontNodes`, toutes profondeurs. */
+function frontTokens(nodes: any[]): Array<{ texte: string; termId: number | null }> {
+  const tokens: Array<{ texte: string; termId: number | null }> = []
   for (const node of nodes) {
     if (node.type === 'text') tokens.push(...node.tokens)
     else tokens.push(...frontTokens(node.children))
@@ -54,13 +55,20 @@ test.group('Leitner / glossaire — index et contenu (CC-254)', (group) => {
   }) => {
     const user = await writer()
     await postCourse(client, { title: 'Réseaux', markdown: COURSE_MARKDOWN }, user)
+    await GlossaryTerm.create({
+      term: 'TLS',
+      aliases: ['Transport Layer Security'],
+      definition: 'Protocole',
+      ownerId: user.id,
+      isShared: false,
+    })
     await makeCard('Le protocole TLS est robuste.', { ownerId: user.id })
 
     const response = await client.get('/revision?scope=all').loginAs(user).withInertia()
     const props = response.inertiaProps as Record<string, any>
     const tokens = frontTokens(props.dueCards[0].frontNodes)
 
-    assert.isTrue(tokens.some((t) => t.texte === 'TLS' && t.sectionId !== null))
+    assert.isTrue(tokens.some((t) => t.texte === 'TLS' && t.termId !== null))
   })
 
   test('mutation : un terme d’un cours privé d’un autre compte ne rend jamais de jeton cliquable', async ({
@@ -70,27 +78,41 @@ test.group('Leitner / glossaire — index et contenu (CC-254)', (group) => {
     const owner = await writer()
     const stranger = await reader()
     await postCourse(client, { title: 'Privé', markdown: COURSE_MARKDOWN }, owner)
+    await GlossaryTerm.create({
+      term: 'TLS',
+      aliases: [],
+      definition: 'Privé',
+      ownerId: owner.id,
+      isShared: false,
+    })
     await makeCard('Le protocole TLS est robuste.', { ownerId: stranger.id })
 
     const response = await client.get('/revision?scope=all').loginAs(stranger).withInertia()
     const props = response.inertiaProps as Record<string, any>
     const tokens = frontTokens(props.dueCards[0].frontNodes)
 
-    assert.isFalse(tokens.some((t) => t.sectionId !== null))
+    assert.isFalse(tokens.some((t) => t.termId !== null))
   })
 
   test('sans corpus.view, aucun jeton du recto n’est cliquable', async ({ client, assert }) => {
     const user = await createUserWith(['leitner.view', 'leitner.review'])
+    await GlossaryTerm.create({
+      term: 'TLS',
+      aliases: [],
+      definition: 'Texte',
+      ownerId: user.id,
+      isShared: false,
+    })
     await makeCard('Le protocole TLS est robuste.', { ownerId: user.id })
 
     const response = await client.get('/revision?scope=all').loginAs(user).withInertia()
     const props = response.inertiaProps as Record<string, any>
     const tokens = frontTokens(props.dueCards[0].frontNodes)
 
-    assert.isFalse(tokens.some((t) => t.sectionId !== null))
+    assert.isFalse(tokens.some((t) => t.termId !== null))
   })
 
-  test('mutation : une section tombée ne rend plus de jeton cliquable', async ({
+  test('un terme autonome reste cliquable quand sa section devient obsolète', async ({
     client,
     assert,
   }) => {
@@ -111,13 +133,21 @@ test.group('Leitner / glossaire — index et contenu (CC-254)', (group) => {
       .where('slug', 'tls')
       .firstOrFail()
     assert.isNotNull(tombstone.obsoleteAt, 'préalable : la section est bien tombée')
+    const term = await GlossaryTerm.create({
+      term: 'TLS',
+      aliases: [],
+      definition: 'Définition conservée',
+      ownerId: user.id,
+      isShared: false,
+      leitnerCourseSectionId: tombstone.id,
+    })
 
     await makeCard('Le protocole TLS est robuste.', { ownerId: user.id })
     const response = await client.get('/revision?scope=all').loginAs(user).withInertia()
     const props = response.inertiaProps as Record<string, any>
     const tokens = frontTokens(props.dueCards[0].frontNodes)
 
-    assert.isFalse(tokens.some((t) => t.sectionId !== null))
+    assert.isTrue(tokens.some((t) => t.termId === term.id))
   })
 
   test('GET /corpus/sections/:id rend le contenu d’une section visible', async ({
@@ -208,7 +238,7 @@ test.group('Leitner / révision sans le module corpus (CC-275)', (group) => {
     const tokens = frontTokens(props.dueCards[0].frontNodes)
     // Le recto garde son rendu Markdown (CC-276) — seul le soulignement disparaît.
     assert.isTrue(tokens.some((t) => t.texte === 'TLS'))
-    assert.isFalse(tokens.some((t) => t.sectionId !== null))
+    assert.isFalse(tokens.some((t) => t.termId !== null))
     assert.deepEqual(props.dueCards[0].provenance, [])
   })
 })

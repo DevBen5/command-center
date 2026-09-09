@@ -38,13 +38,6 @@ export default class LeitnerCourseSection extends BaseModel {
   declare body: string
 
   /**
-   * Les alias déclarés par `> notion: X, Y` sous le titre. `null` = la section n'entre
-   * pas au glossaire — elle reste consultable, simplement pas indexée.
-   */
-  @column({ prepare: (value: string[] | null) => (value === null ? null : JSON.stringify(value)) })
-  declare aliases: string[] | null
-
-  /**
    * Pierre tombale : posée quand le slug a disparu au remplacement du markdown. Le
    * texte survit toujours — jamais de suppression physique d'une section vivante.
    * Purge = geste manuel, depuis `/corpus`.

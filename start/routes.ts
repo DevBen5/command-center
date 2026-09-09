@@ -50,6 +50,7 @@ const LeitnerLlmController = () => import('#modules/leitner/controllers/leitner_
 const LeitnerStatsController = () => import('#modules/leitner/controllers/leitner_stats_controller')
 const LeitnerCourseController = () =>
   import('#modules/corpus/controllers/leitner_course_controller')
+const GlossaryTermController = () => import('#modules/corpus/controllers/glossary_term_controller')
 const CoffreDoorController = () => import('#modules/coffre/controllers/coffre_door_controller')
 const CoffreController = () => import('#modules/coffre/controllers/coffre_controller')
 const CoffreMediaController = () => import('#modules/coffre/controllers/coffre_media_controller')
@@ -414,6 +415,15 @@ router
           router
             .put('/cards/:id', [LeitnerSettingsController, 'update'])
             .use(middleware.can('leitner.cards.write'))
+          if (modules.has('corpus')) {
+            router
+              .post('/cards/:id/glossaire', [
+                () => import('#bridges/leitner_corpus/promotion_controller'),
+                'store',
+              ])
+              .where('id', router.matchers.number())
+              .use(middleware.can('leitner.cards.write'))
+          }
           router
             .delete('/cards/:id', [LeitnerSettingsController, 'destroy'])
             .use(middleware.can('leitner.cards.write'))
@@ -584,6 +594,24 @@ router
       router
         .group(() => {
           router.get('/', [LeitnerCourseController, 'index']).use(middleware.can('corpus.view'))
+          router
+            .get('/glossaire', [GlossaryTermController, 'index'])
+            .use(middleware.can('corpus.view'))
+          router
+            .post('/glossaire', [GlossaryTermController, 'store'])
+            .use(middleware.can('corpus.write'))
+          router
+            .get('/glossaire/:id', [GlossaryTermController, 'show'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('corpus.view'))
+          router
+            .put('/glossaire/:id', [GlossaryTermController, 'update'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('corpus.write'))
+          router
+            .delete('/glossaire/:id', [GlossaryTermController, 'destroy'])
+            .where('id', router.matchers.number())
+            .use(middleware.can('corpus.write'))
           router.post('/', [LeitnerCourseController, 'store']).use(middleware.can('corpus.write'))
           router
             .post('/conflict', [LeitnerCourseController, 'resolveConflict'])

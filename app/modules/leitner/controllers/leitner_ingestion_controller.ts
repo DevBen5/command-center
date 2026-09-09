@@ -5,7 +5,6 @@ import { isModuleEnabled } from '#config/modules'
 import LeitnerDraftCard from '#modules/leitner/models/leitner_draft_card'
 import LeitnerIngestion from '#modules/leitner/models/leitner_ingestion'
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
-import LeitnerCourseService from '#modules/corpus/services/leitner_course_service'
 import LeitnerIngestionService, {
   MAX_COURSE_CHARS,
   deduceTitle,
@@ -49,8 +48,6 @@ const RECENT_INGESTIONS = 20
  */
 @inject()
 export default class LeitnerIngestionController {
-  private courses = new LeitnerCourseService()
-
   constructor(
     private ingestion: LeitnerIngestionService,
     private catalog: LeitnerCatalogService,
@@ -219,7 +216,9 @@ export default class LeitnerIngestionController {
     // ignoré — l'ingestion continue sans cours conservé, jamais une 500.
     let leitnerCourseId: number | null = null
     if (payload.saveCourse && isModuleEnabled('corpus')) {
-      const course = await this.courses.createOrAttachSilently(auth.user!.id, {
+      const { default: CourseService } =
+        await import('#modules/corpus/services/leitner_course_service')
+      const course = await new CourseService().createOrAttachSilently(auth.user!.id, {
         title,
         markdown: text,
       })

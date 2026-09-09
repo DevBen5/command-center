@@ -95,7 +95,7 @@ test.group('Leitner / export JSON', (group) => {
     // **visible** par l'exportateur, et chaque carte porte désormais `shared` (v3) ; une
     // révision porte `kind`, dont l'**absence** doit se trancher plutôt que se deviner
     // (v4) ; le fichier gagne `courses`, un champ entièrement nouveau (v5).
-    assert.equal(backup.version, 5)
+    assert.equal(backup.version, 6)
     assert.deepEqual(backup.courses, [])
     assert.deepEqual(backup.categories, [{ name: 'DevOps', themes: ['Docker', 'Kubernetes'] }])
 
@@ -176,7 +176,6 @@ test.group('Leitner / export JSON', (group) => {
       slug: 'http',
       headingPath: ['HTTP'],
       body: 'Les verbes.',
-      aliases: null,
       obsoleteAt: null,
     })
     await LeitnerCardSection.create({
@@ -200,7 +199,6 @@ test.group('Leitner / export JSON', (group) => {
       slug: 'secret',
       headingPath: ['Secret'],
       body: 'Rien à voir.',
-      aliases: null,
       obsoleteAt: null,
     })
     await LeitnerCardSection.create({
@@ -348,7 +346,6 @@ test.group('Leitner / import JSON', (group) => {
           slug: section.slug,
           headingPath: section.headingPath,
           body: section.body,
-          aliases: section.aliases,
           obsoleteAt: section.obsoleteAt?.toISO() ?? null,
         })),
       })),
@@ -504,7 +501,6 @@ test.group('Leitner / import JSON', (group) => {
       slug: 'http',
       headingPath: ['HTTP'],
       body: 'Les verbes.',
-      aliases: null,
       obsoleteAt: null,
     })
     const tls = await LeitnerCourseSection.create({
@@ -512,7 +508,6 @@ test.group('Leitner / import JSON', (group) => {
       slug: 'tls',
       headingPath: ['TLS'],
       body: 'Le handshake — obsolète, mais conservé.',
-      aliases: ['TLS', 'Transport Layer Security'],
       obsoleteAt: DateTime.fromISO('2026-07-15T00:00:00.000Z'),
     })
 

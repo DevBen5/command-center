@@ -1,4 +1,19 @@
 {
+  "promotion": {
+    "section": "Ouvrir la section du cours",
+    "delete": "Retirer du glossaire",
+    "imported": "Termes créés : {created}. Ignorés : {skipped}. Liens de section absents : {lost}.",
+    "unsupported": "Corpus est désactivé : les termes du glossaire ne sont pas pris en charge.",
+    "button": "Glossaire",
+    "title": "Promouvoir au glossaire",
+    "term": "Terme",
+    "definition": "Définition Markdown",
+    "private": "Le terme sera privé. Tu pourras le partager depuis le glossaire.",
+    "save": "Créer le terme",
+    "cancel": "Annuler",
+    "success": "Terme ajouté au glossaire.",
+    "error": "Impossible de créer le terme. Vérifie les champs puis réessaie."
+  },
   "ingest": {
     "crumb": "Ingestion",
     "title": "Ingestion d'un cours",

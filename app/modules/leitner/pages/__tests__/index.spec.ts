@@ -22,7 +22,7 @@ import Index from '../index.vue'
 vi.mock('@inertiajs/vue3', () => ({
   Head: { props: ['title'], template: '<div><slot /></div>' },
   Link: { props: ['href'], template: '<a><slot /></a>' },
-  router: { post: vi.fn(), get: vi.fn() },
+  router: { post: vi.fn(), get: vi.fn(), reload: vi.fn() },
   usePage: () => mockedPage,
 }))
 
@@ -52,7 +52,7 @@ function card(id = 1) {
     frontNodes: [
       {
         type: 'text' as const,
-        tokens: [{ texte: 'Que négocie le handshake TLS ?', sectionId: null }],
+        tokens: [{ texte: 'Que négocie le handshake TLS ?', termId: null }],
       },
     ],
     backHtml: '<p>Des clés et des algorithmes.</p>',
@@ -75,6 +75,7 @@ function card(id = 1) {
 function baseProps(dueCards = [card()]) {
   return {
     view: 'session' as const,
+    corpusAvailable: true,
     scope: { label: 'Tout', finished: false },
     queue: 'normal' as const,
     dueCards,
@@ -166,7 +167,6 @@ describe('Leitner / index — « Je ne sais pas » et « Approfondir » (CC-252)
               courseId: 9,
               courseTitle: 'Réseaux',
               headingPath: ['TLS', 'Handshake'],
-              aliases: null,
             },
           ],
         }),
@@ -204,7 +204,6 @@ describe('Leitner / index — « Je ne sais pas » et « Approfondir » (CC-252)
                   courseId: 9,
                   courseTitle: 'Réseaux',
                   headingPath: ['TLS'],
-                  aliases: null,
                 },
               ],
             }),
@@ -218,7 +217,6 @@ describe('Leitner / index — « Je ne sais pas » et « Approfondir » (CC-252)
             courseTitle: 'Réseaux',
             headingPath: ['TLS'],
             bodyHtml: '<p>Le protocole négocie des clés.</p>',
-            aliases: null,
           }),
         }
       })
@@ -252,9 +250,7 @@ describe('Leitner / index — « Je ne sais pas » et « Approfondir » (CC-252)
       vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({
-          results: [
-            { id: 1, courseId: 9, courseTitle: 'Réseaux', headingPath: ['TLS'], aliases: null },
-          ],
+          results: [{ id: 1, courseId: 9, courseTitle: 'Réseaux', headingPath: ['TLS'] }],
         }),
       })
     )
@@ -299,7 +295,6 @@ describe('Leitner / index — provenance en modale (CC-274)', () => {
         courseId: 9,
         courseTitle: s.courseTitle,
         headingPath: s.headingPath,
-        aliases: null,
         obsoleteAt: null,
       })),
     }
@@ -348,7 +343,6 @@ describe('Leitner / index — provenance en modale (CC-274)', () => {
           courseTitle: 'Réseaux',
           headingPath: ['HTTP'],
           bodyHtml: '<p>Les verbes du protocole.</p>',
-          aliases: null,
         }),
       })
     )
@@ -408,9 +402,9 @@ describe('Leitner / index — mots-clés du recto (CC-254, CC-276)', () => {
             {
               type: 'text' as const,
               tokens: [
-                { texte: 'Le protocole ', sectionId: null },
-                { texte: 'TLS', sectionId: 7 },
-                { texte: ' négocie.', sectionId: null },
+                { texte: 'Le protocole ', termId: null },
+                { texte: 'TLS', termId: 7 },
+                { texte: ' négocie.', termId: null },
               ],
             },
           ],
@@ -421,15 +415,13 @@ describe('Leitner / index — mots-clés du recto (CC-254, CC-276)', () => {
 
   function fetchMock(): ReturnType<typeof vi.fn> {
     return vi.fn(async (url: string) => {
-      if (url.includes('/corpus/sections/')) {
+      if (url.includes('/corpus/glossaire/')) {
         return {
           ok: true,
           json: async () => ({
             id: 7,
-            courseId: 3,
-            courseTitle: 'Réseaux',
-            headingPath: ['TLS'],
-            bodyHtml: '<p>Le protocole TLS négocie des clés.</p>',
+            term: 'TLS',
+            definitionHtml: '<p>Le protocole TLS négocie des clés.</p>',
             aliases: ['TLS', 'Transport Layer Security'],
           }),
         }
@@ -465,7 +457,7 @@ describe('Leitner / index — mots-clés du recto (CC-254, CC-276)', () => {
     expect(buttonByText(wrapper, 'TLS')).toBeDefined()
   })
 
-  test('le clic ouvre la modale et affiche le contenu de la section', async () => {
+  test('le clic ouvre la modale et affiche la définition libre', async () => {
     vi.stubGlobal('fetch', fetchMock())
     const wrapper = mountIndex({ dueCards: [cardWithGlossaryTerm()] })
 
@@ -473,7 +465,7 @@ describe('Leitner / index — mots-clés du recto (CC-254, CC-276)', () => {
     await flushPromises()
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      '/corpus/sections/7',
+      '/corpus/glossaire/7',
       expect.objectContaining({ headers: { accept: 'application/json' } })
     )
     expect(wrapper.text()).toContain('Le protocole TLS négocie des clés.')
@@ -495,6 +487,55 @@ describe('Leitner / index — mots-clés du recto (CC-254, CC-276)', () => {
       .mock.calls.find(([url]) => String(url).includes('/judge'))!
     const body = JSON.parse((judgeCall[1] as RequestInit).body as string)
     expect(body.interrupted).toBe(true)
+  })
+
+  test('la modale montre le chargement puis une erreur si la définition est refusée', async () => {
+    let finish!: (response: { ok: boolean }) => void
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve
+          })
+      )
+    )
+    const wrapper = mountIndex({ dueCards: [cardWithGlossaryTerm()] })
+    await buttonByText(wrapper, 'TLS')!.trigger('click')
+    expect(wrapper.text()).toContain(fr.index.sectionModal.loading)
+    finish({ ok: false })
+    await flushPromises()
+    expect(wrapper.text()).toContain(fr.index.sectionModal.error)
+    expect(wrapper.text()).not.toContain(fr.index.sectionModal.loading)
+    wrapper.unmount()
+  })
+
+  test('retirer un terme ferme la modale et recharge les tokens du recto', async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 7,
+          term: 'TLS',
+          definitionHtml: '<p>Définition libre</p>',
+          canDelete: true,
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true })
+    vi.stubGlobal('fetch', fetcher)
+    const wrapper = mountIndex({ dueCards: [cardWithGlossaryTerm()] })
+    await buttonByText(wrapper, 'TLS')!.trigger('click')
+    await flushPromises()
+    await buttonByText(wrapper, 'Retirer du glossaire')!.trigger('click')
+    await flushPromises()
+    expect(fetcher).toHaveBeenLastCalledWith(
+      '/corpus/glossaire/7',
+      expect.objectContaining({ method: 'DELETE' })
+    )
+    expect(router.reload).toHaveBeenCalledWith({ only: ['dueCards'] })
+    expect(wrapper.text()).not.toContain('Définition libre')
+    wrapper.unmount()
   })
 
   test('ouvrir la définition APRÈS la première frappe ne marque PAS l’interruption', async () => {
@@ -554,7 +595,7 @@ describe('Leitner / index — mots-clés du recto (CC-254, CC-276)', () => {
       frontNodes: [
         {
           type: 'text' as const,
-          tokens: [{ texte: 'Que fait <script>alert(1)</script> ?', sectionId: null }],
+          tokens: [{ texte: 'Que fait <script>alert(1)</script> ?', termId: null }],
         },
       ],
     }

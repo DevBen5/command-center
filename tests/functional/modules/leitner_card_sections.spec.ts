@@ -134,7 +134,6 @@ test.group('Leitner / sélecteur manuel de provenance (CC-253)', (group) => {
       slug,
       headingPath: [slug],
       body: 'Contenu.',
-      aliases: null,
       obsoleteAt: null,
     })
   }
@@ -296,7 +295,6 @@ test.group('Leitner / panneau de révision — provenance (CC-253)', (group) => 
       slug: 'http',
       headingPath: ['HTTP'],
       body: 'Les *verbes*.',
-      aliases: null,
       obsoleteAt: null,
     })
     const card = await makeCard('Une carte du corpus', { ownerId: user.id, isShared: false })
@@ -340,7 +338,6 @@ test.group('Leitner / panneau de révision — provenance (CC-253)', (group) => 
       slug: 'tls',
       headingPath: ['TLS'],
       body: 'Le handshake.',
-      aliases: null,
       obsoleteAt: DateTime.now(),
     })
     const card = await makeCard('Carte liée à une section tombée', {
@@ -376,7 +373,6 @@ test.group('Leitner / panneau de révision — provenance (CC-253)', (group) => 
       slug: 'http',
       headingPath: ['HTTP'],
       body: 'Les verbes.',
-      aliases: null,
       obsoleteAt: null,
     })
     const card = await makeCard('Une carte du corpus', { ownerId: user.id, isShared: false })
@@ -415,7 +411,6 @@ test.group('Leitner / panneau de révision — provenance (CC-253)', (group) => 
       slug: 'secret',
       headingPath: ['Secret'],
       body: 'Rien à voir.',
-      aliases: null,
       obsoleteAt: null,
     })
     const card = await makeCard('Carte visible, provenance cachée', {
@@ -450,7 +445,6 @@ test.group('Leitner / suppression d’un lien de provenance (CC-272)', (group) =
       slug,
       headingPath: [slug],
       body: 'Contenu.',
-      aliases: null,
       obsoleteAt: null,
     })
   }
@@ -546,7 +540,6 @@ test.group('Leitner / provenance et export (CC-272)', (group) => {
       slug,
       headingPath: [slug],
       body: 'Contenu.',
-      aliases: null,
       obsoleteAt: null,
     })
   }

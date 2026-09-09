@@ -6,6 +6,7 @@ import AppLayout from '~/layouts/AppLayout.vue'
 import AppModal from '~/components/AppModal.vue'
 import ConfirmModal from '~/components/ConfirmModal.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
+import GlossaryPromotionButton from '../components/GlossaryPromotionButton.vue'
 import MarkdownPreviewPanel from '../components/MarkdownPreviewPanel.vue'
 import { useCan } from '../components/leitner_can'
 import { useMarkdownPreview } from '../components/leitner_markdown_preview'
@@ -110,6 +111,10 @@ interface Filters {
 }
 
 interface ImportReport {
+  termsCreated?: number
+  termsSkipped?: number
+  termLinksLost?: number
+  glossarySupported?: boolean
   cardsCreated: number
   cardsSkipped: number
   categoriesCreated: number
@@ -120,6 +125,8 @@ interface ImportReport {
 }
 
 const props = defineProps<{
+  canPromoteGlossary?: boolean
+  corpusAvailable?: boolean
   cards: Card[]
   categories: CategoryNode[]
   unclassifiedCount: number
@@ -722,7 +729,9 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
           class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
         >
           <option :value="null">{{ t('leitner.settings.allBoxes') }}</option>
-          <option v-for="box in [1, 2, 3, 4, 5]" :key="box" :value="box">{{ t('leitner.settings.boxLabel', { box }) }}</option>
+          <option v-for="box in [1, 2, 3, 4, 5]" :key="box" :value="box">
+            {{ t('leitner.settings.boxLabel', { box }) }}
+          </option>
         </select>
         <label class="flex items-center gap-1.5 text-[12.5px] text-txt-2">
           <input v-model="filters.unclassified" type="checkbox" class="accent-accent" />
@@ -791,8 +800,12 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
                   @change="toggleAll"
                 />
               </th>
-              <th class="py-2.5 font-medium" :class="canWriteCards ? '' : 'pl-3'">{{ t('leitner.settings.colCard') }}</th>
-              <th class="w-[190px] py-2.5 font-medium">{{ t('leitner.settings.colClassification') }}</th>
+              <th class="py-2.5 font-medium" :class="canWriteCards ? '' : 'pl-3'">
+                {{ t('leitner.settings.colCard') }}
+              </th>
+              <th class="w-[190px] py-2.5 font-medium">
+                {{ t('leitner.settings.colClassification') }}
+              </th>
               <th class="w-[70px] py-2.5 font-medium">{{ t('leitner.settings.colBox') }}</th>
               <th v-if="canWriteCards" class="w-[110px] py-2.5 pr-3 text-right font-medium">
                 {{ t('leitner.settings.colActions') }}
@@ -841,13 +854,13 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
                   </div>
                   <span
                     class="mt-0.5 inline-block shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] whitespace-nowrap"
-                    :class="
-                      card.isShared
-                        ? 'border-ok/40 text-ok'
-                        : 'border-line-2 text-txt-3'
-                    "
+                    :class="card.isShared ? 'border-ok/40 text-ok' : 'border-line-2 text-txt-3'"
                   >
-                    {{ card.isShared ? t('leitner.settings.visibilityShared') : t('leitner.settings.visibilityPrivate') }}
+                    {{
+                      card.isShared
+                        ? t('leitner.settings.visibilityShared')
+                        : t('leitner.settings.visibilityPrivate')
+                    }}
                   </span>
                 </div>
               </td>
@@ -858,7 +871,9 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
                 >
                   {{ card.theme.category.name }} · {{ card.theme.name }}
                 </span>
-                <span v-else class="text-[11px] text-txt-3 italic">{{ t('leitner.settings.unclassified') }}</span>
+                <span v-else class="text-[11px] text-txt-3 italic">{{
+                  t('leitner.settings.unclassified')
+                }}</span>
               </td>
               <td class="py-2.5 pr-3 align-top">
                 <span class="font-mono text-[12.5px]">{{ card.box }}</span>
@@ -868,7 +883,9 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
                 <div v-if="card.masteredAt" class="mt-1 text-[10px] whitespace-nowrap text-ok">
                   {{ t('leitner.settings.masteredBadge') }}
                   <div class="text-txt-3">
-                    {{ t('leitner.settings.masteredSince', { date: masteredLabel(card.masteredAt) }) }}
+                    {{
+                      t('leitner.settings.masteredSince', { date: masteredLabel(card.masteredAt) })
+                    }}
                   </div>
                 </div>
               </td>
@@ -881,6 +898,7 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
                   >
                     {{ t('leitner.settings.edit') }}
                   </button>
+                  <GlossaryPromotionButton v-if="canPromoteGlossary" :card="card" />
                   <button
                     type="button"
                     class="ml-1 rounded-md border border-line-2 bg-panel-2 px-2 py-1 text-[11.5px] text-txt-2 transition hover:border-bad hover:text-bad"
@@ -889,7 +907,9 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
                     {{ t('leitner.settings.deleteShort') }}
                   </button>
                 </template>
-                <span v-else class="text-[11px] text-txt-3 italic">{{ t('leitner.settings.notMineHint') }}</span>
+                <span v-else class="text-[11px] text-txt-3 italic">{{
+                  t('leitner.settings.notMineHint')
+                }}</span>
               </td>
             </tr>
           </tbody>
@@ -898,10 +918,15 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
                ne s'afficherait jamais. -->
           <tbody v-if="!cards.length">
             <tr>
-              <td :colspan="canWriteCards ? 5 : 3" class="py-8 text-center text-[12.5px] text-txt-3">
+              <td
+                :colspan="canWriteCards ? 5 : 3"
+                class="py-8 text-center text-[12.5px] text-txt-3"
+              >
                 <template v-if="totalCards">{{ t('leitner.settings.noMatch') }}</template>
                 <template v-else>
-                  <div class="text-[13px] font-semibold text-txt-2">{{ t('leitner.settings.emptyBase') }}</div>
+                  <div class="text-[13px] font-semibold text-txt-2">
+                    {{ t('leitner.settings.emptyBase') }}
+                  </div>
                   <div v-if="canWriteCards" class="mt-1">
                     {{ t('leitner.settings.emptyBaseHint') }}
                   </div>
@@ -941,7 +966,9 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
                 class="min-w-0 flex-1 rounded-md border border-accent bg-panel-2 px-2 py-1 text-[12.5px]"
                 @keyup.esc="renamingCategory = null"
               />
-              <button type="submit" class="text-[11.5px] text-accent">{{ t('leitner.settings.ok') }}</button>
+              <button type="submit" class="text-[11.5px] text-accent">
+                {{ t('leitner.settings.ok') }}
+              </button>
             </form>
             <template v-else>
               <span class="flex-1 truncate text-[13px] font-semibold">{{ category.name }}</span>
@@ -984,7 +1011,9 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
                   class="min-w-0 flex-1 rounded-md border border-accent bg-panel-2 px-2 py-1 text-[12px]"
                   @keyup.esc="renamingTheme = null"
                 />
-                <button type="submit" class="text-[11.5px] text-accent">{{ t('leitner.settings.ok') }}</button>
+                <button type="submit" class="text-[11.5px] text-accent">
+                  {{ t('leitner.settings.ok') }}
+                </button>
               </form>
               <template v-else>
                 <span class="flex-1 truncate">{{ theme.name }}</span>
@@ -1091,7 +1120,9 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
 
         <form class="flex flex-col gap-1.5" @submit.prevent="submitIntervals">
           <div v-for="box in BOXES" :key="box" class="flex items-center gap-2">
-            <span class="flex-1 text-[12.5px] text-txt-2">{{ t('leitner.settings.boxLabel', { box }) }}</span>
+            <span class="flex-1 text-[12.5px] text-txt-2">{{
+              t('leitner.settings.boxLabel', { box })
+            }}</span>
             <input
               v-model.number="intervals[box]"
               type="number"
@@ -1100,7 +1131,11 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
               class="w-[70px] rounded-md border border-line-2 bg-panel-2 px-2 py-1 text-right font-mono text-[12.5px]"
             />
             <span class="w-[38px] text-[11.5px] text-txt-3">
-              {{ intervals[box] > 1 ? t('leitner.settings.dayPlural') : t('leitner.settings.daySingular') }}
+              {{
+                intervals[box] > 1
+                  ? t('leitner.settings.dayPlural')
+                  : t('leitner.settings.daySingular')
+              }}
             </span>
           </div>
           <button
@@ -1125,9 +1160,14 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
         ref="backupBlock"
         class="rounded-[12px] border border-line bg-panel p-4"
       >
-        <h2 class="text-[12px] font-bold tracking-[.12em] text-txt-2 uppercase">{{ t('leitner.settings.backupTitle') }}</h2>
+        <h2 class="text-[12px] font-bold tracking-[.12em] text-txt-2 uppercase">
+          {{ t('leitner.settings.backupTitle') }}
+        </h2>
         <p class="mt-1 mb-3 text-[11.5px] text-txt-3">
           {{ t('leitner.settings.backupHint') }}
+        </p>
+        <p v-if="corpusAvailable === false" class="mb-3 text-sm text-warn">
+          {{ t('leitner.promotion.unsupported') }}
         </p>
 
         <!--
@@ -1175,7 +1215,9 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
           v-if="importErrors?.length"
           class="mt-3 flex flex-col gap-1 rounded-md border border-bad bg-panel-2 p-2.5"
         >
-          <li class="text-[11.5px] font-semibold text-bad">{{ t('leitner.settings.importFailed') }}</li>
+          <li class="text-[11.5px] font-semibold text-bad">
+            {{ t('leitner.settings.importFailed') }}
+          </li>
           <li v-for="(error, index) in importErrors" :key="index" class="text-[11.5px] text-txt-2">
             {{ error }}
           </li>
@@ -1194,6 +1236,18 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
               })
             }}
           </div>
+          <p v-if="importReport.glossarySupported === false" class="text-warn">
+            {{ t('leitner.promotion.unsupported') }}
+          </p>
+          <p v-if="importReport.termsCreated || importReport.termsSkipped">
+            {{
+              t('leitner.promotion.imported', {
+                created: importReport.termsCreated,
+                skipped: importReport.termsSkipped,
+                lost: importReport.termLinksLost,
+              })
+            }}
+          </p>
           <div v-if="importReport.categoriesCreated || importReport.themesCreated" class="mt-0.5">
             {{
               t('leitner.settings.importSummaryTaxonomy', {
@@ -1237,14 +1291,18 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
       @submit.prevent="submitCard()"
     >
       <div :id="titleId" class="shrink-0 border-b border-line px-5 py-4 text-[13.5px] font-bold">
-        {{ editing ? t('leitner.settings.modalEditTitle') : t('leitner.settings.modalCreateTitle') }}
+        {{
+          editing ? t('leitner.settings.modalEditTitle') : t('leitner.settings.modalCreateTitle')
+        }}
       </div>
       <div class="flex min-h-0 flex-col gap-2 overflow-y-auto p-5">
         <!-- La bascule d'aperçu gouverne les DEUX panneaux, et vit donc sur la première étiquette
              plutôt qu'en double. Repliée, aucune requête ne part : voir
              `components/leitner_markdown_preview.ts`. -->
         <div class="flex items-center gap-2">
-          <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase">{{ t('leitner.settings.front') }}</label>
+          <label class="text-[11px] tracking-[.1em] text-txt-3 uppercase">{{
+            t('leitner.settings.front')
+          }}</label>
           <button
             type="button"
             class="ml-auto rounded-md border px-2 py-1 text-[11px] transition"
@@ -1267,7 +1325,9 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
         ></textarea>
         <MarkdownPreviewPanel :preview="preview" side="front" />
 
-        <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">{{ t('leitner.settings.back') }}</label>
+        <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">{{
+          t('leitner.settings.back')
+        }}</label>
         <textarea
           v-model="cardForm.back"
           rows="3"
@@ -1280,7 +1340,9 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
              l'aperçu : elle dit qu'il y a quelque chose à prévisualiser. -->
         <p class="text-[11px] text-txt-3">{{ t('leitner.markdown.hint') }}</p>
 
-        <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">{{ t('leitner.settings.theme') }}</label>
+        <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">{{
+          t('leitner.settings.theme')
+        }}</label>
         <select
           v-model="cardForm.leitnerThemeId"
           class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
@@ -1300,7 +1362,9 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
           <input v-model="cardForm.isShared" type="checkbox" class="mt-0.5 accent-accent" />
           <span>
             <span class="font-medium">{{ t('leitner.settings.sharedField') }}</span>
-            <span class="block text-[11.5px] text-txt-3">{{ t('leitner.settings.sharedHint') }}</span>
+            <span class="block text-[11.5px] text-txt-3">{{
+              t('leitner.settings.sharedHint')
+            }}</span>
           </span>
         </label>
 
@@ -1308,7 +1372,9 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
              manuel ci-dessous : deux origines, deux gestes distincts, jamais fondus.
              Édition seulement : une carte en création n'a encore aucun lien. -->
         <template v-if="editing && editing.ingestionSections.length > 0">
-          <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">{{ t('leitner.settings.ingestionSections') }}</label>
+          <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">{{
+            t('leitner.settings.ingestionSections')
+          }}</label>
           <p class="text-[11px] text-txt-3">{{ t('leitner.settings.ingestionSectionsHint') }}</p>
           <ul class="flex flex-col gap-1">
             <li
@@ -1318,8 +1384,14 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
             >
               <span>
                 {{ section.courseTitle }} ·
-                {{ section.headingPath.length ? section.headingPath.join(' › ') : t('leitner.coursShow.introduction') }}
-                <span v-if="section.obsoleteAt" class="ml-1 text-[10.5px] text-warn">{{ t('leitner.coursShow.obsolete') }}</span>
+                {{
+                  section.headingPath.length
+                    ? section.headingPath.join(' › ')
+                    : t('leitner.coursShow.introduction')
+                }}
+                <span v-if="section.obsoleteAt" class="ml-1 text-[10.5px] text-warn">{{
+                  t('leitner.coursShow.obsolete')
+                }}</span>
               </span>
               <button
                 type="button"
@@ -1336,7 +1408,9 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
              carte, indépendant des liens `ingestion` posés par la promotion — voir
              `setManualSection`. Absent (courses = []) si `corpus.view` manque. -->
         <template v-if="courses.length > 0">
-          <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">{{ t('leitner.settings.courseSection') }}</label>
+          <label class="mt-1 text-[11px] tracking-[.1em] text-txt-3 uppercase">{{
+            t('leitner.settings.courseSection')
+          }}</label>
           <select
             v-model="cardForm.courseSectionId"
             class="rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
@@ -1344,7 +1418,11 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
             <option :value="null">{{ t('leitner.settings.courseSectionNone') }}</option>
             <optgroup v-for="course in courses" :key="course.id" :label="course.title">
               <option v-for="section in course.sections" :key="section.id" :value="section.id">
-                {{ section.headingPath.length ? section.headingPath.join(' › ') : t('leitner.coursShow.introduction') }}
+                {{
+                  section.headingPath.length
+                    ? section.headingPath.join(' › ')
+                    : t('leitner.coursShow.introduction')
+                }}
               </option>
             </optgroup>
           </select>

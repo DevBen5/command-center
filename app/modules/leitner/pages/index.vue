@@ -78,7 +78,6 @@ interface CardProvenance {
   courseId: number
   courseTitle: string
   headingPath: string[]
-  aliases: string[] | null
   /** Section tombée depuis (remplacement du cours) : le lien survit, le panneau le dit. */
   obsoleteAt: string | null
 }
@@ -92,7 +91,6 @@ interface CourseSearchResult {
   courseId: number
   courseTitle: string
   headingPath: string[]
-  aliases: string[] | null
 }
 
 /** Le contenu complet d'UNE section, chargé au clic (glossaire, provenance, Approfondir —
@@ -103,9 +101,15 @@ interface SectionContent {
   courseTitle: string
   headingPath: string[]
   bodyHtml: string
-  aliases: string[] | null
 }
 
+interface GlossaryDefinition {
+  id: number
+  sectionHref?: string | null
+  canDelete?: boolean
+  term: string
+  definitionHtml: string
+}
 interface Stats {
   // Suit le paquet : c'est ce qu'on est en train de réviser.
   dueCount: number
@@ -147,6 +151,7 @@ interface MasteryInventory {
  * un compteur de cartes vues — une carte notée « À revoir » reste due et y revient.
  */
 const props = defineProps<{
+  corpusAvailable?: boolean
   view: 'choice' | 'session'
   scope: { label: string; finished: boolean } | null
   /**
@@ -201,7 +206,7 @@ const canReview = computed(() => can('leitner.review'))
  * cette capacité ne voit ni « Approfondir » ni le panneau — la carte reste révisable
  * normalement, seule la porte vers le corpus se ferme.
  */
-const canViewCourses = computed(() => can('corpus.view'))
+const canViewCourses = computed(() => props.corpusAvailable === true && can('corpus.view'))
 
 const currentCard = computed(() => props.dueCards?.[0] ?? null)
 const revealed = ref(false)
@@ -274,8 +279,8 @@ const frontNodes = computed<FrontNode[]>(() => currentCard.value?.frontNodes ?? 
  */
 function renderFrontTextTokens(tokens: FrontToken[], keyPrefix: string): (VNode | string)[] {
   return tokens.map((token, i) => {
-    if (token.sectionId === null) return token.texte
-    const sectionId = token.sectionId
+    if (token.termId === null) return token.texte
+    const termId = token.termId
     return h(
       'button',
       {
@@ -283,7 +288,7 @@ function renderFrontTextTokens(tokens: FrontToken[], keyPrefix: string): (VNode 
         type: 'button',
         class:
           'border-0 bg-transparent p-0 underline decoration-dotted underline-offset-2 hover:text-accent focus-visible:text-accent',
-        onClick: () => openGlossaryTerm(sectionId),
+        onClick: () => openGlossaryTerm(termId),
       },
       token.texte
     )
@@ -320,6 +325,7 @@ function renderFrontNodes(nodes: FrontNode[]): (VNode | string)[] {
 */
 const sectionModalOpen = ref(false)
 const sectionModalSection = ref<SectionContent | null>(null)
+const glossaryDefinition = ref<GlossaryDefinition | null>(null)
 const sectionModalLoading = ref(false)
 const sectionModalError = ref(false)
 
@@ -327,6 +333,7 @@ const sectionModalError = ref(false)
 async function openSectionModal(sectionId: number): Promise<void> {
   sectionModalOpen.value = true
   sectionModalSection.value = null
+  glossaryDefinition.value = null
   sectionModalError.value = false
   sectionModalLoading.value = true
   try {
@@ -357,13 +364,42 @@ async function openSectionModal(sectionId: number): Promise<void> {
  * (lire une définition puis répondre) ne peut se produire que depuis le RECTO, avant
  * `reveal()`.
  */
-async function openGlossaryTerm(sectionId: number): Promise<void> {
+async function openGlossaryTerm(termId: number): Promise<void> {
   markInterrupted()
-  await openSectionModal(sectionId)
+  sectionModalOpen.value = true
+  sectionModalSection.value = null
+  glossaryDefinition.value = null
+  sectionModalError.value = false
+  sectionModalLoading.value = true
+  try {
+    const response = await fetch(`/corpus/glossaire/${termId}`, {
+      headers: { accept: 'application/json' },
+    })
+    if (!response.ok) throw new Error(String(response.status))
+    glossaryDefinition.value = (await response.json()) as GlossaryDefinition
+  } catch {
+    sectionModalError.value = true
+  } finally {
+    sectionModalLoading.value = false
+  }
 }
 
 function closeSectionModal(): void {
   sectionModalOpen.value = false
+}
+
+async function deleteGlossaryTerm(): Promise<void> {
+  if (!glossaryDefinition.value?.canDelete) return
+  const response = await fetch(`/corpus/glossaire/${glossaryDefinition.value.id}`, {
+    method: 'DELETE',
+    headers: { 'accept': 'application/json', 'x-xsrf-token': xsrfToken() },
+  }).catch(() => null)
+  if (!response?.ok) {
+    sectionModalError.value = true
+    return
+  }
+  closeSectionModal()
+  router.reload({ only: ['dueCards'] })
 }
 
 /*
@@ -548,6 +584,7 @@ watch(
     // `again` renvoie le même id.
     sectionModalOpen.value = false
     sectionModalSection.value = null
+    glossaryDefinition.value = null
     sectionModalLoading.value = false
     sectionModalError.value = false
   }
@@ -637,7 +674,9 @@ const VERDICT_LABELS = computed<Record<Verdict, string>>(() => ({
  * une réponse était restée dans le champ avant le clic.
  */
 const highlightedGrade = computed<Grade | null>(
-  () => forcedHighlight.value ?? resolveHighlight(currentCard.value?.outcomes ?? [], suggestedGrade.value)
+  () =>
+    forcedHighlight.value ??
+    resolveHighlight(currentCard.value?.outcomes ?? [], suggestedGrade.value)
 )
 
 /**
@@ -781,7 +820,10 @@ function grade(g: Grade): void {
       <div v-if="scope" class="mt-0.5 flex items-center gap-2 text-[11.5px] text-txt-3">
         <!-- La file d'entretien se nomme : sans ça, on croirait réviser normalement des
              cartes qu'on connaît, et les échéances annoncées paraîtraient absurdes. -->
-        <span v-if="queue === 'maintenance'" class="rounded-full border border-ok px-2 py-0.5 text-ok">
+        <span
+          v-if="queue === 'maintenance'"
+          class="rounded-full border border-ok px-2 py-0.5 text-ok"
+        >
           {{ t('leitner.index.maintenanceDeckLabel') }}
         </span>
         <span>{{ t('leitner.index.deckLabel', { label: scope.label }) }}</span>
@@ -961,6 +1003,24 @@ function grade(g: Grade): void {
           <div v-else-if="sectionModalError" class="text-[11.5px] text-bad">
             {{ t('leitner.index.sectionModal.error') }}
           </div>
+          <div v-else-if="glossaryDefinition">
+            <div :id="titleId" class="text-[14px] font-semibold">{{ glossaryDefinition.term }}</div>
+            <!-- HTML assaini côté serveur ; le recto reste rendu par des nœuds Vue. -->
+            <div class="markdown mt-2 text-[13px]" v-html="glossaryDefinition.definitionHtml"></div>
+            <a
+              v-if="glossaryDefinition.sectionHref"
+              :href="glossaryDefinition.sectionHref"
+              class="mt-3 block text-accent"
+              >{{ t('leitner.promotion.section') }}</a
+            >
+            <button
+              v-if="glossaryDefinition.canDelete"
+              class="mt-3 text-bad"
+              @click="deleteGlossaryTerm"
+            >
+              {{ t('leitner.promotion.delete') }}
+            </button>
+          </div>
           <CourseSectionView
             v-else-if="sectionModalSection"
             :title-id="titleId"
@@ -969,6 +1029,12 @@ function grade(g: Grade): void {
               headingPath: [sectionModalSection.courseTitle, ...sectionModalSection.headingPath],
             }"
           />
+          <a
+            v-if="sectionModalSection && can('corpus.write')"
+            :href="`/corpus/glossaire?sectionId=${sectionModalSection.id}`"
+            class="mt-3 block text-accent"
+            >{{ t('leitner.promotion.title') }}</a
+          >
           <button
             type="button"
             class="mt-3 text-[11.5px] text-txt-3 transition hover:text-txt"
@@ -1098,7 +1164,11 @@ function grade(g: Grade): void {
         class="text-[11.5px] text-accent transition hover:opacity-80"
         @click="toggleCourseSearch()"
       >
-        {{ courseSearchOpen ? t('leitner.index.coursePanel.hide') : t('leitner.index.coursePanel.show') }}
+        {{
+          courseSearchOpen
+            ? t('leitner.index.coursePanel.hide')
+            : t('leitner.index.coursePanel.show')
+        }}
       </button>
 
       <!-- Le panneau : hauteur plafonnée + défilement INTERNE (CC-67 rejoue ici — le
@@ -1114,7 +1184,10 @@ function grade(g: Grade): void {
         <div v-else-if="courseSearchError" class="text-[11.5px] text-bad">
           {{ t('leitner.index.coursePanel.error') }}
         </div>
-        <div v-else-if="!courseResults || courseResults.length === 0" class="text-[11.5px] text-txt-3">
+        <div
+          v-else-if="!courseResults || courseResults.length === 0"
+          class="text-[11.5px] text-txt-3"
+        >
           {{ t('leitner.index.coursePanel.empty') }}
         </div>
         <!-- ⚠️ **Liste compacte depuis CC-274** : le titre de cours est répété sur

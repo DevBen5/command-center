@@ -20,16 +20,16 @@
  */
 import { normalizeForSearch } from '../components/leitner_scope_search.js'
 
-/** Un terme du glossaire, tel que servi par `leitner_glossary_service.ts`. */
+/** Un terme visible fourni par le pont global Leitner ↔ Corpus. */
 export interface GlossaryTerm {
   term: string
-  sectionId: number
+  termId: number
 }
 
-/** Un morceau du recto : `sectionId` non nul = cliquable, ouvre la définition. */
+/** Un morceau du recto : `termId` non nul = cliquable, ouvre la définition. */
 export interface FrontToken {
   texte: string
-  sectionId: number | null
+  termId: number | null
 }
 
 /**
@@ -88,7 +88,7 @@ export function tokenizeFront(front: string, glossary: GlossaryTerm[]): FrontTok
   const haystack = normalizeForSearch(collapsed)
 
   const candidates = glossary
-    .map((entry) => ({ sectionId: entry.sectionId, normalized: normalizeForSearch(entry.term) }))
+    .map((entry) => ({ termId: entry.termId, normalized: normalizeForSearch(entry.term) }))
     .filter((entry) => entry.normalized.length > 0)
     .sort((a, b) => b.normalized.length - a.normalized.length)
 
@@ -98,9 +98,9 @@ export function tokenizeFront(front: string, glossary: GlossaryTerm[]): FrontTok
   while (i < collapsed.length) {
     const match = candidates.find((candidate) => matchesAt(haystack, collapsed, i, candidate))
     if (match) {
-      if (plainStart < i) tokens.push({ texte: collapsed.slice(plainStart, i), sectionId: null })
+      if (plainStart < i) tokens.push({ texte: collapsed.slice(plainStart, i), termId: null })
       const len = match.normalized.length
-      tokens.push({ texte: collapsed.slice(i, i + len), sectionId: match.sectionId })
+      tokens.push({ texte: collapsed.slice(i, i + len), termId: match.termId })
       i += len
       plainStart = i
     } else {
@@ -108,7 +108,7 @@ export function tokenizeFront(front: string, glossary: GlossaryTerm[]): FrontTok
     }
   }
   if (plainStart < collapsed.length) {
-    tokens.push({ texte: collapsed.slice(plainStart), sectionId: null })
+    tokens.push({ texte: collapsed.slice(plainStart), termId: null })
   }
 
   return tokens

@@ -1,4 +1,5 @@
 import LeitnerCourse from '#modules/corpus/models/leitner_course'
+import GlossaryTerm from '#modules/corpus/models/glossary_term'
 
 /**
  * Ce que la suppression d'un compte doit vérifier avant d'agir, côté corpus (CC-275,
@@ -16,5 +17,10 @@ export async function ownedSharedCorpusContentTable(userId: number): Promise<str
     .where('is_shared', true)
     .first()
 
-  return shared !== null ? 'leitner_courses' : null
+  if (shared !== null) return 'leitner_courses'
+  const sharedTerm = await GlossaryTerm.query()
+    .where('owner_id', userId)
+    .where('is_shared', true)
+    .first()
+  return sharedTerm ? 'glossary_terms' : null
 }
