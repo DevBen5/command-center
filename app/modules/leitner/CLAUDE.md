@@ -15,11 +15,11 @@ une installation à un seul foyer, faux dès que deux personnes ne révisent pas
 
 À tenir sur chaque table ajoutée :
 
-| | `owner_id` + `is_shared` ? | À la suppression du compte |
-| --- | --- | --- |
-| **Contenu** — cartes, catégories, thèmes, ingestions | **Oui** | Survit toujours (`SET NULL`) ; **bloque la suppression si `is_shared = true`** |
-| **Brouillons d'ingestion** (`leitner_draft_cards`) | **Non — dérivé de l'ingestion parente** | Cascade avec son ingestion |
-| **Données personnelles** — `leitner_card_progress` (boîte, échéance), `leitner_reviews` (réponses écrites, verdicts, `thinking_ms`) | `user_id`, pas `owner_id`/`is_shared` | **`ON DELETE CASCADE`**, inchangé depuis CC-119 |
+|                                                                                                                                     | `owner_id` + `is_shared` ?              | À la suppression du compte                                                     |
+| ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------ |
+| **Contenu** — cartes, catégories, thèmes, ingestions                                                                                | **Oui**                                 | Survit toujours (`SET NULL`) ; **bloque la suppression si `is_shared = true`** |
+| **Brouillons d'ingestion** (`leitner_draft_cards`)                                                                                  | **Non — dérivé de l'ingestion parente** | Cascade avec son ingestion                                                     |
+| **Données personnelles** — `leitner_card_progress` (boîte, échéance), `leitner_reviews` (réponses écrites, verdicts, `thinking_ms`) | `user_id`, pas `owner_id`/`is_shared`   | **`ON DELETE CASCADE`**, inchangé depuis CC-119                                |
 
 **Le modèle : je vois mes cartes, plus celles que quelqu'un a explicitement marquées comme
 partagées.** Rien ne fuite par défaut ; la révision à plusieurs (CC-77, CC-121) reste possible —
@@ -199,8 +199,8 @@ services/leitner_card_sections_service.ts   la PROVENANCE (CC-253) : `linkIngest
                                             (promotion), `setManualSection` (sélecteur), et
                                             `provenanceSectionsFor` — filtrée sur la visibilité
                                             du COURS du lien, jamais de la carte
-services/leitner_glossary_service.ts        l'INDEX de glossaire (CC-254) : `glossaryIndex` —
-                                            filtré par visibilité, sections tombées exclues
+../../bridges/leitner_corpus/glossary_index.ts l'INDEX de termes (CC-277) : `glossaryIndex` —
+                                            filtré par visibilité du terme, lien facultatif
 services/leitner_front_html.ts              le recto rendu ET souligné (CC-276) : reparcourt le
                                             HTML assaini de `renderMarkdown(front)`, tokenise ses
                                             nœuds de texte — PUR, jamais un second rendu Markdown
@@ -298,7 +298,7 @@ de portée de la suite. Règle (CC-60) : prédicat, dérivation, écrêtage, lib
 silence → `shared/*.ts` ; `router.post`, modale, `ref` → dans le `.vue`. C'est pourquoi
 **`settings.vue` n'avait rien à extraire** malgré sa taille : ses vingt fonctions sont des
 gestionnaires d'action, pures ni en entrée ni en sortie. **Une seule ligne y a échappé** (CC-67) —
-`scrollTopKeepingAnchor`, de l'arithmétique dont le signe inversé *doublerait* le saut qu'elle
+`scrollTopKeepingAnchor`, de l'arithmétique dont le signe inversé _doublerait_ le saut qu'elle
 annule : le critère n'est pas la taille du fichier, c'est qu'une régression y serait invisible à
 la relecture.
 
@@ -342,7 +342,7 @@ carte se saisit, dans une base qui est l'unique copie.
   à la poignée (donc portant un `height` inline) serait ré-écrasé à ses `rows`. On tirerait la
   poignée **sans que rien ne bouge**.
 - **Les tirets bas de `calc(100vh_-_8rem)`** — CSS exige des espaces autour du `-`, Tailwind
-  convertit `_` en espace. Écrit `calc(100vh-8rem)` (la forme qui *paraît* juste, et celle que CC-66
+  convertit `_` en espace. Écrit `calc(100vh-8rem)` (la forme qui _paraît_ juste, et celle que CC-66
   prescrivait) **aucune règle n'est générée** : le correctif entier est inerte.
 - **`overflow-hidden` reste sur le `<form>`** (il découpe les enfants aux coins arrondis) et n'entre
   pas en conflit : le défilement est porté par le corps.
@@ -440,14 +440,14 @@ compte porteur de `leitner.cards.write` peut viser qui révise, administrateur c
 
 ⚠️ **Quatre écrans rendent, deux ne rendent pas, et ce n'est pas un oubli :**
 
-| écran | rend ? | pourquoi |
-| --- | --- | --- |
-| `pages/index.vue` — la révision | **oui** | c'est l'écran qui compte |
-| `pages/llm.vue` — l'aperçu de génération | **oui** | on y juge la sortie du modèle *telle qu'elle s'affichera une fois promue* |
-| `pages/settings.vue` — la **modale de saisie** | **oui, depuis CC-257** | panneau d'aperçu sous chaque champ — voir la section suivante |
+| écran                                                     | rend ?                 | pourquoi                                                                                                                                                                                                                                                                                             |
+| --------------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pages/index.vue` — la révision                           | **oui**                | c'est l'écran qui compte                                                                                                                                                                                                                                                                             |
+| `pages/llm.vue` — l'aperçu de génération                  | **oui**                | on y juge la sortie du modèle _telle qu'elle s'affichera une fois promue_                                                                                                                                                                                                                            |
+| `pages/settings.vue` — la **modale de saisie**            | **oui, depuis CC-257** | panneau d'aperçu sous chaque champ — voir la section suivante                                                                                                                                                                                                                                        |
 | `pages/ingest_show.vue` — la **relecture des brouillons** | **oui, depuis CC-257** | idem, par brouillon. ⚠️ CC-133 avait tranché « non » sur cet écran en constatant qu'« il n'y a rien à y rendre, la relecture se fait dans des `<textarea>` » — c'était vrai, et c'est précisément ce que CC-257 corrige en ajoutant l'aperçu que cette phrase désignait comme la seule voie possible |
-| `pages/settings.vue` — le **catalogue** | non | `line-clamp-2` couperait au milieu d'une balise, et le recto est la clé de `confirmDeleteCard` |
-| `pages/stats.vue` — les cartes à problème | non | `truncate`, et `cardLink(front)` **construit une URL de recherche** — rendre y casserait une identité, pas une apparence |
+| `pages/settings.vue` — le **catalogue**                   | non                    | `line-clamp-2` couperait au milieu d'une balise, et le recto est la clé de `confirmDeleteCard`                                                                                                                                                                                                       |
+| `pages/stats.vue` — les cartes à problème                 | non                    | `truncate`, et `cardLink(front)` **construit une URL de recherche** — rendre y casserait une identité, pas une apparence                                                                                                                                                                             |
 
 ⚠️ **Les listes d'acceptés / rejetés d'`ingest_show.vue` restent en texte brut** : ce sont des
 `truncate` de trace, pas de la saisie. Seuls les `<textarea>` de relecture ont gagné un aperçu.
@@ -530,7 +530,7 @@ deux écrans l'utilisent) et son affichage dans `components/MarkdownPreviewPanel
   plutôt que deux copies de balisage. `leitner_card_preview.spec.ts` balaie **tout** le module.
 - **Le panneau est SOUS le champ, pas à côté** : la modale fait 560 px, deux colonnes en donnent
   ~250 où un bloc de code se replie en confettis — or ce qu'on doit voir est une structure
-  *verticale*. Sous le champ, il vit dans le corps `overflow-y-auto` : il allonge le défilement,
+  _verticale_. Sous le champ, il vit dans le corps `overflow-y-auto` : il allonge le défilement,
   jamais la modale, donc le `max-h-[calc(100vh_-_8rem)]` de CC-66 reste intact.
 
 Une **ligne d'aide** (`leitner.markdown.hint`) accompagne les deux écrans — une fois par formulaire
@@ -556,7 +556,7 @@ l'oublier là rendrait l'écran de choix sans lever la moindre erreur. Voir la s
 
 ### Le paquet vit dans l'URL, et nulle part ailleurs
 
-**Rien en base, rien en session** : le paquet est un *geste*, pas un *réglage*. Une colonne
+**Rien en base, rien en session** : le paquet est un _geste_, pas un _réglage_. Une colonne
 `current_scope` serait un état à invalider (thème supprimé, plus rien de dû, deux onglets) pour un
 gain nul — et `leitner_settings` porte la **configuration**, pas ce que l'utilisateur est en train de
 faire. Deux onglets, deux paquets, aucun conflit : c'est la propriété qu'on achète. C'est gratuit
@@ -577,12 +577,12 @@ remplace pas ce `back()` par un `toRoute()`. **C'est le piège n° 1 du module.*
 jamais sur un compteur de cartes vues : compter et s'arrêter à N ferait disparaître une carte ratée
 de la session.
 
-- **Aucune redirection automatique** : l'utilisateur doit *voir* qu'il a fini. Deux gestes,
+- **Aucune redirection automatique** : l'utilisateur doit _voir_ qu'il a fini. Deux gestes,
   « Choisir un autre paquet » et « Arrêter ».
 - ⚠️ **« Terminée » et « vide dès le départ » sont la même file vide** : ouvrir `?theme=7` sur un
   thème sans carte due doit dire « rien à réviser », pas « terminé, bravo ». Seul
   `hasReviewedTodayInScope(scope)` les sépare, et il rend un **booléen, pas un compteur** —
-  `reviewedToday()` est **global**, il annoncerait les cartes revues dans *tous* les thèmes, et un
+  `reviewedToday()` est **global**, il annoncerait les cartes revues dans _tous_ les thèmes, et un
   chiffre faux est pire que pas de chiffre. Limite acceptée : une carte révisée ce matin puis
   déplacée dans un autre thème fait dire « rien à réviser » à son ancien thème.
 
@@ -628,13 +628,13 @@ n'offre **aucun** « Créer « X » ».
 **interaction** (champ + chevron + liste filtrée, et les mêmes pièges de focus/blur —
 `mousedown.prevent`), pas une **donnée** :
 
-| | `TaxonomyCombobox` | `LeitnerScopeSearch` |
-| --- | --- | --- |
-| rend | une **chaîne** | une **navigation** vers `?category=` / `?theme=` |
-| options | `string[]` plat | (catégorie, thème) avec **ids** et **comptes dus** |
-| texte libre | oui — « Créer « X » » | **non** : `/revision` ne crée rien |
-| filtre | `toLowerCase().includes()` | **accents normalisés** |
-| clavier | aucun | ↑ ↓ Entrée Échap |
+|             | `TaxonomyCombobox`         | `LeitnerScopeSearch`                               |
+| ----------- | -------------------------- | -------------------------------------------------- |
+| rend        | une **chaîne**             | une **navigation** vers `?category=` / `?theme=`   |
+| options     | `string[]` plat            | (catégorie, thème) avec **ids** et **comptes dus** |
+| texte libre | oui — « Créer « X » »      | **non** : `/revision` ne crée rien                 |
+| filtre      | `toLowerCase().includes()` | **accents normalisés**                             |
+| clavier     | aucun                      | ↑ ↓ Entrée Échap                                   |
 
 Le seul tronc partagé serait le couple champ/chevron ; chaque appelant reprendrait ses options, son
 filtre, son rendu et son action. `TaxonomyCombobox` a en plus un `filtering` que la barre n'a **pas**,
@@ -647,11 +647,11 @@ le défaut que la palette ⌘K traîne déjà.
 
 ### Stats de paquet vs stats globales — la distinction n'est pas devinable
 
-| mesure | paquet ? | pourquoi |
-| ------ | -------- | -------- |
-| `dueCount`, grille des 5 boîtes | **suit le paquet** | c'est ce qu'on est en train de réviser |
-| `streak`, `reviewedToday`, `retention` | **globaux** | mesures d'**habitude**, pas de thème : une série de 40 jours qui retomberait à zéro parce qu'on a ouvert un autre thème serait absurde |
-| `totalCards` | **global** | un inventaire. Contrepartie assumée : la grille d'un paquet ne somme pas au « total cartes » affiché |
+| mesure                                 | paquet ?           | pourquoi                                                                                                                               |
+| -------------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `dueCount`, grille des 5 boîtes        | **suit le paquet** | c'est ce qu'on est en train de réviser                                                                                                 |
+| `streak`, `reviewedToday`, `retention` | **globaux**        | mesures d'**habitude**, pas de thème : une série de 40 jours qui retomberait à zéro parce qu'on a ouvert un autre thème serait absurde |
+| `totalCards`                           | **global**         | un inventaire. Contrepartie assumée : la grille d'un paquet ne somme pas au « total cartes » affiché                                   |
 
 ## L'onglet « Stats » : la session est INFÉRÉE, jamais enregistrée
 
@@ -667,7 +667,7 @@ marque donc aussi le **début** de la carte N+1. D'où le **temps par carte** = 
 `reviewed_at` consécutifs (indisponible pour la **première de chaque session**), et une **session** =
 une grappe séparée de la suivante par plus de `SESSION_GAP_MINUTES`.
 
-⚠️ **Si la révision devenait un jour *stateful*** (SPA qui enchaîne sans recharger, file préchargée),
+⚠️ **Si la révision devenait un jour _stateful_** (SPA qui enchaîne sans recharger, file préchargée),
 **toute cette mesure deviendrait fausse en silence** — les chiffres continueraient de s'afficher,
 plausibles, et plus rien ne les rattacherait au temps réellement passé.
 
@@ -741,7 +741,7 @@ journée est celle de l'utilisateur, pas celle du conteneur.
   un jour à une seule révision ne doit jamais être gris.
 
 ⚠️ **Le piège de rendu, et c'est le pire du lot : les classes Tailwind construites.**
-`` :class="`bg-accent/${level * 25}`" `` ne génère **aucune règle** — Tailwind scanne du texte, il ne
+``:class="`bg-accent/${level * 25}`"`` ne génère **aucune règle** — Tailwind scanne du texte, il ne
 résout pas d'expression. La heatmap serait uniformément grise avec `lint`, `typecheck` et **toute la
 suite verts**, jsdom ne faisant aucun layout. D'où la table `LEVEL_CLASS` de `stats.vue`, en
 **classes littérales complètes**. Ça se vérifie à `npm run build`, en greppant le `.css` de
@@ -836,11 +836,11 @@ pour gagner un clic ouvrirait la brèche : elle porte deux rôles, et le second 
 
 ### Trois chemins, et deux ne touchent jamais au réseau
 
-| réponse | chemin | `verdict` | `latency_ms` |
-| --- | --- | --- | --- |
-| **vide** | aucun appel | `null` | `null` |
-| **égale au verso** (normalisée) | **court-circuit**, aucun appel | `juste` | `null` |
-| autre | le juge LLM | `juste`·`partiel`·`faux`, ou `null` si repli | la durée de l'appel |
+| réponse                         | chemin                         | `verdict`                                    | `latency_ms`        |
+| ------------------------------- | ------------------------------ | -------------------------------------------- | ------------------- |
+| **vide**                        | aucun appel                    | `null`                                       | `null`              |
+| **égale au verso** (normalisée) | **court-circuit**, aucun appel | `juste`                                      | `null`              |
+| autre                           | le juge LLM                    | `juste`·`partiel`·`faux`, ou `null` si repli | la durée de l'appel |
 
 - Le court-circuit compare via `normalizeForSearch` (celle de la barre de recherche) — **pas une
   seconde copie**, elle divergerait. Limite acceptée : la ponctuation finale n'est pas retirée, donc
@@ -938,9 +938,9 @@ Elles gouvernent **à la fois la proposition et l'écriture**, qui ne peuvent pa
    `document.hidden` est **lu à l'arrivée de la carte**, pas seulement écouté : une carte présentée
    dans un onglet déjà en arrière-plan n'émettrait aucun événement. ⚠️ Le plafond de 120 s
    (`MAX_THINKING_MS`) reste le filet des distractions longues — `visibilitychange` ne se déclenche
-   pas quand on bascule vers une autre application, et *rien* ne se déclenche quand on se détourne de
+   pas quand on bascule vers une autre application, et _rien_ ne se déclenche quand on se détourne de
    l'écran. ⚠️ **Une bande reste découverte, 20 à 120 s** : la distraction la plus courante, et la
-   seule qui produise un `hard` *plausible*, donc invisible.
+   seule qui produise un `hard` _plausible_, donc invisible.
 3. **Aucune référence → aucune proposition affinée, en silence.** Le seuil est **relatif** : 10 s sont
    rapides pour « explique le théorème CAP » et très lentes pour « quel port pour Postgres ». Médiane
    de la carte si ≥ 5 mesures, de sa **boîte** si ≥ 20, sinon rien — et « rien » doit être
@@ -988,9 +988,9 @@ et une carte mal sue finirait par se voir proposer `easy`.
 
 ### Deux biais assumés
 
-- **La référence de boîte est biaisée sur deux axes.** *La longueur du recto* — le temps jusqu'à la
-  première frappe inclut la lecture de la question ; contre sa *propre* médiane le biais s'annule,
-  contre sa boîte non. *L'âge des mesures* — `leitner_reviews` ne porte pas de boîte, donc chaque
+- **La référence de boîte est biaisée sur deux axes.** _La longueur du recto_ — le temps jusqu'à la
+  première frappe inclut la lecture de la question ; contre sa _propre_ médiane le biais s'annule,
+  contre sa boîte non. _L'âge des mesures_ — `leitner_reviews` ne porte pas de boîte, donc chaque
   mesure est attribuée à la boîte où sa carte est **aujourd'hui** : le vivier d'une boîte haute est
   dominé par des mesures prises plus bas, quand ces cartes étaient moins sues. Les deux poussent vers
   un `easy` sur-proposé en boîte haute. Borné — ce repli ne sert que tant qu'une carte n'a pas 5
@@ -1033,12 +1033,12 @@ Les colonnes ne sont que la réponse ; le défaut est là.
 
 **Cinq colonnes, une seule migration** (`1786600000005_add_mastery_marks_to_leitner_tables.ts`) :
 
-| table | colonne | rôle |
-| --- | --- | --- |
-| `leitner_card_progress` | `box5_entered_at` | l'horloge — posée à l'entrée en boîte 5, réarmée par `again`, effacée à la sortie |
-| `leitner_card_progress` | `mastered_at` | la date d'acquisition. `null` = pas (ou plus) maîtrisée |
-| `leitner_reviews` | `kind` | `normal` \| `maintenance` — **de quelle file la carte venait** |
-| `leitner_reviews` | `box_before` / `box_after` | la boîte avant et après la note, **nullables** |
+| table                   | colonne                    | rôle                                                                              |
+| ----------------------- | -------------------------- | --------------------------------------------------------------------------------- |
+| `leitner_card_progress` | `box5_entered_at`          | l'horloge — posée à l'entrée en boîte 5, réarmée par `again`, effacée à la sortie |
+| `leitner_card_progress` | `mastered_at`              | la date d'acquisition. `null` = pas (ou plus) maîtrisée                           |
+| `leitner_reviews`       | `kind`                     | `normal` \| `maintenance` — **de quelle file la carte venait**                    |
+| `leitner_reviews`       | `box_before` / `box_after` | la boîte avant et après la note, **nullables**                                    |
 
 ⚠️ **Les cinq voyagent ensemble, avec UNE seule montée de `BACKUP_VERSION` (→ 4)** : chaque montée
 est une occasion d'oublier le `snapshot()` de `leitner_backup.spec.ts`, et cet oubli fait perdre des
@@ -1046,8 +1046,8 @@ données **sans qu'aucun test ne rougisse** — c'est ce qui a laissé passer CC
 
 ### Le critère, et le plancher qui le fonde
 
-Une carte devient maîtrisée quand, **au moment de la noter** : *(1)* elle était **déjà** en boîte 5 ;
-*(2)* la note est `good` ou `easy` ; *(3)* il s'est écoulé au moins **`max(box5Days, 30)` jours**
+Une carte devient maîtrisée quand, **au moment de la noter** : _(1)_ elle était **déjà** en boîte 5 ;
+_(2)_ la note est `good` ou `easy` ; _(3)_ il s'est écoulé au moins **`max(box5Days, 30)` jours**
 depuis `box5_entered_at`. Le tout vit dans `services/leitner_mastery.ts`, **pur** — ni base, ni
 horloge (`now` est un paramètre), comme `leitner_habits.ts` : c'est ce qui permet d'éprouver
 « trente jours » sans attendre trente jours.
@@ -1184,8 +1184,8 @@ glisserait d'un cran.
 ⚠️ **Et il se compte en `>=`, pas en `>` comme on l'écrirait spontanément.** La note d'acquisition
 doit occuper le palier 0 : c'est elle qui a programmé les 90 premiers jours. Or `mastered_at` et
 son `reviewed_at` sont **deux appels distincts** à `DateTime.now()` dans `review()` — le second est
-postérieur de quelques microsecondes, et un `>` la compterait bel et bien… *tant que cet écart
-existe*. Unifier les deux `now()` est un nettoyage parfaitement plausible, et il ferait basculer
+postérieur de quelques microsecondes, et un `>` la compterait bel et bien… _tant que cet écart
+existe_. Unifier les deux `now()` est un nettoyage parfaitement plausible, et il ferait basculer
 toute l'échelle d'un cran (90 j servi deux fois) **sans qu'un seul test ne bouge**. Le `>=` rend le
 résultat identique dans les deux mondes. La borne sur `mastered_at`, elle, est ce qui fait repartir
 au premier palier une carte **ré-acquise** après un oubli : `mastered_at` est réécrit à chaque
@@ -1203,13 +1203,13 @@ de la file normale par `whereDue` et présente dans l'entretien, donc perdue des
 
 **Les autres compteurs — décidés, à ne pas re-débattre :**
 
-| compteur | décision | pourquoi |
-| --- | --- | --- |
-| `boxCounts` | **les maîtrisées sortent de la boîte 5** | sinon la tuile compte des cartes qu'aucun clic n'atteint. ⚠️ **Seul compteur du module qui ne passe pas par `whereDue`** (il compte ce qui est dans chaque boîte, dû ou non), donc le seul à porter son exclusion propre — `whereNotMastered`, qui garde la condition dans `leitner_progress.ts` plutôt qu'une seconde formulation chez l'appelant |
-| `totalCards` | **inchangé** | inventaire de **catalogue** (visibilité, pas `user_id`), déjà volontairement non personnel — le toucher casserait un invariant existant |
-| **Le catalogue** (`/revision/settings`, filtre « boîte 5 ») | **inchangé — DÉCIDÉ, pas oublié** | ⚠️ **Il en découle que les deux écrans ne disent pas la même chose, et c'est voulu** : la tuile de `/revision` annonce 0 pendant que `?box=5` liste la carte. Le catalogue est un inventaire de **contenu** — la carte *est* factuellement en boîte 5 —, même raison que `totalCards` juste au-dessus ; et c'est l'écran qui sert à **corriger** une carte, donc l'y faire disparaître serait la rendre inatteignable. Ne « réconcilie » pas les deux côtés sans rouvrir cet arbitrage |
-| Rétention, `mostAgainCards`, `stuckCards` | **inchangés** | ils lisent `leitner_reviews` ; les entretiens y entrent et **comptent comme des réussites**, assumé |
-| **Pastille latérale** | **file normale seulement** | un entretien dû une fois par an ne doit pas produire la même pression qu'une carte due aujourd'hui. ⚠️ **Ce que ça coûte** : l'entretien pouvait être ignoré indéfiniment — c'est la dette que CC-262 a payée en rendant sa section **visible** sur `/revision`, et c'est pour ça que cet écran est le **seul** qui la signale |
+| compteur                                                    | décision                                 | pourquoi                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ----------------------------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `boxCounts`                                                 | **les maîtrisées sortent de la boîte 5** | sinon la tuile compte des cartes qu'aucun clic n'atteint. ⚠️ **Seul compteur du module qui ne passe pas par `whereDue`** (il compte ce qui est dans chaque boîte, dû ou non), donc le seul à porter son exclusion propre — `whereNotMastered`, qui garde la condition dans `leitner_progress.ts` plutôt qu'une seconde formulation chez l'appelant                                                                                                                                     |
+| `totalCards`                                                | **inchangé**                             | inventaire de **catalogue** (visibilité, pas `user_id`), déjà volontairement non personnel — le toucher casserait un invariant existant                                                                                                                                                                                                                                                                                                                                                |
+| **Le catalogue** (`/revision/settings`, filtre « boîte 5 ») | **inchangé — DÉCIDÉ, pas oublié**        | ⚠️ **Il en découle que les deux écrans ne disent pas la même chose, et c'est voulu** : la tuile de `/revision` annonce 0 pendant que `?box=5` liste la carte. Le catalogue est un inventaire de **contenu** — la carte _est_ factuellement en boîte 5 —, même raison que `totalCards` juste au-dessus ; et c'est l'écran qui sert à **corriger** une carte, donc l'y faire disparaître serait la rendre inatteignable. Ne « réconcilie » pas les deux côtés sans rouvrir cet arbitrage |
+| Rétention, `mostAgainCards`, `stuckCards`                   | **inchangés**                            | ils lisent `leitner_reviews` ; les entretiens y entrent et **comptent comme des réussites**, assumé                                                                                                                                                                                                                                                                                                                                                                                    |
+| **Pastille latérale**                                       | **file normale seulement**               | un entretien dû une fois par an ne doit pas produire la même pression qu'une carte due aujourd'hui. ⚠️ **Ce que ça coûte** : l'entretien pouvait être ignoré indéfiniment — c'est la dette que CC-262 a payée en rendant sa section **visible** sur `/revision`, et c'est pour ça que cet écran est le **seul** qui la signale                                                                                                                                                         |
 
 ⚠️ **Aucune migration dans ce lot** : les cinq colonnes de CC-260 suffisent, et aucune ligne
 existante ne portait `mastered_at`. ⚠️ **Si un jour on veut rendre le choix de la pastille réglable
@@ -1228,7 +1228,7 @@ ni échelle, ni exclusion de file. Il ajoute des lectures et des écrans.
 capacité neuve — même contrôleur, même `leitner.view`/`leitner.review`.
 
 - ⚠️ **`queue` n'est PAS une quatrième valeur de `scope`, et il ne faut pas l'y fondre.** Un paquet
-  dit *quelles cartes* (toutes, une catégorie, un thème), la file dit *lesquelles sont dues* ; les
+  dit _quelles cartes_ (toutes, une catégorie, un thème), la file dit _lesquelles sont dues_ ; les
   deux se composent (`?queue=maintenance&theme=3` = l'entretien d'un thème). Rangé dans `scope`, il
   aurait hérité du refus « catégorie ET thème » et serait devenu exclusif de tout paquet. Il n'y a
   **pas** de valeur `normal` à écrire : l'absence est le défaut, et une seconde façon d'écrire le
@@ -1263,7 +1263,7 @@ pas les libellés, et le chiffre restait plausible.
   compare les deux — c'est le seul endroit où ils se croisent.
 - ⚠️ **`dueLabel(intervalles, boîte)` a été RETIRÉE**, remplacée par `dueInLabel(jours)` : depuis
   l'échelle d'entretien, une échéance ne se déduit **plus** d'une boîte. Une fonction qui prend une
-  boîte ne *peut pas* dire « dans 180 j, toujours boîte 5 ».
+  boîte ne _peut pas_ dire « dans 180 j, toujours boîte 5 ».
 - Le choix de la **phrase** vit dans `shared/review_page.ts` (`gradeHint`), pur : il rend une **clé
   i18n**, jamais un texte. Deux phrases neuves seulement — « maîtrisée · entretien … » et « sort des
   acquis … » —, le reste est mot pour mot ce qui s'affichait avant.
@@ -1283,7 +1283,7 @@ pour un seul effet.
 
 ⚠️ **`hard` ne partait pas par symétrie, il partait parce qu'il MENTAIT.** `nextBox` rend
 `lastGrade === 'hard' ? 1 : box` : un « Difficile » **qui suit un « Difficile »** renvoie en boîte 1
-et fait donc **perdre l'acquis**. Le bouton était inoffensif *sauf* dans ce cas — un effet qui
+et fait donc **perdre l'acquis**. Le bouton était inoffensif _sauf_ dans ce cas — un effet qui
 dépend d'un état que l'écran ne montre pas, sur une file dont les visites sont espacées de 90 à
 365 jours. Un bouton pareil est pire qu'un bouton redondant. **C'est le motif du lot**, pas la
 redondance.
@@ -1339,13 +1339,13 @@ le catalogue et la heatmap). ⚠️ **Il n'est pas servi pendant une session** :
 réviser, et une liste de cartes connues à côté de la carte en cours serait du bruit sur le seul
 écran qui demande de la concentration.
 
-- **Ce qui rend l'inventaire *valorisant* tient en deux chiffres, et le second est le plus
+- **Ce qui rend l'inventaire _valorisant_ tient en deux chiffres, et le second est le plus
   important** : « dont N ce mois-ci » (sinon c'est un compteur, pas un inventaire) et « N cartes
   perdues cette année », **sans lequel le premier serait auto-congratulant**. Les pertes viennent de
   l'historique (`kind`, CC-260), pas de l'état courant : une carte perdue puis ré-acquise reste une
   carte perdue cette année.
 - ⚠️ **« Perdue » compte des CARTES, pas des accidents** (`count(distinct …)`), et couvre les **deux**
-  chemins de perte : l'`again` d'entretien *et* le 2ᵉ `hard` d'affilée, qui se reconnaît à
+  chemins de perte : l'`again` d'entretien _et_ le 2ᵉ `hard` d'affilée, qui se reconnaît à
   `box_after < box_before`.
 - ⚠️ **« Ce mois-ci » est le mois CIVIL, pas trente jours glissants.** Un compteur glissant
   reculerait tout seul demain matin, sans qu'aucune carte n'ait bougé. Un inventaire ne recule pas.
@@ -1371,7 +1371,7 @@ jamais une liste : la liste vit sur `/revision`, l'écran où elle sert à chois
   écrans ne répondent pas à la même question, et c'est l'arbitrage du tableau des compteurs de
   CC-261. **Ne « réconcilie » pas les deux côtés** — l'y faire disparaître rendrait inéditable, sur
   le seul écran qui sert à corriger, précisément ce qu'on connaît le mieux.
-- ⚠️ **La maîtrise est un DRAPEAU à côté de la boîte, pas une 6ᵉ boîte** : la carte *est* en boîte 5,
+- ⚠️ **La maîtrise est un DRAPEAU à côté de la boîte, pas une 6ᵉ boîte** : la carte _est_ en boîte 5,
   et `again` efface le drapeau sans toucher la boîte. Le module a cinq boîtes, et ça n'a pas changé.
 - ⚠️ **`LeitnerMasteryService` ne construit AUCUN arbre de taxonomie** : le chemin d'une carte se lit
   sur son thème préchargé, sur des cartes déjà filtrées par `applyVisibility`. C'est délibéré — et
@@ -1390,18 +1390,18 @@ Les intervalles **vivent en base**, dans la ligne unique de `leitner_settings`, 
 `DEFAULT_BOX_INTERVAL_DAYS = { 1: 1, 2: 2, 3: 4, 4: 7, 5: 30 }` n'est **que** la valeur de départ :
 ne t'en sers jamais pour calculer une échéance.
 
-| note    | boîte atteinte                            | `next_review`              |
-| ------- | ----------------------------------------- | -------------------------- |
-| `again` | **inchangée**                             | **aujourd'hui**            |
+| note    | boîte atteinte                               | `next_review`             |
+| ------- | -------------------------------------------- | ------------------------- |
+| `again` | **inchangée**                                | **aujourd'hui**           |
 | `hard`  | inchangée — sauf **2ᵉ `hard` d'affilée** → 1 | intervalle de cette boîte |
-| `good`  | +1                                        | intervalle de cette boîte  |
-| `easy`  | +2                                        | intervalle de cette boîte  |
+| `good`  | +1                                           | intervalle de cette boîte |
+| `easy`  | +2                                           | intervalle de cette boîte |
 
 - Boîte plafonnée à 5. `next_review` = aujourd'hui + l'intervalle **réglé** pour la boîte **atteinte**
   (après mouvement). `again` est la seule note qui laisse la carte due le jour même.
 - ⚠️ **Sauf si la carte ressort MAÎTRISÉE** (CC-261) : l'échéance vient alors de l'échelle
   d'entretien, pas de l'intervalle de la boîte — voir la section dédiée plus haut. Ça inclut la note
-  qui *acquiert* la maîtrise, qui repart donc à 90 j et non à 30.
+  qui _acquiert_ la maîtrise, qui repart donc à 90 j et non à 30.
 - **`again` ne rétrograde pas** : c'est « remets-la moi maintenant », pas une sanction. La carte reste
   dans sa boîte, redevient due, revient **en fin de file dans la session en cours**. Rater une fois ne
   défait pas ce qui a été acquis — seule la promotion est suspendue.
@@ -1472,7 +1472,7 @@ Une carte porte **un thème** (`leitner_theme_id`, nullable = « non classée »
 **une catégorie**. Pas de classement multiple : la colonne `tags` a été supprimée, son contenu repris
 en thèmes sous une catégorie `Import` — une catégorie `Import` vide qui traîne est ce résidu.
 
-- `leitner_themes` : unique sur **(catégorie, nom)** — « Docker » peut vivre sous DevOps *et* Cloud.
+- `leitner_themes` : unique sur **(catégorie, nom)** — « Docker » peut vivre sous DevOps _et_ Cloud.
 - Supprimer une **catégorie** → thèmes en CASCADE, cartes non classées. Supprimer un **thème** →
   cartes non classées (`ON DELETE SET NULL`). **Aucune suppression de carte n'est jamais implicite** ;
   seule la suppression explicite d'une carte détruit des données (et emporte ses révisions).
@@ -1500,26 +1500,40 @@ progression** — ce n'est pas un moyen de « rendre ses cartes ».
   "version": 4,
   "exportedAt": "2026-07-13T14:12:03.000Z",
   "categories": [{ "name": "DevOps", "themes": ["Docker", "Kubernetes"] }],
-  "cards": [{
-    "front": "Rôle du handshake TLS ?", "back": "Négocier clés et algorithmes.",
-    "category": "DevOps", "theme": "Docker",
-    "box": 3, "nextReview": "2026-07-20",
-    "createdAt": "2026-07-01T08:00:00.000Z", "updatedAt": "2026-07-13T09:02:00.000Z",
-    "shared": true,
-    "reviews": [
-      { "grade": "good", "reviewedAt": "2026-07-13T09:02:00.000Z", "kind": "normal",
-        "answer": "Négocier les clés de session.", "verdict": "partiel",
-        "latencyMs": 4200, "thinkingMs": 8500, "totalMs": 31000,
-        "boxBefore": 2, "boxAfter": 3 },
-      { "grade": "hard", "reviewedAt": "2026-07-14T09:02:00.000Z", "kind": "normal" }
-    ]
-  }]
+  "cards": [
+    {
+      "front": "Rôle du handshake TLS ?",
+      "back": "Négocier clés et algorithmes.",
+      "category": "DevOps",
+      "theme": "Docker",
+      "box": 3,
+      "nextReview": "2026-07-20",
+      "createdAt": "2026-07-01T08:00:00.000Z",
+      "updatedAt": "2026-07-13T09:02:00.000Z",
+      "shared": true,
+      "reviews": [
+        {
+          "grade": "good",
+          "reviewedAt": "2026-07-13T09:02:00.000Z",
+          "kind": "normal",
+          "answer": "Négocier les clés de session.",
+          "verdict": "partiel",
+          "latencyMs": 4200,
+          "thinkingMs": 8500,
+          "totalMs": 31000,
+          "boxBefore": 2,
+          "boxAfter": 3
+        },
+        { "grade": "hard", "reviewedAt": "2026-07-14T09:02:00.000Z", "kind": "normal" }
+      ]
+    }
+  ]
 }
 ```
 
 ⚠️ **Une carte maîtrisée porte en plus `box5EnteredAt` et `masteredAt`** (CC-260), aux côtés de
 `box`/`nextReview` : ils décrivent la même progression personnelle. Omis quand ils valent `null` —
-là, l'absence *est* `null` (« pas en boîte 5 », « pas maîtrisée »), il n'y a rien à trancher.
+là, l'absence _est_ `null` (« pas en boîte 5 », « pas maîtrisée »), il n'y a rien à trancher.
 
 - **La taxonomie est désignée par son nom, jamais par un id — et le fichier n'en contient aucun.**
   Réinjecter un id casserait les séquences Postgres (`leitner_cards_id_seq` ne suit pas un insert à
@@ -1563,13 +1577,13 @@ Un fichier de saisie en masse se réduit donc à
 **L'import n'ajoute que ce qui manque. Il n'y a pas de mode « remplacer », et c'est voulu** : aucune
 route de ce module ne détruit du contenu en masse. Restaurer, c'est importer dans une base vide.
 
-- **Déduplication sur le couple (recto, thème)** — contre la base *et* contre le fichier, donc
+- **Déduplication sur le couple (recto, thème)** — contre la base _et_ contre le fichier, donc
   rejouer deux fois le même fichier n'ajoute rien. Le même recto sous **deux thèmes** reste deux
   cartes. Revers assumé : deux cartes réellement identiques n'en font qu'une après un aller-retour.
 - **La taxonomie est fusionnée par nom, jamais dupliquée**, et créée à la volée si une carte la
   mentionne sans que le bloc `categories` l'ait déclarée. `category` et `theme` vont **toujours
   ensemble** : l'un sans l'autre est une erreur, pas une carte non classée.
-- Une carte existante n'est **jamais écrasée**. ⚠️ **Elle est ignorée *entièrement*, ses révisions
+- Une carte existante n'est **jamais écrasée**. ⚠️ **Elle est ignorée _entièrement_, ses révisions
   comprises** : ses colonnes de trace vides ne sont **jamais rétro-remplies** — la boucle des
   révisions vit après le `continue` de déduplication. Apparier deux révisions demanderait une clé
   qu'on n'a pas (`reviewed_at` n'est pas unique), et un mauvais appariement écrirait des mesures sur
@@ -1695,14 +1709,14 @@ par une police piégée (CVE-2024-4367) quand `eval` est autorisé. D'où `isEva
 Six refus, **six messages distincts** — les fondre dans un « fichier invalide » générique rendrait
 l'écran inutile :
 
-| refus            | déclencheur                                                                |
-| ---------------- | -------------------------------------------------------------------------- |
-| `not-a-pdf`      | les octets ne commencent pas par `%PDF-` — **l'extension ne prouve rien**   |
-| `encrypted`      | pdf.js lève `PasswordException` (reconnue par son `name`, stable)           |
-| `corrupt`        | toute autre exception à l'ouverture                                         |
-| `no-text`        | ratio caractères / pages sous `MIN_CHARS_PER_PAGE`                          |
-| `too-many-pages` | plus de `MAX_PDF_PAGES`, vérifié **avant** d'extraire                       |
-| `too-long`       | plus de `MAX_COURSE_CHARS`, dès l'extraction                                |
+| refus            | déclencheur                                                               |
+| ---------------- | ------------------------------------------------------------------------- |
+| `not-a-pdf`      | les octets ne commencent pas par `%PDF-` — **l'extension ne prouve rien** |
+| `encrypted`      | pdf.js lève `PasswordException` (reconnue par son `name`, stable)         |
+| `corrupt`        | toute autre exception à l'ouverture                                       |
+| `no-text`        | ratio caractères / pages sous `MIN_CHARS_PER_PAGE`                        |
+| `too-many-pages` | plus de `MAX_PDF_PAGES`, vérifié **avant** d'extraire                     |
+| `too-long`       | plus de `MAX_COURSE_CHARS`, dès l'extraction                              |
 
 - ⚠️ **Le scan se détecte par page, jamais sur un total** : un PDF de 200 pages scannées rend quand
   même quelques centaines de caractères (numéros, filigranes), qu'un seuil global laisserait passer.
@@ -1749,7 +1763,7 @@ n'a pas bougé** (« sans prose, sans bloc de code », lignes 410 et 634) : elle
 la nouvelle consigne porte sur le contenu des champs — les deux coexistent sans se contredire, et
 c'est **mesuré**, pas supposé : `extractJson` tente trois candidats (nu, bloc, scanner d'accolades
 `firstJsonValue`), et une carte dont le `back` porte lui-même un bloc de code parse correctement même
-enveloppée dans ```` ```json ```` — voir `tests/unit/leitner_ingestion_service.spec.ts`, le cas du
+enveloppée dans ` ```json ` — voir `tests/unit/leitner_ingestion_service.spec.ts`, le cas du
 bloc imbriqué.
 
 ⚠️ **Ne retire jamais `firstJsonValue` de la cascade** en le croyant redondant avec la regex de bloc.
@@ -1847,7 +1861,7 @@ une surface offerte pour un copier-coller économisé.
 ### La liste blanche — l'exigence n° 1
 
 Ces routes font émettre au serveur des requêtes vers une URL **saisie par l'utilisateur** :
-inévitable, puisqu'il faut tester la valeur *avant* de la coller dans `.env`. `isLocalLlmUrl`
+inévitable, puisqu'il faut tester la valeur _avant_ de la coller dans `.env`. `isLocalLlmUrl`
 s'applique à **toutes** les routes de diagnostic :
 
 - schéma `http`/`https` uniquement ;
@@ -1871,7 +1885,7 @@ seule comme le rempart.
 ⚠️ **`refuseRedirect()` est appelé HORS du `try/catch` des deux méthodes** : dedans, il serait avalé
 puis ré-écrit en « injoignable ou n'a pas répondu en moins de N s », le contraire de ce qui vient de
 se produire. C'est aussi la raison de `'manual'` plutôt que du `redirect: 'error'` qu'on croirait plus
-simple : `'error'` fait lever undici *dans* le `try`.
+simple : `'error'` fait lever undici _dans_ le `try`.
 
 Trois corollaires, aussi importants que la liste :
 
@@ -1888,111 +1902,25 @@ trois routes rendent du JSON nu, donc `x-xsrf-token` (sans lui tout POST part en
 `accept: application/json`, sans quoi un refus de la liste blanche se change en redirection avec
 erreurs flashées au lieu d'un 422.
 
-## Le corpus de cours (CC-251)
+## Corpus est un module indépendant (CC-275, CC-277)
 
-⚠️ **Périmé depuis CC-275 (2026-08-24) sur un point structurel : le corpus a quitté ce module.**
-Tables, modèles, services, contrôleur, pages et validateurs vivent désormais dans
-`app/modules/corpus/` — module détachable **séparé**, avec son propre `capabilities.ts`
-(`corpus.view`/`corpus.write`, remplaçant `leitner.courses.view`/`.write`) et sa propre
-destination top-level (`/corpus`, hors de `LeitnerTabs`). Les URLs et noms de capacité
-ci-dessous ont été corrigés pour rester exacts, mais **cette section entière décrit un
-découpage de fichiers qui n'est plus le bon** — elle documente encore ce que fait le corpus,
-pas où il vit ni comment il coexiste avec Leitner quand l'un des deux est absent. Ce qui reste
-réellement côté Leitner après l'extraction : la table `leitner_card_sections` (le lien
-carte↔section, FK molle vers `leitner_course_sections`), la colonne
-`leitner_ingestions.leitner_course_id` (FK molle vers `leitner_courses`), le composant
-`CourseSectionView.vue`, et `shared/glossary_highlight.ts` — voir le `CLAUDE.md` racine,
-section « Distribution », et `app/modules/corpus/TESTS.md`. **Une réécriture complète de
-cette section, scindée entre les deux modules, reste à faire** — non tentée dans ce lot faute
-de budget, signalée plutôt que laissée fausse en silence.
+Le contenu de référence vit dans `app/modules/corpus/`, sur `/corpus` et
+`/corpus/glossaire`. La description actuelle est dans `app/modules/corpus/CLAUDE.md`.
+Les tables de cours, sections et termes n'existent pas quand ce module n'est pas activé.
 
-Cinq écrans devient **six** : `/corpus` (liste + ajout) et `/corpus/:id`
-(consultation, remplacement, suppression). Deux tables neuves, `leitner_courses` (le markdown
-source, `owner_id`/`is_shared` comme les autres tables de **contenu**) et
-`leitner_course_sections` (le découpage, **sans** `owner_id`/`is_shared` — sa visibilité se
-dérive par jointure sur son cours parent, même doctrine que `leitner_draft_cards`).
+Leitner garde les cartes, la révision et leurs liens de provenance. Les relations de cours
+ne sont chargées que si Corpus est actif ; le découpeur pur partagé vit dans
+`app/core/shared/services/course_sections.ts`. Le pont de glossaire global se trouve
+dans `app/bridges/leitner_corpus/` : index visible, promotion de carte et sauvegarde v6.
+Le contrôleur de promotion n'est enregistré que lorsque les deux modules sont activés
+et relit leur activation à la requête. Les cartes privées d'autrui restent interdites,
+même si l'appelant possède les capacités d'écriture.
 
-⚠️ **Aucun fichier `.md` n'est jamais téléversé au serveur.** `FileReader` côté client lit le
-fichier en texte ; le formulaire poste toujours `markdown` en JSON, exactement comme un collage.
-`source: 'paste' | 'file' | 'ingest'` reste **déclaratif**, même doctrine que `source`/`sourceName`
-de l'ingestion : c'est le client qui annonce l'origine, le dégât est cosmétique.
-
-⚠️ **Toute route qui porte du markdown en corps de requête rend du JSON nu, jamais une
-redirection Inertia classique** (`POST /corpus`, `POST /corpus/conflict`, `PUT /corpus/:id`).
-Raison : le store de session est `cookie` (CC-78), et un échec de validation flasherait le
-markdown entier dedans à la racine du bagage — la faille que CC-179 a fermée sur le coffre,
-rejouée ici sur un contenu potentiellement long. `destroy`/`purge`, qui ne portent aucun texte,
-restent en redirection classique.
-
-### Deux découpages, jamais unifiés
-
-`splitCourseIntoSections` (pur, `services/leitner_course_sections.ts`) n'a **rien à voir** avec
-`chunkCourse` de l'ingestion, et il ne faut pas les fusionner : `chunkCourse` chevauche
-délibérément (`CHUNK_OVERLAP_CHARS`) pour qu'un principe à cheval sur deux morceaux reste
-énonçable par le LLM ; `splitCourseIntoSections` ne chevauche **jamais** — une section appartient
-à exactement une partie du texte, c'est ce qui rend le remplacement et les pierres tombales
-possibles. Chaque titre accumule un `headingPath` (le chemin depuis la racine), et le slug se
-dérive de ce chemin (`introduction/tls` par exemple), désambiguïsé par un suffixe numérique en
-cas d'homonymie.
-
-Une ligne `> notion: X, Y` n'importe où dans le corps d'une section déclare ses alias de
-glossaire (`aliases`) — texte libre, jamais interprété.
-
-### La déduplication : deux détections distinctes, pas une
-
-- **Même empreinte** (`hashCourseMarkdown`, SHA-256 du markdown normalisé CRLF→LF) → rattachement
-  **silencieux** au cours existant, aucun dialogue.
-- **Même titre, empreinte différente** → conflit à 3 issues (`CourseConflictDialog.vue`) :
-  **remplacer** le contenu (déclenche le remplacement tombale, voir plus bas), **créer un second
-  cours** (suffixe `" (2)"`, `" (3)"`… automatique), **annuler** (rien n'est écrit).
-- Les deux détections sont **scopées par propriétaire** (`unique(owner_id, content_hash)` et
-  `unique(owner_id, title)`) : deux comptes peuvent chacun avoir un cours au même titre ou au
-  même contenu sans se marcher dessus — même doctrine que `unique(owner_id, name)` sur les
-  catégories (CC-139).
-- **Depuis l'ingestion, aucun dialogue** : la case « conserver ce cours » (`saveCourse`) est un
-  flux asynchrone fire-and-forget — un conflit de titre se résout par suffixe automatique, jamais
-  par une boîte de dialogue qui bloquerait un travail de fond.
-
-### Le remplacement pose des pierres tombales, jamais une suppression
-
-`replaceMarkdown` (dans `db.transaction()`) recharge le markdown, le redécoupe, puis pour chaque
-section du nouveau découpage : une section dont le slug existe déjà est **mise à jour sur la même
-ligne** (et ressuscitée si elle portait une tombe, `obsolete_at = null`) ; une section neuve est
-créée. Toute section **existante et vivante** dont le slug est absent du nouveau découpage reçoit
-`obsolete_at = now()` — **jamais supprimée**. La purge (`purgeTombstones`) est un geste manuel
-distinct qui supprime les lignes tombées, jamais implicite dans le remplacement.
-
-⚠️ **La suppression d'un cours entier, elle, est une cascade réelle** sur ses sections — pas de
-pierre tombale. Aucune carte ne référence encore une section (ticket suivant) : rien à préserver
-côté section quand le cours disparaît en bloc.
-
-### Export v5 : les sections partent telles quelles, jamais re-dérivées
-
-`BACKUP_VERSION` passe à **5**, `READABLE_BACKUP_VERSIONS` reste une **liste** (`[1,2,3,4,5]`),
-jamais une égalité — un fichier v1 à v4 sans clé `courses` importe toujours 0 cours. L'export
-sérialise chaque cours **et ses sections en base**, tombes comprises : jamais re-découpées depuis
-le markdown à l'export ni à l'import, sinon une restauration perdrait l'historique des slugs
-disparus (le point de tout ce mécanisme).
-
-⚠️ **Colonnes `jsonb` chez Lucid : `@column()` nue ne suffit pas.** `headingPath` et `aliases`
-portent `prepare: (v) => JSON.stringify(v)` (avec gestion explicite du `null` pour `aliases`,
-nullable). Sans lui, le driver `pg` sérialise un tableau JS en littéral de tableau **Postgres**
-(`{"TLS"}`), pas en JSON, et l'insertion échoue (`22P02 invalid input syntax for type json`).
-Déjà documenté dans le `CLAUDE.md` du module `agents` (« ne pas confondre avec les `text[]` de
-veille/leitner, qui n'en veulent pas ») — piège classique pour la prochaine colonne `jsonb` du
-dépôt, ici comme ailleurs.
-
-### Capacités et navigation
-
-`corpus.view` / `corpus.write` (`capabilities.ts`) — **aucune ligne
-supplémentaire dans `start/capabilities.ts`**, qui importe tout le tableau `LEITNER_CAPABILITIES`
-d'un coup ; seule la déclaration locale suffit. Sixième onglet de `LeitnerTabs.vue`, entre
-Ingestion et Configuration.
-
-⚠️ **`leitner_course_sections` n'entre PAS dans `ownedSharedContentTable`** (le garde de
-suppression de compte) : seul `leitner_courses` y figure, même raison que `leitner_draft_cards`
-en est absent — sa visibilité se dérive de son parent, elle ne porte aucune propriété propre à
-vérifier.
+La sauvegarde v6 porte `glossaryTerms` et `glossarySupported`. Une section impossible
+à résoudre à l'import devient un lien nul ; la définition est conservée et le lien
+perdu est compté. Sans Corpus, les termes non importés sont comptés explicitement.
+Les fichiers v5 sont encore lus, leurs anciens alias de section étant convertis en termes.
+La v6 est refusée par les lecteurs antérieurs qui n'acceptent que les versions 1 à 5.
 
 ## La provenance d'ingestion : une carte connaît sa section (CC-253)
 
@@ -2023,7 +1951,7 @@ calculés **à la construction du morceau**, jamais retrouvés après coup.
   terme, appariés par INDEX. Un heading pathologique (`# ` sans titre après l'espace, que
   `splitCourseIntoSections` ignore et que `splitBySections` traite comme une coupure quand même)
   désaligne les deux listes ; l'appariement dégrade alors silencieusement vers `slugsDeSections:
-  []` pour les pièces concernées, plutôt que de planter ou de deviner.
+[]` pour les pièces concernées, plutôt que de planter ou de deviner.
 - ⚠️ **Le recouvrement en tête n'apporte JAMAIS le slug du morceau précédent — le test qui
   compte.** Le préfixe recopié (`overlapOf`) est connu à la construction : `currentSlugs` repart à
   vide à chaque nouveau morceau, seule une pièce NEUVE (jamais l'overlap) l'alimente. Un principe
@@ -2043,7 +1971,7 @@ calcul lui-même.
 ### Les liens se posent à deux moments, jamais un troisième
 
 1. **La promotion** (`LeitnerIngestionService.accept`) — `linkIngestionSections(cardId, courseId,
-   slugs)` cherche les sections du cours par `(course_id, slug)`, **tombes comprises** (une
+slugs)` cherche les sections du cours par `(course_id, slug)`, **tombes comprises** (une
    section obsolète reste une cible valide), et pose un lien `origin: 'ingestion'` par slug
    trouvé. ⚠️ **Que la carte soit neuve ou un doublon retrouvé au catalogue** — la promotion EST
    le point de validation humaine du module, indépendamment du fait que `createCardUnlessDuplicate`
@@ -2179,8 +2107,8 @@ navigateur du propriétaire.
 
 ## Les mots-clés du recto (CC-254), et son rendu Markdown restauré (CC-276)
 
-Un terme que le corpus définit (`> notion: TLS, Transport Layer Security` sous un titre, CC-251)
-devient cliquable dans le recto d'une carte : le clic ouvre sa section dans une modale. **Aucun
+Un terme enregistré dans `glossary_terms` devient cliquable dans le recto d'une carte :
+le clic ouvre sa définition libre dans une modale. **Aucun
 balisage dans la carte** — le glossaire se reconnaît tout seul contre le texte déjà écrit, ce qui
 fait souligner les cartes **déjà existantes** sans en rouvrir une seule.
 
@@ -2232,7 +2160,7 @@ arbre de dépendances déclaré. Le déclarer coûte une ligne de `package.json`
 
 ### Le tokeniseur — `shared/glossary_highlight.ts`, PUR, inchangé
 
-`tokenizeFront(front, glossary) → { texte, sectionId | null }[]`. Trois règles, aucune
+`tokenizeFront(front, glossary) → { texte, termId | null }[]`. Trois règles, aucune
 négociable :
 
 - **`normalizeForSearch` est l'unique copie** (`components/leitner_scope_search.ts`), importée en
@@ -2253,47 +2181,22 @@ CC-254. Prouvé par mutation, aux DEUX bouts : côté serveur, un recto hostile 
 d'élément `script` (`tests/unit/leitner_front_html.spec.ts`) ; côté page, si le rendu se remettait
 à concaténer les jetons en `v-html`, `pages/__tests__/index.spec.ts` rougirait (vérifié à la main).
 
-### L'index et la route — filtrés par visibilité, comme tout le reste du corpus
+### L'index et la modale depuis CC-277
 
-`services/leitner_glossary_service.ts` (`glossaryIndex`) — même patron que
-`searchCourseSections` (CC-252) : jointure `leitner_courses`, `applyVisibility`, **sections
-tombées exclues** (`whereNull('obsolete_at')`) — la révision teste le vocabulaire du cours ACTUEL,
-pas ce que l'auteur a retiré. Servi par `LeitnerController#index` dans la branche `session`
-seulement, gardé par `canViewCourses` (déjà calculé pour la provenance) : `[]` sans
-`corpus.view`.
+`app/bridges/leitner_corpus/glossary_index.ts` lit exclusivement les termes visibles,
+avec `applyVisibility`. Un terme et ses alias produisent des tokens `termId`.
+Une section supprimée ou devenue obsolète ne supprime pas le terme autonome.
 
-`GET /corpus/sections/:id` (`LeitnerCourseController#sectionContent`) rend le contenu d'UNE
-section — GET, pas de jeton CSRF, visibilité vérifiée sur le cours parent
-(`assertVisibleOrAdmin`). ⚠️ **Masquer n'est pas fermer, les deux, comme partout ailleurs** :
-l'index vide empêche tout soulignement **et** la route refuse indépendamment, testé séparément.
+Le clic demande `GET /corpus/glossaire/:id`, protégé par `corpus.view` et la visibilité
+du terme. La réponse rend sa définition Markdown assainie et, seulement si le cours
+est visible, un lien vers sa section. Une définition privée ne fuit ni par l'index,
+ni par la route directe, ni par l'export.
 
-⚠️ **Ne filtre PAS `obsoleteAt`**, même doctrine que `LeitnerCourseController#show` : un terme du
-glossaire ne pointe jamais vers une tombe au moment du rendu (l'index l'exclut), mais un cours
-peut être remplacé entre le chargement de la page et le clic — la section tombée reste
-consultable plutôt que de lever une erreur sur ce résidu.
-
-### La modale et le chrono fantôme
-
-`CourseSectionView` (CC-253) est réutilisé tel quel — « un contenu, deux châssis » — dans
-`inertia/components/AppModal.vue` (CC-207/209), jamais une modale écrite à la main. Une prop
-optionnelle `titleId?: string` a été ajoutée pour poser `aria-labelledby` sur le titre réel de la
-section — absente ailleurs, elle ne change rien aux deux autres consommateurs.
-
-⚠️ **Ouvrir une définition avant la première frappe appelle `markInterrupted()`, et c'est TOUT ce
-qu'il y a à écrire.** Sa garde (`firstInputAt === null`) porte déjà exactement la sémantique
-demandée — marque l'interruption si rien n'est encore tapé, ne fait rien sinon. Aucune condition
-à dupliquer dans `openGlossaryTerm()`. Sans ce geste, lire une définition 40 s puis répondre
-écrirait une mesure de « rappel » qui n'en est pas une, et `thinking_ms` alimente la médiane de
-référence de la carte et de sa boîte (voir « Le timer fantôme » plus haut).
-
-⚠️ **Les quatre refs de la modale entrent dans le `watch` sur la référence de `dueCards`**, même
-raison que le reste de l'état de cet écran : sur une file d'une seule carte, `again` renvoie la
-même carte, même id — sans ce reset une modale resterait ouverte sur la section de la tentative
-précédente.
-
-⚠️ **Renommées `sectionModalOpen/Section/Loading/Error` depuis CC-274 (2026-08-20)** — ce
-paragraphe les nommait `glossaryModalOpen/Section/Loading/Error`, avant que la même modale serve
-aussi la provenance et « Approfondir ». Voir la section suivante.
+L'unique instance `AppModal` de la révision sert les définitions et les sections.
+Le recto reste un arbre Vue (`h`, interpolation), jamais du HTML reconstruit.
+L'ouverture d'une définition appelle `markInterrupted()` ; la suppression rapide
+ferme la modale et recharge les tokens. Chargement, erreur, fermeture, suppression
+et réinitialisation à même id de carte sont couverts par les tests Vue.
 
 ## Provenance et Approfondir deviennent des modales (CC-274)
 
@@ -2381,7 +2284,7 @@ permanence :
 
 - **La bande 20–120 s de la fluence** n'est couverte par rien : `visibilitychange` ne se déclenche ni
   au changement d'application, ni quand on se détourne de l'écran. C'est la distraction la plus
-  courante, et la seule qui produise un `hard` *plausible*.
+  courante, et la seule qui produise un `hard` _plausible_.
 - **`pages/index.vue` a un test de composant depuis CC-252 (2026-08-18), mais étroit** :
   `pages/__tests__/index.spec.ts` ne prouve que ce que ce lot a ajouté — « Je ne sais pas »
   qui surligne sans poster, le panneau « Approfondir », et la remise à zéro sur la
