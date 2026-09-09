@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import type { StrictValues } from '@adonisjs/lucid/types/querybuilder'
 import CoffreCatalogItem from '#modules/coffre/models/coffre_catalog_item'
 import type { CatalogEnumeration, CatalogSourceKey } from '#modules/coffre/services/catalog_source'
 
@@ -17,6 +18,10 @@ import type { CatalogEnumeration, CatalogSourceKey } from '#modules/coffre/servi
 function capturedAtFor(epochMs: number | null): DateTime | null {
   return epochMs === null ? null : DateTime.fromMillis(epochMs)
 }
+
+const MAX_POSTGRES_PARAMETERS = 65_535
+const UPSERT_PARAMETERS_PER_ROW = 10
+const UPSERT_BATCH_SIZE = Math.floor(MAX_POSTGRES_PARAMETERS / UPSERT_PARAMETERS_PER_ROW)
 
 export interface CatalogSyncOutcome {
   discovered: number
@@ -51,44 +56,74 @@ class CatalogSyncService {
       let discovered = 0
       let updated = 0
       const seenReferences: string[] = []
+      const knownReferences = new Set<string>()
+      const nowSql = now.toSQL()
 
-      for (const item of enumeration.items) {
-        seenReferences.push(item.reference)
+      for (let offset = 0; offset < enumeration.items.length; offset += UPSERT_BATCH_SIZE) {
+        const batch = enumeration.items.slice(offset, offset + UPSERT_BATCH_SIZE)
+        const existing = await trx.rawQuery(
+          `select reference
+           from coffre_catalog_items
+           where owner_id = ?
+             and source = ?
+             and reference = any(?::text[])`,
+          [ownerId, sourceKey, batch.map((item) => item.reference)]
+        )
 
-        const existing = await CoffreCatalogItem.query({ client: trx })
-          .where('owner_id', ownerId)
-          .where('source', sourceKey)
-          .where('reference', item.reference)
-          .first()
-
-        if (existing === null) {
-          await CoffreCatalogItem.create(
-            {
-              ownerId,
-              source: sourceKey,
-              reference: item.reference,
-              nature: item.nature,
-              displayName: item.displayName,
-              capturedAt: capturedAtFor(item.capturedAt),
-              sizeBytes: item.sizeBytes,
-              discoveredAt: now,
-              lastSeenAt: now,
-              missingSince: null,
-            },
-            { client: trx }
-          )
-          discovered++
-        } else {
-          existing.nature = item.nature
-          existing.displayName = item.displayName
-          existing.capturedAt = capturedAtFor(item.capturedAt)
-          existing.sizeBytes = item.sizeBytes
-          existing.lastSeenAt = now
-          // ⚠️ Réapparu : un élément qui avait été marqué absent puis revu redevient présent.
-          existing.missingSince = null
-          await existing.useTransaction(trx).save()
-          updated++
+        for (const row of existing.rows as Array<{ reference: string }>) {
+          knownReferences.add(row.reference)
         }
+
+        const rowsByReference = new Map<string, (typeof batch)[number]>()
+        for (const item of batch) {
+          seenReferences.push(item.reference)
+
+          if (knownReferences.has(item.reference)) {
+            updated++
+          } else {
+            discovered++
+            knownReferences.add(item.reference)
+          }
+
+          // Une référence répétée garde la dernière métadonnée, comme la boucle historique.
+          rowsByReference.set(item.reference, item)
+        }
+
+        if (rowsByReference.size === 0) continue
+
+        const rows = [...rowsByReference.values()].map((item) => [
+          ownerId,
+          sourceKey,
+          item.reference,
+          item.nature,
+          item.displayName,
+          capturedAtFor(item.capturedAt)?.toSQL() ?? null,
+          item.sizeBytes,
+          nowSql,
+          nowSql,
+          null,
+        ])
+        const placeholders = rows
+          .map(() => `(${Array.from({ length: UPSERT_PARAMETERS_PER_ROW }, () => '?').join(', ')})`)
+          .join(', ')
+
+        // Lucid omet null de StrictValues alors que PostgreSQL l’accepte pour les colonnes nullable.
+        const bindings = rows.flat() as unknown as StrictValues[]
+        await trx.rawQuery(
+          `insert into coffre_catalog_items (
+             owner_id, source, reference, nature, display_name, captured_at, size_bytes,
+             discovered_at, last_seen_at, missing_since
+           )
+           values ${placeholders}
+           on conflict (owner_id, source, reference) do update set
+             nature = excluded.nature,
+             display_name = excluded.display_name,
+             captured_at = excluded.captured_at,
+             size_bytes = excluded.size_bytes,
+             last_seen_at = excluded.last_seen_at,
+             missing_since = null`,
+          bindings
+        )
       }
 
       const markedAbsent = await this.#markAbsent(

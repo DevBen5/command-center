@@ -1,10 +1,12 @@
 import { test } from '@japa/runner'
+import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import app from '@adonisjs/core/services/app'
 import ace from '@adonisjs/core/services/ace'
 import testUtils from '@adonisjs/core/services/test_utils'
+import db from '@adonisjs/lucid/services/db'
 import { DateTime } from 'luxon'
 import { createUserWith } from '#tests/helpers/users'
 import { createVault } from '#tests/helpers/coffre'
@@ -34,6 +36,28 @@ import type { CatalogSourceItem } from '#modules/coffre/services/catalog_source'
  */
 async function catalogRowsFor(ownerId: number) {
   return CoffreCatalogItem.query().where('owner_id', ownerId).orderBy('reference', 'asc')
+}
+
+function fingerprintForPayload(payload: unknown[]): string {
+  return createHash('md5').update(JSON.stringify(payload), 'utf8').digest('hex')
+}
+
+function catalogPayloadFor(rows: Awaited<ReturnType<typeof catalogRowsFor>>) {
+  return rows.map((row) => ({
+    ownerId: row.ownerId,
+    source: row.source,
+    reference: row.reference,
+    nature: row.nature,
+    displayName: row.displayName,
+    capturedAt: row.capturedAt?.toMillis() ?? null,
+    sizeBytes: row.sizeBytes === null ? null : Number(row.sizeBytes),
+    missingSince: row.missingSince?.toMillis() ?? null,
+  }))
+}
+
+async function catalogFingerprint(ownerId: number): Promise<string> {
+  const rows = await catalogRowsFor(ownerId)
+  return fingerprintForPayload(catalogPayloadFor(rows))
 }
 
 async function runSync(catalog: LockedCatalogScript) {
@@ -213,6 +237,173 @@ test.group('Coffre / la commande coffre:sync-catalog', (group) => {
 
     command.assertSucceeded()
     assert.lengthOf(await catalogRowsFor(user.id), 1)
+  })
+
+  test('préserve les compteurs create/update et le contenu du catalogue', async ({ assert }) => {
+    const user = await createUserWith([])
+    const firstItems: CatalogSourceItem[] = [
+      {
+        reference: 'asset-a',
+        nature: 'photo',
+        displayName: 'avant.jpg',
+        capturedAt: 1_750_000_000_000,
+        sizeBytes: 100,
+      },
+      {
+        reference: 'asset-b',
+        nature: 'video',
+        displayName: null,
+        capturedAt: null,
+        sizeBytes: null,
+      },
+    ]
+
+    const created = await catalogSync.applyEnumeration(user.id, 'immich_locked', {
+      items: firstItems,
+      truncated: false,
+    })
+
+    assert.deepEqual(created, {
+      discovered: 2,
+      updated: 0,
+      markedAbsent: 0,
+      truncated: false,
+    })
+    const beforeUpdate = await catalogFingerprint(user.id)
+    const expectedBeforeUpdate = [
+      {
+        ownerId: user.id,
+        source: 'immich_locked',
+        reference: 'asset-a',
+        nature: 'photo',
+        displayName: 'avant.jpg',
+        capturedAt: 1_750_000_000_000,
+        sizeBytes: 100,
+        missingSince: null,
+      },
+      {
+        ownerId: user.id,
+        source: 'immich_locked',
+        reference: 'asset-b',
+        nature: 'video',
+        displayName: null,
+        capturedAt: null,
+        sizeBytes: null,
+        missingSince: null,
+      },
+    ]
+    assert.deepEqual(catalogPayloadFor(await catalogRowsFor(user.id)), expectedBeforeUpdate)
+    assert.equal(beforeUpdate, fingerprintForPayload(expectedBeforeUpdate))
+
+    const updated = await catalogSync.applyEnumeration(user.id, 'immich_locked', {
+      items: [{ ...firstItems[0], displayName: 'apres.jpg', sizeBytes: 101 }, firstItems[1]],
+      truncated: false,
+    })
+
+    assert.deepEqual(updated, {
+      discovered: 0,
+      updated: 2,
+      markedAbsent: 0,
+      truncated: false,
+    })
+    const afterUpdate = await catalogFingerprint(user.id)
+    assert.notEqual(afterUpdate, beforeUpdate)
+    const expectedAfterUpdate = [
+      {
+        ownerId: user.id,
+        source: 'immich_locked',
+        reference: 'asset-a',
+        nature: 'photo',
+        displayName: 'apres.jpg',
+        capturedAt: 1_750_000_000_000,
+        sizeBytes: 101,
+        missingSince: null,
+      },
+      {
+        ownerId: user.id,
+        source: 'immich_locked',
+        reference: 'asset-b',
+        nature: 'video',
+        displayName: null,
+        capturedAt: null,
+        sizeBytes: null,
+        missingSince: null,
+      },
+    ]
+    assert.deepEqual(catalogPayloadFor(await catalogRowsFor(user.id)), expectedAfterUpdate)
+    assert.equal(afterUpdate, fingerprintForPayload(expectedAfterUpdate))
+  })
+
+  test('conserve la sémantique historique des références dupliquées dans une énumération', async ({
+    assert,
+  }) => {
+    const user = await createUserWith([])
+    const outcome = await catalogSync.applyEnumeration(user.id, 'immich_locked', {
+      items: [
+        {
+          reference: 'duplicate',
+          nature: 'photo',
+          displayName: 'premiere.jpg',
+          capturedAt: null,
+          sizeBytes: 1,
+        },
+        {
+          reference: 'duplicate',
+          nature: 'photo',
+          displayName: 'derniere.jpg',
+          capturedAt: null,
+          sizeBytes: 2,
+        },
+      ],
+      truncated: false,
+    })
+
+    assert.deepEqual(outcome, {
+      discovered: 1,
+      updated: 1,
+      markedAbsent: 0,
+      truncated: false,
+    })
+    const [row] = await catalogRowsFor(user.id)
+    assert.equal(row?.displayName, 'derniere.jpg')
+    assert.equal(row?.sizeBytes, 2)
+  })
+
+  test('applique un lot sans aller-retour SELECT/écriture pour chaque référence', async ({
+    assert,
+  }) => {
+    const user = await createUserWith([])
+    const queries: string[] = []
+    const connection = db.connection()
+    const previousDebug = connection.debug
+    const onQuery = (query: { sql: string }) => {
+      if (query.sql.toLowerCase().includes('coffre_catalog_items')) queries.push(query.sql)
+    }
+
+    connection.debug = true
+    connection.emitter.on('db:query', onQuery)
+    try {
+      await catalogSync.applyEnumeration(user.id, 'immich_locked', {
+        items: Array.from({ length: 3 }, (_, index) => ({
+          reference: `asset-${index}`,
+          nature: 'photo' as const,
+          displayName: null,
+          capturedAt: null,
+          sizeBytes: index,
+        })),
+        truncated: false,
+      })
+    } finally {
+      connection.emitter.off('db:query', onQuery)
+      connection.debug = previousDebug
+    }
+
+    assert.lengthOf(
+      queries,
+      3,
+      'un lot doit faire le préchargement, l’upsert, puis la sélection d’absence'
+    )
+    assert.notInclude(queries.join('\n').toLowerCase(), 'where reference =')
   })
 
   test('un élément disparu est marqué absent, puis réapparu redevient présent', async ({
