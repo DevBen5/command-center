@@ -59,7 +59,7 @@ export async function syncAgentsFromFile(fichier: {
  * dans `declarations` est **supprimé** — `logs`/`status` compris. Le fichier décrit l'ensemble
  * voulu des agents, pas une liste d'ajouts : c'est ce qui rend « retirer un agent du fichier »
  * un geste explicite et prévisible, plutôt qu'un état orphelin qui traînerait sans qu'on l'ait
- * demandé. Documenté en toutes lettres dans `app/modules/agents/CLAUDE.md`.
+ * demandé. Documenté en toutes lettres dans `app/modules/agents/AGENTS.md`.
  *
  * `status` et `logs` sont en revanche **préservés** sur une mise à jour : le fichier ne pilote
  * que la configuration (`name`/`framework`/`config`), jamais l'état d'exécution.

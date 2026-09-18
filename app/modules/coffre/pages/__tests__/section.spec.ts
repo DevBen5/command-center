@@ -6,12 +6,12 @@ import Section from '../section.vue'
 
 /*
 | CC-221 : l'accordéon d'une entrée n'annonçait aucun état à un lecteur d'écran. Ce fichier est le
-| premier test de composant de cette page (CLAUDE.md du module : « le rendu de section.vue n'est
+| premier test de composant de cette page (AGENTS.md du module : « le rendu de section.vue n'est
 | couvert par rien ») — il ne prouve QUE le geste ajouté par ce lot, pas le reste de l'écran
 | (révélation de secret, suppression, édition), qui reste un passage navigateur pour le propriétaire.
 |
 | ⚠️ `aria-expanded` doit suivre l'état RÉEL, sur le geste (déplier PUIS replier), jamais l'état de
-| montage seul — piège nommé par le CLAUDE.md racine (exemple TaxonomyCombobox) : un composant qui
+| montage seul — piège nommé par le AGENTS.md racine (exemple TaxonomyCombobox) : un composant qui
 | part déjà dans l'état observé rend un test décoratif.
 */
 

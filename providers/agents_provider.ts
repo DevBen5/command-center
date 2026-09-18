@@ -5,7 +5,7 @@ import agentsConfig from '#config/agents'
 /**
  * Synchronise les agents depuis leur fichier de déclaration au démarrage (CC-141).
  *
- * ⚠️ **Trois issues, pas deux** — voir `app/modules/agents/CLAUDE.md` pour la justification
+ * ⚠️ **Trois issues, pas deux** — voir `app/modules/agents/AGENTS.md` pour la justification
  * complète :
  *
  * - fichier absent → module vide sur une base vide (installation neuve, aucune erreur) ; sur une

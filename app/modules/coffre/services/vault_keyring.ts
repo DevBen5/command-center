@@ -28,7 +28,7 @@ import { VAULT_UNLOCK_MINUTES } from '#modules/coffre/services/vault_session'
  *    est alors **inatteignable** : le cookie qui portait son `keyId` est mort, et `AuthMiddleware`
  *    expulse la session avant qu'aucune route du coffre ne soit atteinte. Purger depuis
  *    `session_revocation.ts` ferait dépendre le **noyau** d'un module détachable — exactement ce
- *    que le point 7 du `CLAUDE.md` racine interdit.
+ *    que le point 7 du `AGENTS.md` racine interdit.
  *
  * ## Pas de minuteur, et c'est délibéré
  *

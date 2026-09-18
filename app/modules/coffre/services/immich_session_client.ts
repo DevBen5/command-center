@@ -29,7 +29,7 @@ export type ImmichAssetNature = 'photo' | 'video' | 'other'
  * qu'`ImmichLockedPhoto`, qui ne sert que l'écran de sélection existant (CC-205).
  *
  * ⚠️ **Aucun champ hors `assetId` n'est vérifié contre une vraie instance Immich** — même limite
- * que le reste du client (voir le `CLAUDE.md` du module). Le parsing est défensif : un champ
+ * que le reste du client (voir le `AGENTS.md` du module). Le parsing est défensif : un champ
  * absent ou malformé rend `null`, jamais une valeur devinée, jamais une exception qui ferait
  * échouer tout le lot pour un seul asset.
  */
@@ -156,7 +156,7 @@ class ImmichAuthExpiredError extends Error {}
  * là-bas) — et les endpoints (`/api/auth/login`, `/api/auth/session/unlock`) n'ont pas d'équivalent
  * dans le client partagé. Ce fichier duplique le hardening (redirections refusées, assertion de
  * content-type, plafonds de taille et de temps) plutôt que de le tordre pour un second mode d'auth
- * — un seul consommateur (le coffre), donc il reste local au module (`app/modules/coffre/CLAUDE.md`,
+ * — un seul consommateur (le coffre), donc il reste local au module (`app/modules/coffre/AGENTS.md`,
  * point 5 du ticket).
  *
  * ⚠️ **L'état (jeton, échéance) vit dans `immich_session_state.ts`, PAS sur `this`.** Cette classe
@@ -204,7 +204,7 @@ export default class ImmichSessionClient {
    * ⚠️ **AUCUNE vérification live n'a été possible pour ce chemin** : l'instance Immich du
    * propriétaire répond 502 sur `/api/auth/login` au moment d'écrire ceci, donc la source
    * `immich_locked` est vide en base. Il est couvert par un double de test, pas par une mesure —
-   * voir le `CLAUDE.md` du module, « Ce que ce lot ne prouve pas ».
+   * voir le `AGENTS.md` du module, « Ce que ce lot ne prouve pas ».
    */
   async videoPlayback(assetId: string, range: string | null): Promise<ImmichVideoStream> {
     return this.#withSession((token) => this.#fetchVideoPlayback(token, assetId, range))

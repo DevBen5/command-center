@@ -12,7 +12,7 @@ import { createVault, PASSPHRASE } from '#tests/helpers/coffre'
  * soumis repart dans la session** dès qu'un champ ne valide pas, sauf ces quatre clés écrites en
  * dur dans le paquet. Le store de session est `cookie` (`config/session.ts`), donc ce corps part
  * chiffré par `APP_KEY` chez le client — précisément la dépendance que le coffre existe pour
- * refuser (`app/modules/coffre/CLAUDE.md`, « pourquoi PAS `APP_KEY` »).
+ * refuser (`app/modules/coffre/AGENTS.md`, « pourquoi PAS `APP_KEY` »).
  *
  * ⚠️ **Le test porte sur `passphrase`, et ce choix est le nerf du fichier.** C'est un nom que la
  * liste du vendeur ne connaît pas : un test écrit sur `password` passerait au vert sans notre

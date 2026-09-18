@@ -779,7 +779,7 @@ démarrage du conteneur — jamais par une route, jamais modifiable depuis l'éc
    cp agents.json.example /volumeX/docker/command-center/agents.json
    ```
    Éditer `command` pour chaque agent — c'est une commande shell exécutée **telle quelle**
-   (`AgentRunnerService`, voir `app/modules/agents/CLAUDE.md`) : quiconque peut écrire ce fichier
+   (`AgentRunnerService`, voir `app/modules/agents/AGENTS.md`) : quiconque peut écrire ce fichier
    a déjà accès à la machine, donc au pouvoir que la commande confère.
 2. Renseigner `AGENTS_CONFIG_PATH_HOST=/volumeX/docker/command-center/agents.json` dans
    `.env.production`.

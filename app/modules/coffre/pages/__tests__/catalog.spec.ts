@@ -7,10 +7,10 @@ import Catalog from '../catalog.vue'
 /*
 | CC-227 : la grille du catalogue porte de la vraie logique (débounce de la recherche, pagination,
 | repli de vignette, message de throttle) — c'est ce qui justifie un test de composant plutôt qu'une
-| relecture (CLAUDE.md racine : « un composant qui ne fait que disposer des <div> — non »).
+| relecture (AGENTS.md racine : « un composant qui ne fait que disposer des <div> — non »).
 |
 | ⚠️ Chaque test reproduit le GESTE réel (taper, cliquer, déclencher `error`) plutôt que d'observer
-| l'état de montage — piège nommé par le CLAUDE.md racine (TaxonomyCombobox).
+| l'état de montage — piège nommé par le AGENTS.md racine (TaxonomyCombobox).
 */
 
 vi.mock('@inertiajs/vue3', () => ({

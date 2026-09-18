@@ -4,9 +4,9 @@
 - `tests/functional/modules/leitner_glossary_backup.spec.ts` — export visible v6, restauration des définitions et alias, lien perdu conservant le terme et Corpus désactivé (CC-277).
 - `app/modules/leitner/components/__tests__/glossary_promotion_button.spec.ts` — préremplissage, correction, POST JSON, succès et refus serveur (CC-277).
 
-Sorti de `CLAUDE.md` pour ne pas être chargé à chaque fois qu'on touche au module. À lire **avant de
+Sorti de `AGENTS.md` pour ne pas être chargé à chaque fois qu'on touche au module. À lire **avant de
 modifier un test**, pas avant de modifier le module. Les règles qui doivent rester présentes en
-permanence sont dans `CLAUDE.md`, section « Tests ».
+permanence sont dans `AGENTS.md`, section « Tests ».
 
 ⚠️ **Les fabriques du module vivent dans `tests/helpers/leitner.ts`, et `makeCard` ne pose AUCUNE
 progression.** C'est délibéré : une carte neuve n'a pas de ligne, l'absence _est_ « boîte 1, due
@@ -105,7 +105,7 @@ Le backfill de `kind`, lui, n'a rien à prouver : le `default` de la colonne est
 - `app/modules/leitner/components/__tests__/taxonomy_combobox.spec.ts` — l'invariant `filtering` :
   rouvrir la liste après avoir tapé remontre **toute** la taxonomie. ⚠️ Il ne prouve quelque chose
   que parce qu'il **tape d'abord** : `filtering` vaut déjà `false` au montage, donc ouvrir sans
-  saisie passerait même si la remise à zéro disparaissait. C'est le piège de tout test de composant — voir le `CLAUDE.md` racine.
+  saisie passerait même si la remise à zéro disparaissait. C'est le piège de tout test de composant — voir le `AGENTS.md` racine.
 - `app/modules/leitner/components/__tests__/course_section_view.spec.ts` — le lien « Voir dans le
   cours » (CC-273) : l'`href` construit à partir de `courseId` et de l'`id` de la section, seul
   comportement du composant qui ne soit pas déjà couvert ailleurs (le rendu du corps l'est côté
@@ -123,7 +123,7 @@ Le backfill de `kind`, lui, n'a rien à prouver : le `default` de la colonne est
   trois déclencheurs**, pas seulement le glossaire — voir le describe « provenance en modale »
   plus haut, qui prouve l'ouverture par un DEUXIÈME déclencheur sans dupliquer ce fichier.
   `markInterrupted()` reste propre au glossaire (seul chemin atteignable AVANT `reveal()` — voir
-  le CLAUDE.md du module).
+  le AGENTS.md du module).
 
 ⚠️ **`LeitnerScopeSearch.vue` n'a pas de test de composant** : seuls `LeitnerTabs`, `IngestionTitle`
 et `TaxonomyCombobox` sont couverts. Câbler celui-ci est possible et souhaitable ; en attendant, son
@@ -496,7 +496,7 @@ mastered_at`, elle repartirait droit au palier d'un an alors qu'on vient de cons
 ## Le rendu Markdown des cartes (CC-133)
 
 ⚠️ **La brique elle-même n'est pas indexée ici, et c'est volontaire** : `renderMarkdown` vit dans
-`app/core/shared/services/markdown_renderer.ts` (hors module — voir le `CLAUDE.md` du module), donc
+`app/core/shared/services/markdown_renderer.ts` (hors module — voir le `AGENTS.md` du module), donc
 sa spec est `tests/unit/markdown_renderer.spec.ts`, déclarée **transverse** dans
 `tests_index.spec.ts`. C'est elle qui porte les deux mutations du lot ; lis son en-tête avant d'y
 toucher, le résultat n'est pas celui qu'on attend.

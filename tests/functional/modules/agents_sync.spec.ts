@@ -8,7 +8,7 @@ import {
 
 /**
  * La synchronisation déclarative en base (CC-141) — contre une vraie base Postgres de test, pas
- * une hypothèse sur ce que ferait Lucid. `app/modules/agents/CLAUDE.md` documente le contrat :
+ * une hypothèse sur ce que ferait Lucid. `app/modules/agents/AGENTS.md` documente le contrat :
  * crée les agents déclarés absents, met à jour ceux qui existent (statut/logs préservés), et
  * SUPPRIME ceux qui ne sont plus déclarés.
  */

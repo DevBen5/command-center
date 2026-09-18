@@ -11,7 +11,7 @@ import ImmichSessionClient from '#modules/coffre/services/immich_session_client'
  * `VeilleMediaController.thumbnail`, avec deux durcissements propres au coffre.
  *
  * ⚠️ **La route est indexée par l'`id` de NOTRE ligne `coffre_entry_media`, jamais par l'UUID
- * Immich** — même décision de sécurité qu'en veille (voir `app/modules/veille/CLAUDE.md`, « Le
+ * Immich** — même décision de sécurité qu'en veille (voir `app/modules/veille/AGENTS.md`, « Le
  * proxy de vignette »). Une route qui prendrait l'UUID serait un proxy de lecture ouvert sur toute
  * la bibliothèque personnelle.
  *

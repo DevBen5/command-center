@@ -2,7 +2,7 @@
 
 - `tests/functional/modules/corpus_glossary.spec.ts` — CRUD autonome, partage explicite, visibilité des sections, HTML assaini et suppression de l’index (CC-277).
 
-Extrait de Leitner en module détachable séparé (CC-275). Voir `app/modules/corpus/CLAUDE.md`
+Extrait de Leitner en module détachable séparé (CC-275). Voir `app/modules/corpus/AGENTS.md`
 pour le contrat actuel ; ce fichier ne référence
 que ce qui, depuis CC-275, vit physiquement dans `app/modules/corpus/`.
 
@@ -67,7 +67,7 @@ d'ingestion) exerce des routes qui sont **restées côté Leitner** (le pont) et
   `tests/unit/tests_index.spec.ts`, pas ici.
 - `app/modules/leitner/components/__tests__/course_section_view.spec.ts` reste côté Leitner : le
   composant `CourseSectionView.vue` n'a pas suivi le corpus (aucun second consommateur au moment
-  de l'extraction — voir le `CLAUDE.md` racine, « Le seul `v-html` du dépôt », et la décision
+  de l'extraction — voir le `AGENTS.md` racine, « Le seul `v-html` du dépôt », et la décision
   CC-275 sur ce point).
 
 ## Vérifications navigateur et modules séparés (CC-277)

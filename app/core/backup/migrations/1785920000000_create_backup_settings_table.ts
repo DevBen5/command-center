@@ -7,7 +7,7 @@ export default class extends BaseSchema {
     // Réglage unique (CC-140) : une seule ligne, jamais plusieurs — même motif que
     // `leitner_settings`. `keep` et `daily_enabled` sont les seuls réglages qui n'engagent
     // aucune infrastructure (contrairement au dossier de sauvegarde et au miroir, des chemins
-    // FIXES dans le conteneur, montés par le compose — voir le CLAUDE.md racine).
+    // FIXES dans le conteneur, montés par le compose — voir le AGENTS.md racine).
     this.schema.createTable(this.tableName, (table) => {
       table.integer('id').primary().defaultTo(1)
       table.check('id = 1')

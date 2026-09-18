@@ -17,7 +17,7 @@
 /**
  * Les noms réservés par Windows, quelle que soit la casse et quelle que soit l'extension
  * (`CON.txt` est aussi réservé que `CON`). Un serveur de dev tourne HORS conteneur sur ce dépôt
- * (voir le `CLAUDE.md` racine) : ce n'est pas une précaution théorique.
+ * (voir le `AGENTS.md` racine) : ce n'est pas une précaution théorique.
  */
 const WINDOWS_RESERVED_NAMES = new Set([
   'CON',

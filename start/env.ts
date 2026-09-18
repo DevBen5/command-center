@@ -85,7 +85,7 @@ export default await Env.create(new URL('../', import.meta.url), {
   |
   | ⚠️ Optionnelle, défaut `agents.json` (racine du dépôt, `config/agents.ts`). Lu au démarrage,
   | jamais par une route : c'est ce qui garantit que `config.command` (une commande shell
-  | exécutée telle quelle, voir `app/modules/agents/CLAUDE.md`) reste hors d'atteinte de toute
+  | exécutée telle quelle, voir `app/modules/agents/AGENTS.md`) reste hors d'atteinte de toute
   | requête HTTP. Absent : module vide, pas une erreur.
   */
   AGENTS_CONFIG_PATH: Env.schema.string.optional(),
@@ -110,7 +110,7 @@ export default await Env.create(new URL('../', import.meta.url), {
   |----------------------------------------------------------
   |
   | ⚠️ **Défaut `false`, et l'oubli va vers l'ouverture — délibérément, ici.** C'est
-  | l'inverse de la règle des routes (point 5 du CLAUDE.md), pour une raison qui ne
+  | l'inverse de la règle des routes (point 5 du AGENTS.md), pour une raison qui ne
   | vaut que pour cette variable : la fermer par défaut enfermerait dehors l'unique
   | administrateur d'une installation existante au premier `git pull`, et plus
   | personne n'atteindrait l'écran qui distribue les droits. Le second facteur reste

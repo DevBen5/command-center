@@ -2,7 +2,7 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
 
 /**
  * `owner_id` + `is_shared` sur la taxonomie (CC-139). Renverse la ligne directrice de
- * CC-119 (« le contenu ne connaît aucun utilisateur ») : voir `app/modules/leitner/CLAUDE.md`.
+ * CC-119 (« le contenu ne connaît aucun utilisateur ») : voir `app/modules/leitner/AGENTS.md`.
  *
  * ⚠️ **Le backfill pose `is_shared = true` sur TOUT l'existant, jamais `false`.** Une
  * installation déjà en usage à plusieurs comptes verrait sinon son contenu partagé

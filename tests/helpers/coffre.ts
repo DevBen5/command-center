@@ -109,7 +109,7 @@ export async function createNasFile(
 
 /**
  * Pose une ligne de catalogue directement, sans passer par `coffre:sync-catalog` (CC-228). La
- * référence est stockée EN CLAIR — c'est la doctrine de la table (voir son CLAUDE.md) — donc, à
+ * référence est stockée EN CLAIR — c'est la doctrine de la table (voir son AGENTS.md) — donc, à
  * la différence de `createMedia`/`createNasFile`, aucune clé n'est nécessaire ici.
  *
  * ⚠️ **Étendue par CC-227** (`displayName`/`capturedAt`/`sizeBytes`/`missingSince`) pour poser le

@@ -8,7 +8,7 @@ import ForbiddenException from '#core/shared/exceptions/forbidden_exception'
  * ⚠️ **Renverse la ligne directrice de CC-119** (« le contenu ne connaît aucun
  * utilisateur ») sur `leitner_cards`, `leitner_categories`, `leitner_themes` et
  * `leitner_ingestions` : ces quatre tables portent désormais `owner_id` + `is_shared`.
- * Voir `app/modules/leitner/CLAUDE.md`.
+ * Voir `app/modules/leitner/AGENTS.md`.
  *
  * ⚠️ **Logée dans `core/shared` depuis CC-275, pas dans Leitner.** Déjà générique avant
  * ce déplacement (`table: string` en paramètre, aucun nom de table en dur) : quand le

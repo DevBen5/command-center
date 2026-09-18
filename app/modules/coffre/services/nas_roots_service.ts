@@ -39,7 +39,7 @@ export function isWithinRoot(realCandidate: string, realRoot: string): boolean {
  * ⚠️ **Chaque racine porte un `name` depuis CC-233**, mais `resolve()` ne s'en sert JAMAIS — il
  * continue de résoudre un chemin relatif NU, essayé contre chaque racine dans l'ordre, exactement
  * comme avant. C'est le comportement attendu par `coffre_entry_nas_file.path_cipher` (CC-181), qui
- * reste hors du périmètre de ce lot (voir le `CLAUDE.md` du module, « Limite résiduelle »). Seul le
+ * reste hors du périmètre de ce lot (voir le `AGENTS.md` du module, « Limite résiduelle »). Seul le
  * parcours du catalogue (`nas_directory_walker.ts`) lit `name` pour construire ses références.
  */
 export default class NasRootsService {

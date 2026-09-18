@@ -8,7 +8,7 @@ import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 
 /**
  * Une carte porte un propriétaire depuis CC-139 (`ownerId` + `isShared`, privé par
- * défaut) : voir `app/modules/leitner/CLAUDE.md`. Sa boîte et son échéance restent hors
+ * défaut) : voir `app/modules/leitner/AGENTS.md`. Sa boîte et son échéance restent hors
  * d'ici — elles vivent dans `LeitnerCardProgress`, une par personne, inchangé depuis
  * CC-77/CC-119.
  *

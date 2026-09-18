@@ -3,7 +3,7 @@
 Guide d'usage de `/revision/ingest` : quel modèle charger, comment le connecter, comment vérifier
 qu'il répond, et quoi faire quand ça casse.
 
-Le code, lui, est documenté dans `CLAUDE.md` (section « L'ingestion d'un cours par un LLM local »).
+Le code, lui, est documenté dans `AGENTS.md` (section « L'ingestion d'un cours par un LLM local »).
 
 ---
 
@@ -176,7 +176,7 @@ page.
 bloc à la fin : un échec au 5ᵉ morceau laisse ceux des quatre premiers, et le statut `failed` le
 dit. C'est voulu — c'est ce qui rend la barre de progression honnête et le compteur de cartes
 vivant. Relis-les et garde ce qui vaut : ce sont des **brouillons**, rien n'est entré dans les
-cartes sans ta validation. (L'import JSON, lui, reste en tout-ou-rien : voir le `CLAUDE.md` du
+cartes sans ta validation. (L'import JSON, lui, reste en tout-ou-rien : voir le `AGENTS.md` du
 module.)
 
 | Message                                                     | Cause probable                                                                                                       |

@@ -102,7 +102,7 @@ Format : `<type>(<scope>): <sujet>`
 | `fix` | Correction de bug |
 | `refactor` | Restructuration interne sans changement de comportement (ou cassante avec `!`) |
 | `chore` | Outillage, dépendances, configs (tsconfig, eslint, docker, package.json sans code) |
-| `docs` | Documentation seule (README, CLAUDE.md, SKILL.md, commentaires) |
+| `docs` | Documentation seule (README, AGENTS.md, SKILL.md, commentaires) |
 | `test` | Tests seuls, non livrés avec la feature qu'ils couvrent |
 | `build` | Chaîne de build |
 | `ci` | Intégration continue — `.github/workflows/ci.yml`, la CI de garde (CC-149). Ce dépôt en a **une seule** : toute retouche de ses déclencheurs, de ses gates ou de son bloc `env:` passe par ce type |
@@ -198,7 +198,7 @@ Découper par **axe de changement**, pas par fichier :
 
 1. `chore(tooling)` — configs et dépendances qu'exige le travail
 2. `feat` / `fix` / `refactor` — le code, avec ses tests colocalisés
-3. `docs` — `CLAUDE.md`, `README.md`, `SKILL.md`
+3. `docs` — `AGENTS.md`, `README.md`, `SKILL.md`
 
 Règles :
 - L'outillage part seul, pour être relu sans bruit de code.
@@ -270,7 +270,7 @@ cas **les deux moitiés** doivent passer, et un échec de la seconde ne se voit 
 regarde que le début de la sortie.
 
 ⚠️ Un `PASSED` affiché avec un **code de sortie 1** signale le problème `@swc/core` documenté
-dans `CLAUDE.md` — ne pas ré-épingler la version exacte pour le faire taire.
+dans `AGENTS.md` — ne pas ré-épingler la version exacte pour le faire taire.
 
 ---
 

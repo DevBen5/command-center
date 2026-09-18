@@ -3,7 +3,7 @@ import env from '#start/env'
 /**
  * Les agents ne se déclarent plus qu'à un seul endroit : un fichier monté, lu au démarrage
  * (CC-141). Avant ce lot, `config.command` — une commande shell complète, sans échappement,
- * voir `app/modules/agents/CLAUDE.md` — n'était alimentable que par un seeder ou un accès
+ * voir `app/modules/agents/AGENTS.md` — n'était alimentable que par un seeder ou un accès
  * direct à la base ; CC-138 a supprimé les seeders, laissant le module sans aucun moyen de
  * créer un agent sur une installation neuve.
  *
@@ -39,7 +39,7 @@ export function agentsConfigPathFrom(raw: string | undefined): string {
  *
  * ⚠️ **`config` reste un objet libre**, exactement comme la colonne `agents.config` (jsonb) —
  * ce lot ne fige aucune clé. `command`/`trigger` sont des conventions documentées dans
- * `app/modules/agents/CLAUDE.md`, pas des champs validés ici.
+ * `app/modules/agents/AGENTS.md`, pas des champs validés ici.
  */
 export function parseAgentsDeclarations(raw: unknown): AgentDeclaration[] {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {

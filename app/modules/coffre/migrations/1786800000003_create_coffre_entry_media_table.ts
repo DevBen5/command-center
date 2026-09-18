@@ -4,7 +4,7 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  * Les références de médias Immich (CC-180, lot 3 de l'épique CC-177) — une table dédiée, jamais
  * un préfixe de plus sur `dedup_key`.
  *
- * ⚠️ **`app/modules/veille/CLAUDE.md` l'annonçait déjà** : « un second module référençant les
+ * ⚠️ **`app/modules/veille/AGENTS.md` l'annonçait déjà** : « un second module référençant les
  * mêmes médias demanderait une colonne dédiée, pas un troisième préfixe ». Le coffre est ce
  * second module — `dedup_key` reste un mécanisme interne à la veille, jamais réutilisé ici.
  *

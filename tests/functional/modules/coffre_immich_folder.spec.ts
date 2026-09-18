@@ -131,7 +131,7 @@ test.group('Coffre / le dossier verrouillé Immich', (group) => {
  * ⚠️ **AUCUNE vérification live n'a été possible** : l'instance Immich du propriétaire répond 502
  * sur `/api/auth/login`, donc la source `immich_locked` est vide en base. Ce groupe prouve ce que le
  * CONTRÔLEUR fait d'une réponse de la couche session — jamais que `/api/assets/:id/video/playback`
- * se comporte ainsi chez Immich. Voir le `CLAUDE.md` du module, « Ce que ce lot ne prouve pas ».
+ * se comporte ainsi chez Immich. Voir le `AGENTS.md` du module, « Ce que ce lot ne prouve pas ».
  */
 test.group('Coffre / la vidéo du dossier verrouillé', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())

@@ -12,7 +12,7 @@ import {
 /**
  * Le générateur de vignettes ImageMagick (CC-228), avec le **binaire réel** — jamais mocké,
  * exactement comme `coffre_nas_roots.spec.ts` teste contre un vrai filesystem. La mesure qui a
- * précédé ce lot est dans `app/modules/coffre/CLAUDE.md`, « Les vignettes du catalogue NAS ».
+ * précédé ce lot est dans `app/modules/coffre/AGENTS.md`, « Les vignettes du catalogue NAS ».
  *
  * ⚠️ **Ces tests exigent `magick` sur le PATH.** Sur ce poste, installé via `winget` (avec
  * l'accord du propriétaire) — sans lui, l'image publiée reste la seule preuve, comme le reste du

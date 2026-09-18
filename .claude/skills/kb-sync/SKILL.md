@@ -3,7 +3,7 @@ name: kb-sync
 description: |
   Passe en revue la base de connaissances YouTrack du projet Command Center (articles `CC-A-1`
   à `CC-A-13`) et corrige ce qui a cessé d'être vrai depuis le dernier passage. Balaie la KB en
-  entier depuis le sommaire `CC-A-1`, compare chaque article aux `CLAUDE.md`/code qu'il
+  entier depuis le sommaire `CC-A-1`, compare chaque article aux `AGENTS.md`/code qu'il
   synthétise, met à jour en place (jamais recréé) et signale ce qui reste sans article.
   Trigger : `/kb-sync` — déclenché **à la main**, jamais automatiquement. Extrait de l'étape 7
   de `/review-mr` (2026-08-03) pour ne plus peser sur chaque PR mergée.
@@ -41,7 +41,7 @@ journal de l'étape 6, voir `/youtrack-stats`.
 
 ## Pourquoi cette étape existe
 
-La base de connaissances (`CC-A-1` racine + ses enfants) **synthétise** les `CLAUDE.md`, la
+La base de connaissances (`CC-A-1` racine + ses enfants) **synthétise** les `AGENTS.md`, la
 mémoire de travail et le backlog — avec des pointeurs, jamais une copie. Rien ne la synchronise
 automatiquement avec le dépôt : un changement qui touche ce qu'elle décrit la fait **dériver en
 silence**, et elle continue de décrire un dépôt qui n'existe plus.
@@ -62,7 +62,7 @@ corrige, jamais le code.
    ticket, un « reste ouvert », un compte, une garantie décrite. Ce qui est devenu faux se
    **corrige en place** (`update_article`) ; ce qui reste vrai ne se touche pas.
 3. **Adapter n'est pas grossir.** Mettre à jour, jamais recréer : la KB pointe vers les
-   `CLAUDE.md` et les tickets, elle ne les recopie pas — si un `CLAUDE.md` a gagné une section,
+   `AGENTS.md` et les tickets, elle ne les recopie pas — si un `AGENTS.md` a gagné une section,
    l'article la résume en une phrase et pointe vers elle. Un passage ordinaire se solde par
    **zéro ou quelques retouches** : n'ajouter du contenu que si quelque chose de nouveau doit
    être dit — une garantie nouvelle, une frontière déplacée, une décision actée. Jamais de

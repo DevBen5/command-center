@@ -1,8 +1,8 @@
 # Services — ce que couvre la suite
 
-Sorti de `CLAUDE.md` pour ne pas être chargé à chaque fois qu'on touche au module. À lire **avant
+Sorti de `AGENTS.md` pour ne pas être chargé à chaque fois qu'on touche au module. À lire **avant
 de modifier un test**, pas avant de modifier le module. Les règles qui, elles, doivent rester
-présentes en permanence sont dans `CLAUDE.md`.
+présentes en permanence sont dans `AGENTS.md`.
 
 ## La disponibilité Docker (CC-116)
 

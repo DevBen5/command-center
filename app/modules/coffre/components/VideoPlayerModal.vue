@@ -15,7 +15,7 @@ import AppModal from '~/components/AppModal.vue'
  * tourner : la garde du serveur existe, mais elle ne peut réagir qu'à une déconnexion réelle.
  *
  * ⚠️ **Le chassis vient d'`inertia/components/AppModal.vue`**, jamais réécrit ici (voir le
- * `CLAUDE.md` racine, « Une seule modale dans tout le dépôt ») : overlay, Échap, clic-extérieur,
+ * `AGENTS.md` racine, « Une seule modale dans tout le dépôt ») : overlay, Échap, clic-extérieur,
  * ARIA, focus rendu à l'ouvrant et blocage du défilement sont à lui. Le rembourrage vertical, lui,
  * est au contenu — d'où le `mt-16`.
  */

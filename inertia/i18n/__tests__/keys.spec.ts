@@ -12,7 +12,7 @@ import { countCalls, extractKeys } from './extract_keys'
 | jeu de messages, pas celui de l'application. `messages.spec.ts` prouve la **fusion**, sur des
 | entrées synthétiques — le vrai `import.meta.glob` n'y passe jamais. Japa ne voit que la charge
 | utile des contrôleurs, jamais le rendu Vue. Conséquence : une clé mal orthographiée s'affichait en
-| texte brut à l'écran (`dashboard.home.veille.titel`) et **rien ne rougissait**. Le `CLAUDE.md`
+| texte brut à l'écran (`dashboard.home.veille.titel`) et **rien ne rougissait**. Le `AGENTS.md`
 | racine dit vrai — « c'est visible, pas silencieux » — mais seulement pour qui ouvre la page.
 |
 | Ce spec est le seul endroit du dépôt qui touche l'instance **réelle** : il importe `../index`, donc

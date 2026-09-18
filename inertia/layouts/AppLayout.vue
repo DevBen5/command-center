@@ -473,7 +473,7 @@ function logout(): void {
       </div>
     </div>
 
-    <!-- Palette ⌘K (CC-209 : chassis partagé `AppModal`, voir le CLAUDE.md racine, « Une seule
+    <!-- Palette ⌘K (CC-209 : chassis partagé `AppModal`, voir le AGENTS.md racine, « Une seule
          modale dans tout le dépôt »).
          `onKeydown` ci-dessus garde sa propre gestion d'Échap et de ↑↓/↵ (CC-26, CC-27) —
          redondante mais harmless avec celle du chassis, volontairement non touchée. -->

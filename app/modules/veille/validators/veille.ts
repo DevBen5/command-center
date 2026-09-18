@@ -146,7 +146,7 @@ export const bulkActionValidator = vine.compile(
  * toujours une IP littérale), ce qui l'immunise contre le DNS rebinding. Impossible ici — un flux
  * RSS *est* un nom de domaine. D'où la vérification en deux temps : les littéraux sont filtrés à
  * la saisie, les noms sont résolus et leurs IP vérifiées au moment du fetch
- * (`feed_fetcher.ts`). Le TOCTOU qui subsiste est documenté dans le `CLAUDE.md` du module.
+ * (`feed_fetcher.ts`). Le TOCTOU qui subsiste est documenté dans le `AGENTS.md` du module.
  */
 
 const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/

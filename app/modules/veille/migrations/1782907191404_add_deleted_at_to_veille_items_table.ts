@@ -13,7 +13,7 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  *
  * ⚠️ **Le prix de ce choix se paie partout à la fois** : *toute* lecture doit filtrer
  * `deleted_at IS NULL`. Un seul filtre oublié et les items supprimés remontent. Les endroits
- * sont énumérés dans le `CLAUDE.md` du module — liste · compteurs · tags · recherche ·
+ * sont énumérés dans le `AGENTS.md` du module — liste · compteurs · tags · recherche ·
  * pagination · réconciliation · proxy de vignette. C'est le risque n° 1 du lot, et il a un test
  * par endroit.
  *
@@ -23,7 +23,7 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  * se voit à l'écran, une anti-jointure ratée fait revenir les items en silence.
  *
  * ⚠️ **Aucune donnée n'est réécrite** : la colonne naît nulle, donc tout ce qui existe reste
- * visible. La base porte l'unique exemplaire du contenu (voir le `CLAUDE.md` racine).
+ * visible. La base porte l'unique exemplaire du contenu (voir le `AGENTS.md` racine).
  */
 export default class extends BaseSchema {
   protected tableName = 'veille_items'

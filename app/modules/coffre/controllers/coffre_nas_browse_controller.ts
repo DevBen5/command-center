@@ -25,7 +25,7 @@ import { serveNasMedia } from '#modules/coffre/services/nas_media_response'
  *
  * ⚠️ **Pas de cache de vignette ici**, contrairement à CC-228 : le cache existant est indexé par
  * `catalog_item_id`, une clé qui n'a pas de sens pour un fichier hors catalogue. Limite connue,
- * assumée — voir le `CLAUDE.md` du module.
+ * assumée — voir le `AGENTS.md` du module.
  *
  * ⚠️ **Elle hérite du mur du coffre** (`middleware.coffreOuvert()`, groupe de routes) — même
  * doctrine que les autres proxies : le contenu d'un dossier EST du contenu du coffre. Le garde

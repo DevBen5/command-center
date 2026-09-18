@@ -6,7 +6,7 @@ import { createAdmin } from '#tests/helpers/users'
 /**
  * L'exigence explicite du ticket CC-141 : aucun chemin de l'application ne doit pouvoir écrire
  * dans `agent.config` depuis une requête HTTP — seul le fichier de déclaration le peut (voir
- * `app/modules/agents/CLAUDE.md`, « Frontière de confiance »). Les trois routes existantes
+ * `app/modules/agents/AGENTS.md`, « Frontière de confiance »). Les trois routes existantes
  * (`index`, `run`, `stop`) ne lisent aucun champ `config` du corps de requête ; ce test le prouve
  * plutôt que de le supposer, y compris face à une tentative explicite de l'écraser.
  *
@@ -14,7 +14,7 @@ import { createAdmin } from '#tests/helpers/users'
  * renommée, retirée ou fermée par un middleware ferait passer ces tests **exactement de la même
  * façon** : la base est évidemment inchangée quand la requête n'atteint jamais le contrôleur. On
  * prouverait « rien ne s'est écrit » sans avoir prouvé « la route a tourné », ce qui est le
- * faux-négatif silencieux décrit dans le `CLAUDE.md` racine — un test au vert qui n'a rien comparé.
+ * faux-négatif silencieux décrit dans le `AGENTS.md` racine — un test au vert qui n'a rien comparé.
  */
 test.group('Agents / config — frontière de confiance', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())

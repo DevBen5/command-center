@@ -7,7 +7,7 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  * ⚠️ **`type` n'est pas un enum Postgres natif**, malgré le `table.enum()` de la migration
  * d'origine : sans `useNative: true`, knex produit une colonne `text` plus une contrainte `CHECK`
  * nommée `veille_items_type_check`. Ajouter une valeur est donc un `DROP` / `ADD CONSTRAINT`,
- * **jamais** un `ALTER TYPE … ADD VALUE`. C'est écrit dans le `CLAUDE.md` du module depuis le
+ * **jamais** un `ALTER TYPE … ADD VALUE`. C'est écrit dans le `AGENTS.md` du module depuis le
  * lot 1, et c'est exactement le cas de figure prévu.
  *
  * ⚠️ **Aucune donnée n'est réécrite ici** : les items existants gardent leur type, la nouvelle

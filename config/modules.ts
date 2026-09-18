@@ -30,7 +30,7 @@ export type ModuleName = (typeof KNOWN_MODULES)[number]
  * dépendre du `.env` de la machine qui lance les tests — même raison que `dockerDisponible`.
  *
  * ⚠️ **Vide ou absente → aucun module.** Défaut retenu du ticket : « vide = noyau seul »,
- * l'oubli va vers le refus — la doctrine des routes (CLAUDE.md, point 5), appliquée un cran
+ * l'oubli va vers le refus — la doctrine des routes (AGENTS.md, point 5), appliquée un cran
  * plus haut.
  *
  * ⚠️ **Un nom qui n'est pas dans `KNOWN_MODULES` fait ÉCHOUER LE DÉMARRAGE**, plutôt que d'être

@@ -16,7 +16,7 @@ import {
  *
  * ⚠️ **Ce que ce fichier ne prouve PAS, et qu'aucun test de ce dépôt ne prouve** : qu'un vrai
  * `ffmpeg` accepte ces arguments et produit un flux qu'un navigateur lit. Cette preuve-là est une
- * mesure manuelle dans l'image — voir le `CLAUDE.md` du module.
+ * mesure manuelle dans l'image — voir le `AGENTS.md` du module.
  */
 
 function sonde(partial: Partial<VideoProbe>): VideoProbe {

@@ -6,7 +6,7 @@ import Nas from '../nas.vue'
 
 /*
 | CC-239 : la navigation par dossier NAS porte de la vraie logique (racines → dossier → recherche),
-| donc un test de composant — CLAUDE.md racine : « un composant qui ne fait que disposer des <div> —
+| donc un test de composant — AGENTS.md racine : « un composant qui ne fait que disposer des <div> —
 | non ». Chaque test reproduit le GESTE réel (cliquer une racine, cliquer un sous-dossier, taper une
 | recherche) plutôt que d'observer l'état de montage.
 */

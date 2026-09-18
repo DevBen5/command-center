@@ -5,7 +5,7 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  * la demande (jamais au moment de `coffre:sync-catalog`), et chiffrée par la clé du coffre.
  *
  * ⚠️ **Table CHIFFRÉE, contrairement à `coffre_catalog_items`.** Le catalogue lui-même est en clair
- * (décision de l'épique CC-224, voir son CLAUDE.md) parce qu'il ne porte que des métadonnées déjà
+ * (décision de l'épique CC-224, voir son AGENTS.md) parce qu'il ne porte que des métadonnées déjà
  * connues de la source (nom, date, taille). Une vignette est un rendu du CONTENU du fichier — la
  * même chose que le coffre existe pour protéger. Deux arbitrages différents sur deux tables
  * différentes, pas une incohérence.

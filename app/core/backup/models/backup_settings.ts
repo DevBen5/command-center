@@ -8,7 +8,7 @@ import { BaseModel, column } from '@adonisjs/lucid/orm'
  * ⚠️ Ne porte PAS le dossier de sauvegarde ni le miroir : ce sont des chemins FIXES dans le
  * conteneur (`/data/backups`, `/data/backup-mirror`), montés par le compose — les rendre
  * éditables en base réintroduirait le risque qu'un chemin accepté ne corresponde à aucun
- * volume monté (voir le CLAUDE.md racine).
+ * volume monté (voir le AGENTS.md racine).
  */
 export default class BackupSettings extends BaseModel {
   static table = 'backup_settings'

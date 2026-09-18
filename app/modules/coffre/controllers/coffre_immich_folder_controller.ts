@@ -18,7 +18,7 @@ import ImmichSessionClient from '#modules/coffre/services/immich_session_client'
  * à `CoffreEntryView.media`, qui ne porte jamais l'UUID d'un média déjà ATTACHÉ. Cette route sert la
  * phase de SÉLECTION, avant tout attachement : l'utilisateur a déjà cette information en parcourant
  * Immich lui-même, exactement comme il l'a déjà quand il colle un UUID à la main. Voir
- * `app/modules/coffre/CLAUDE.md`, « Le dossier verrouillé — l'UUID en sélection n'est pas l'UUID en
+ * `app/modules/coffre/AGENTS.md`, « Le dossier verrouillé — l'UUID en sélection n'est pas l'UUID en
  * liste ».
  *
  * ⚠️ **`index` rend toujours 200** — `available: false` porte l'échec (non configuré, panne

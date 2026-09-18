@@ -14,7 +14,7 @@ import Index from '../index.vue'
 | en silence est donc la frontière 1 ↔ 2 — et c'est lui que ce test verrouille.
 |
 | ⚠️ On reproduit le **geste réel** (cocher une case), pas un état de montage : `selected` démarre
-| vide, la barre est absente, monter-puis-assertir ne prouverait rien (piège CLAUDE.md).
+| vide, la barre est absente, monter-puis-assertir ne prouverait rien (piège AGENTS.md).
 |
 | ⚠️ L'instance i18n embarque le namespace `veille` : sans lui, `t('veille.index.…')` rendrait la
 | clé brute et l'assertion échouerait sur la mauvaise cause.
