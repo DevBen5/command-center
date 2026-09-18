@@ -390,6 +390,60 @@ test.group('LeitnerIngestionService / ingestion', (group) => {
     assert.lengthOf(await LeitnerDraftCard.all(), 1)
   })
 
+  test('ancre chaque morceau sur la taxonomie visible et les propositions précédentes', async ({
+    assert,
+  }) => {
+    const owner = await createAdmin()
+    const other = await createAdmin()
+    const visibleCategory = await LeitnerCategory.create({
+      name: 'Systèmes',
+      ownerId: owner.id,
+      isShared: false,
+    })
+    await LeitnerTheme.create({
+      leitnerCategoryId: visibleCategory.id,
+      name: 'Linux',
+      ownerId: owner.id,
+      isShared: false,
+    })
+    const privateCategory = await LeitnerCategory.create({
+      name: 'Secret de l’autre',
+      ownerId: other.id,
+      isShared: false,
+    })
+    await LeitnerTheme.create({
+      leitnerCategoryId: privateCategory.id,
+      name: 'À ne pas transmettre',
+      ownerId: other.id,
+      isShared: false,
+    })
+
+    const first = JSON.stringify({
+      cards: [
+        { front: 'Premier principe ?', back: 'Premier verso.', category: 'Réseau', theme: 'TLS' },
+      ],
+    })
+    const next = JSON.stringify({
+      cards: [
+        { front: 'Second principe ?', back: 'Second verso.', category: 'reseau', theme: 'tls' },
+      ],
+    })
+    const long = `${'Le handshake négocie les clés et les algorithmes. '.repeat(400)}`
+    const { service: ingestionService, llm } = service((_messages, call) =>
+      call === 0 ? first : next
+    )
+
+    await ingest(ingestionService, long, owner.id)
+
+    assert.isAbove(llm.calls.length, 1)
+    const firstPrompt = llm.calls[0][1].content
+    const secondPrompt = llm.calls[1][1].content
+    assert.include(firstPrompt, 'Systèmes')
+    assert.include(firstPrompt, 'Linux')
+    assert.notInclude(firstPrompt, 'Secret de l’autre')
+    assert.include(secondPrompt, '{"name":"Réseau","themes":["TLS"]}')
+  })
+
   test('la progression avance morceau par morceau, et les brouillons avec elle', async ({
     assert,
   }) => {

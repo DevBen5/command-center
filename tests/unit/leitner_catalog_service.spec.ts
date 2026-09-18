@@ -227,4 +227,62 @@ test.group('LeitnerCatalogService / catalogue', (group) => {
     assert.equal(categories[0].themes.find((theme) => theme.name === 'Docker')?.cardCount, 2)
     assert.equal(unclassifiedCount, 1)
   })
+
+  test('la taxonomie visible exclut les catégories et thèmes privés d’un autre compte', async ({
+    assert,
+  }) => {
+    const viewer = await createAdmin()
+    const other = await createAdmin()
+    const own = await LeitnerCategory.create({ name: 'Mes systèmes', ownerId: viewer.id })
+    await LeitnerTheme.create({ leitnerCategoryId: own.id, name: 'Linux', ownerId: viewer.id })
+    const shared = await LeitnerCategory.create({
+      name: 'Partagée',
+      ownerId: other.id,
+      isShared: true,
+    })
+    await LeitnerTheme.create({
+      leitnerCategoryId: shared.id,
+      name: 'Visible',
+      ownerId: other.id,
+      isShared: true,
+    })
+    const hidden = await LeitnerCategory.create({
+      name: 'Secret',
+      ownerId: other.id,
+      isShared: false,
+    })
+    await LeitnerTheme.create({
+      leitnerCategoryId: hidden.id,
+      name: 'Invisible',
+      ownerId: other.id,
+      isShared: false,
+    })
+
+    const taxonomy = await new LeitnerCatalogService().visibleTaxonomy(viewer.id)
+
+    assert.deepEqual(taxonomy, [
+      { name: 'Mes systèmes', themes: ['Linux'] },
+      { name: 'Partagée', themes: ['Visible'] },
+    ])
+  })
+
+  test('réutilise la taxonomie malgré casse, accents et espaces, sans fusion sémantique', async ({
+    assert,
+  }) => {
+    const owner = await createAdmin()
+    const service = new LeitnerCatalogService()
+
+    const initial = await service.ensureTheme('Sécurité', 'Chiffrement asymétrique', owner.id)
+    const reused = await service.ensureTheme('  securite  ', 'chiffrement   asymetrique', owner.id)
+    const ia = await service.ensureTheme('IA', 'Réseaux de neurones', owner.id)
+    const intelligence = await service.ensureTheme(
+      'Intelligence Artificielle',
+      'Réseaux de neurones',
+      owner.id
+    )
+
+    assert.equal(reused.id, initial.id)
+    assert.notEqual(ia.leitnerCategoryId, intelligence.leitnerCategoryId)
+    assert.lengthOf(await LeitnerCategory.all(), 3)
+  })
 })

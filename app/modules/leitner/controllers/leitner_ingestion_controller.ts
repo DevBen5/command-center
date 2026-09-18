@@ -227,7 +227,8 @@ export default class LeitnerIngestionController {
 
     const ingestion = await this.ingestion.start(
       { text, source, sourceName, title, leitnerCourseId },
-      auth.user!.id
+      auth.user!.id,
+      auth.user!.isAdmin
     )
 
     return response.redirect().toPath(`/revision/ingest/${ingestion.id}`)
