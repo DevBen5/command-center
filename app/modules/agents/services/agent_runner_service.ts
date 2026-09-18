@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import Agent from '#modules/agents/models/agent'
 
 const execAsync = promisify(exec)
+type CommandRunner = (command: string) => Promise<{ stdout: string; stderr: string }>
 
 /**
  * Plafond de `agent.logs` (CC-141) : sans lui, une colonne jsonb écrite à chaque lancement
@@ -13,6 +14,8 @@ const execAsync = promisify(exec)
 const MAX_LOG_ENTRIES = 200
 
 export default class AgentRunnerService {
+  constructor(private readonly executeCommand: CommandRunner = execAsync) {}
+
   /**
    * ⚠️ **`agent.logs ?? []`, pas `agent.logs` seul.** Un agent tout juste créé sans que `logs`
    * ait été passé explicitement (`Agent.create({...})` sans ce champ) le laisse `undefined` en
@@ -38,7 +41,7 @@ export default class AgentRunnerService {
 
     try {
       if (!command) throw new Error('no command configured for this agent')
-      const { stdout, stderr } = await execAsync(command)
+      const { stdout, stderr } = await this.executeCommand(command)
       agent.status = 'active'
       this.#appendLog(agent, `[${timestamp}] $ ${command}`)
       if (stdout.trim()) this.#appendLog(agent, stdout.trim())
