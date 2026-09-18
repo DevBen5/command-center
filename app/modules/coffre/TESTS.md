@@ -763,7 +763,7 @@ chemin par défaut, comme le fait réellement `VaultService.#attachNasFiles`.
 `createCatalogItem` (CC-228, étendue par CC-227 avec `displayName`/`capturedAt`/`sizeBytes`/
 `missingSince`) — pose une ligne de `coffre_catalog_items` directement, sans passer par
 `coffre:sync-catalog`. ⚠️ **Aucune clé nécessaire**, contrairement aux trois fabriques
-précédentes : `reference` est stockée EN CLAIR (doctrine de la table, voir son CLAUDE.md), pas
+précédentes : `reference` est stockée EN CLAIR (doctrine de la table, voir son AGENTS.md), pas
 chiffrée. Les quatre champs ajoutés restent `null` par défaut — aucun test CC-228 existant n'a
 changé de comportement.
 

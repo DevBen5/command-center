@@ -18,7 +18,7 @@ import Index from '../index.vue'
 | la régression que ce test existe pour supprimer.
 |
 | ⚠️ L'instance i18n embarque le namespace `services` : sans lui, `t('services.stats.down', n)`
-| rendrait la clé brute et l'assertion échouerait — mais sur la mauvaise cause (piège CLAUDE.md).
+| rendrait la clé brute et l'assertion échouerait — mais sur la mauvaise cause (piège AGENTS.md).
 */
 
 vi.mock('@inertiajs/vue3', () => ({

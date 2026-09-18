@@ -10,7 +10,7 @@ import modules from '#config/modules'
  * suivi tournerait indéfiniment sur une barre qui n'avancera plus. Ils sont passés en
  * `failed`, avec un message qui dit exactement ça.
  *
- * ⚠️ C'est le **cinquième fichier hors du module** (voir `app/modules/leitner/CLAUDE.md`),
+ * ⚠️ C'est le **cinquième fichier hors du module** (voir `app/modules/leitner/AGENTS.md`),
  * et il est enregistré dans `adonisrc.ts` — sous `environment: ['web']` : le balayage
  * n'a de sens que pour le processus qui sert les requêtes. En `console` (`node ace
  * migration:run`) ou en `test`, il n'y a pas de tâche de fond à récupérer, et la table

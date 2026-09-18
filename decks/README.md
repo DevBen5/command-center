@@ -5,7 +5,7 @@ depuis `/revision/settings` → Importer.
 
 ⚠️ **Ce ne sont PAS des seeders, et il ne faut pas en faire.** Rien ne les exécute : ni
 `node ace db:seed`, ni les migrations, ni les tests. Le module n'a délibérément aucun dossier
-`seeders/` — voir `app/modules/leitner/CLAUDE.md`. L'import reste un **geste manuel**, et c'est ce
+`seeders/` — voir `app/modules/leitner/AGENTS.md`. L'import reste un **geste manuel**, et c'est ce
 qui rend ces fichiers inoffensifs pour le contenu réel de la base.
 
 L'import **n'ajoute que ce qui manque** : une carte dont le recto existe déjà sous le même thème est

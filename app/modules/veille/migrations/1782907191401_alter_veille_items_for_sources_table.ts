@@ -3,7 +3,7 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
 /**
  * Rattache `veille_items` aux sources et lui donne de quoi être trié et dédoublonné.
  *
- * ⚠️ La base porte l'unique exemplaire du contenu (voir le `CLAUDE.md` racine) : **aucun
+ * ⚠️ La base porte l'unique exemplaire du contenu (voir le `AGENTS.md` racine) : **aucun
  * `dropTable` ici**, les items existants sont conservés et convertis sur place.
  *
  * L'ordre des instructions n'est pas cosmétique :

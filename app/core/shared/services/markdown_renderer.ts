@@ -10,7 +10,7 @@ import sanitizeHtml from 'sanitize-html'
  *
  * ⚠️ **Elle vit dans `app/core/shared/`, jamais dans un module, et ce n'est pas une préférence de
  * rangement.** Un service générique logé chez un module détachable est exactement le problème que
- * le point 7 du `CLAUDE.md` racine documente (leçon CC-180, le client Immich) : le jour où un
+ * le point 7 du `AGENTS.md` racine documente (leçon CC-180, le client Immich) : le jour où un
  * second consommateur arrive, l'importer depuis `#modules/leitner/*` fait qu'éteindre `leitner`
  * dans `MODULES` casse un module qui n'a rien à voir — et rien ne rougit, `.env.test` activant
  * tous les modules connus.

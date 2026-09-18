@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 /**
  * L'index de tests d'un module dit ce que sa suite couvre (CC-112).
  *
- * Le `CLAUDE.md` de chaque module envoie lire son `TESTS.md` « avant de modifier un test ».
+ * Le `AGENTS.md` de chaque module envoie lire son `TESTS.md` « avant de modifier un test ».
  * Rien ne tenait cette promesse : celui de veille a accumulé **huit fichiers absents sur six
  * tickets** pendant que `lint`, `typecheck`, les 799 tests et `npm run build` restaient verts.
  * Un index périmé ne casse pas, il **ment** — et il ment précisément à la personne qui s'apprête
@@ -61,6 +61,7 @@ const DOSSIERS_PARTAGES = ['tests/unit', 'tests/functional/modules']
 const SPECS_TRANSVERSES = [
   'tests/unit/app_url.spec.ts', // dérivation du secure des cookies depuis APP_URL (CC-136)
   'tests/unit/app_version.spec.ts', // la version et le commit affichés aux réglages (CC-151)
+  'tests/unit/agent_guides.spec.ts', // guides AGENTS canoniques et compatibilité Claude Code
   'tests/unit/backup_service.spec.ts', // orchestration de la sauvegarde (CC-140), core/backup
   'tests/unit/capability_service.spec.ts', // le noyau des capacités
   'tests/unit/db_dumps.spec.ts', // la logique de sauvegarde de `scripts/lib/`

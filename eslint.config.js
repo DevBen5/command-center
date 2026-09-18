@@ -4,7 +4,7 @@ import { configApp } from '@adonisjs/eslint-config'
  * ⚠️ **`pgdata` doit être ignoré, sinon `npm run lint` NE DÉMARRE PAS sur un poste de
  * développement** — et il reste vert en CI, ce qui est la pire moitié du problème.
  *
- * Postgres écrit dans un bind mount du dépôt (`./pgdata`, voir le `CLAUDE.md` racine, « Les
+ * Postgres écrit dans un bind mount du dépôt (`./pgdata`, voir le `AGENTS.md` racine, « Les
  * données ») et le dossier appartient à l'utilisateur du conteneur en `drwx------`. ESLint 9
  * balaie l'arborescence **avant** de lire quoi que ce soit et sort sur
  * `EACCES: permission denied, scandir '.../pgdata'` : pas un fichier analysé, pas une règle
@@ -22,5 +22,5 @@ import { configApp } from '@adonisjs/eslint-config'
  * du code généré n'a pas à être relu.
  */
 export default configApp({
-  ignores: ['pgdata/**', 'build/**', 'public/assets/**'],
+  ignores: ['.kilo/**', 'pgdata/**', 'build/**', 'public/assets/**'],
 })

@@ -34,7 +34,7 @@ export const UNCLASSIFIED_LABEL = 'Non classées'
 /**
  * **Rétention** : `grade !== 'again'` = réussite. ⚠️ **`hard` compte comme une réussite**
  * (la réponse a été rappelée, péniblement) ; seul `again` est un échec de rappel. Même
- * doctrine que le `retention` 30 j de `/revision` et que le CLAUDE.md du module.
+ * doctrine que le `retention` 30 j de `/revision` et que le AGENTS.md du module.
  *
  * Rend **`null` quand il n'y a rien à mesurer, jamais 0** : « 0 % » se lirait comme une
  * rétention effondrée, alors que c'est l'absence de données. La page affiche `—`.

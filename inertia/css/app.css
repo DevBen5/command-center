@@ -203,7 +203,7 @@ body {
  *
  * ⚠️ **Aucune bibliothèque de coloration n'est installée, et ce n'est pas un manque.** Celles à
  * base de classes CSS exigent d'importer un thème, donc des couleurs en dur — ce que le
- * `CLAUDE.md` racine interdit. Le jour où la coloration par jeton devient un besoin, c'est ce
+ * `AGENTS.md` racine interdit. Le jour où la coloration par jeton devient un besoin, c'est ce
  * problème-là qu'il faut rouvrir, pas cette feuille.
  */
 .markdown code {

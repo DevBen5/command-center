@@ -22,7 +22,7 @@ export default class VeilleBulkService {
    * ⚠️ **Chaque requête porte deux gardes, et les deux comptent.**
    *
    * `deleted_at IS NULL` : un supprimé porte une pierre tombale et ne doit être touché par aucun
-   * chemin. La liste des lectures qui l'honorent vit dans le `CLAUDE.md` du module ; celles-ci
+   * chemin. La liste des lectures qui l'honorent vit dans le `AGENTS.md` du module ; celles-ci
    * sont des **écritures**, et un oubli modifierait en silence des lignes que plus rien n'affiche.
    *
    * La seconde garde est propre à l'action (`NOT (? = ANY(tags))`, `read_at IS NULL`,

@@ -13,7 +13,7 @@ import { IMMICH_DEFAULT_TIMEOUT_MS } from '#config/immich'
  * ⚠️ **Frontière de confiance identique à `config/immich.ts` et `config/coffre_nas.ts`** : ces
  * valeurs viennent de l'environnement, jamais d'un formulaire, jamais de la base. Contrairement aux
  * deux autres, **le mot de passe et le PIN sont eux-mêmes des secrets de premier ordre** — voir
- * `app/modules/coffre/CLAUDE.md`, « Le dossier verrouillé » : ce fichier met dans le `.env` de quoi
+ * `app/modules/coffre/AGENTS.md`, « Le dossier verrouillé » : ce fichier met dans le `.env` de quoi
  * ouvrir le contenu du coffre, exception assumée à la doctrine « pas d'APP_KEY ».
  */
 export interface CoffreImmichConfig {

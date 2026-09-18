@@ -1173,7 +1173,7 @@ function grade(g: Grade): void {
 
       <!-- Le panneau : hauteur plafonnée + défilement INTERNE (CC-67 rejoue ici — le
            panneau allonge la page et pousserait les boutons de note hors de l'écran ;
-           `preserveScroll` est inerte sur cette page, voir le CLAUDE.md du module). -->
+           `preserveScroll` est inerte sur cette page, voir le AGENTS.md du module). -->
       <div
         v-if="revealed && canViewCourses && courseSearchOpen"
         class="max-h-[280px] w-3/5 overflow-y-auto rounded-[10px] border border-line bg-bg-2 p-3 text-left"

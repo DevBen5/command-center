@@ -596,7 +596,7 @@ export default class LeitnerIngestionService {
       chunksDone: 0,
       cardsProposed: 0,
       // Privé par défaut (CC-139) : aucune UI ne permet aujourd'hui de partager une
-      // ingestion, seulement les cartes qui en naissent. Voir le CLAUDE.md du module.
+      // ingestion, seulement les cartes qui en naissent. Voir le AGENTS.md du module.
       ownerId: userId,
       isShared: false,
       leitnerCourseId: input.leitnerCourseId ?? null,
@@ -832,7 +832,7 @@ export default class LeitnerIngestionService {
 
   /**
    * Un brouillon n'a pas de propriétaire à lui — il se dérive de son ingestion (CC-139,
-   * voir le CLAUDE.md du module). Cette vérification est ce qui empêche quiconque
+   * voir le AGENTS.md du module). Cette vérification est ce qui empêche quiconque
    * possède `leitner.ingest` de relire/corriger/promouvoir/rejeter les brouillons d'une
    * ingestion privée d'un autre compte en devinant des ids de brouillons.
    */

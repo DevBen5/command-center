@@ -121,7 +121,7 @@ export default class CoffreCatalogController {
    * - `nas` + `photo` → le proxy dédié (CC-228), seule combinaison qu'il sait servir.
    * - `immich_locked` (toute nature) → le proxy du dossier verrouillé (CC-205), qui délègue à
    *   Immich — `reference` porte l'UUID en clair, même doctrine que sa phase de sélection (voir le
-   *   `CLAUDE.md` du module, « L'UUID en sélection n'est pas l'UUID en liste »).
+   *   `AGENTS.md` du module, « L'UUID en sélection n'est pas l'UUID en liste »).
    * - `nas` + `video`/`other` → `null` : aucune tentative, une pastille de nature à la place
    *   (CC-228, périmètre photos seulement).
    */

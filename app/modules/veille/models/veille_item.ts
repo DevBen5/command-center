@@ -125,7 +125,7 @@ export default class VeilleItem extends BaseModel {
    *
    * ⚠️ **Les lectures en SQL brut ne passent pas par ici** et portent le filtre en clair :
    * les deux agrégats de `VeilleStatsService` et les deux requêtes de `ImmichCollector.reconcile`.
-   * La liste complète des endroits vit dans le `CLAUDE.md` du module — tiens-la à jour en même
+   * La liste complète des endroits vit dans le `AGENTS.md` du module — tiens-la à jour en même
    * temps que le code.
    */
   static visible() {

@@ -18,7 +18,7 @@
 #        rien (CC-136 : un cookie `Secure` réexpédié sur http://localhost sans refus) ;
 #      - la divergence entre `app` et `app_test` — la suite migre `app_test` à neuf et
 #        ne dit RIEN du schéma de la base de dev (point 2 des « choses qui cassent
-#        sans lever d'erreur » du CLAUDE.md racine) ;
+#        sans lever d'erreur » du AGENTS.md racine) ;
 #      - l'apparence : une couleur, une icône fausse, un alignement ;
 #      - une classe Tailwind qui ne produit aucun CSS — le build réussit dans les deux
 #        cas, Tailwind émet ce qu'il trouve ; le remède reste de grepper le `.css`
@@ -30,7 +30,7 @@
 #        (CC-142) — ni ce job ni aucun autre ne fait tourner l'application sur du
 #        vrai matériel arm64 ;
 #      - une phrase fausse dans un message de commit.
-#    Un badge vert de plus est exactement la fausse confiance que le CLAUDE.md racine
+#    Un badge vert de plus est exactement la fausse confiance que le AGENTS.md racine
 #    passe son temps à démonter. Ces gates se vendent pour ce qu'elles font — pas
 #    comme une preuve que le lot est bon.
 #

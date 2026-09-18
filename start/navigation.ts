@@ -67,7 +67,7 @@ if (modules.has('corpus')) {
 | et `navigation_registry.spec.ts` porte l'exception dans son `DESTINATION_PAR_MODULE`.
 |
 | ⚠️ **Le rideau protège d'un regard, jamais d'une recherche.** Le mur — capacité + élévation de
-| session — est ce qui protège réellement ; voir `app/modules/coffre/CLAUDE.md`.
+| session — est ce qui protège réellement ; voir `app/modules/coffre/AGENTS.md`.
 |
 | ⚠️ **L'avertissement habituel de ce fichier s'applique quand même, il est simplement ASSUMÉ
 | ici** : un compte qui n'aurait de droits que sur le coffre atterrit bien sur « aucun accès »,

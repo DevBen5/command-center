@@ -316,7 +316,7 @@ npm test                      # Japa (back) then Vitest (components)
 
 Architecture is **feature-based**: every feature is a full vertical slice, and the default AdonisJS
 folders (`app/models/`, `app/controllers/`, `database/migrations/`, `inertia/pages/`) do not exist.
-Read [`CLAUDE.md`](CLAUDE.md) before your first change — in French, and it is where the traps that
+Read [`AGENTS.md`](AGENTS.md) before your first change — in French, and it is where the traps that
 break without raising an error are written down. Each module has its own next to its code.
 
 ---
@@ -325,8 +325,8 @@ break without raising an error are written down. Each module has its own next to
 
 | | |
 |---|---|
-| [`CLAUDE.md`](CLAUDE.md) | Architecture, conventions, and the things that break silently. Start here |
-| [`app/modules/*/CLAUDE.md`](app/modules/) | One per module: files, decisions, trust boundaries |
+| [`AGENTS.md`](AGENTS.md) | Architecture, conventions, and the things that break silently. Start here |
+| [`app/modules/*/AGENTS.md`](app/modules/) | One per module: files, decisions, trust boundaries |
 | [`docs/deploiement-nas.md`](docs/deploiement-nas.md) | A full Synology DSM deployment: reverse proxy, Let's Encrypt, backup cron, and §11 on the Docker socket tradeoff |
 | [`docs/restauration-verifiee.md`](docs/restauration-verifiee.md) | How to actually prove a dump reloads |
 | [`.env.production.example`](.env.production.example) | Every variable, annotated line by line |

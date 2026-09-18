@@ -1,7 +1,7 @@
 /*
 | Le jeton CSRF des routes JSON du module (CC-275, extrait de Leitner avec le corpus de
 | cours) — pas de copie partagée avec Leitner (`components/leitner_csrf.ts`) ni avec le
-| coffre (`shared/csrf.ts`) : « un module n'importe pas chez un voisin » (CLAUDE.md
+| coffre (`shared/csrf.ts`) : « un module n'importe pas chez un voisin » (AGENTS.md
 | racine). Même contenu, même raison d'être, copie locale — patron déjà suivi par
 | `app/modules/coffre/shared/csrf.ts`.
 |

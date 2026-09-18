@@ -34,7 +34,7 @@ export interface CatalogPresence {
  *
  * ⚠️ **L'ambiguïté multi-racines NAS n'est PAS résolue ici, elle est héritée d'un choix déjà acté.**
  * `coffre_entry_nas_file.path_cipher` reste un chemin relatif NU, sans identité de racine (voir le
- * `CLAUDE.md` du module, « Collision de référence entre racines multiples » — CC-233 a corrigé le
+ * `AGENTS.md` du module, « Collision de référence entre racines multiples » — CC-233 a corrigé le
  * catalogue, délibérément PAS `path_cipher`). Ce service essaie donc chaque racine déclarée comme
  * préfixe candidat, « premier essai qui compte » — même sémantique que `NasRootsService.resolve()`.
  * Correct à une seule racine déclarée (le cas courant, documenté ailleurs comme sans conséquence

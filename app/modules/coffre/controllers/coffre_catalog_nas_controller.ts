@@ -18,7 +18,7 @@ import { serveNasMedia } from '#modules/coffre/services/nas_media_response'
  * décision du ticket. Le proxy de streaming porte la garde de chemin ET la sécurité d'accès au
  * disque pour un fichier ATTACHÉ à une entrée (`coffre_entry_nas_file`, id chiffré) ; celui-ci sert
  * un élément du CATALOGUE (`coffre_catalog_items`, id en clair, `reference` déjà en clair en base
- * — voir son CLAUDE.md). Deux jeux de données différents, deux routes.
+ * — voir son AGENTS.md). Deux jeux de données différents, deux routes.
  *
  * ⚠️ **`:id` désigne notre ligne `coffre_catalog_items`, scopée `owner_id` ET `source = 'nas'`.**
  * Un item `immich_locked` rend 404 sur cette route — sa vignette existe déjà par un autre mécanisme

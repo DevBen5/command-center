@@ -40,7 +40,7 @@ services:
   #
   # ⚠️ **Il ne démarre PAS avec `docker compose up`** : le profil `tools` l'exige
   # explicitement. C'est délibéré — il donne un accès complet en lecture ET en écriture
-  # à la base qui contient l'unique exemplaire des cartes (voir le CLAUDE.md racine :
+  # à la base qui contient l'unique exemplaire des cartes (voir le AGENTS.md racine :
   # aucun seeder, la base est la seule copie). Un outil capable de vider une table ne
   # tourne pas en permanence par défaut.
   #

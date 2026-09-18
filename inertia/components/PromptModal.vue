@@ -16,7 +16,7 @@ let resolveCurrent: ((value: string | null) => void) | null = null
  * Le pendant de `ConfirmModal.ask()` pour une saisie texte — sur le même patron (promesse résolue
  * au clic ou en annulation), pour les deux mêmes raisons : renommer et déplacer un fichier NAS
  * (CC-240) demandent tous deux « saisir une valeur, confirmer ou annuler », et le dépôt interdit
- * toute modale écrite à la main (voir le `CLAUDE.md` racine, « Une seule modale dans tout le
+ * toute modale écrite à la main (voir le `AGENTS.md` racine, « Une seule modale dans tout le
  * dépôt »). Deux consommateurs dès ce lot — ce n'est pas une abstraction prématurée.
  */
 async function ask(text: string, initialValue = ''): Promise<string | null> {

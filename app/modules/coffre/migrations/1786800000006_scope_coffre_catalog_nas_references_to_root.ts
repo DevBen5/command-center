@@ -8,7 +8,7 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  * recrée, dans le nouveau format `<nom de racine>/<chemin relatif>`.
  *
  * ⚠️ **Sauf pour les lignes rattachées à une entrée** (`entry_id NOT NULL`) — anticipé par CC-225
- * mais non exploité avant ce lot (aucun code n'écrit encore ce champ, voir le `CLAUDE.md` du
+ * mais non exploité avant ce lot (aucun code n'écrit encore ce champ, voir le `AGENTS.md` du
  * module) : les supprimer perdrait un rattachement que rien ne recréerait à l'identique au
  * prochain passage de `coffre:sync-catalog` (la ligne renaîtrait avec un `id` différent, l'entrée
  * pointerait dans le vide). Ces lignes-là sont réécrites EN PLACE, jamais supprimées.

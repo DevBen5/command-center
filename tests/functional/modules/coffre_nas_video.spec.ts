@@ -31,7 +31,7 @@ import { createVault, unlockedSession } from '#tests/helpers/coffre'
  * mécanisme réel avec un binaire bon marché à la place du coûteux.
  *
  * ⚠️ **Ce que ce fichier ne prouve PAS** : qu'un vrai `ffmpeg` produit un flux qu'un navigateur
- * lit, ni que la lecture est fluide. Aucun test de ce dépôt ne le prouvera — voir le `CLAUDE.md` du
+ * lit, ni que la lecture est fluide. Aucun test de ce dépôt ne le prouvera — voir le `AGENTS.md` du
  * module.
  */
 

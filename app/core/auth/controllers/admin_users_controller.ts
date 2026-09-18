@@ -180,7 +180,7 @@ export default class AdminUsersController {
    * contenu **survit toujours**, jamais de CASCADE dessus — et ce contrôleur refuse la
    * suppression tant que le compte possède encore du contenu **partagé** (`is_shared =
    * true`). Le contenu **privé** restant, lui, ne bloque jamais : il devient orphelin
-   * (`owner_id = null`), visible du seul administrateur — voir le `CLAUDE.md` du module
+   * (`owner_id = null`), visible du seul administrateur — voir le `AGENTS.md` du module
    * Leitner pour le détail complet de l'arbitrage.
    *
    * ⚠️ **Aucune impasse** : le propriétaire (ou un admin, qui peut éditer tout contenu)
@@ -216,7 +216,7 @@ export default class AdminUsersController {
     }
 
     // ⚠️ `modules.has(...)`, pas `isModuleEnabled` importé séparément — même patron que
-    // `HomeController`/`NavStatsService` (CLAUDE.md racine, point 7) : un module éteint
+    // `HomeController`/`NavStatsService` (AGENTS.md racine, point 7) : un module éteint
     // n'a pas sa migration jouée, la requête planterait sur une table absente.
     //
     // ⚠️ Deux blocs INDÉPENDANTS depuis CC-275 (Leitner et corpus détachés l'un de

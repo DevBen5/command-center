@@ -29,7 +29,7 @@ import { libererCreneau, reserverCreneau } from '#modules/coffre/services/video_
  * ⚠️ **Injectable, sur le patron de `NasRootsService`.** `ffmpeg` n'existe ni sur le poste de
  * développement ni sur les runners de CI — les tests substituent cette classe
  * (`app.container.swap`) plutôt que d'exiger un binaire, ce qui garde les gates exécutables partout.
- * Le corollaire est nommé sans détour dans le `CLAUDE.md` du module : **aucun test de ce dépôt ne
+ * Le corollaire est nommé sans détour dans le `AGENTS.md` du module : **aucun test de ce dépôt ne
  * prouve qu'un vrai `ffmpeg` produit un flux lisible** — cette preuve-là est une mesure manuelle,
  * dans l'image.
  */

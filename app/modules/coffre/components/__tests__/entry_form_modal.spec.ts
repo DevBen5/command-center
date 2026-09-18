@@ -291,7 +291,7 @@ describe('Coffre / EntryFormModal', () => {
   // ⚠️ CC-221 : `aria-expanded` doit suivre l'état RÉEL du dépliant, jamais être posé en dur —
   // vérifié sur le geste (déplier PUIS replier), pas seulement l'état de montage, sans quoi un
   // composant qui partirait déjà dans l'état observé rendrait le test décoratif (piège nommé par
-  // le CLAUDE.md racine, exemple TaxonomyCombobox). `aria-controls` ne référence l'id du panneau
+  // le AGENTS.md racine, exemple TaxonomyCombobox). `aria-controls` ne référence l'id du panneau
   // QUE quand celui-ci est monté — jamais un id inexistant.
   test('le collage manuel annonce aria-expanded/aria-controls sur le geste réel', async () => {
     const wrapper = monter({ entry: null, immichFolderAvailable: true })

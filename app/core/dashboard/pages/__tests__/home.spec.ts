@@ -19,7 +19,7 @@ import Home from '../home.vue'
 |
 | ⚠️ **L'instance i18n embarque le namespace `dashboard`** (CC-94), et le vrai `fr.json` du
 | module — pas un double. Sans lui, chaque `t('dashboard.home.…')` rendrait la clé brute et les
-| assertions de texte échoueraient sur la mauvaise cause (piège du CLAUDE.md). Depuis que la page
+| assertions de texte échoueraient sur la mauvaise cause (piège du AGENTS.md). Depuis que la page
 | appelle `useI18n()`, un mount sans plugin ne dévie même pas : il lève.
 */
 

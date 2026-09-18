@@ -6,7 +6,7 @@ c'est le `README.md`, qui tire l'image publiée sans jamais cloner.
 
 ⚠️ **Ce document décrit une procédure, jamais un état d'avancement.** Ce qui est fait, ce qui reste
 et pourquoi vivent dans le projet **CC** de YouTrack ; les règles du code vivent dans les
-`CLAUDE.md`. Un document qui recopierait l'un ou l'autre mentirait au premier merge suivant.
+`AGENTS.md`. Un document qui recopierait l'un ou l'autre mentirait au premier merge suivant.
 
 ---
 
@@ -179,7 +179,7 @@ npm run build     # obligatoire dès qu'un .vue est touché
 câblée ne se voit qu'au build ou à l'écran. Un `typecheck` vert ne prouve **rien** sur une page.
 
 ⚠️ Un `PASSED` affiché avec un **code de sortie 1** signale le problème `@swc/core` documenté dans
-le `CLAUDE.md` racine — ne pas ré-épingler la version exacte pour le faire taire.
+le `AGENTS.md` racine — ne pas ré-épingler la version exacte pour le faire taire.
 
 Les cinq mêmes gates tournent en CI (`.github/workflows/gates.yml`), sur `push` vers `master` et sur
 toute PR qui la vise.
@@ -204,9 +204,9 @@ la base est `app`, pas `app_test`, que `npm test` vide à chaque exécution.
 
 Ce document ne recopie rien de ce qui suit — il y renvoie.
 
-- **`CLAUDE.md`** à la racine : l'architecture par feature, les huit choses qui cassent sans lever
+- **`AGENTS.md`** à la racine : l'architecture par feature, les huit choses qui cassent sans lever
   d'erreur, la sécurité, les sauvegardes et leur chiffrement.
-- **`app/<couche>/<module>/CLAUDE.md`** : les invariants de chaque module, ses pièges, ses
+- **`app/<couche>/<module>/AGENTS.md`** : les invariants de chaque module, ses pièges, ses
   frontières de confiance. Celui du coffre est le plus dense.
 - **`app/<couche>/<module>/TESTS.md`** : ce que la suite d'un module couvre — à lire **avant** de
   modifier un test. Une garde vérifie dans les deux sens que l'index et les fichiers concordent.

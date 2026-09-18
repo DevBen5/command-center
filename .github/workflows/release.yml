@@ -135,7 +135,7 @@ jobs:
     # la référence : « repository name (DevBen5/command-center) must be lowercase ». Vérifié le
     # 2026-08-05 (CC-142) contre le démon, pas déduit de la documentation. Le job aurait donc
     # échoué au `push`, au premier tag, après avoir construit les deux architectures.
-    # C'est aussi la forme que le README, `docker-compose.install.yml` et le `CLAUDE.md` écrivent
+    # C'est aussi la forme que le README, `docker-compose.install.yml` et le `AGENTS.md` écrivent
     # déjà : une expression qui rend une autre casse qu'eux serait la vraie incohérence.
     env:
       IMAGE: ghcr.io/devben5/command-center

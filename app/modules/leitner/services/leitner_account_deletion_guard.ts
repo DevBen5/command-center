@@ -5,7 +5,7 @@ import LeitnerTheme from '#modules/leitner/models/leitner_theme'
 
 /**
  * Ce que la suppression d'un compte doit vérifier avant d'agir (CC-139) — consommé par
- * `AdminUsersController#destroy`, hors du module. Voir le `CLAUDE.md` du module pour le
+ * `AdminUsersController#destroy`, hors du module. Voir le `AGENTS.md` du module pour le
  * raisonnement complet : FK `owner_id → users` en `SET NULL` (le contenu survit toujours),
  * complétée par ce garde applicatif qui refuse de supprimer un compte tant qu'il possède
  * du contenu **partagé** — jamais pour du contenu privé, qui devient simplement orphelin.

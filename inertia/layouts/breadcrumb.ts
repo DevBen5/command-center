@@ -12,7 +12,7 @@
  *
  * Ce qui la remplace ne s'invente pas : **les clés i18n de premier niveau d'un module portent le nom
  * du fichier de page**. `modules/leitner/stats` → `leitner.stats.*`. C'est exactement l'invariant de
- * la panne silencieuse n° 3 du `CLAUDE.md` racine (« le nom de page Inertia dérive du chemin du
+ * la panne silencieuse n° 3 du `AGENTS.md` racine (« le nom de page Inertia dérive du chemin du
  * fichier »), lu dans l'autre sens.
  */
 

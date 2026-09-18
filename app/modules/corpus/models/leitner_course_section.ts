@@ -29,7 +29,7 @@ export default class LeitnerCourseSection extends BaseModel {
    * ⚠️ `prepare: JSON.stringify` — sans lui, le driver `pg` sérialise un tableau JS en
    * littéral de tableau POSTGRES (`{"TLS"}`), pas en JSON, et la colonne `jsonb` refuse
    * l'insertion (`22P02`). Ne pas confondre avec les `text[]` de veille (`tags`), qui
-   * n'en veulent PAS — voir le `CLAUDE.md` du module Agents.
+   * n'en veulent PAS — voir le `AGENTS.md` du module Agents.
    */
   @column({ prepare: (value: string[]) => JSON.stringify(value) })
   declare headingPath: string[]

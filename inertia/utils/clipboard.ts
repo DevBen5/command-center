@@ -16,7 +16,7 @@
  * appelants sont dans `app/core/settings/`, `app/modules/leitner/` et `app/modules/coffre/` : le
  * seul alias que Vite résout depuis un `.vue` de n'importe lequel des trois est `~/`, qui pointe
  * ici. Un `#core/*` ne serait **pas** résolu par Vite (il mappe vers `./app/core/*.js`, qui
- * n'existe qu'après un build) — c'est le piège nommé dans le `CLAUDE.md` de Leitner.
+ * n'existe qu'après un build) — c'est le piège nommé dans le `AGENTS.md` de Leitner.
  *
  * ⚠️ **Contrepartie à connaître : `tsconfig.json` exclut `inertia/**`, ce fichier n'est donc pas
  * couvert par `npm run typecheck`.** Même situation que `inertia/layouts/breadcrumb.ts` et

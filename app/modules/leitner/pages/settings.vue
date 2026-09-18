@@ -1272,7 +1272,7 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
     </div>
   </div>
 
-  <!-- Modale de création / édition (CC-209 : chassis partagé `AppModal`, voir le CLAUDE.md
+  <!-- Modale de création / édition (CC-209 : chassis partagé `AppModal`, voir le AGENTS.md
        racine, « Une seule modale dans tout le dépôt »).
        `modalOpen` n'est armé que par les boutons masqués en lecture seule ;
        `canWriteCards` double la garde, au cas où l'état fuiterait. -->
@@ -1280,9 +1280,9 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
     <!--
       En-tête et pied figés, corps défilant (CC-66). Aucune des classes de structure n'est
       décorative — `max-h-[calc()]` et ses tirets bas, `min-h-0`, `shrink-0`, `overflow-hidden` :
-      en retirer une rend le pied inatteignable, sans rien casser de visible. Voir le CLAUDE.md
+      en retirer une rend le pied inatteignable, sans rien casser de visible. Voir le AGENTS.md
       du module, « Sa structure est en trois bandes ». `mt-16` remplace le rembourrage vertical
-      que le chassis portait avant CC-209 — l'arithmétique est expliquée dans le CLAUDE.md racine,
+      que le chassis portait avant CC-209 — l'arithmétique est expliquée dans le AGENTS.md racine,
       « Une seule modale dans tout le dépôt » : retirer `mt-16` sans toucher au `max-h-[calc()]`
       colle la modale au bord haut, et l'inverse la colle au bord bas.
     -->

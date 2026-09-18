@@ -99,7 +99,7 @@ export default class HttpExceptionHandler extends ExceptionHandler {
    * par `APP_KEY` chez le client, puis revient à la requête suivante.
    *
    * Pour le coffre, c'est la dépendance que le module entier existe pour refuser (voir
-   * `app/modules/coffre/CLAUDE.md`, « pourquoi PAS `APP_KEY` ») : `POST /coffre/ouvrir` avec un
+   * `app/modules/coffre/AGENTS.md`, « pourquoi PAS `APP_KEY` ») : `POST /coffre/ouvrir` avec un
    * code mal formé suffisait à faire partir la **passphrase** — qui n'est dans aucune des quatre
    * clés — dans un cookie. Ailleurs, c'était un code TOTP, une clé d'API collée dans un
    * formulaire, ou n'importe quel champ qu'un lot futur nommera autrement que `password`.

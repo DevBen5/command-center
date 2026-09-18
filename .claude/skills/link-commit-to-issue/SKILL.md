@@ -22,7 +22,7 @@ Sans argument : `HEAD`.
 
 1. `git log -1 --format=%H%n%s%n%b <sha>` — hash complet, sujet, footer.
 2. Extrait le `CC-XX` du footer (footer nu, jamais `Refs: #CC-XX` dans ce dépôt — voir
-   `CLAUDE.md`). **Pas de `CC-XX` trouvé → arrête-toi et demande-le**, ne devine jamais le ticket.
+   `AGENTS.md`). **Pas de `CC-XX` trouvé → arrête-toi et demande-le**, ne devine jamais le ticket.
 3. Construit l'URL : `https://github.com/DevBen5/command-center/commit/<hash complet>`.
 4. **Affiche le commentaire qui serait posté et attends confirmation** — poster sur un ticket est
    une action visible, jamais silencieuse, même pour une simple traçabilité.

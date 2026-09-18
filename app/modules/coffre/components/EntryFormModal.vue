@@ -489,7 +489,7 @@ function submit(): void {
                se posent sur la MÊME ligne, où une marge verticale ne produit rien. Le `mt-4`
                au-dessus paraît alors correct dans le code tout en n'ayant aucun effet ; c'est
                ce qui a été constaté au navigateur. Aucun test ne peut l'attraper (jsdom ne fait
-               pas de layout, voir le CLAUDE.md racine). -->
+               pas de layout, voir le AGENTS.md racine). -->
           <button
             v-if="immichFolderAvailable"
             type="button"

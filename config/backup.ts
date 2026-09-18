@@ -9,7 +9,7 @@ import { externalServicesIsolated } from '#config/env_isolation'
  * (`BACKUP_DIR_PATH` / `BACKUP_MIRROR_DIR_PATH` côté hôte, voir `docker-compose.prod.yml`),
  * exactement comme `/var/lib/postgresql/data` pour Postgres. Un formulaire acceptant un chemin
  * arbitraire réintroduirait le risque qu'un chemin accepté ne corresponde à aucun volume monté
- * — voir le CLAUDE.md racine.
+ * — voir le AGENTS.md racine.
  *
  * Le dossier de sauvegarde doit EXISTER, il n'est jamais créé — même règle que
  * `BACKUP_MIRROR_DIR` sur le poste de dev, désormais uniforme sur les deux chemins.

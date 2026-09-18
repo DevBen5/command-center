@@ -10,7 +10,7 @@ export { isImmichAssetId } from '#core/shared/services/immich_client'
  * lot où l'on peut réellement se tromper (les deux formes de durée, le tag déduit d'un nom de
  * fichier, la forme d'un asset qu'on refuse). `immich_client.ts` ne fait que du transport.
  *
- * Relevé contre une instance **v2.6.1** — voir le `CLAUDE.md` du module.
+ * Relevé contre une instance **v2.6.1** — voir le `AGENTS.md` du module.
  */
 
 /** Ce qu'un asset devient dans `veille_items.type`. */
