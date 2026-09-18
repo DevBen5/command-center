@@ -383,6 +383,12 @@ router
             .get('/settings', [LeitnerSettingsController, 'index'])
             .use(middleware.can('leitner.view'))
           router
+            .post('/settings/taxonomy/duplicates', [
+              LeitnerSettingsController,
+              'taxonomyDuplicateReport',
+            ])
+            .use(middleware.can('leitner.taxonomy.write'))
+          router
             .put('/settings/intervals', [LeitnerSettingsController, 'updateIntervals'])
             .use(middleware.can('leitner.settings'))
 

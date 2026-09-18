@@ -42,4 +42,11 @@ Exécuter aussi `npm run build` lorsqu'un fichier Vue est touché. Les tests ne 
 - Commits, branches, PR et publication : charger `/git-commit`, puis `/lead-review` si le diff est substantiel.
 - Backlog, KB YouTrack, arbitrage entre tickets et coordination : charger `/orchestrator`.
 
+## Workflow solo et publication
+
+- Le dépôt est travaillé par une seule personne : ne pas créer de worktree parallèle pour isoler un ticket.
+- Un ticket terminé est committe puis fusionné dans `master` avant de passer au ticket suivant ; préserver les modifications locales des autres travaux.
+- Conserver les branches créées pour les tickets après leur merge : elles servent de points de retour et ne sont jamais supprimées automatiquement.
+- Une publication de version se prépare séparément après le merge : vérifier `package.json`, les gates CI et la pointe de `master`, puis créer le tag `vX.Y.Z` correspondant avant de publier l'image de test.
+
 `docs/agent-reference.md` conserve les décisions détaillées et leur historique. Il ne se charge jamais par défaut : le lire uniquement pour le sujet concerné.

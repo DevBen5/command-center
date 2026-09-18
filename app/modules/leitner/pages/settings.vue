@@ -1105,6 +1105,46 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
             {{ t('leitner.settings.sharedField') }}
           </label>
         </form>
+
+        <div v-if="canWriteTaxonomy" class="mt-4 border-t border-line pt-4">
+          <button
+            type="button"
+            class="w-full rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] transition hover:border-accent disabled:opacity-50"
+            :disabled="taxonomyDuplicatesLoading"
+            @click="findTaxonomyDuplicates"
+          >
+            {{
+              taxonomyDuplicatesLoading
+                ? t('leitner.settings.taxonomyDuplicatesLoading')
+                : t('leitner.settings.taxonomyDuplicates')
+            }}
+          </button>
+          <p class="mt-1 text-[11.5px] text-txt-3">
+            {{ t('leitner.settings.taxonomyDuplicatesHint') }}
+          </p>
+          <p
+            v-if="taxonomyDuplicatesAsked && !taxonomyDuplicatesLoading && !taxonomyDuplicateGroups.length"
+            class="mt-3 text-[11.5px] text-txt-3"
+          >
+            {{ t('leitner.settings.taxonomyDuplicatesEmpty') }}
+          </p>
+          <ul v-else-if="taxonomyDuplicateGroups.length" class="mt-3 flex flex-col gap-2">
+            <li
+              v-for="(group, index) in taxonomyDuplicateGroups"
+              :key="index"
+              class="rounded-md border border-warn bg-panel-2 p-2.5 text-[11.5px]"
+            >
+              <ul class="flex flex-col gap-1">
+                <li v-for="entry in group.entries" :key="`${entry.category}:${entry.theme}`">
+                  {{ entry.category }}<span v-if="entry.theme"> · {{ entry.theme }}</span>
+                </li>
+              </ul>
+              <p v-if="group.reason" class="mt-1 text-txt-3">
+                {{ t('leitner.settings.taxonomyDuplicatesReason', { reason: group.reason }) }}
+              </p>
+            </li>
+          </ul>
+        </div>
       </div>
 
       <!-- Intervalles des boîtes — réglage d'installation (`leitner.settings`), masqué en
