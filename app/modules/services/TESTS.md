@@ -24,3 +24,10 @@ présentes en permanence sont dans `CLAUDE.md`.
   rester au singulier), et le **masquage hors service** (CC-116) — bannière rendue, et surtout
   l'absence des cartes, de la bande d'indicateurs et de la barre d'outils, montées avec un
   service en props pour que l'assertion négative morde.
+
+## La frontière de contrôle Docker (CC-13)
+
+- `tests/unit/services_system_stats_service.spec.ts` — `SystemStatsService.control()` : le nom de
+  conteneur conforme part vers `execFile` avec son tableau d'arguments ; espace, métacaractères de
+  shell et chemin relatif sont refusés sans tentative d'action. L'échec Docker reste absorbé pour
+  conserver le succès simulé en base sur le poste de développement.
