@@ -42,12 +42,48 @@ export interface CategoryNode {
   themes: ThemeNode[]
 }
 
+/** La taxonomie utile à une suggestion : des noms, jamais des identifiants. */
+export interface TaxonomyNode {
+  name: string
+  themes: string[]
+}
+
+/**
+ * Comparaison de noms de taxonomie : la casse, les accents et les espaces ne créent
+ * pas un second classement. Ce n'est pas une similarité sémantique.
+ */
+export function normalizeTaxonomyName(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 /**
  * Gestion du catalogue : cartes (liste, édition, suppression, reclassement) et
  * taxonomie catégorie → thème. La règle de répétition espacée reste dans
  * `LeitnerService`, qui n'est pas concerné par ce fichier.
  */
 export default class LeitnerCatalogService {
+  /** Taxonomie visible de l'appelant, groupée sans les comptes réservés à l'interface. */
+  async visibleTaxonomy(userId: number, isAdmin: boolean = false): Promise<TaxonomyNode[]> {
+    const query = LeitnerCategory.query()
+      .preload('themes', (themes) => {
+        applyVisibility(themes, 'leitner_themes', userId, isAdmin)
+        themes.orderBy('name')
+      })
+      .orderBy('name')
+    applyVisibility(query, 'leitner_categories', userId, isAdmin)
+
+    const categories = await query
+    return categories.map((category) => ({
+      name: category.name,
+      themes: category.themes.map((theme) => theme.name),
+    }))
+  }
+
   /**
    * Cartes de l'écran de gestion. Volumétrie personnelle : pas de pagination,
    * on renvoie tout ce qui passe les filtres.
@@ -363,22 +399,14 @@ export default class LeitnerCatalogService {
     userId: number,
     isAdmin: boolean = false
   ): Promise<LeitnerTheme> {
-    const categoryQuery = LeitnerCategory.query().where('name', categoryName)
-    applyVisibility(categoryQuery, 'leitner_categories', userId, isAdmin)
-    let category = await categoryQuery.first()
-    if (!category) {
-      category = await LeitnerCategory.create({
-        name: categoryName,
-        ownerId: userId,
-        isShared: false,
-      })
-    }
+    const category = await this.ensureCategory(categoryName, userId, isAdmin)
 
-    const themeQuery = LeitnerTheme.query()
-      .where('leitner_category_id', category.id)
-      .where('name', themeName)
+    const themeQuery = LeitnerTheme.query().where('leitner_category_id', category.id)
     applyVisibility(themeQuery, 'leitner_themes', userId, isAdmin)
-    const existingTheme = await themeQuery.first()
+    const themes = await themeQuery
+    const existingTheme = themes.find(
+      (theme) => normalizeTaxonomyName(theme.name) === normalizeTaxonomyName(themeName)
+    )
     if (existingTheme) return existingTheme
 
     return LeitnerTheme.create({
@@ -387,6 +415,23 @@ export default class LeitnerCatalogService {
       ownerId: userId,
       isShared: false,
     })
+  }
+
+  /** Réutilise seulement une catégorie visible, après normalisation de son nom. */
+  private async ensureCategory(
+    name: string,
+    userId: number,
+    isAdmin: boolean
+  ): Promise<LeitnerCategory> {
+    const categoryQuery = LeitnerCategory.query()
+    applyVisibility(categoryQuery, 'leitner_categories', userId, isAdmin)
+    const categories = await categoryQuery
+    const existing = categories.find(
+      (category) => normalizeTaxonomyName(category.name) === normalizeTaxonomyName(name)
+    )
+    if (existing) return existing
+
+    return LeitnerCategory.create({ name, ownerId: userId, isShared: false })
   }
 
   /** Renommer et/ou déplacer un thème dans une autre catégorie. */

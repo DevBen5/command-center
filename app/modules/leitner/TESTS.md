@@ -587,6 +587,13 @@ thème)` et le prompt du juge travaillent tous dessus, et un contrôleur qui rem
 
 ## L'ingestion
 
+- CC-212 — `tests/unit/leitner_ingestion_service.spec.ts` vérifie, avec le faux client, que le
+  premier prompt ne reçoit que la taxonomie visible et que le suivant reçoit les propositions
+  fraîches du morceau précédent. `tests/unit/leitner_catalog_service.spec.ts` couvre la lecture
+  visible ainsi que la réutilisation malgré la casse, les accents et les espaces, sans fusion
+  sémantique. `tests/functional/modules/leitner_llm.spec.ts` confirme que le diagnostic passe
+  volontairement une taxonomie vide.
+
 - `tests/unit/leitner_ingestion_service.spec.ts` et
   `tests/functional/modules/leitner_ingest.spec.ts` — parsing, découpage, déduplication, promotion,
   échecs du LLM, **contre un faux client** ; plus l'**asynchrone** : le POST rend la main avant le
