@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import type { MultipartFile } from '@adonisjs/core/bodyparser'
+import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
 import { errors as vineErrors } from '@vinejs/vine'
 import { DateTime } from 'luxon'
@@ -20,6 +21,7 @@ import {
   type ProvenanceSection,
 } from '#modules/leitner/services/leitner_card_sections_service'
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
+import LeitnerTaxonomyDuplicatesService from '#modules/leitner/services/leitner_taxonomy_duplicates_service'
 import { progressBox } from '#modules/leitner/services/leitner_progress'
 import LeitnerService from '#modules/leitner/services/leitner_service'
 import { applyVisibility } from '#core/shared/services/visibility'
@@ -44,10 +46,17 @@ function toId(value: unknown): number | undefined {
   return Number.isInteger(id) && id > 0 ? id : undefined
 }
 
+@inject()
 export default class LeitnerSettingsController {
+  constructor(private taxonomyDuplicates: LeitnerTaxonomyDuplicatesService) {}
+
   private service = new LeitnerCatalogService()
   private leitner = new LeitnerService()
   private backup = new LeitnerBackupService()
+
+  async taxonomyDuplicateReport({ auth, response }: HttpContext) {
+    return response.json(await this.taxonomyDuplicates.find(auth.user!.id, auth.user!.isAdmin))
+  }
 
   async index({ auth, inertia, request, session }: HttpContext) {
     const userId = auth.user!.id

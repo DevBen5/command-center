@@ -3,6 +3,8 @@
 - `tests/functional/modules/leitner_glossary_promotion.spec.ts` — création privée depuis une carte possédée, refus sans corpus.write et sur carte étrangère (CC-277).
 - `tests/functional/modules/leitner_glossary_backup.spec.ts` — export visible v6, restauration des définitions et alias, lien perdu conservant le terme et Corpus désactivé (CC-277).
 - `app/modules/leitner/components/__tests__/glossary_promotion_button.spec.ts` — préremplissage, correction, POST JSON, succès et refus serveur (CC-277).
+- `tests/unit/leitner_taxonomy_duplicates_service.spec.ts` — contrat JSON, canonisation, filtrage et repli du rapport de doublons (CC-213).
+- `tests/functional/modules/leitner_taxonomy_duplicates.spec.ts` — capacité, appel à la demande et absence d'écriture du rapport de doublons (CC-213).
 
 Sorti de `AGENTS.md` pour ne pas être chargé à chaque fois qu'on touche au module. À lire **avant de
 modifier un test**, pas avant de modifier le module. Les règles qui doivent rester présentes en
