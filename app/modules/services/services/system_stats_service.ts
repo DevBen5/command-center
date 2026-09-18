@@ -1,14 +1,13 @@
 import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 import Service from '#modules/services/models/service'
-
-const execFileAsync = promisify(execFile)
 
 // Noms de conteneurs Docker valides : alphanumérique puis [a-zA-Z0-9_.-].
 // Refuse tout ce qui pourrait être interprété par un shell.
 const CONTAINER_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/
 
 export default class SystemStatsService {
+  constructor(private readonly executeFile: typeof execFile = execFile) {}
+
   async control(service: Service, action: 'start' | 'stop' | 'restart') {
     const containerName =
       (service.config.containerName as string | undefined) ?? service.name.toLowerCase()
@@ -19,7 +18,12 @@ export default class SystemStatsService {
       }
       // execFile passe les arguments sans interprétation shell : même si le nom
       // venait à contenir des métacaractères, il ne serait jamais exécuté.
-      await execFileAsync('docker', [action, containerName])
+      await new Promise<void>((resolve, reject) => {
+        this.executeFile('docker', [action, containerName], (error) => {
+          if (error) reject(error)
+          else resolve()
+        })
+      })
     } catch {
       // Pas de conteneur Docker réel sur ce poste de dev pour ce service :
       // on simule l'effet de l'action directement en base.
