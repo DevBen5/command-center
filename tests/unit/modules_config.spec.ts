@@ -55,7 +55,7 @@ test.group('Core / modules activables (CC-137)', () => {
     assert.deepEqual(migrationPathsFor(new Set()), [])
     // ⚠️ La liste est écrite **en dur et en entier**, jamais dérivée de `KNOWN_MODULES` : c'est
     // ce qui fait qu'un module ajouté sans son chemin de migration (donc dont aucune table ne
-     // serait jamais créée, en silence — le point 1 du AGENTS.md racine) fait rougir ici.
+    // serait jamais créée, en silence — le point 1 du AGENTS.md racine) fait rougir ici.
     assert.deepEqual(migrationPathsFor(new Set(KNOWN_MODULES)), [
       'app/modules/services/migrations',
       'app/modules/agents/migrations',

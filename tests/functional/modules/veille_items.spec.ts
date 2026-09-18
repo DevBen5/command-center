@@ -346,7 +346,7 @@ test.group('Veille / liste, filtres et recherche', (group) => {
    * chargement :
    *
    * - `immichAssetId` — le proxy de vignette et le lien vers Immich en dépendent (CC-88) ;
-    * - `provenance` — le `AGENTS.md` du module avait nommé ce mode d'échec avant qu'il existe :
+   * - `provenance` — le `AGENTS.md` du module avait nommé ce mode d'échec avant qu'il existe :
    *   dérivée de la charge utile, elle ferait basculer **tous les orphelins en « Saisi à la
    *   main »** dès la clé retirée, sans erreur ni test rouge. Elle est dérivée du modèle Lucid,
    *   passé en argument nommé — d'où le verdict `orphan` qui tient malgré l'absence.

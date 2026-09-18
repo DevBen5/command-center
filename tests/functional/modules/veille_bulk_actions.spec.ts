@@ -140,7 +140,7 @@ test.group('Veille / actions groupées', (group) => {
    * (tagué, lu, en file) rendait le cas `queue.add` inerte — l'item étant déjà dans la file, la
    * garde `reading_queue = false` l'excluait de toute façon, et retirer `deleted_at IS NULL` ne
    * faisait **pas** rougir le test. Vérifié en cassant la requête : c'est exactement le
-    * faux-positif que le `AGENTS.md` décrit sur les six tests `deleted_at` de CC-63.
+   * faux-positif que le `AGENTS.md` décrit sur les six tests `deleted_at` de CC-63.
    *
    * Ce sont des **écritures** : un oubli ne fait pas ressortir un supprimé, il le **modifie** —
    * ce qui ne se voit sur aucun écran, puisque plus rien ne l'affiche.

@@ -279,7 +279,7 @@ test.group('Auth / second facteur', (group) => {
      * qui existe. `inertia.render` ne touche pas le disque ; la résolution du nom vers
      * `app/core/auth/pages/login_two_factor.vue` se fait dans `inertia/app/app.ts`, **côté
      * client**. Un nom erroné répondrait donc 200 ici et n'échouerait que devant l'utilisateur
-      * (point 3 du AGENTS.md) — limite partagée avec `pages.spec.ts`, pas propre à ce test.
+     * (point 3 du AGENTS.md) — limite partagée avec `pages.spec.ts`, pas propre à ce test.
      */
     const user = await createUserWith(['leitner.view'])
     await enrollTotp(user)
