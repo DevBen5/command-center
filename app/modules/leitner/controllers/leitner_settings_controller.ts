@@ -22,6 +22,7 @@ import {
 } from '#modules/leitner/services/leitner_card_sections_service'
 import LeitnerCatalogService from '#modules/leitner/services/leitner_catalog_service'
 import LeitnerTaxonomyDuplicatesService from '#modules/leitner/services/leitner_taxonomy_duplicates_service'
+import LeitnerTaxonomyMergeService from '#modules/leitner/services/leitner_taxonomy_merge_service'
 import { progressBox } from '#modules/leitner/services/leitner_progress'
 import LeitnerService from '#modules/leitner/services/leitner_service'
 import { applyVisibility } from '#core/shared/services/visibility'
@@ -35,6 +36,7 @@ import {
   cardsThemeValidator,
   categoryValidator,
   themeValidator,
+  taxonomyMergeValidator,
 } from '#modules/leitner/validators/leitner'
 
 /** Au-delà, la liste d'erreurs devient illisible : on dit ce qui est masqué. */
@@ -48,7 +50,10 @@ function toId(value: unknown): number | undefined {
 
 @inject()
 export default class LeitnerSettingsController {
-  constructor(private taxonomyDuplicates: LeitnerTaxonomyDuplicatesService) {}
+  constructor(
+    private taxonomyDuplicates: LeitnerTaxonomyDuplicatesService,
+    private taxonomyMerge: LeitnerTaxonomyMergeService
+  ) {}
 
   private service = new LeitnerCatalogService()
   private leitner = new LeitnerService()
@@ -56,6 +61,18 @@ export default class LeitnerSettingsController {
 
   async taxonomyDuplicateReport({ auth, response }: HttpContext) {
     return response.json(await this.taxonomyDuplicates.find(auth.user!.id, auth.user!.isAdmin))
+  }
+
+  async taxonomyMergePreview({ auth, request, response }: HttpContext) {
+    const payload = await request.validateUsing(taxonomyMergeValidator)
+    return response.json(
+      await this.taxonomyMerge.preview(payload, auth.user!.id, auth.user!.isAdmin)
+    )
+  }
+
+  async mergeTaxonomy({ auth, request, response }: HttpContext) {
+    const payload = await request.validateUsing(taxonomyMergeValidator)
+    return response.json(await this.taxonomyMerge.merge(payload, auth.user!.id, auth.user!.isAdmin))
   }
 
   async index({ auth, inertia, request, session }: HttpContext) {

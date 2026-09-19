@@ -223,6 +223,15 @@ export const themeValidator = vine.compile(
   })
 )
 
+/** Source et cible sont toujours désignées explicitement par l'utilisateur. */
+export const taxonomyMergeValidator = vine.compile(
+  vine.object({
+    kind: vine.enum(['category', 'theme'] as const),
+    sourceId: vine.number().positive().withoutDecimals(),
+    targetId: vine.number().positive().withoutDecimals(),
+  })
+)
+
 /*
 |------------------------------------------------------------------------------
 | Import d'une sauvegarde JSON

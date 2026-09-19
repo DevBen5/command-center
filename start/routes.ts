@@ -389,6 +389,15 @@ router
             ])
             .use(middleware.can('leitner.taxonomy.write'))
           router
+            .post('/settings/taxonomy/merge/preview', [
+              LeitnerSettingsController,
+              'taxonomyMergePreview',
+            ])
+            .use(middleware.can('leitner.taxonomy.write'))
+          router
+            .post('/settings/taxonomy/merge', [LeitnerSettingsController, 'mergeTaxonomy'])
+            .use(middleware.can('leitner.taxonomy.write'))
+          router
             .put('/settings/intervals', [LeitnerSettingsController, 'updateIntervals'])
             .use(middleware.can('leitner.settings'))
 

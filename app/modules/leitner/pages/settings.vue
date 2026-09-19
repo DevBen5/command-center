@@ -8,6 +8,7 @@ import ConfirmModal from '~/components/ConfirmModal.vue'
 import LeitnerTabs from '../components/LeitnerTabs.vue'
 import GlossaryPromotionButton from '../components/GlossaryPromotionButton.vue'
 import MarkdownPreviewPanel from '../components/MarkdownPreviewPanel.vue'
+import { xsrfToken } from '../components/leitner_csrf'
 import { useCan } from '../components/leitner_can'
 import { useMarkdownPreview } from '../components/leitner_markdown_preview'
 import { scrollTopKeepingAnchor, splitByMastery } from '../shared/settings_page'
@@ -576,6 +577,152 @@ const renamingCategory = ref<number | null>(null)
 const renamingTheme = ref<number | null>(null)
 const draftName = ref('')
 
+interface TaxonomyDuplicateEntry {
+  category: string
+  theme: string | null
+}
+
+interface TaxonomyDuplicateGroup {
+  entries: TaxonomyDuplicateEntry[]
+  reason: string
+}
+
+interface TaxonomyMergePreview {
+  kind: 'category' | 'theme'
+  sourceId: number
+  targetId: number
+  sourceName: string
+  targetName: string
+  sourceChildren: number
+  collisionCount: number
+  cardsToMove: number
+}
+
+const taxonomyDuplicatesLoading = ref(false)
+const taxonomyDuplicatesAsked = ref(false)
+const taxonomyDuplicateGroups = ref<TaxonomyDuplicateGroup[]>([])
+const taxonomyMergeKind = ref<'category' | 'theme'>('category')
+const taxonomyMergeSourceId = ref<number | null>(null)
+const taxonomyMergeTargetId = ref<number | null>(null)
+const taxonomyMergePreviewResult = ref<TaxonomyMergePreview | null>(null)
+const taxonomyMergeLoading = ref(false)
+const taxonomyMergeError = ref('')
+
+const mergeThemes = computed(() =>
+  props.categories.flatMap((category) =>
+    category.themes.map((theme) => ({ ...theme, categoryName: category.name }))
+  )
+)
+
+const mergeOptions = computed(() =>
+  taxonomyMergeKind.value === 'category'
+    ? props.categories
+    : mergeThemes.value.map((theme) => ({ id: theme.id, name: `${theme.categoryName} · ${theme.name}` }))
+)
+
+async function jsonPost<T>(url: string, body: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json',
+      'x-xsrf-token': xsrfToken(),
+    },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  return response.json() as Promise<T>
+}
+
+function resetMergePreview(): void {
+  taxonomyMergePreviewResult.value = null
+  taxonomyMergeError.value = ''
+}
+
+async function previewTaxonomyMerge(): Promise<void> {
+  if (!taxonomyMergeSourceId.value || !taxonomyMergeTargetId.value) return
+  taxonomyMergeLoading.value = true
+  resetMergePreview()
+  try {
+    taxonomyMergePreviewResult.value = await jsonPost<TaxonomyMergePreview>(
+      '/revision/settings/taxonomy/merge/preview',
+      {
+        kind: taxonomyMergeKind.value,
+        sourceId: taxonomyMergeSourceId.value,
+        targetId: taxonomyMergeTargetId.value,
+      }
+    )
+  } catch {
+    taxonomyMergeError.value = t('leitner.settings.taxonomyMergeError')
+  } finally {
+    taxonomyMergeLoading.value = false
+  }
+}
+
+async function mergeTaxonomy(): Promise<void> {
+  const preview = taxonomyMergePreviewResult.value
+  if (!preview) return
+  const message = t('leitner.settings.confirmTaxonomyMerge', {
+    source: preview.sourceName,
+    target: preview.targetName,
+    collisions: preview.collisionCount,
+  })
+  if (!(await confirmModal.value?.ask(message, { danger: true }))) return
+
+  taxonomyMergeLoading.value = true
+  taxonomyMergeError.value = ''
+  try {
+    await jsonPost<TaxonomyMergePreview>('/revision/settings/taxonomy/merge', {
+      kind: preview.kind,
+      sourceId: preview.sourceId,
+      targetId: preview.targetId,
+    })
+    resetMergePreview()
+    taxonomyMergeSourceId.value = null
+    taxonomyMergeTargetId.value = null
+    await router.reload({ preserveScroll: true })
+  } catch {
+    taxonomyMergeError.value = t('leitner.settings.taxonomyMergeError')
+  } finally {
+    taxonomyMergeLoading.value = false
+  }
+}
+
+async function findTaxonomyDuplicates(): Promise<void> {
+  taxonomyDuplicatesLoading.value = true
+  taxonomyDuplicatesAsked.value = true
+  try {
+    const result = await jsonPost<{ groups: TaxonomyDuplicateGroup[] }>(
+      '/revision/settings/taxonomy/duplicates',
+      {}
+    )
+    taxonomyDuplicateGroups.value = result.groups
+    const entries = result.groups[0]?.entries ?? []
+    const sameKind =
+      entries.length >= 2 && (entries[0].theme === null) === (entries[1].theme === null)
+    if (sameKind) {
+      const resolve = (entry: TaxonomyDuplicateEntry) => {
+        const category = props.categories.find((item) => item.name === entry.category)
+        if (!category) return null
+        if (entry.theme === null) return category.id
+        return category.themes.find((theme) => theme.name === entry.theme)?.id ?? null
+      }
+      const first = resolve(entries[0])
+      const second = resolve(entries[1])
+      if (first !== null && second !== null) {
+        taxonomyMergeKind.value = entries[0].theme === null ? 'category' : 'theme'
+        taxonomyMergeSourceId.value = first
+        taxonomyMergeTargetId.value = second
+        resetMergePreview()
+      }
+    }
+  } catch {
+    taxonomyDuplicateGroups.value = []
+  } finally {
+    taxonomyDuplicatesLoading.value = false
+  }
+}
+
 function addCategory(): void {
   if (!newCategory.value.trim()) return
   router.post(
@@ -1105,6 +1252,76 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
             {{ t('leitner.settings.sharedField') }}
           </label>
         </form>
+
+        <div v-if="canWriteTaxonomy" class="mt-4 border-t border-line pt-4">
+          <h3 class="mb-2 text-[11.5px] font-semibold text-txt-2">
+            {{ t('leitner.settings.taxonomyMergeTitle') }}
+          </h3>
+          <select
+            v-model="taxonomyMergeKind"
+            class="mb-1.5 w-full rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px]"
+            @change="resetMergePreview"
+          >
+            <option value="category">{{ t('leitner.settings.taxonomyMergeCategory') }}</option>
+            <option value="theme">{{ t('leitner.settings.taxonomyMergeTheme') }}</option>
+          </select>
+          <div class="grid grid-cols-2 gap-1.5">
+            <select
+              v-model="taxonomyMergeSourceId"
+              class="min-w-0 rounded-md border border-line-2 bg-panel-2 px-2 py-2 text-[12px]"
+              @change="resetMergePreview"
+            >
+              <option :value="null">{{ t('leitner.settings.taxonomyMergeSource') }}</option>
+              <option v-for="option in mergeOptions" :key="option.id" :value="option.id">
+                {{ option.name }}
+              </option>
+            </select>
+            <select
+              v-model="taxonomyMergeTargetId"
+              class="min-w-0 rounded-md border border-line-2 bg-panel-2 px-2 py-2 text-[12px]"
+              @change="resetMergePreview"
+            >
+              <option :value="null">{{ t('leitner.settings.taxonomyMergeTarget') }}</option>
+              <option
+                v-for="option in mergeOptions"
+                :key="option.id"
+                :value="option.id"
+                :disabled="option.id === taxonomyMergeSourceId"
+              >
+                {{ option.name }}
+              </option>
+            </select>
+          </div>
+          <button
+            type="button"
+            class="mt-2 w-full rounded-md border border-line-2 bg-panel-2 px-2.5 py-2 text-[12.5px] transition hover:border-accent disabled:opacity-50"
+            :disabled="!taxonomyMergeSourceId || !taxonomyMergeTargetId || taxonomyMergeLoading"
+            @click="previewTaxonomyMerge"
+          >
+            {{ t('leitner.settings.taxonomyMergePreview') }}
+          </button>
+          <div v-if="taxonomyMergePreviewResult" class="mt-2 rounded-md border border-warn bg-panel-2 p-2.5 text-[11.5px]">
+            <p>
+              {{
+                t('leitner.settings.taxonomyMergeSummary', {
+                  cards: taxonomyMergePreviewResult.cardsToMove,
+                  collisions: taxonomyMergePreviewResult.collisionCount,
+                })
+              }}
+            </p>
+            <button
+              type="button"
+              class="mt-2 w-full rounded-md border border-bad px-2.5 py-2 text-[12px] text-bad transition hover:bg-bad hover:text-white disabled:opacity-50"
+              :disabled="taxonomyMergeLoading"
+              @click="mergeTaxonomy"
+            >
+              {{ t('leitner.settings.taxonomyMergeConfirm') }}
+            </button>
+          </div>
+          <p v-if="taxonomyMergeError" class="mt-2 text-[11.5px] text-bad">
+            {{ taxonomyMergeError }}
+          </p>
+        </div>
 
         <div v-if="canWriteTaxonomy" class="mt-4 border-t border-line pt-4">
           <button
