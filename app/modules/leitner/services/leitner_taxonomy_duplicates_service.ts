@@ -10,6 +10,7 @@ import LlmClient, {
 } from '#modules/leitner/services/llm_client'
 
 export const TAXONOMY_DUPLICATES_TIMEOUT_MS = 30_000
+export const SPARSE_THEME_MAX_CARDS = 1
 
 export interface TaxonomyDuplicateEntry {
   category: string
@@ -23,9 +24,19 @@ export interface TaxonomyDuplicateGroup {
 
 export interface TaxonomyDuplicatesResult {
   groups: TaxonomyDuplicateGroup[]
+  sparseThemes: SparseTheme[]
 }
 
-export function taxonomyDuplicateMessages(taxonomy: TaxonomyNode[]): LlmMessage[] {
+export interface SparseTheme {
+  category: string
+  theme: string
+  cardCount: number
+}
+
+export function taxonomyDuplicateMessages(
+  taxonomy: TaxonomyNode[],
+  sparseThemes: SparseTheme[] = []
+): LlmMessage[] {
   return [
     {
       role: 'system',
@@ -35,11 +46,14 @@ export function taxonomyDuplicateMessages(taxonomy: TaxonomyNode[]): LlmMessage[
         '[{"category":"nom","theme":"nom ou null"}],"reason":"courte raison"}]}. ' +
         'Un groupe doit contenir au moins deux entrées existantes qui désignent probablement ' +
         'le même sujet sur le plan sémantique. Une catégorie entière utilise theme null. ' +
+        'Traite en priorité les thèmes isolés fournis dans sparseThemes : rapproche-les d’un ' +
+        'thème existant ou entre eux quand c’est justifié. Ne force jamais un rapprochement ' +
+        'sans lien sémantique fiable. ' +
         'Ne crée aucun nom, ne renvoie aucun identifiant et ne signale pas les simples différences de casse ou d’accent.',
     },
     {
       role: 'user',
-      content: JSON.stringify({ taxonomy }),
+      content: JSON.stringify({ taxonomy, sparseThemes }),
     },
   ]
 }
@@ -122,11 +136,23 @@ export default class LeitnerTaxonomyDuplicatesService {
   ) {}
 
   async find(userId: number, isAdmin: boolean = false): Promise<TaxonomyDuplicatesResult> {
-    const taxonomy = await this.catalog.visibleTaxonomy(userId, isAdmin)
+    const [taxonomy, tree] = await Promise.all([
+      this.catalog.visibleTaxonomy(userId, isAdmin),
+      this.catalog.categoryTree(userId, isAdmin),
+    ])
+    const sparseThemes = tree.categories.flatMap((category) =>
+      category.themes
+        .filter((theme) => theme.cardCount <= SPARSE_THEME_MAX_CARDS)
+        .map((theme) => ({
+          category: category.name,
+          theme: theme.name,
+          cardCount: theme.cardCount,
+        }))
+    )
     const startedAt = Date.now()
 
     try {
-      const raw = await this.llm.complete(taxonomyDuplicateMessages(taxonomy), {
+      const raw = await this.llm.complete(taxonomyDuplicateMessages(taxonomy, sparseThemes), {
         json: true,
         temperature: 0,
         timeoutMs: TAXONOMY_DUPLICATES_TIMEOUT_MS,
@@ -137,16 +163,16 @@ export default class LeitnerTaxonomyDuplicatesService {
           { elapsedMs: Date.now() - startedAt, raw: raw.slice(0, 300) },
           'Leitner : rapport de doublons de taxonomie illisible, repli silencieux.'
         )
-        return { groups: [] }
+        return { groups: [], sparseThemes }
       }
-      return { groups }
+      return { groups, sparseThemes }
     } catch (error) {
       if (error instanceof LlmUnavailableError) {
         logger.warn(
           { err: error, elapsedMs: Date.now() - startedAt },
           'Leitner : rapport de doublons de taxonomie indisponible, repli silencieux.'
         )
-        return { groups: [] }
+        return { groups: [], sparseThemes }
       }
       throw error
     }
