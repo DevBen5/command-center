@@ -90,15 +90,22 @@ describe('Leitner / LeitnerTabs', () => {
       capabilities: ['leitner.view', 'leitner.stats.view'],
     })
 
-    expect(labels).toEqual(['Révision', 'Cartes', 'Stats'])
+    expect(labels).toEqual(['Révision', 'Cartes', 'Organisation des cartes', 'Stats'])
   })
 
-  test('un administrateur voit les cinq onglets', () => {
+  test('un administrateur voit les six onglets', () => {
     // `isAdmin` passe outre toute capacité : la barre entière, sans énumérer quoi que ce soit.
     // ⚠️ « Cours » n'y figure plus depuis CC-275 : le corpus est un module détachable
     // séparé, sa propre entrée de navigation vit hors de cette barre.
     const labels = visibleLabels({ isAdmin: true, capabilities: [] })
 
-    expect(labels).toEqual(['Révision', 'Cartes', 'Stats', 'Ingestion', 'Configuration'])
+    expect(labels).toEqual([
+      'Révision',
+      'Cartes',
+      'Organisation des cartes',
+      'Stats',
+      'Ingestion',
+      'Configuration',
+    ])
   })
 })

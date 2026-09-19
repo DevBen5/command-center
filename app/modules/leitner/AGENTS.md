@@ -1,6 +1,6 @@
 # Module Leitner — répétition espacée
 
-Route `/revision` (⚠️ **pas** `/leitner`) · pages Inertia `modules/leitner/{index, settings, stats,
+Route `/revision` (⚠️ **pas** `/leitner`) · pages Inertia `modules/leitner/{index, settings, organisation, stats,
 ingest, ingest_show, llm}` · tables `leitner_cards`, `leitner_card_progress`, `leitner_reviews`,
 `leitner_categories`, `leitner_themes`, `leitner_settings`, `leitner_ingestions`,
 `leitner_draft_cards`, `leitner_courses`, `leitner_course_sections`, `leitner_card_sections`.
@@ -141,7 +141,7 @@ ferme vraiment tient en deux points, et le premier est décisif :
   l'écran), mais **un fichier téléchargeable** reste un geste différent de la consultation à
   l'écran : voir les cartes n'est pas repartir avec une copie autonome.
 
-Cinq écrans, une barre d'onglets : **Révision** (`/revision`) · **Cartes** (`/revision/settings`) ·
+Cinq écrans de base et une page d’organisation, une barre d’onglets : **Révision** (`/revision`) · **Cartes** (`/revision/settings`) · **Organisation des cartes** (`/revision/organisation`) ·
 **Stats** (`/revision/stats`) · **Ingestion** (`/revision/ingest`) · **Configuration**
 (`/revision/llm`).
 
@@ -312,6 +312,14 @@ la relecture.
   nommé** dès qu'il y a deux champs du même type. `fluencyMeasure` est le cas limite — quatre
   timestamps positionnels rendraient une inversion invisible, et un `firstInputAt` mis à la place de
   `revealedAt` proposerait `easy` sur la carte qu'on vient de rater.
+
+## Cartes et organisation : deux pages complémentaires
+
+`/revision/settings` reste le catalogue et le point de saisie des cartes. La gestion de la
+taxonomie vit dans `/revision/organisation` : arbre catégories → thèmes, compteurs et gestes de
+création/renommage/suppression. Les deux pages réutilisent `LeitnerCatalogService.categoryTree()`
+pour que la visibilité et les compteurs restent identiques. Les opérations transactionnelles de
+CC-214 restent leurs endpoints existants ; ce lot ne les étend pas.
 
 ## Un seul point de saisie : `/revision/settings`
 

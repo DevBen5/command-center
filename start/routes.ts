@@ -383,6 +383,9 @@ router
             .get('/settings', [LeitnerSettingsController, 'index'])
             .use(middleware.can('leitner.view'))
           router
+            .get('/organisation', [LeitnerSettingsController, 'organisation'])
+            .use(middleware.can('leitner.view'))
+          router
             .post('/settings/taxonomy/duplicates', [
               LeitnerSettingsController,
               'taxonomyDuplicateReport',

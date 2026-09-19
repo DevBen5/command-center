@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { Link, usePage } from '@inertiajs/vue3'
 import { useCan } from './leitner_can'
 
-// Les cinq écrans du module, en une barre unique. Chaque onglet porte la capacité qui
+// Les six écrans du module, en une barre unique. Chaque onglet porte la capacité qui
 // ouvre son écran : un invité en lecture seule ne voit ni Ingestion ni Configuration —
 // il naviguerait sinon vers un refus (CC-72).
 //
@@ -21,6 +21,7 @@ import { useCan } from './leitner_can'
 const TABS = [
   { href: '/revision', label: 'Révision', cap: 'leitner.view' },
   { href: '/revision/settings', label: 'Cartes', cap: 'leitner.view' },
+  { href: '/revision/organisation', label: 'Organisation des cartes', cap: 'leitner.view' },
   { href: '/revision/stats', label: 'Stats', cap: 'leitner.stats.view' },
   { href: '/revision/ingest', label: 'Ingestion', cap: 'leitner.ingest' },
   { href: '/revision/llm', label: 'Configuration', cap: 'leitner.llm' },
@@ -56,9 +57,7 @@ const current = computed(() => {
       :href="tab.href"
       class="rounded-[9px] px-3.5 py-1.5 text-[12.5px] transition"
       :class="
-        current === tab.href
-          ? 'bg-accent text-white'
-          : 'text-txt-2 hover:bg-panel-2 hover:text-txt'
+        current === tab.href ? 'bg-accent text-white' : 'text-txt-2 hover:bg-panel-2 hover:text-txt'
       "
     >
       {{ tab.label }}

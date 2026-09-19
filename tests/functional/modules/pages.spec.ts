@@ -21,6 +21,11 @@ const PAGES: Array<{ route: string; component: string; capability: string | 'adm
     capability: 'leitner.view',
   },
   {
+    route: '/revision/organisation',
+    component: 'modules/leitner/organisation',
+    capability: 'leitner.view',
+  },
+  {
     route: '/revision/stats',
     component: 'modules/leitner/stats',
     capability: 'leitner.stats.view',
