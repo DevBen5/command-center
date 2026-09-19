@@ -25,6 +25,17 @@ export interface TaxonomyMergePreview {
   cardsToMove: number
 }
 
+export interface TaxonomyRegroupInput {
+  categoryName: string
+  themeIds: number[]
+}
+
+export interface TaxonomyRegroupPreview {
+  categoryName: string
+  themes: Array<{ id: number; name: string; categoryName: string; cardCount: number }>
+  cardsToMove: number
+}
+
 interface MergePlan {
   preview: TaxonomyMergePreview
   source: LeitnerCategory | LeitnerTheme
@@ -36,6 +47,38 @@ interface MergePlan {
 
 /** Fusion manuelle de taxonomie : le seul point d'écriture massive du module. */
 export default class LeitnerTaxonomyMergeService {
+  async regroupPreview(
+    input: TaxonomyRegroupInput,
+    userId: number,
+    isAdmin: boolean = false
+  ): Promise<TaxonomyRegroupPreview> {
+    return db.transaction(async (trx) => {
+      await this.assertNewCategoryName(trx, input.categoryName, userId)
+      return this.regroupPlan(trx, input, userId, isAdmin)
+    })
+  }
+
+  async regroup(
+    input: TaxonomyRegroupInput,
+    userId: number,
+    isAdmin: boolean = false
+  ): Promise<TaxonomyRegroupPreview> {
+    return db.transaction(async (trx) => {
+      await this.assertNewCategoryName(trx, input.categoryName, userId)
+      const preview = await this.regroupPlan(trx, input, userId, isAdmin)
+      const category = await LeitnerCategory.create(
+        { name: input.categoryName, ownerId: userId, isShared: false },
+        { client: trx }
+      )
+
+      await LeitnerTheme.query({ client: trx })
+        .whereIn('id', input.themeIds)
+        .update({ leitner_category_id: category.id })
+
+      return preview
+    })
+  }
+
   async preview(
     input: TaxonomyMergeInput,
     userId: number,
@@ -174,6 +217,49 @@ export default class LeitnerTaxonomyMergeService {
         cardsToMove: sourceCards.length,
       },
     }
+  }
+
+  private async regroupPlan(
+    trx: TransactionClientContract,
+    input: TaxonomyRegroupInput,
+    userId: number,
+    isAdmin: boolean
+  ): Promise<TaxonomyRegroupPreview> {
+    const themes = await LeitnerTheme.query({ client: trx })
+      .whereIn('id', input.themeIds)
+      .preload('category')
+      .orderBy('id')
+      .forUpdate()
+    if (themes.length !== input.themeIds.length) throw new Error('Thème introuvable.')
+
+    let cardsToMove = 0
+    const previewThemes: TaxonomyRegroupPreview['themes'] = []
+    for (const theme of themes) {
+      assertOwnedOrAdmin(theme, userId, isAdmin)
+      const cards = await this.cardsForTheme(trx, theme.id, userId, isAdmin)
+      for (const card of cards) assertOwnedOrAdmin(card, userId, isAdmin)
+      cardsToMove += cards.length
+      previewThemes.push({
+        id: theme.id,
+        name: theme.name,
+        categoryName: theme.category.name,
+        cardCount: cards.length,
+      })
+    }
+
+    return { categoryName: input.categoryName, themes: previewThemes, cardsToMove }
+  }
+
+  private async assertNewCategoryName(
+    trx: TransactionClientContract,
+    name: string,
+    userId: number
+  ): Promise<void> {
+    const existing = await LeitnerCategory.query({ client: trx })
+      .where('owner_id', userId)
+      .where('name', name)
+      .first()
+    if (existing) throw new Error('Cette catégorie existe déjà.')
   }
 
   private async cardsForTheme(

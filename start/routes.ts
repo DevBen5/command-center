@@ -398,6 +398,15 @@ router
             .post('/settings/taxonomy/merge', [LeitnerSettingsController, 'mergeTaxonomy'])
             .use(middleware.can('leitner.taxonomy.write'))
           router
+            .post('/settings/taxonomy/regroup/preview', [
+              LeitnerSettingsController,
+              'taxonomyRegroupPreview',
+            ])
+            .use(middleware.can('leitner.taxonomy.write'))
+          router
+            .post('/settings/taxonomy/regroup', [LeitnerSettingsController, 'regroupTaxonomy'])
+            .use(middleware.can('leitner.taxonomy.write'))
+          router
             .put('/settings/intervals', [LeitnerSettingsController, 'updateIntervals'])
             .use(middleware.can('leitner.settings'))
 

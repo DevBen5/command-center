@@ -98,6 +98,60 @@ test.group('Leitner / fusion de taxonomie', (group) => {
     assert.lengthOf(await LeitnerCard.query().where('leitner_theme_id', target.id), 1)
   })
 
+  test('crée une catégorie et y regroupe plusieurs thèmes sans les fusionner', async ({
+    client,
+    assert,
+  }) => {
+    const user = await createUserWith(['leitner.view', 'leitner.taxonomy.write'])
+    const source = await LeitnerCategory.create({ name: 'Informatique', ownerId: user.id })
+    const software = await LeitnerTheme.create({
+      name: 'Architecture Logicielle',
+      leitnerCategoryId: source.id,
+      ownerId: user.id,
+    })
+    const hardware = await LeitnerTheme.create({
+      name: 'Architecture matérielle',
+      leitnerCategoryId: source.id,
+      ownerId: user.id,
+    })
+    await LeitnerCard.create({
+      front: 'Couplage',
+      back: 'Faible',
+      leitnerThemeId: software.id,
+      ownerId: user.id,
+    })
+    await LeitnerCard.create({
+      front: 'CPU',
+      back: 'Processeur',
+      leitnerThemeId: hardware.id,
+      ownerId: user.id,
+    })
+
+    const preview = await client
+      .post('/revision/settings/taxonomy/regroup/preview')
+      .json({ categoryName: 'Architecture', themeIds: [software.id, hardware.id] })
+      .loginAs(user)
+      .withCsrfToken()
+    preview.assertStatus(200)
+    preview.assertBodyContains({ cardsToMove: 2 })
+
+    const response = await client
+      .post('/revision/settings/taxonomy/regroup')
+      .json({ categoryName: 'Architecture', themeIds: [software.id, hardware.id] })
+      .loginAs(user)
+      .withCsrfToken()
+    response.assertStatus(200)
+
+    const created = await LeitnerCategory.query().where('name', 'Architecture').firstOrFail()
+    const movedSoftware = await LeitnerTheme.findOrFail(software.id)
+    const movedHardware = await LeitnerTheme.findOrFail(hardware.id)
+    assert.equal(movedSoftware.leitnerCategoryId, created.id)
+    assert.equal(movedHardware.leitnerCategoryId, created.id)
+    assert.isNotNull(await LeitnerCategory.find(source.id))
+    assert.lengthOf(await LeitnerCard.query().where('leitner_theme_id', software.id), 1)
+    assert.lengthOf(await LeitnerCard.query().where('leitner_theme_id', hardware.id), 1)
+  })
+
   test('refuse une source étrangère avant toute écriture', async ({ client, assert }) => {
     const owner = await createUserWith(['leitner.view', 'leitner.taxonomy.write'])
     const stranger = await createUserWith(['leitner.view', 'leitner.taxonomy.write'])

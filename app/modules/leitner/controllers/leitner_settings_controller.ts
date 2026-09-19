@@ -37,6 +37,7 @@ import {
   categoryValidator,
   themeValidator,
   taxonomyMergeValidator,
+  taxonomyRegroupValidator,
 } from '#modules/leitner/validators/leitner'
 
 /** Au-delà, la liste d'erreurs devient illisible : on dit ce qui est masqué. */
@@ -73,6 +74,20 @@ export default class LeitnerSettingsController {
   async mergeTaxonomy({ auth, request, response }: HttpContext) {
     const payload = await request.validateUsing(taxonomyMergeValidator)
     return response.json(await this.taxonomyMerge.merge(payload, auth.user!.id, auth.user!.isAdmin))
+  }
+
+  async taxonomyRegroupPreview({ auth, request, response }: HttpContext) {
+    const payload = await request.validateUsing(taxonomyRegroupValidator)
+    return response.json(
+      await this.taxonomyMerge.regroupPreview(payload, auth.user!.id, auth.user!.isAdmin)
+    )
+  }
+
+  async regroupTaxonomy({ auth, request, response }: HttpContext) {
+    const payload = await request.validateUsing(taxonomyRegroupValidator)
+    return response.json(
+      await this.taxonomyMerge.regroup(payload, auth.user!.id, auth.user!.isAdmin)
+    )
   }
 
   async index({ auth, inertia, request, session }: HttpContext) {

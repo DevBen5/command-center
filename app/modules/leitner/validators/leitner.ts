@@ -232,6 +232,14 @@ export const taxonomyMergeValidator = vine.compile(
   })
 )
 
+/** Regroupement de thèmes distincts sous une catégorie nouvellement créée. */
+export const taxonomyRegroupValidator = vine.compile(
+  vine.object({
+    categoryName: vine.string().trim().minLength(1).maxLength(60),
+    themeIds: vine.array(vine.number().positive().withoutDecimals()).minLength(2),
+  })
+)
+
 /*
 |------------------------------------------------------------------------------
 | Import d'une sauvegarde JSON

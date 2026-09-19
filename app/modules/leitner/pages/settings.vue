@@ -601,6 +601,7 @@ interface TaxonomyMergePreview {
 const taxonomyDuplicatesLoading = ref(false)
 const taxonomyDuplicatesAsked = ref(false)
 const taxonomyDuplicateGroups = ref<TaxonomyDuplicateGroup[]>([])
+const duplicateGroupCategoryNames = reactive<Record<number, string>>({})
 const taxonomyMergeKind = ref<'category' | 'theme'>('category')
 const taxonomyMergeSourceId = ref<number | null>(null)
 const taxonomyMergeTargetId = ref<number | null>(null)
@@ -617,7 +618,10 @@ const mergeThemes = computed(() =>
 const mergeOptions = computed(() =>
   taxonomyMergeKind.value === 'category'
     ? props.categories
-    : mergeThemes.value.map((theme) => ({ id: theme.id, name: `${theme.categoryName} · ${theme.name}` }))
+    : mergeThemes.value.map((theme) => ({
+        id: theme.id,
+        name: `${theme.categoryName} · ${theme.name}`,
+      }))
 )
 
 async function jsonPost<T>(url: string, body: unknown): Promise<T> {
@@ -625,7 +629,7 @@ async function jsonPost<T>(url: string, body: unknown): Promise<T> {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      accept: 'application/json',
+      'accept': 'application/json',
       'x-xsrf-token': xsrfToken(),
     },
     body: JSON.stringify(body),
@@ -697,29 +701,46 @@ async function findTaxonomyDuplicates(): Promise<void> {
       {}
     )
     taxonomyDuplicateGroups.value = result.groups
-    const entries = result.groups[0]?.entries ?? []
-    const sameKind =
-      entries.length >= 2 && (entries[0].theme === null) === (entries[1].theme === null)
-    if (sameKind) {
-      const resolve = (entry: TaxonomyDuplicateEntry) => {
-        const category = props.categories.find((item) => item.name === entry.category)
-        if (!category) return null
-        if (entry.theme === null) return category.id
-        return category.themes.find((theme) => theme.name === entry.theme)?.id ?? null
-      }
-      const first = resolve(entries[0])
-      const second = resolve(entries[1])
-      if (first !== null && second !== null) {
-        taxonomyMergeKind.value = entries[0].theme === null ? 'category' : 'theme'
-        taxonomyMergeSourceId.value = first
-        taxonomyMergeTargetId.value = second
-        resetMergePreview()
-      }
-    }
+    for (const key of Object.keys(duplicateGroupCategoryNames))
+      delete duplicateGroupCategoryNames[Number(key)]
+    result.groups.forEach((_group, index) => (duplicateGroupCategoryNames[index] = ''))
   } catch {
     taxonomyDuplicateGroups.value = []
   } finally {
     taxonomyDuplicatesLoading.value = false
+  }
+}
+
+function duplicateThemeIds(group: TaxonomyDuplicateGroup): number[] {
+  return group.entries
+    .filter((entry) => entry.theme !== null)
+    .map((entry) => {
+      const category = props.categories.find((item) => item.name === entry.category)
+      return category?.themes.find((theme) => theme.name === entry.theme)?.id ?? null
+    })
+    .filter((id): id is number => id !== null)
+}
+
+async function regroupDuplicateGroup(index: number, group: TaxonomyDuplicateGroup): Promise<void> {
+  const categoryName = duplicateGroupCategoryNames[index]?.trim()
+  const themeIds = duplicateThemeIds(group)
+  if (!categoryName || themeIds.length < 2) return
+
+  try {
+    const preview = await jsonPost<{ categoryName: string; cardsToMove: number }>(
+      '/revision/settings/taxonomy/regroup/preview',
+      { categoryName, themeIds }
+    )
+    const message = t('leitner.settings.confirmTaxonomyRegroup', {
+      category: preview.categoryName,
+      themes: themeIds.length,
+      cards: preview.cardsToMove,
+    })
+    if (!(await confirmModal.value?.ask(message, { danger: false }))) return
+    await jsonPost('/revision/settings/taxonomy/regroup', { categoryName, themeIds })
+    await router.reload({ preserveScroll: true })
+  } catch {
+    taxonomyMergeError.value = t('leitner.settings.taxonomyMergeError')
   }
 }
 
@@ -1300,7 +1321,10 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
           >
             {{ t('leitner.settings.taxonomyMergePreview') }}
           </button>
-          <div v-if="taxonomyMergePreviewResult" class="mt-2 rounded-md border border-warn bg-panel-2 p-2.5 text-[11.5px]">
+          <div
+            v-if="taxonomyMergePreviewResult"
+            class="mt-2 rounded-md border border-warn bg-panel-2 p-2.5 text-[11.5px]"
+          >
             <p>
               {{
                 t('leitner.settings.taxonomyMergeSummary', {
@@ -1340,7 +1364,11 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
             {{ t('leitner.settings.taxonomyDuplicatesHint') }}
           </p>
           <p
-            v-if="taxonomyDuplicatesAsked && !taxonomyDuplicatesLoading && !taxonomyDuplicateGroups.length"
+            v-if="
+              taxonomyDuplicatesAsked &&
+              !taxonomyDuplicatesLoading &&
+              !taxonomyDuplicateGroups.length
+            "
             class="mt-3 text-[11.5px] text-txt-3"
           >
             {{ t('leitner.settings.taxonomyDuplicatesEmpty') }}
@@ -1359,6 +1387,29 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
               <p v-if="group.reason" class="mt-1 text-txt-3">
                 {{ t('leitner.settings.taxonomyDuplicatesReason', { reason: group.reason }) }}
               </p>
+              <div
+                v-if="duplicateThemeIds(group).length >= 2"
+                class="mt-2 border-t border-line pt-2"
+              >
+                <p class="mb-1 text-[11px] font-semibold text-txt-2">
+                  {{ t('leitner.settings.taxonomyRegroupTitle') }}
+                </p>
+                <div class="flex gap-1.5">
+                  <input
+                    v-model="duplicateGroupCategoryNames[index]"
+                    :placeholder="t('leitner.settings.taxonomyRegroupPlaceholder')"
+                    class="min-w-0 flex-1 rounded-md border border-line-2 bg-panel px-2 py-1.5 text-[11.5px]"
+                  />
+                  <button
+                    type="button"
+                    class="rounded-md border border-accent px-2 py-1.5 text-[11px] text-accent disabled:opacity-50"
+                    :disabled="!duplicateGroupCategoryNames[index]?.trim()"
+                    @click="regroupDuplicateGroup(index, group)"
+                  >
+                    {{ t('leitner.settings.taxonomyRegroupAction') }}
+                  </button>
+                </div>
+              </div>
             </li>
           </ul>
         </div>
