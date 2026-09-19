@@ -367,6 +367,8 @@
     "taxonomyDuplicatesEmpty": "Aucun groupe suspect trouvé.",
     "taxonomyDuplicatesHint": "Le LLM propose des rapprochements ; aucune fusion n'est effectuée ici.",
     "taxonomyDuplicatesReason": "Pourquoi : {reason}",
+    "taxonomySparseTitle": "Thèmes isolés à rapprocher",
+    "taxonomySparseCards": "{count} carte(s)",
     "taxonomyMergeTitle": "Fusionner une catégorie ou un thème",
     "taxonomyMergeCategory": "Fusionner des catégories",
     "taxonomyMergeTheme": "Fusionner des thèmes",

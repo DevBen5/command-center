@@ -84,7 +84,7 @@ test.group('Leitner / rapport de doublons de taxonomie', (group) => {
       .withCsrfToken()
 
     response.assertStatus(200)
-    assert.deepEqual(response.body(), { groups: [] })
+    assert.deepEqual(response.body(), { groups: [], sparseThemes: [] })
   })
 
   test('ferme la route sans la capacité de taxonomie', async ({ client }) => {

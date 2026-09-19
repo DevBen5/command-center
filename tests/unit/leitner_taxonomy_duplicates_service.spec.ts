@@ -15,7 +15,18 @@ function makeService(
   responder: string[] | ((messages: any, call: number) => string | Promise<string>)
 ) {
   const llm = new FakeLlmClient(responder)
-  const catalog = { visibleTaxonomy: async () => TAXONOMY } as any
+  const catalog = {
+    visibleTaxonomy: async () => TAXONOMY,
+    categoryTree: async () => ({
+      categories: TAXONOMY.map((category) => ({
+        ...category,
+        id: 1,
+        cardCount: 0,
+        themes: category.themes.map((name, index) => ({ id: index + 1, name, cardCount: 0 })),
+      })),
+      unclassifiedCount: 0,
+    }),
+  } as any
   return { llm, service: new LeitnerTaxonomyDuplicatesService(llm, catalog) }
 }
 
@@ -77,8 +88,15 @@ test.group('Leitner / doublons sémantiques de taxonomie', () => {
     const result = await service.find(42)
 
     assert.lengthOf(llm.calls, 1)
-    assert.deepEqual(JSON.parse(llm.calls[0][1].content), { taxonomy: TAXONOMY })
+    assert.deepEqual(JSON.parse(llm.calls[0][1].content), {
+      taxonomy: TAXONOMY,
+      sparseThemes: [
+        { category: 'IA', theme: 'Modèles', cardCount: 0 },
+        { category: 'Réseau', theme: 'TLS', cardCount: 0 },
+      ],
+    })
     assert.lengthOf(result.groups, 1)
+    assert.lengthOf(result.sparseThemes, 2)
     assert.equal(llm.options[0].json, true)
   })
 
@@ -89,7 +107,13 @@ test.group('Leitner / doublons sémantiques de taxonomie', () => {
       throw new LlmUnavailableError('serveur arrêté')
     })
 
-    assert.deepEqual(await service.find(42), { groups: [] })
+    assert.deepEqual(await service.find(42), {
+      groups: [],
+      sparseThemes: [
+        { category: 'IA', theme: 'Modèles', cardCount: 0 },
+        { category: 'Réseau', theme: 'TLS', cardCount: 0 },
+      ],
+    })
   })
 
   test('décrit le contrat JSON dans le prompt', ({ assert }) => {

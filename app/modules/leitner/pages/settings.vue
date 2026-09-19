@@ -587,6 +587,12 @@ interface TaxonomyDuplicateGroup {
   reason: string
 }
 
+interface SparseTheme {
+  category: string
+  theme: string
+  cardCount: number
+}
+
 interface TaxonomyMergePreview {
   kind: 'category' | 'theme'
   sourceId: number
@@ -601,6 +607,7 @@ interface TaxonomyMergePreview {
 const taxonomyDuplicatesLoading = ref(false)
 const taxonomyDuplicatesAsked = ref(false)
 const taxonomyDuplicateGroups = ref<TaxonomyDuplicateGroup[]>([])
+const sparseThemes = ref<SparseTheme[]>([])
 const duplicateGroupCategoryNames = reactive<Record<number, string>>({})
 const taxonomyMergeKind = ref<'category' | 'theme'>('category')
 const taxonomyMergeSourceId = ref<number | null>(null)
@@ -696,16 +703,18 @@ async function findTaxonomyDuplicates(): Promise<void> {
   taxonomyDuplicatesLoading.value = true
   taxonomyDuplicatesAsked.value = true
   try {
-    const result = await jsonPost<{ groups: TaxonomyDuplicateGroup[] }>(
-      '/revision/settings/taxonomy/duplicates',
-      {}
-    )
+    const result = await jsonPost<{
+      groups: TaxonomyDuplicateGroup[]
+      sparseThemes: SparseTheme[]
+    }>('/revision/settings/taxonomy/duplicates', {})
     taxonomyDuplicateGroups.value = result.groups
+    sparseThemes.value = result.sparseThemes
     for (const key of Object.keys(duplicateGroupCategoryNames))
       delete duplicateGroupCategoryNames[Number(key)]
     result.groups.forEach((_group, index) => (duplicateGroupCategoryNames[index] = ''))
   } catch {
     taxonomyDuplicateGroups.value = []
+    sparseThemes.value = []
   } finally {
     taxonomyDuplicatesLoading.value = false
   }
@@ -1367,13 +1376,28 @@ async function deleteTheme(theme: ThemeNode): Promise<void> {
             v-if="
               taxonomyDuplicatesAsked &&
               !taxonomyDuplicatesLoading &&
-              !taxonomyDuplicateGroups.length
+              !taxonomyDuplicateGroups.length &&
+              !sparseThemes.length
             "
             class="mt-3 text-[11.5px] text-txt-3"
           >
             {{ t('leitner.settings.taxonomyDuplicatesEmpty') }}
           </p>
-          <ul v-else-if="taxonomyDuplicateGroups.length" class="mt-3 flex flex-col gap-2">
+          <div
+            v-if="sparseThemes.length"
+            class="mt-3 rounded-md border border-line bg-panel-2 p-2.5"
+          >
+            <p class="text-[11.5px] font-semibold text-txt-2">
+              {{ t('leitner.settings.taxonomySparseTitle') }}
+            </p>
+            <ul class="mt-1 flex flex-col gap-1 text-[11.5px] text-txt-3">
+              <li v-for="entry in sparseThemes" :key="`${entry.category}:${entry.theme}`">
+                {{ entry.category }} · {{ entry.theme }} ·
+                {{ t('leitner.settings.taxonomySparseCards', { count: entry.cardCount }) }}
+              </li>
+            </ul>
+          </div>
+          <ul v-if="taxonomyDuplicateGroups.length" class="mt-3 flex flex-col gap-2">
             <li
               v-for="(group, index) in taxonomyDuplicateGroups"
               :key="index"
