@@ -6,6 +6,9 @@
 - `tests/unit/leitner_taxonomy_duplicates_service.spec.ts` — contrat JSON, canonisation, filtrage et repli du rapport de doublons (CC-213).
 - `tests/functional/modules/leitner_taxonomy_duplicates.spec.ts` — capacité, appel à la demande et absence d’écriture du rapport de doublons (CC-213).
 - `tests/functional/modules/leitner_taxonomy_merge.spec.ts` — prévisualisation, fusion source → cible, collisions normalisées, propriété, capacité et rollback transactionnel (CC-214).
+- `tests/functional/modules/leitner_organisation.spec.ts` — route, arbre visible, compteurs, état vide et cloisonnement de la taxonomie (CC-280).
+- `tests/unit/leitner_organisation_page.spec.ts` — retrait statique de la gestion taxonomique dans `settings.vue` et libellé de la page dédiée (CC-280).
+- `app/modules/leitner/components/__tests__/leitner_tabs.spec.ts` — onglet et activation de la page d’organisation (CC-280).
 
 Sorti de `AGENTS.md` pour ne pas être chargé à chaque fois qu'on touche au module. À lire **avant de
 modifier un test**, pas avant de modifier le module. Les règles qui doivent rester présentes en
