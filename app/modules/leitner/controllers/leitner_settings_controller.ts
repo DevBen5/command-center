@@ -193,6 +193,12 @@ export default class LeitnerSettingsController {
     })
   }
 
+  async organisation({ auth, inertia }: HttpContext) {
+    const { categories } = await this.service.categoryTree(auth.user!.id, auth.user!.isAdmin)
+
+    return inertia.render('modules/leitner/organisation', { categories })
+  }
+
   /*
   |----------------------------------------------------------------------------
   | Sauvegarde — export JSON

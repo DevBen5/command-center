@@ -109,9 +109,14 @@ test.group('Leitner / ce que le rôle invité ne peut toujours pas faire (CC-121
   test('un invité peut lister les cartes, le catalogue et les stats', async ({ client }) => {
     const user = await guest()
 
-    // Les trois écrans en lecture : la file, le catalogue (`leitner.view`) et l'effort
+    // Les quatre écrans en lecture : la file, le catalogue, l’organisation et l’effort
     // (`leitner.stats.view`). Aucune n'écrit, toutes doivent répondre 200.
-    for (const route of ['/revision', '/revision/settings', '/revision/stats']) {
+    for (const route of [
+      '/revision',
+      '/revision/settings',
+      '/revision/organisation',
+      '/revision/stats',
+    ]) {
       const response = await client.get(route).loginAs(user).withInertia()
       response.assertStatus(200)
     }
